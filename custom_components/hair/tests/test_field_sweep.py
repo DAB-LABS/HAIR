@@ -22,7 +22,7 @@ The three rules that decide what the sweep may say, each pinned below:
   quietly passed.
 
 The synthesized packs under `fixtures/field-packs/` are the breadth
-test: twelve families, each with a clean lattice that must produce
+test: thirteen families, each with a clean lattice that must produce
 nothing and a defects lattice that must produce exactly what was
 planted in it and nothing else.
 """
@@ -462,13 +462,14 @@ class TestOneCodeIsNotAFamily:
 
 
 # ---------------------------------------------------------------------------
-# Twelve families, clean and planted
+# Thirteen families, clean and planted
 # ---------------------------------------------------------------------------
 
 
 PACK_NAMES = [
-    "AUX104", "CHIGO96B", "DAIKIN152", "GREE", "MHI152", "MHI160", "MHI48",
-    "MIDEA_COOLIX", "MITSUBISHI144", "OEM112", "TCL112", "ZHLT01",
+    "AUX104", "CHIGO96B", "DAIKIN152", "DAIKIN216", "GREE", "MHI152",
+    "MHI160", "MHI48", "MIDEA_COOLIX", "MITSUBISHI144", "OEM112", "TCL112",
+    "ZHLT01",
 ]
 
 

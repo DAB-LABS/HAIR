@@ -151,6 +151,14 @@ class FieldSpec:
     applies_not_in: dict[str, list[str]]
     confidence: str
     mode_traits: dict[str, dict[str, Any]]
+    #: Which wig dimension this field answers, when its NAME is not one
+    #: of the four the comb's name table knows (schema v0.3, additive).
+    #: DAIKIN216 is why it exists: its vertical and horizontal vanes are
+    #: two independent nibbles answering one ``swing`` coordinate, and a
+    #: second field named for the vane would otherwise be skipped in
+    #: silence. None means the name table decides, which is every other
+    #: map in the directory.
+    coordinate: str | None = None
 
     @property
     def ratified(self) -> bool:
@@ -303,6 +311,7 @@ def _field(raw: dict[str, Any]) -> FieldSpec | None:
     applies = raw.get("applies_when")
     applies = applies if isinstance(applies, dict) else {}
     traits = raw.get("mode_traits")
+    coordinate = raw.get("coordinate")
     return FieldSpec(
         name=name,
         frame=int(raw.get("frame", 0) or 0),
@@ -314,6 +323,7 @@ def _field(raw: dict[str, Any]) -> FieldSpec | None:
         applies_not_in=dict(applies.get("not_in") or {}),
         confidence=str(raw.get("confidence", "unratified")),
         mode_traits=dict(traits) if isinstance(traits, dict) else {},
+        coordinate=coordinate if isinstance(coordinate, str) else None,
     )
 
 

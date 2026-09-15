@@ -1,0 +1,233 @@
+schema_version: "0.3"
+protocol_id: DAIKIN216
+aliases:
+  - "Daikin ARC433B69/B70 remotes, two frames 64+152, no leader"
+status: draft
+
+frame:
+  total_bits: 152
+  frames_per_command: 2
+  frame_layout: [64, 152]
+  payload_frame: 1
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [3423, 1751]
+  bit0_us: {mark: 425, space: 451}
+  bit1_us: {mark: 425, space: 1300}
+  carrier_hz: 37700
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured across all 521 codes of the corpus wig
+    classify: space            # the space of each mark/space pair carries the bit
+    unit_mark_us:    {nominal: 425, min: 170, max: 995}
+    space_zero_us:   {nominal: 451, min: 195, max: 815}
+    space_one_us:    {nominal: 1300, min: 816, max: 1850}
+    header_mark_us:  {nominal: 3423, min: 2230, max: 5350}
+    header_space_us: {nominal: 1751, min: 1115, max: 2780}
+    frame_gap_us:    {min: 2000}
+  # DAIKIN152 carries the same three identity bytes on ITS frame 2, so
+  # these alone do not separate the two families. The frame layout does:
+  # a DAIKIN216 code has two frames, a DAIKIN152 code has three.
+  identity_bytes: [[1, 0, 0x11], [1, 1, 0xDA], [1, 2, 0x27]]
+
+integrity:
+  - type: checksum_sum
+    description: "Frame 1's last byte (18) is the sum of bytes 0..17, mod 256."
+    params: {frame: 1, range: [0, 17], target_byte: 18, mod: 256, offset: 0}
+    verified_on: "521/521 codes in 1 file"
+    confidence: ratified
+  - type: checksum_sum
+    description: "The same rule holds on frame 0 (byte 7 = sum of bytes 0..6)."
+    params: {frame: 0, range: [0, 6], target_byte: 7, mod: 256, offset: 0}
+    verified_on: "521/521 codes in 1 file"
+    confidence: ratified
+
+fields:
+  - name: temperature
+    frame: 1
+    byte: 6
+    bits: full_byte
+    encoding: "T * 2, the same doubling DAIKIN152 uses one frame over."
+    encoding_ref:
+      name: offset_linear
+      params: {scale: 2, offset: 0, round: nearest}
+    confidence: ratified
+    domain: "T in 18..30 C, the range the corpus remote offers"
+    vocabulary: {}
+    agreement:
+      pass: 520
+      checked: 520
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  - name: mode
+    frame: 1
+    byte: 5
+    bits: "mask:0x70"
+    encoding: "3-bit enum at frame 1 byte 5 bits 4-6."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {cool: 0x3, heat: 0x4}
+    confidence: ratified
+    vocabulary: {cool: 0x3, heat: 0x4}
+    vocabulary_notes:
+      - "Only cool and heat appear in the corpus. The remote has more modes and
+         this family very likely numbers them as DAIKIN152 does, but nothing
+         here witnessed that, so nothing here claims it. See open_questions."
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+    agreement:
+      pass: 520
+      checked: 520
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  - name: fan_speed
+    frame: 1
+    byte: 8
+    bits: high_nibble
+    encoding: "4-bit enum at frame 1 byte 8 bits 4-7."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {low: 0x3, level1: 0x3, "1": 0x3,
+                     "low+1": 0x4, lowMedium: 0x4, level2: 0x4, "2": 0x4,
+                     mid: 0x5, medium: 0x5, level3: 0x5, "3": 0x5,
+                     "mid+1": 0x6, mediumHigh: 0x6, level4: 0x6, "4": 0x6,
+                     high: 0x7, level5: 0x7, "5": 0x7}
+    confidence: ratified
+    vocabulary: {low: 0x3, level1: 0x3, "1": 0x3, "low+1": 0x4, lowMedium: 0x4,
+                 level2: 0x4, "2": 0x4, mid: 0x5, medium: 0x5, level3: 0x5,
+                 "3": 0x5, "mid+1": 0x6, mediumHigh: 0x6, level4: 0x6, "4": 0x6,
+                 high: 0x7, level5: 0x7, "5": 0x7}
+    vocabulary_notes:
+      - "The corpus wig spells its five speeds low, low+1, mid, mid+1, high, and
+         those five are what 521 codes witnessed. The other spellings are aliases
+         at values DAIKIN152 already ratifies for the same nibble in the same
+         position; no alias introduces a value this corpus did not show."
+      - "No auto or quiet speed appears. DAIKIN152 puts auto at 0xA and a
+         breeze/night speed at 0xB; neither was witnessed here and neither is
+         claimed."
+    agreement:
+      pass: 520
+      checked: 520
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  - name: swing_vertical
+    frame: 1
+    byte: 8
+    bits: low_nibble
+    # Two fields answer one wig coordinate, so both name it (schema v0.3).
+    # Without this the reader would look for a "swing_vertical" dimension
+    # the wig does not have and count the cell as coverage.
+    coordinate: swing
+    encoding: "0xF when the vertical vane is swinging, 0x0 when it is parked."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {"off": 0x0, vertical: 0xF, horizontal: 0x0, both: 0xF}
+    confidence: ratified
+    vocabulary: {"off": 0x0, vertical: 0xF, horizontal: 0x0, both: 0xF}
+    vocabulary_notes:
+      - "The wig's swing dimension has four labels and the frame carries them as
+         two independent nibbles, so each label appears in both swing fields and
+         the pair of readings is what reconstructs it."
+    agreement:
+      pass: 520
+      checked: 520
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  - name: swing_horizontal
+    frame: 1
+    byte: 9
+    bits: low_nibble
+    coordinate: swing
+    encoding: "0xF when the horizontal vane is swinging, 0x0 when it is parked."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {"off": 0x0, vertical: 0x0, horizontal: 0xF, both: 0xF}
+    confidence: ratified
+    vocabulary: {"off": 0x0, vertical: 0x0, horizontal: 0xF, both: 0xF}
+    agreement:
+      pass: 520
+      checked: 520
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  - name: power
+    frame: 1
+    byte: 5
+    bits: "bit:0"
+    encoding: "1 = on. The off command clears it and changes nothing else."
+    encoding_ref:
+      name: bitflag
+      params: {true_values: ["on"]}
+    confidence: ratified
+    vocabulary: {"on": 0x1, "off": 0x0}
+    agreement:
+      pass: 521
+      checked: 521
+      rate: "100.00% -- set on all 520 state cells, clear on the one off code"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+synthesis:
+  template: [[0x11, 0xDA, 0x27, 0xF0, 0x00, 0x00, 0x00, 0x02],
+             [0x11, 0xDA, 0x27, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00]]
+  fixture_coordinates:
+    mode: [cool, heat]
+    fan: [low, "low+1", mid, "mid+1", high]
+    swing: ["off", vertical, horizontal, both]
+    temp: [18, 22, 25, 28, 30]
+
+derivation:
+  files_used:
+    - {repo: DAB-LABS/WigShop, file: "PR 24, daikin-ac-ftxs50kvm-perfect-fit.wig.json",
+       manufacturer: Daikin, models: [FTXS50KVM], remote: ARC433B70}
+  external_sources:
+    - "None. The layout was derived from the wig named above and from nothing
+       else; no other project's source or tables were consulted."
+  open_questions:
+    - "ONE SOURCE. Every claim in this map rests on a single wig from a single
+       remote, and the map says so rather than reading like a family consensus.
+       A second Daikin file carrying the 64+152 signature would either confirm
+       it or produce the first disagreement this map has to record."
+    - "Only cool and heat are witnessed. The remote offers more modes and the
+       mode nibble has room for them, but no auto, dry or fan_only cell exists
+       in the corpus, so no value is claimed for them and no mode_traits entry
+       is written for them either."
+    - "No auto fan speed is witnessed, and no quiet or powerful speed."
+    - "Frame 0 is byte-identical on all 521 codes (11 DA 27 F0 00 00 00 02) and
+       satisfies its own checksum. What its non-identity bytes carry is not
+       derived."
+    - "Bytes 3, 4, 7, 10..14, 16 and 17 of frame 1 are zero on every code, and
+       byte 15 is 0xC0 on every code. Whether any of them moves on a coordinate
+       this remote has but this wig does not exercise (timer, powerful, sensor)
+       is unknown."
+    - "The 200010 us word that ends every code is the capture's trailing
+       silence, not part of the message. It falls after the last frame and is
+       ignored."
+  notes:
+    - "The corpus cells are RENDERED codes rather than raw captures: every code
+       in the wig carries the same timing values to the microsecond, with no
+       jitter at all. The timing windows here are therefore padded from a single
+       clean set of nominals, at the same generosity as DAIKIN152's, rather than
+       measured as percentiles across a jittery population."
+    - "12 of the wig's rows were witnessed on the physical unit and signed as a
+       Perfect Fit by the contributor. The remaining cells are attested by the
+       same fitting but were not individually pressed."
+    - "DAIKIN152 and DAIKIN216 share the 11 DA 27 identity bytes and very nearly
+       share their timing alphabet, which is expected: same manufacturer, same
+       remote generation. Frame count is what tells them apart, and a test pins
+       that a code of either family is not read as the other."

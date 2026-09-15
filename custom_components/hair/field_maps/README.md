@@ -1,6 +1,6 @@
 # Field maps
 
-Twelve protocol families, one YAML file each, read by `field_readers.py` and by
+Thirteen protocol families, one YAML file each, read by `field_readers.py` and by
 nothing else. A map says what the bytes of a frame mean: where the temperature
 lives, which nibble carries the mode, which rule the frame's own checksum must
 satisfy, and how confident the derivation is about each of those claims.
@@ -26,6 +26,18 @@ agree on. Each map records its own working in a `derivation` block:
   honest state of a map is one that names them.
 - `notes` -- the near misses, especially files an earlier pass had assigned to
   the wrong family.
+
+One exception to the corpus rule, and it is stated rather than smoothed over.
+**DAIKIN216** was derived from a single WigShop wig (DAB-LABS/WigShop PR 24, a
+Daikin FTXS50KVM captured from an ARC433B70 remote and fitted on the physical
+unit), not from a family of SmartIR files read together. A map with one source
+cannot show agreement across a family, so it does not pretend to: its
+`derivation.files_used` names the one file, and its `open_questions` opens with
+the fact that every claim in it rests on that file. What it has instead of
+breadth is depth -- 521 of 521 codes agree with the layout on every field and
+both checksums -- and a fitting signed on hardware. A later pass may cross-check
+it against SmartIR Daikin files carrying the same 64+152 frame signature, which
+would either confirm the map or produce the first disagreement it has to record.
 
 No map was copied from another project's source code, and no map contains
 transmittable codes. A field map describes a layout; it is not a remote.

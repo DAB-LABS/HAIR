@@ -839,6 +839,13 @@ def _repeat_findings(
 # - Nothing here transmits, re-encodes or repairs. It reads.
 
 # Which cell coordinate answers which map field.
+#
+# A map may also name the coordinate on the FIELD (schema v0.3), and
+# that wins where it is present. The name table cannot answer a family
+# whose frame splits one wig dimension across two fields: DAIKIN216
+# carries vertical and horizontal vane swing in two independent nibbles,
+# both answering the single ``swing`` coordinate, and a field named
+# swing_horizontal is in no table anybody would write.
 _FIELD_COORDINATE = {
     "temperature": "temp",
     "mode": "mode",
@@ -1105,7 +1112,9 @@ def _field_findings(
 
         judged_field = False
         for spec in field_map.fields:
-            coordinate_name = _FIELD_COORDINATE.get(spec.name)
+            coordinate_name = spec.coordinate or _FIELD_COORDINATE.get(
+                spec.name
+            )
             if spec.name == _POWER_FIELD:
                 coordinate = code.coordinates.get(_POWER_FIELD)
             elif coordinate_name is None:

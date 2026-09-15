@@ -133,10 +133,10 @@ fields:
     encoding_ref:
       name: enum_byte
       params:
-        vocabulary: {off: 0x7D, low: 0x7F, high: 0xDF, center: 0xBC, 3dauto: 0xBC,
+        vocabulary: {"off": 0x7D, low: 0x7F, high: 0xDF, center: 0xBC, 3dauto: 0xBC,
                      "left-swing": 0xFA, "right-swing": 0xFE, both: 0xFF, swing: 0xFF}
     confidence: unratified
-    vocabulary: {off: 0x7D, low: 0x7F, high: 0xDF, center: 0xBC, 3dauto: 0xBC,
+    vocabulary: {"off": 0x7D, low: 0x7F, high: 0xDF, center: 0xBC, 3dauto: 0xBC,
                  "left-swing": 0xFA, "right-swing": 0xFE, both: 0xFF, swing: 0xFF}
     agreement:
       pass: 2193
@@ -159,7 +159,7 @@ fields:
       name: bitflag
       params: {true_values: ["off"]}
     confidence: ratified
-    vocabulary: {on: 0x0, off: 0x1}
+    vocabulary: {"on": 0x0, "off": 0x1}
     agreement:
       pass: 4503
       checked: 4504

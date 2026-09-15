@@ -128,11 +128,11 @@ fields:
     encoding_ref:
       name: enum_nibble
       params:
-        vocabulary: {stop: 0x7, static: 0x7, off: 0x7, horizontal: 0x7, hSwing: 0x7,
-                     on: 0x0, swing: 0x0, vertical: 0x0, vSwing: 0x0, both: 0x0}
+        vocabulary: {stop: 0x7, static: 0x7, "off": 0x7, horizontal: 0x7, hSwing: 0x7,
+                     "on": 0x0, swing: 0x0, vertical: 0x0, vSwing: 0x0, both: 0x0}
     confidence: ratified
-    vocabulary: {stop: 0x7, static: 0x7, off: 0x7, horizontal: 0x7, hSwing: 0x7,
-                 on: 0x0, swing: 0x0, vertical: 0x0, vSwing: 0x0, both: 0x0}
+    vocabulary: {stop: 0x7, static: 0x7, "off": 0x7, horizontal: 0x7, hSwing: 0x7,
+                 "on": 0x0, swing: 0x0, vertical: 0x0, vSwing: 0x0, both: 0x0}
     agreement:
       pass: 1649
       checked: 1649

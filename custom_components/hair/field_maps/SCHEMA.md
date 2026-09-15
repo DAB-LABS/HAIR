@@ -1,9 +1,10 @@
-# Field-map schema v0.2
+# Field-map schema v0.3
 
 Proposed v0 by the first derivation pass (2026-08-22). Extended to v0.1 by round two
-and to v0.2 by round three, same date. **Every change in both rounds is additive**:
-a reader written against v0 still reads every map in this directory correctly, with
-one conformance point (round two, `vocabulary`) called out at the end.
+and to v0.2 by round three, same date, and to v0.3 by the DAIKIN216 map (2026-09-14).
+**Every change in every round is additive**: a reader written against v0 still reads
+every map in this directory correctly, with one conformance point (round two,
+`vocabulary`) called out at the end.
 
 One YAML file per protocol family under `field-maps/<protocol_id>.yaml`.
 
@@ -54,6 +55,8 @@ fields:
       name: <linear | offset_linear | reverse_bits4_31_minus_t | enum_nibble
              | enum_byte | bitflag>
       params: {...}
+    coordinate: <dim>                # NEW v0.3: which wig dimension answers this
+                                     # field, when the NAME does not say
     applies_when:                    # NEW v0.1: when this field carries a fact at all
       in:     {<dim>: [<label>, ...]}
       not_in: {<dim>: [<label>, ...]}
@@ -164,6 +167,30 @@ is read through a threshold inferred from the data, and two integrity rules got
 BETTER rather than worse: Gree's checksum went from 99.98% to 100.00% and
 Midea/Coolix's complement rule returned to 100.00%. The failures round two
 recorded there were splitter artifacts, not bad codes.
+
+## Changes in v0.3: naming the coordinate a field answers
+
+One addition, `fields[].coordinate`, optional, and no existing map sets it.
+
+A reader matches a field to the cell coordinate it should be compared against by
+the field's NAME: `temperature` to temp, `mode` to mode, `fan_speed` to fan,
+`swing` to swing. That table works while one field answers one dimension, and
+DAIKIN216 is the family where it stops: the frame carries vertical and horizontal
+vane swing as two independent nibbles in different bytes, and the wig carries the
+same fact as one `swing` dimension with four labels (off, vertical, horizontal,
+both). Two fields have to answer one coordinate, and only one of them can be
+called `swing`. Without a way to say so the second field is not skipped loudly --
+it is counted as coverage with a `no-coordinate` receipt, which reads like the wig
+lacking a dimension rather than the map lacking a word.
+
+`coordinate` is that word. It names the dimension, the reader parses it onto the
+field spec, and a consumer consults it BEFORE falling back to the name table. A
+field without it behaves exactly as it did, which is why every map in this
+directory is unaffected and none of them needed touching.
+
+The same key covers the general case as well as the two-vanes one: a family whose
+mode lives in a field nobody would name `mode` can say `coordinate: mode` rather
+than being renamed to suit a lookup table.
 
 ## Encodings, the closed set
 

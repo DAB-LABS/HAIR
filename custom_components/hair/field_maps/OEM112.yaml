@@ -131,11 +131,11 @@ fields:
     encoding_ref:
       name: enum_nibble
       params:
-        vocabulary: {auto: 0x0, off: 0x0, top: 0x1, high: 0x2, mid: 0x3, low: 0x4,
-                     bottom: 0x5, swing: 0x7, on: 0x7}
+        vocabulary: {auto: 0x0, "off": 0x0, top: 0x1, high: 0x2, mid: 0x3, low: 0x4,
+                     bottom: 0x5, swing: 0x7, "on": 0x7}
     confidence: provisional
-    vocabulary: {auto: 0x0, off: 0x0, top: 0x1, high: 0x2, mid: 0x3, low: 0x4,
-                 bottom: 0x5, swing: 0x7, on: 0x7}
+    vocabulary: {auto: 0x0, "off": 0x0, top: 0x1, high: 0x2, mid: 0x3, low: 0x4,
+                 bottom: 0x5, swing: 0x7, "on": 0x7}
     agreement:
       pass: 1327
       checked: 1327
@@ -156,7 +156,7 @@ fields:
       name: bitflag
       params: {true_values: ["on"]}
     confidence: ratified
-    vocabulary: {on: 0x1, off: 0x0}
+    vocabulary: {"on": 0x1, "off": 0x0}
     agreement:
       pass: 5874
       checked: 5887

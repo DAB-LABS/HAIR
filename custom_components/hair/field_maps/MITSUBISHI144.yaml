@@ -160,9 +160,9 @@ fields:
     encoding: "0x20 for every state command, 0x00 for the off command."
     encoding_ref:
       name: enum_byte
-      params: {vocabulary: {on: 0x20, off: 0x00}}
+      params: {vocabulary: {"on": 0x20, "off": 0x00}}
     confidence: ratified
-    vocabulary: {on: 0x20, off: 0x00}
+    vocabulary: {"on": 0x20, "off": 0x00}
     agreement:
       pass: null
       checked: null

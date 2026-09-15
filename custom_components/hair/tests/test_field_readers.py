@@ -23,6 +23,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from custom_components.hair import field_readers as fr
 
@@ -103,14 +104,14 @@ class TestTheVendoredMaps:
     def test_every_map_loads_and_is_executable(self):
         loaded = {m.protocol_id for m in fr.load_maps()}
         assert loaded == {
-            "AUX104", "CHIGO96B", "DAIKIN152", "GREE", "MHI152", "MHI160",
-            "MHI48", "MIDEA_COOLIX", "MITSUBISHI144", "OEM112", "TCL112",
-            "ZHLT01",
+            "AUX104", "CHIGO96B", "DAIKIN152", "DAIKIN216", "GREE", "MHI152",
+            "MHI160", "MHI48", "MIDEA_COOLIX", "MITSUBISHI144", "OEM112",
+            "TCL112", "ZHLT01",
         }
 
     def test_every_map_states_its_timing_alphabet(self):
         """A map without one cannot be executed and is skipped at load,
-        so this also proves none of the twelve was silently dropped."""
+        so this also proves none of the thirteen was silently dropped."""
         for field_map in fr.load_maps():
             timing = field_map.timing
             assert timing.gap_min > 0, field_map.protocol_id
@@ -124,6 +125,54 @@ class TestTheVendoredMaps:
         for field_map in fr.load_maps():
             assert field_map.timing.one.minimum - \
                 field_map.timing.zero.maximum <= 1, field_map.protocol_id
+
+    def test_no_vocabulary_key_parsed_as_a_boolean(self):
+        """A label of `off` is the boolean false in YAML 1.1.
+
+        Unquoted, `{off: 0x0, vertical: 0xF}` parses with the key
+        False, a lookup by the string "off" misses, and every cell on
+        that label silently becomes coverage with an unknown-label
+        receipt rather than a finding. DAIKIN216 hit it during
+        derivation: 130 of 520 cells declined on each swing field until
+        the key was quoted.
+
+        This walks the documents on disk rather than the loaded maps,
+        because each field states its vocabulary twice: once inside
+        `encoding_ref.params`, which the reader executes, and once at
+        the top of the field, which is what a person reads and what the
+        next map gets copied from. Both have to survive the parser.
+
+        Integer keys are legitimate and stay allowed: CHIGO96B and
+        MIDEA_COOLIX label their temperatures 16, 17, 18 and so on.
+        `bool` is a subclass of `int`, so it is excluded first.
+        """
+        trap = {"off", "on", "yes", "no", "y", "n", "true", "false"}
+
+        def walk(node, where):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "vocabulary" and isinstance(value, dict):
+                        for label in value:
+                            assert not isinstance(label, bool), (
+                                f"{where}: {label!r} -- a bare "
+                                f"{sorted(trap)} key parses as a boolean, "
+                                f"quote it in the YAML"
+                            )
+                            assert isinstance(label, (str, int)), (
+                                f"{where}: {label!r} is a "
+                                f"{type(label).__name__}"
+                            )
+                    walk(value, f"{where}.{key}")
+            elif isinstance(node, list):
+                for index, value in enumerate(node):
+                    walk(value, f"{where}[{index}]")
+
+        seen = 0
+        for path in sorted(MAPS.glob("*.yaml")):
+            walk(yaml.safe_load(path.read_text(encoding="utf-8")),
+                 path.stem)
+            seen += 1
+        assert seen == 13, f"{seen} maps walked, expected thirteen"
 
     def test_every_named_encoding_is_implemented(self):
         for field_map in fr.load_maps():
