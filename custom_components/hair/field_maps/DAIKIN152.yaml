@@ -141,7 +141,7 @@ fields:
       name: bitflag
       params: {true_values: ["on"]}
     confidence: provisional
-    vocabulary: {on: 0x1, off: 0x0}
+    vocabulary: {"on": 0x1, "off": 0x0}
     agreement:
       pass: null
       checked: null

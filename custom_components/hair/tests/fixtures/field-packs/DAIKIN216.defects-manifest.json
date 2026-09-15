@@ -1,0 +1,74 @@
+{
+ "protocol": "DAIKIN216",
+ "how_to_read": "Each entry names one coordinate of the .defects.json lattice that was deliberately corrupted. Every other coordinate is byte-identical to the clean pack.",
+ "defects": [
+  {
+   "defect": "temperature_off_by_one",
+   "field": "temperature",
+   "mode": "cool",
+   "fan": "low",
+   "swing": "off",
+   "temp": 18,
+   "note": "temperature field forced to 0x26 (map says 0x24); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "mode_swapped",
+   "field": "mode",
+   "mode": "cool",
+   "fan": "low",
+   "swing": "off",
+   "temp": 22,
+   "note": "mode nibble forced to 0x4 (heat) on a cool cell; integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "fan_wrong_nibble",
+   "field": "fan_speed",
+   "mode": "cool",
+   "fan": "low",
+   "swing": "off",
+   "temp": 25,
+   "note": "fan nibble forced to 0x7 (high) on a low cell; integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "vertical_swing_cleared",
+   "field": "swing_vertical",
+   "mode": "cool",
+   "fan": "low",
+   "swing": "vertical",
+   "temp": 22,
+   "note": "byte 8 low nibble forced to 0x0 on a vertical cell; integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "horizontal_swing_cleared",
+   "field": "swing_horizontal",
+   "mode": "cool",
+   "fan": "low",
+   "swing": "horizontal",
+   "temp": 22,
+   "note": "byte 9 low nibble forced to 0x0 on a horizontal cell; integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "broken_integrity_payload_frame",
+   "field": null,
+   "mode": "cool",
+   "fan": "low",
+   "swing": "off",
+   "temp": 28,
+   "note": "checksum_sum target frame 1 byte 18 xor 0x55, left unrepaired"
+  },
+  {
+   "defect": "broken_integrity_frame_zero",
+   "field": null,
+   "mode": "cool",
+   "fan": "low",
+   "swing": "off",
+   "temp": 30,
+   "note": "checksum_sum target frame 0 byte 7 xor 0x55, left unrepaired"
+  }
+ ],
+ "off_code_defect": {
+  "defect": "power_set_on_off_code",
+  "field": "power",
+  "note": "the off code's power bit forced to 1; integrity recomputed so only the field check can catch it. Kept out of the defects list above because that list is read as lattice COORDINATES, and the off code is not one: it is the matrix's own off slot. test_field_daikin216.py reaches it."
+ }
+}
