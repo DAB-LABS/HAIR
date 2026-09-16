@@ -602,21 +602,36 @@ class TestLatticeDivergence:
         assert wig.climate.cells[1].pronto == PRONTO_B
 
     def test_propose_binds_the_new_lattice_hash(self):
+        """The claim is a REAL checklist digest, not a stand-in.
+
+        It used to be sixteen letter d's, which ``drop_ghost_claims``
+        removed on the way in -- so what this asserted about was an
+        EMPTY bundle that happened to carry a cells_hash. An empty
+        bundle is not written at all now (two names, ruled
+        2026-09-16), and the binding this test is about only means
+        something on a bundle that claims something.
+        """
         from custom_components.hair.wig_format import cells_content_hash
-        from custom_components.hair.wig_save import lattice_diff, update_text
+        from custom_components.hair.wig_save import (
+            _checklist_rows,
+            lattice_diff,
+            update_text,
+        )
 
         device = self._wig_matrix()
         device.cells[0].pronto = PRONTO_C
         wig = self._source_wig()
         text = serialize_wig(wig)
         changes = lattice_diff(device, wig.climate)
+        claim = _checklist_rows(wig.climate)[0].digest
         new_text, result = update_text(
             text, wig,
-            Attestation(claims={"d" * 16: VERDICT_WORKED}),
+            Attestation(claims={claim: VERDICT_WORKED}),
             device_matrix=device, cell_changes=changes,
         )
         data = json.loads(new_text)
         assert result.cells_proposed == 1
+        assert len(data["fittings"][0]["rows"]) == 1
         expected = self._wig_matrix()
         expected.cells[0].pronto = PRONTO_C
         assert data["fittings"][0]["cells_hash"] == cells_content_hash(expected)
@@ -635,12 +650,22 @@ class TestLatticeDivergence:
         assert "comb" in json.loads(new_text)
 
     def test_an_attestation_only_update_leaves_the_receipt_alone(self):
-        """Its content did not move, so its receipt is still true."""
+        """Its content did not move, so its receipt is still true.
+
+        The claim is a real checklist digest for the reason given on
+        ``test_propose_binds_the_new_lattice_hash``: a stand-in digest
+        is dropped on the way in, and this would then be testing a
+        save that attests nothing rather than an attestation-only one.
+        """
+        from custom_components.hair.wig_save import _checklist_rows
+
         wig = self._source_wig()
         wig.extra["comb"] = {"version": 1, "date": "2026-01-01",
                              "suspects": 3, "counts": {}, "findings": []}
-        new_text, _ = update_text(
+        claim = _checklist_rows(wig.climate)[0].digest
+        new_text, result = update_text(
             serialize_wig(wig), wig,
-            Attestation(claims={"d" * 16: VERDICT_WORKED}),
+            Attestation(claims={claim: VERDICT_WORKED}),
         )
+        assert result.attested == 1
         assert json.loads(new_text)["comb"]["date"] == "2026-01-01"

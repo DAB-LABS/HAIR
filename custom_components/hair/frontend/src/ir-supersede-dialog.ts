@@ -51,16 +51,28 @@ export class IrSupersedeDialog extends LitElement {
      * body stands on its own): an anonymous fitting with no handle at
      * all leaves nobody to credit.
      *
-     * Perfect-or-nothing (owner ruling 2026-08-07): ``of.state`` can no
-     * longer be "scoped" -- an incomplete ancestor grades as no state
-     * at all, which the guard above already returns null for -- so
-     * this only ever has the amber PERFECT FIT line left to give. */
-    private get _fitted(): { who: string[] } | null {
+     * TWO SHAPES AGAIN (fitting: two names, ruled 2026-09-16), and the
+     * reason the second one is back is not the reason it left. From
+     * 2026-08-07 an ancestor whose fitting covered part of itself
+     * graded as no state at all, so replacing it said nothing and the
+     * record went in silence. That fitting is somebody's work on their
+     * own hardware; it retires with the file either way, and the
+     * person doing the replacing should see it go. A PERFECT FIT
+     * keeps the amber callout. A partial fitting gets the light line,
+     * named by what it covers rather than by what it lacks. */
+    private get _fitted():
+        | { perfect: boolean; covered: number; total: number; who: string[] }
+        | null {
         const of = this.block?.old_fittings;
-        if (!of || of.state !== "perfect") return null;
+        if (!of || !of.count) return null;
         const who = of.handles;
         if (!who.length) return null;
-        return { who };
+        return {
+            perfect: of.state === "perfect",
+            covered: of.covered,
+            total: of.total,
+            who,
+        };
     }
 
     updated(): void {
@@ -162,12 +174,25 @@ export class IrSupersedeDialog extends LitElement {
                         })}
                     </p>
                     ${fitted
-                        ? html`<div class="fitted-callout">
-                              ${t("supersede.fitted_perfect", {
-                                  name: b.old_name,
-                                  who: fitted.who.join(", "),
-                              })}
-                          </div>`
+                        ? fitted.perfect
+                            ? html`<div class="fitted-callout">
+                                  ${t("supersede.fitted_perfect", {
+                                      name: b.old_name,
+                                      who: fitted.who.join(", "),
+                                  })}
+                              </div>`
+                            : html`<p class="fitted-partial">
+                                  ${tp(
+                                      "supersede.fitted_partial",
+                                      fitted.total,
+                                      {
+                                          name: b.old_name,
+                                          who: fitted.who.join(", "),
+                                          covered: String(fitted.covered),
+                                          total: String(fitted.total),
+                                      },
+                                  )}
+                              </p>`
                         : ""}
                     ${this._guarded
                         ? html`<div class="lost-callout">
@@ -290,6 +315,16 @@ export class IrSupersedeDialog extends LitElement {
                 color: var(--primary-text-color);
                 font-size: 0.85rem;
                 line-height: 1.5;
+            }
+            /* A fitting that covers part of the wig is informational,
+               the same weight as .follows: it is a record retiring,
+               not a proof being thrown away, and the sentence already
+               says how far it got. */
+            .fitted-partial {
+                margin: 8px 0 0;
+                font-size: 0.9rem;
+                line-height: 1.5;
+                color: var(--primary-text-color);
             }
             /* A PERFECT FIT retiring gets the amber-family treatment
                .lost-callout wears, for the reason noted above it. */

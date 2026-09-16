@@ -800,6 +800,15 @@ class TestPerfectFitIsGatedOnACleanListing:
     """
 
     async def _sign(self, hass, device, **extra):
+        """A save that CLAIMS something, which is what the gate is
+        about. It used to send an empty claims block, which the server
+        read as an attestation because nothing said otherwise; an empty
+        checklist is not an attestation now (two names, ruled
+        2026-09-16), so an empty block would sail past this gate and
+        refuse later as an ordinary save with nothing in it. The digest
+        is a stand-in: the gate fires at the door, before any claim is
+        matched to a row.
+        """
         payload = {
             "id": 9, "type": "hair/wigs/save",
             "device_id": device.id,
@@ -807,7 +816,7 @@ class TestPerfectFitIsGatedOnACleanListing:
                 "github": "someone",
                 "hair_version": "0.13.0",
                 "ha_version": "2026.8.0",
-                "claims": {},
+                "claims": [{"digest": "d" * 16, "verdict": "worked"}],
             },
         }
         payload.update(extra)

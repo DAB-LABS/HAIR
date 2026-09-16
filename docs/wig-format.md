@@ -208,15 +208,16 @@ The load-bearing rules:
 
 Nothing in the file records "this wig is proven". A bundle is **complete** when its claims cover every row of the wig: for a flat wig, every row digest; for a matrix wig, every checklist row carrying `worked`. Completeness is computed from the claims and the file in front of you, so it cannot go stale and cannot be asserted by a file that has since changed.
 
-The closet's check has three tiers, computed the same way:
+There are two names, and only the second one is earned:
 
-| Tier | What it means |
+| Name | What it means |
 |---|---|
-| none | No attestations at all. |
-| scoped | At least one signed attestation, none of them complete. |
-| perfect | **One person's** claims cover every row. |
+| a wig | Anything else: no attestation at all, or a fitting that covers some of the rows. Somebody built it and shared it; nobody has finished proving it yet. |
+| a Perfect Fit | **One person's** claims cover every row, in one fitting. |
 
-**Downloads carry the tier in the filename.** Since v0.9.8 there are two names: `name.wig.json` for anything short of a complete fitting, and `name.perfect-fit.wig.json` when at least one person's claims cover every row. (Earlier versions also emitted `name.fitted.wig.json` for signed-but-incomplete attestations; those files still parse everywhere and their claims list as Incomplete.) The name is presentation only -- the file contents are identical across tiers, an importing install never reads the name, and renaming the file changes nothing.
+Two fittings never add up. If somebody proved half the wig before you, your checklist still starts empty and you prove every row yourself, or it is not your Perfect Fit. The union across everybody is counted and reported ("7 of 12 rows proved between everyone") because it is true and worth knowing, and it never turns into a tick.
+
+**A Perfect Fit carries its name in the download filename.** A wig downloads as `<stem>.wig.json`, and a Perfect Fit as `<stem>-perfect-fit.wig.json` -- hyphenated into the stem, never dotted, because a dot there fails the shop's filename rule. The name is presentation only: the file contents are identical either way, an importing install never reads the name, and renaming the file changes nothing.
 
 **Green is keyed to one person's complete coverage.** Union coverage across fitters never inflates it: three people who each proved a different third have not, between them, produced anybody who can say the whole wig works on their hardware. That union is real and worth knowing, and it is tooltip material rather than a colour.
 

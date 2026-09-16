@@ -144,7 +144,7 @@ export class IrSaveRouteDialog extends LitElement {
                             class="route-btn"
                             @click=${() => this._choose("perfect")}
                         >
-                            ${t("wigs.route.validate_perfect_fit")}
+                            ${t("wigs.route.fit_wig")}
                         </button>
                     </div>
                     <div class="dialog-actions">

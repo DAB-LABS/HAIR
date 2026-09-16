@@ -60,3 +60,6 @@ trash/
 
 # Release notes: drafted here, published as GitHub release bodies, never committed
 /release-notes/
+
+# Left behind by the test suite
+MagicMock/

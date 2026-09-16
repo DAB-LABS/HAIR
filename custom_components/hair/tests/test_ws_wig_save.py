@@ -546,6 +546,20 @@ def _matrix_wig(matrix):
     return Wig(name="AC", wig_id="u-source", signals=[], climate=matrix)
 
 
+def _cell_claim(wig):
+    """A REAL dimension-checklist digest off this wig's own lattice.
+
+    These tests used to claim sixteen letter d's, which
+    ``drop_ghost_claims`` stripped on the way in -- leaving an empty
+    bundle that still got written. An empty bundle is not written at
+    all now (two names, ruled 2026-09-16), so a test about what a
+    matrix fitting binds has to claim a row the wig actually carries.
+    """
+    from custom_components.hair.wig_save import _checklist_rows
+
+    return _checklist_rows(wig.climate)[0].digest
+
+
 @pytest.mark.asyncio
 async def test_a_diverged_lattice_blocks_matrix_attestation(
     fake_hass, tmp_path, _no_signing
@@ -678,7 +692,7 @@ async def test_propose_then_attest_succeeds_and_binds_the_new_lattice(
     await ws_wigs_save(fake_hass, conn, {
         "id": 1, "type": "hair/wigs/save", "device_id": device.id,
         "mode": "update", "propose_lattice": True,
-        "attest": {"claims": [{"digest": "d" * 16,
+        "attest": {"claims": [{"digest": _cell_claim(wig),
                                "verdict": VERDICT_WORKED}]},
     })
     conn.send_error.assert_not_called()
@@ -706,7 +720,7 @@ async def test_a_matching_lattice_attests_without_proposing(
     await ws_wigs_save(fake_hass, conn, {
         "id": 1, "type": "hair/wigs/save", "device_id": device.id,
         "mode": "update",
-        "attest": {"claims": [{"digest": "d" * 16,
+        "attest": {"claims": [{"digest": _cell_claim(wig),
                                "verdict": VERDICT_WORKED}]},
     })
     conn.send_error.assert_not_called()

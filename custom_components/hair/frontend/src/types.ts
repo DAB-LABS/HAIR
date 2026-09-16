@@ -242,7 +242,7 @@ export interface WigInfo {
     // with v0.8.0; closet search matches these since v0.8.1.
     identifiers?: Record<string, string | string[]> | null;
     // Fitting summary (Perfect Fit): drives the row check marks and
-    // the fitted/unfitted filter, computed server-side.
+    // the Perfect Fit filter chip, computed server-side.
     fitting?: FittingSummary;
     // Adopt Device (v0.8.1): HAIR devices already carrying this wig's
     // codes, by tiered identity match. Combined with the trigger-remote
@@ -548,7 +548,7 @@ export interface SavePlan {
     /** SUCCESSION only (Second Fitting v3): the source wig's own
      * fitting history, graded, for the Update Closet Wig dialog's
      * inline warning before the click. Null state means present but
-     * unfitted -- nothing extra renders, same as no claims at all. */
+     * unproved -- nothing extra renders, same as no claims at all. */
     old_fitting_grade: {
         state: "perfect" | null;
         count: number;
@@ -589,6 +589,13 @@ export interface SupersedeOldFittings {
     count: number;
     state: "perfect" | null;
     handles: string[];
+    /** Union coverage across every bundle on the ancestor, and the row
+     * count it is measured against. The dialog names a partial fitting
+     * by what it covers (fitting: two names, ruled 2026-09-16), so the
+     * two numbers ride with the grade rather than being fetched again
+     * from the ledger. */
+    covered: number;
+    total: number;
 }
 
 /** The replace-flow invitation the server computes at both doorways: an

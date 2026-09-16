@@ -1,8 +1,12 @@
 /**
- * Validate for Perfect Fit (Second Fitting v3, coding plan Commit 5).
+ * Fit This Wig (Second Fitting v3, coding plan Commit 5; renamed by
+ * the two-names ruling of 2026-09-16, which is also why the dialog no
+ * longer refuses a fitting that covers only part of the wig -- the
+ * route records a fitting of any size, and a Perfect Fit is the one
+ * that happens to cover every row).
  *
  * The ceremony this whole family exists for, promoted to its own
- * dialog and its own route: prove every code, then sign it. Retired
+ * dialog and its own route: prove the codes, then sign it. Retired
  * out of `ir-save-wig-dialog` -- the one dialog that used to carry
  * every verb plus this ceremony beside them -- because the decision
  * window (Commit 3) already asks which route the person wants before
@@ -210,18 +214,6 @@ export class IrSavePerfectDialog extends LitElement {
         }).length;
     }
 
-    /** Every attestable row carries a claim. Perfect-or-nothing (owner
-     * ruling 2026-08-07): signing arms only here -- there is no
-     * partial save. On a flat wig this degenerates to `_isPerfectFit`
-     * exactly, since a flat row's only claim is a check. On a matrix
-     * it also requires every comb-flagged cell checked, because a
-     * flagged row has no exclusion path either (the comb gate,
-     * RULED 2026-08-08). */
-    private get _fullyAttested(): boolean {
-        const rows = this._attestableRows;
-        return rows.length > 0 && this._attestedCount === rows.length;
-    }
-
     /** Metadata the person actually changed, against what the plan
      * prefilled. Compared rather than assumed: the dialog fills every
      * field from the wig and sends them all back, so treating "filled"
@@ -335,21 +327,38 @@ export class IrSavePerfectDialog extends LitElement {
         );
     }
 
+    /** Is there anything at all to put in a bundle? A checked row, or
+     * (cells only) an exclusion verdict. Read off `_claims()` rather
+     * than counted separately, because `_claims()` IS the wire
+     * contract: whatever it would send is what this answers about. */
+    private get _hasClaims(): boolean {
+        return this._claims().length > 0;
+    }
+
+    /** Signing happens when there is something to sign and the oath is
+     * ticked. A save that claims nothing signs nothing, so it is not
+     * "unsigned" in the sense that used to refuse it -- there is
+     * simply no bundle in it. */
     private get _signed(): boolean {
-        return this._armed && this._oath;
+        return this._armed && this._hasClaims && this._oath;
     }
 
     private get _canSave(): boolean {
         if (this._busy) return false;
-        // No partial signing (perfect-or-nothing, owner ruling
-        // 2026-08-07): armed but not every row attested refuses,
-        // regardless of the oath. Checking every box is what arms the
-        // save, not a separate gate on top of it.
-        if (this._armed && !this._fullyAttested) return false;
-        // An attestation is not signed until the oath is ticked, in
-        // either verb. Prefill fills fields, it never pre-checks the
-        // oath, and nothing signs without it.
-        if (this._armed && !this._oath) return false;
+        // A FITTING OF ANY SIZE IS A REAL THING TO SAVE (fitting: two
+        // names, ruled 2026-09-16). What stood here was the
+        // perfect-or-nothing refusal: armed but not every row
+        // attested, refuse. It made a half-proved wig unsaveable and
+        // made an unproved one sound like a failure. Neither is true;
+        // nobody has finished proving it yet, which is the normal
+        // state of a shared remote. The label says which of the three
+        // things this save writes.
+        //
+        // The oath still gates the signature, in either verb: prefill
+        // fills fields, it never pre-checks the oath, and nothing
+        // signs without it. A save carrying no claims asks for no
+        // oath, because it puts no name on anything.
+        if (this._armed && this._hasClaims && !this._oath) return false;
         // An UPDATE writes a fitting, edited metadata, or both. With
         // neither there is nothing to write, so it refuses rather than
         // producing a shop PR that says nothing. A CREATE always has
@@ -360,16 +369,23 @@ export class IrSavePerfectDialog extends LitElement {
         return true;
     }
 
+    /** Three labels, by what the save will actually write (fitting:
+     * two names, ruled 2026-09-16).
+     *
+     * Nothing claimed writes the wig and no bundle, so it is a plain
+     * Save. Every row checked and no exclusion left on the sheet is
+     * the only thing that earns the second name. Everything between
+     * is a fitting: some rows proved, or the matrix carve-out that
+     * used to read "Save Fitting Record" -- a real record, and not a
+     * lesser Perfect Fit but a different and perfectly ordinary
+     * thing, so the two now share one word.
+     */
     private get _saveLabel(): string {
         if (this._busy) return t("common.saving");
         if (!this._armed) return t("common.save");
+        if (!this._hasClaims) return t("common.save");
         if (this._isPerfectFit) return t("wigs.save.save_perfect");
-        // A matrix, fully attested, but carrying an exclusion: a real
-        // record, just not a PERFECT FIT (the carve-out). Not yet
-        // fully attested: plain Save, disabled -- _canSave already
-        // refuses it above.
-        if (this._fullyAttested) return t("wigs.save.save_record");
-        return t("common.save");
+        return t("wigs.save.save_fitting");
     }
 
     /** The graded line (Second Fitting v3 punch list item 13): on
@@ -719,14 +735,28 @@ export class IrSavePerfectDialog extends LitElement {
     }
 
     private async _saveDevice(): Promise<SaveResult> {
-        const attest = this._armed
-            ? {
-                  claims: this._claims(),
-                  handle: this._handle.trim() || undefined,
-                  github: this._github.trim() || undefined,
-                  renames: this._renameList(),
-              }
-            : undefined;
+        // Nothing claimed and nothing proposed means no attest block
+        // at all (fitting: two names, ruled 2026-09-16) -- the wig is
+        // written and no bundle goes with it. An empty block would
+        // ask the server to sign a record that vouches for no rows,
+        // which is a signature saying nothing.
+        //
+        // A rename with no claims still travels: proposing a name is
+        // a content edit the person deliberately ticked, not a claim
+        // about hardware, and dropping it silently because the
+        // checklist happened to be empty would lose their work. The
+        // server reads the claim side of such a block as absent.
+        const claims = this._claims();
+        const renames = this._renameList();
+        const attest =
+            this._armed && (claims.length > 0 || renames.length > 0)
+                ? {
+                      claims,
+                      handle: this._handle.trim() || undefined,
+                      github: this._github.trim() || undefined,
+                      renames,
+                  }
+                : undefined;
         return this.api.wigsSave({
             device_id: this.sourceId,
             ...this._metadata(),
@@ -756,7 +786,7 @@ export class IrSavePerfectDialog extends LitElement {
         return html`
             <ha-dialog
                 open
-                heading=${t("wigs.route.validate_perfect_fit")}
+                heading=${t("wigs.route.fit_wig")}
                 scrimClickAction=""
                 @closed=${this._close}
             >

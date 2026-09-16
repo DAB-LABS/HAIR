@@ -257,22 +257,23 @@ export class IrClaimsLedger extends LitElement {
                         ></ha-svg-icon>
                     </span>
                     <span class="l2">
-                        <!-- Perfect-or-nothing (owner ruling 2026-08-07,
-                             decision 2): a bundle that is not complete
-                             reads "Incomplete" now, not "scoped" -- a
-                             label change on the SAME key
-                             (claims.tier_scoped), so the translated
-                             locales pick it up through the normal
-                             value-relabel queue rather than needing a
-                             new key. The ledger keeps listing every
-                             bundle either way. -->
+                        <!-- Two names (ruled 2026-09-16): a bundle
+                             that covers part of the wig is a FITTING,
+                             which is a thing somebody did, not a
+                             thing that went wrong. It read
+                             "Incomplete" from 2026-08-07 until now,
+                             and "scoped" before that; both named it
+                             by what it lacks. The row count beside it
+                             already says how far it got, so the badge
+                             only has to say what it is. The ledger
+                             keeps listing every bundle either way. -->
                         <span
                             class="tier ${entry.complete
                                 ? "perfect"
                                 : "incomplete"}"
                             >${entry.complete
                                 ? t("claims.tier_perfect")
-                                : t("claims.tier_scoped")}</span
+                                : t("claims.tier_fitting")}</span
                         >
                         <span class="counts">${this._counts(entry)}</span>
                     </span>
