@@ -1061,37 +1061,41 @@ def wig_filename(name: str, taken: set[str] | None = None) -> str:
     return candidate
 
 
-# Download-name tier suffixes (perfect-or-nothing, v0.9.8). HYPHENATED,
-# never dotted: a dot in the stem fails the shop's filename rule, which
-# was the whole reason a fitted download would not upload. The "scoped"
-# entry retired with the fitted tier itself (owner ruling 2026-08-07):
-# a wig is a PERFECT FIT or it carries no tier at all, so the map only
-# ever has the one suffix to give out now, and its own shape documents
-# that.
+# Download-name suffixes. HYPHENATED, never dotted: a dot in the stem
+# fails the shop's filename rule, which was the whole reason a fitted
+# download would not upload. There is one entry because there is one
+# suffix (two names, ruled 2026-09-16): a wig downloads under its own
+# name, and the earned name adds "-perfect-fit". A fitting that covers
+# part of the wig is a real record and changes nothing here -- the
+# suffix answers "did one person prove all of it", and the honest
+# answer for a partial fitting is the plain name.
 _DOWNLOAD_TIER_SUFFIX = {"perfect": "-perfect-fit"}
 
 
 def download_filename(wig: Wig) -> str:
     """The suggested download name, composed from the wig's own fields.
 
-    ``<brand>-<kind>-<model>[-<tier>].wig.json``. Each part is slugified
-    by the ``wig_filename`` rule (``TH-05`` -> ``th-05``), skipping any
-    part the wig does not carry. Brand is the anchor of the repo naming
+    ``<brand>-<kind>-<model>[-perfect-fit].wig.json``. Each part is
+    slugified by the ``wig_filename`` rule (``TH-05`` -> ``th-05``),
+    skipping any part the wig does not carry. Brand is the anchor of the repo naming
     convention, so when the wig has no brand the stem falls back to the
     slug of its name -- exactly what a plain download produced before
     this existed.
 
-    The tier comes from the wig's OWN claims via ``claims_summary``:
-    ``perfect`` appends ``-perfect-fit``; anything less than perfect
-    (nothing, or an incomplete/excluded bundle) appends nothing.
-    Perfect or nothing (owner ruling 2026-08-07): there is no longer a
-    middle tier to hyphenate a suffix onto. Hyphenated, never dotted.
+    The name comes from the wig's OWN claims via ``claims_summary``:
+    ``perfect`` appends ``-perfect-fit``, and anything else -- no
+    fitting, or one that covers part of the wig -- appends nothing,
+    because a wig with no suffix is just a wig and that is not a
+    lesser thing to be (two names, ruled 2026-09-16). Hyphenated,
+    never dotted.
+
     Pure and WS-free so it is testable on its own and reusable if
     another surface ever needs the same name.
     """
     # Local import: wig_fitting imports this module, so a module-level
-    # import would be circular. The tier is claims-derived and belongs to
-    # the ledger, but the composition belongs here beside wig_filename.
+    # import would be circular. The name's earned half is claims-derived
+    # and belongs to the ledger, but the composition belongs here beside
+    # wig_filename.
     from .wig_fitting import claims_summary
 
     if wig.brand and wig.brand.strip():

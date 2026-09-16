@@ -129,7 +129,7 @@ To set one up:
 2. Click **USE**, then **Make a Device**.
 3. HAIR creates a fully-controlled `climate` entity. Change the temperature or mode on the thermostat card, and HAIR looks up and sends the matching code.
 
-Swing and temperature controls appear only when the file's matrix actually has those dimensions. The device's detail page grows a STATE MATRIX card where you can browse the lattice one branch at a time, see which state was last transmitted, send any state directly, or press **+ Command** to save one you use often as a one-tap command. A Power row sits at the top of the card: an Off chip always, an On chip when the file carries a separate wake code, and either one sends or saves as a command the same way a cell does. Temperatures display in your install's unit while the file's native numbers stay untouched underneath; climate files are read as Celsius unless they say otherwise. To prove the matrix works on your hardware, run **Validate for Perfect Fit** (see [Fit a wig](#fit-a-wig)); the checklist covers 12 to 20 rows for the modes, fan speeds, swing positions, and temperature extremes instead of every cell.
+Swing and temperature controls appear only when the file's matrix actually has those dimensions. The device's detail page grows a STATE MATRIX card where you can browse the lattice one branch at a time, see which state was last transmitted, send any state directly, or press **+ Command** to save one you use often as a one-tap command. A Power row sits at the top of the card: an Off chip always, an On chip when the file carries a separate wake code, and either one sends or saves as a command the same way a cell does. Temperatures display in your install's unit while the file's native numbers stay untouched underneath; climate files are read as Celsius unless they say otherwise. To prove the matrix works on your hardware, run **Fit This Wig** (see [Fit a wig](#fit-a-wig)); the checklist covers 12 to 20 rows for the modes, fan speeds, swing positions, and temperature extremes instead of every cell.
 
 Every command row on an AC Device also has a star; click it to make that command a thermostat preset in Home Assistant, named after the command, click again to remove it. This works for learned commands and for states saved from the STATE MATRIX card with **+ Command**. Presets are local to the device and do not travel with a wig.
 
@@ -182,24 +182,26 @@ To share a device you have built:
 
 1. Open the device's detail view.
 2. Click **Save to Closet**.
-3. Pick a route: **Save as New** files a fresh wig and leaves the original alone. **Update Closet Wig** brings the shared file up to date with your device, and warns you first if the update would retire someone else's fitting. **Validate for Perfect Fit** proves every command works on real hardware, see [Fit a wig](#fit-a-wig) below.
+3. Pick a route: **Save as New** files a fresh wig and leaves the original alone. **Update Closet Wig** brings the shared file up to date with your device, and warns you first if the update would retire someone else's fitting. **Fit This Wig** records which commands you have proved on real hardware, see [Fit a wig](#fit-a-wig) below.
 
-**Validate for Perfect Fit** only appears on a device that came from a wig in the first place. A device built from scratch just sees Save.
+**Fit This Wig** only appears on a device that came from a wig in the first place. A device built from scratch just sees Save.
 
 ## Fit a wig
 
-A wig in your closet is a saved set of codes. A fitting is proof those codes actually work, and the proof travels with the file from then on.
+A wig in your closet is a saved set of codes. A fitting is proof those codes actually work, and the proof travels with the file from then on. There are two names for what comes out: a wig, which is any shared code set, and a **Perfect Fit**, which is a wig one person proved every row of in one sitting. A wig nobody has finished proving is the ordinary case for a shared remote, not a broken one.
 
 To fit a wig:
 
 1. Adopt the wig onto a device and use it normally until you trust it.
-2. Open the device, click **Save to Closet**, and choose **Validate for Perfect Fit**.
+2. Open the device, click **Save to Closet**, and choose **Fit This Wig**.
 3. Hit **TEST** on each row of the checklist. HAIR reports SENT, or SENT and HEARD if a receiver caught the transmission.
-4. A flat wig's rows are checked or not, nothing in between; the fitting simply is not finished until every row carries a check. On a state-matrix checklist, a dimension your unit genuinely does not have can be marked "not on my device" or "could not make it work" instead of checked. Three people excluding the same dimension tells you something real is going on.
+4. Check the rows you have proved. Check some of them and the button reads **Save Fitting**: your claims go on the file, and the closet lists the fitting with how far it got. Check all of them and it reads **Save Perfect Fit**. Check none and it is a plain **Save**, with no claims attached. On a state-matrix checklist, a dimension your unit genuinely does not have can be marked "not on my device" or "could not make it work" instead of checked. Three people excluding the same dimension tells you something real is going on.
 5. If your device has gained or dropped commands since the wig was last saved, review the **Changes with new fitting** section before you sign.
 6. Sign. Your verdicts tie to a key generated on your own install, not the name you type, so nobody can edit your results or fit in your name. Fitting the same wig again later just replaces your old signature.
 
-Fix flagged codes under **Needs attention** before you fit. Perfect Fit waits until that block is empty. To fix a code the comb did not catch, open the command, paste in a corrected Pronto code or press **LISTEN**, then save. A repaired wig is a different wig, so any change starts a brand new fitting with only your signature on it.
+A Perfect Fit is one person's work. If somebody else proved half the wig before you, your checklist still starts empty: the green tick says one person found the whole thing working on their own hardware, and two half-fittings do not add up to that. The closet still counts what everybody proved between them, because that is worth knowing on its own.
+
+Fix flagged codes under **Needs attention** before you fit. A fitting waits until that block is empty, because a claim about codes nobody has answered the doubts on is not a claim worth signing. To fix a code the comb did not catch, open the command, paste in a corrected Pronto code or press **LISTEN**, then save. A repaired wig is a different wig, so any change starts a brand new fitting with only your signature on it.
 
 Give the device a beat between presses so you can watch it react before marking a row. Fittings are what make a shared wig trustworthy, and only perfect-fit wigs can graduate into generated Home Assistant integrations.
 

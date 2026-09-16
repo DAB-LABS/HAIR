@@ -142,10 +142,13 @@ Key components:
   renames are free (alias and send_count are out of the digest,
   permanently). Exclusions are standardized verdicts, not failures:
   not_on_device / wont_work, offered on the authoring UI only for a
-  matrix's dimension-checklist cells (v0.9.8, perfect-or-nothing) -- a
+  matrix's dimension-checklist cells (v0.9.8) -- a
   lattice cannot be edited cell by cell the way commands can, so it keeps
-  the valve; a flat wig's checklist is check-only, unchecked by default,
-  and signing does not arm until every row carries a claim. Matrix bundles
+  the valve; a flat wig's checklist is check-only and unchecked by
+  default. A fitting of any size saves (two names, 2026-09-16): the save
+  button reads Save, Save Fitting or Save Perfect Fit by what it is about
+  to write, the oath still gates every signature, and an empty checklist
+  is never signed or appended. Matrix bundles
   additionally pin cells_hash (never named content_hash; the legacy/claims
   discriminator is entry SHAPE, not the format stamp). Bundles are
   ed25519-signed (key = raw 32-byte pubkey, sig over the bundle minus sig,
@@ -153,24 +156,27 @@ Key components:
   no HA identifier, raw or hashed, ever enters a wig). Wig-level verdicts
   are derived, never stored: complete = one bundle covering every row
   worked; perfect fit = complete with zero exclusions; coverage = the
-  union. The closet check is perfect-or-nothing (v0.9.8, retiring the
-  three-tier "scoped" middle): a row shows the perfect check or nothing,
-  matching the download filename exactly. An incomplete bundle -- a
-  matrix carrying exclusions, or an older file with a partial attestation
-  from before the ruling -- still parses, still counts toward
-  fitters/coverage, and still lists in the ledger as "Incomplete"; it just
-  has no closet-tick state of its own any more. The download name is
+  union. TWO NAMES (2026-09-16), and only the second is earned: a wig is
+  a wig whether it carries no fitting or one covering part of itself, and
+  a PERFECT FIT is a wig one person's claims cover every row of in one
+  fitting. The closet row shows the perfect check or nothing, matching
+  the download filename exactly. A partial bundle -- a matrix carrying
+  exclusions, a fitting that stopped short, an older file from before the
+  ruling -- parses, counts toward fitters/coverage, and lists in the
+  ledger as "Fitting" with its row count; it has no closet tick of its
+  own. Two fittings never add up: the tick is one person's complete
+  coverage, so a second fitter starts from an empty checklist. The download name is
   server-composed from the wig's OWN fields (download_filename in
   wig_format): brand-kind-model slugified, falling back to the name slug
   when the wig has no brand, with the tier as a hyphenated suffix from the
-  wig's own claims (-perfect-fit, none for anything short of it) --
+  wig's own claims (-perfect-fit, none for a wig) --
   hyphenated never dotted, because the old dotted suffix failed the
   shop's upload. The client no longer composes a name at all, so a closet
   row and its filename read the same claims and can never disagree. A
   comb-flagged cell used to join the matrix checklist as its own
   coordinate-named row (v0.9.8 through v0.12.1); since v0.14.0 flagged
   cells stay in the matrix and are resolved in the device's Needs
-  attention block (see Detangle below), and a perfect fit refuses to sign
+  attention block (see Detangle below), and a fitting refuses to sign
   while any finding on the device is open. The read-only ledger (via the
   fittings-count door on the save dialog) shows fitters, per-row verdicts,
   signature states, and orphaned claims. Pre-claims fittings are dropped
@@ -298,7 +304,7 @@ Key components:
   commands (the v0.9.8 porthole path is retired); flat-wig findings sit on
   the individual commands. A flat wig never gets synthesized bytes in
   this release: reconstruction by frame vote is next-cycle work. The
-  Perfect Fit dialog refuses to open the checklist while findings are
+  fitting dialog refuses to open the checklist while findings are
   open and says how many codes need attention.
 - Adopt Device (v0.8.1): every code set becomes a HAIR device in one step,
   from wherever you meet it. Closet wigs, library rows, Sniffer remotes,

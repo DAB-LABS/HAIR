@@ -5,6 +5,15 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- A fitting no longer has to cover the whole wig to be saved. The save dialog records the rows you proved, however many that is: check some and the button reads Save Fitting, check all of them and it reads Save Perfect Fit, check none and it is a plain Save that writes the wig and no claims. Nothing signs without the oath, and nothing signs an empty checklist.
+- There are two names for a wig now, and only the second is earned. A wig is a wig, with no suffix and no badge, whether it carries no fitting or one that covers part of it. A Perfect Fit is a wig one person proved every row of in one fitting, and it keeps the green tick, the -perfect-fit download name and the top of the shelf. Two fittings never add up: somebody else proving half the wig leaves your checklist starting empty, and the closet still reports what everybody proved between them.
+- The route that opens the checklist is called Fit This Wig, since it records a fitting of any size rather than only the best case. The closet's Fitted and Not fitted filter chips are replaced by one Perfect Fit chip, and the claims ledger calls a bundle that covers part of a wig a Fitting rather than Incomplete, beside the row count it already showed.
+- Replacing a wig that carries a fitting covering part of itself now says so before the replacement, naming who fitted it and how far they got. Only a Perfect Fit said so before; a partial fitting retired in silence.
+
 ## [0.15.0] - 2026-09-12 -- Even Cut
 
 ### Added

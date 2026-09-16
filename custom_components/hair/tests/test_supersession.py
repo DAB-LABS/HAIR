@@ -523,8 +523,12 @@ class TestOldFittings:
             signals=[WigSignal("On", PRONTO), WigSignal("Boost", PRONTO_B)],
         )
         block = detect_supersession(str(tmp_path), new, [])
+        # ``covered``/``total`` ride with the grade since 2026-09-16:
+        # the confirm names a retiring partial fitting by what it
+        # covers, and nothing covered is still the light state.
         assert block["old_fittings"] == {
             "count": 0, "state": None, "handles": [],
+            "covered": 0, "total": 1,
         }
 
     def test_an_incomplete_fitting_credits_everyone_who_tried(self, tmp_path):
@@ -546,6 +550,11 @@ class TestOldFittings:
         assert block["old_fittings"]["state"] is None
         assert block["old_fittings"]["count"] == 1
         assert block["old_fittings"]["handles"] == ["Alice"]
+        # Two names (ruled 2026-09-16): the dialog says this out loud
+        # now instead of retiring Alice's record in silence, so the
+        # coverage it names comes off the same grade.
+        assert block["old_fittings"]["covered"] == 1
+        assert block["old_fittings"]["total"] == 2
 
     def test_perfect_when_someone_covers_every_row(self, tmp_path):
         s1 = WigSignal("On", PRONTO)

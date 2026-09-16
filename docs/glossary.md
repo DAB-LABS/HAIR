@@ -303,7 +303,11 @@ humidity sensor, or both, shown live under the thermostat card. Display only.
 ## The Closet
 
 **Wig.** A portable code set: one JSON file holding one remote's codes, in a
-small documented format. See [the wig format](wig-format.md).
+small documented format. See [the wig format](wig-format.md). A wig may carry
+no fitting at all, or one that covers some of its rows; it has no suffix and
+no badge either way. A wig nobody has finished proving is the normal case for
+a shared remote, not a degraded one, and the only earned name is **Perfect
+Fit**.
 
 **Codebook.** A code set installed with Home Assistant's core infrared code
 library. Codebooks hang in the Closet next to your own wigs and can be used
@@ -316,7 +320,7 @@ updates the existing remote rather than making a second one.
 **Save to Closet.** From a Device's detail view, file the Device as a wig.
 Three routes: **Save as New** files a fresh wig and leaves the original alone;
 **Update Closet Wig** brings the shared file up to date with your Device;
-**Validate for Perfect Fit** starts a fitting.
+**Fit This Wig** starts a fitting.
 
 **Origin.** Where a wig's codes came from: captured off real hardware, plucked
 from a vendor integration, or converted from another format. It is shown
@@ -356,15 +360,20 @@ answer.
 
 ## Fittings
 
-**Fitting.** Proof that a wig's codes actually work on real hardware, and the
-proof travels with the file from then on. You run one from **Save to Closet**,
-**Validate for Perfect Fit**, and hit **TEST** on each row of the checklist.
+**Fitting.** The act of proving a wig's codes on real hardware, and the record
+it leaves, which travels with the file from then on. You run one from **Save
+to Closet**, **Fit This Wig**, and hit **TEST** on each row of the checklist.
+A fitting of any size is saved: check the rows you proved and the save reads
+**Save Fitting**, check none and it is a plain **Save**. A fitting waits until
+the Device's Needs attention block is empty.
 
-**Perfect Fit.** A finished fitting: every row of a flat wig checked, or every
-dimension of a state-matrix wig checked or honestly excluded ("not on my
-device", "could not make it work"). There is no partial grade. A fitting
-waits until the Device's Needs attention block is empty. Only perfect-fit
-wigs can graduate into generated Home Assistant integrations.
+**Perfect Fit.** A fitting that covers every row: every row of a flat wig
+checked, or every dimension of a state-matrix wig checked or honestly excluded
+("not on my device", "could not make it work"), all by one person in one
+fitting. It earns the green tick, the `-perfect-fit` download name, and the
+top of the shop's shelf. Two fittings never add up -- somebody else proving
+half the wig leaves your checklist starting empty. Only perfect-fit wigs can
+graduate into generated Home Assistant integrations.
 
 **Signature.** The proof on a fitting. Your verdicts tie to a key generated on
 your own install, not to the name you type, so nobody can edit your results or

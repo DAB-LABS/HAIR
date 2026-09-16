@@ -2140,17 +2140,26 @@ class TestSupersedeDialog:
     def test_the_graded_ceremony_reads_old_fittings(self):
         """Amendment v2 section 2: no claims is light (nothing extra
         renders); a PERFECT FIT gets the amber-family weight of a lost
-        row. Perfect-or-nothing (owner ruling 2026-08-07): an
-        incomplete ancestor now grades as no state at all, so
-        supersede.fitted_scoped and its plain .fitted-line rendering
-        retired along with the tier itself -- amber-or-nothing, same
-        as the tick."""
+        row.
+
+        Two branches again (two names, ruled 2026-09-16). Between
+        2026-08-07 and that ruling there was one: an ancestor whose
+        fitting covered part of itself graded as no state at all, so
+        replacing it said nothing. It says something now -- somebody's
+        work on their own hardware is retiring with the file -- at the
+        informational weight .follows wears, not the amber one. The
+        wording is new with the key: "scoped" is not coming back, and
+        neither is the .fitted-line class it rendered under.
+        """
         text = _read("ir-supersede-dialog.ts")
         assert "block?.old_fittings" in text
         assert "supersede.fitted_scoped" not in text
+        assert "scoped" not in text
         assert "supersede.fitted_perfect" in text
+        assert "supersede.fitted_partial" in text
         assert ".fitted-line" not in text
         assert ".fitted-callout" in text
+        assert ".fitted-partial" in text
 
     def test_the_self_doorway_support_is_retired(self):
         """Second Fitting v3, Commit 6: the self-supersession caller
@@ -2498,7 +2507,7 @@ class TestTheDecisionWindow:
         for key in (
             "wigs.route.save_as_new",
             "wigs.route.update_closet_wig",
-            "wigs.route.validate_perfect_fit",
+            "wigs.route.fit_wig",
         ):
             assert key in route_list, key
 
@@ -2612,7 +2621,7 @@ class TestTheDecisionWindow:
             "wigs.route.summary_diverged",
             "wigs.route.save_as_new",
             "wigs.route.update_closet_wig",
-            "wigs.route.validate_perfect_fit",
+            "wigs.route.fit_wig",
         ):
             assert key in data, f"{locale} missing {key}"
         for key in ("wigs.route.added", "wigs.route.removed"):
@@ -2624,7 +2633,7 @@ class TestTheStrippedSaveDialogs:
     """Second Fitting v3, Commit 4: Save as New and Update Closet Wig
     are their own dialogs now, both built off the metadata form alone
     -- no perfect-fit checkbox, no checklist, no attestation. That
-    ceremony stays exclusive to Validate for Perfect Fit (Commit 5).
+    ceremony stays exclusive to Fit This Wig (Commit 5).
     """
 
     @pytest.mark.parametrize(
@@ -2856,7 +2865,7 @@ class TestThePerfectFitDialog:
         headings = re.findall(
             r'heading=\$\{t\("([^"]+)"\)\}', text
         )
-        assert headings == ["wigs.route.validate_perfect_fit"]
+        assert headings == ["wigs.route.fit_wig"]
 
     def test_the_form_uses_the_shared_metadata_module(self):
         """Consistent with Save as New and Update Closet Wig
@@ -2939,7 +2948,7 @@ class TestTheSweepThatClosedTheFork:
         heading the old combined dialog toggled between CREATE and
         UPDATE. Commits 3-5 gave every routed dialog its own dedicated
         heading key instead (wigs.route.save_as_new,
-        wigs.route.update_closet_wig, wigs.route.validate_perfect_fit),
+        wigs.route.update_closet_wig, wigs.route.fit_wig),
         so nothing has read this key since the combined dialog was
         retired in Commit 5."""
         assert "wigs.save.update_heading" not in _read("ir-device-detail.ts")

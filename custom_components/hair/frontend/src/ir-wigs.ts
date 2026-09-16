@@ -76,7 +76,7 @@ import type {
 import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import { singleOppositeLink } from "./ir-pin-link-match.js";
 
-type FilterChip = "all" | "library" | "yours" | "fitted" | "unfitted";
+type FilterChip = "all" | "library" | "yours" | "perfect";
 
 interface ClosetRow {
     // One entry a brand row can hold: a library codebook or a local wig.
@@ -382,20 +382,16 @@ export class IrWigs extends LitElement {
             rows = rows.filter((r) => r.source === "library");
         } else if (this._filter === "yours") {
             rows = rows.filter((r) => r.source === "local");
-        } else if (this._filter === "fitted") {
-            // Perfect-or-nothing (owner ruling 2026-08-07, decision 1):
-            // keyed on ANY signed bundle, not the tick's own state --
-            // with "scoped" gone, keying this on `state` would have
-            // silently dropped a matrix record carrying exclusions (or
-            // a legacy partial) to "unfitted". The chip is findability;
-            // the tick alone stays the judgment.
-            rows = rows.filter((r) => (r.wig?.fitting?.fitters ?? 0) > 0);
-        } else if (this._filter === "unfitted") {
-            // Only fittable things count as unfitted: local wig files.
-            // Library codebooks cannot carry fittings.
-            rows = rows.filter(
-                (r) => r.wig && !(r.wig.fitting?.fitters ?? 0),
-            );
+        } else if (this._filter === "perfect") {
+            // ONE CHIP, NOT TWO (fitting: two names, ruled
+            // 2026-09-16). "Fitted" and "Not fitted" split the closet
+            // into a state and its absence, which said a wig nobody
+            // has finished proving is missing something. It is not:
+            // that is what most shared wigs are. What is worth
+            // filtering for is the earned name, so the chip is keyed
+            // on the tick's own state -- the same judgment the green
+            // check makes, and no second opinion beside it.
+            rows = rows.filter((r) => r.wig?.fitting?.state === "perfect");
         }
         const query = this._search.trim().toLowerCase();
         if (query && !brand.label.toLowerCase().includes(query)) {
@@ -1318,8 +1314,7 @@ export class IrWigs extends LitElement {
         all: number;
         library: number;
         yours: number;
-        fitted: number;
-        unfitted: number;
+        perfect: number;
     } {
         const library = this._library.reduce(
             (n, b) =>
@@ -1329,18 +1324,18 @@ export class IrWigs extends LitElement {
             0,
         );
         const yours = this._wigs.length;
-        // Matches the "fitted" filter above: any signed bundle, not
-        // just a perfect one.
-        const fitted = this._wigs.filter(
-            (w) => (w.fitting?.fitters ?? 0) > 0,
+        // Matches the "perfect" filter above: the tick's own state,
+        // which is one person's claims covering every row. A wig with
+        // a fitting that covers part of itself is still just a wig
+        // here, and the ledger is where that fitting reads.
+        const perfect = this._wigs.filter(
+            (w) => w.fitting?.state === "perfect",
         ).length;
         return {
             all: library + yours,
             library,
             yours,
-            fitted,
-            // Unfitted counts only fittable rows (local wig files).
-            unfitted: yours - fitted,
+            perfect,
         };
     }
 
@@ -1436,18 +1431,12 @@ export class IrWigs extends LitElement {
                     ${t("wigs.chip.yours", { count: String(counts.yours) })}
                 </button>
                 <button
-                    class="fchip ${this._filter === "fitted" ? "on" : ""}"
-                    @click=${() => (this._filter = "fitted")}
+                    class="fchip ${this._filter === "perfect" ? "on" : ""}"
+                    @click=${() => (this._filter = "perfect")}
                 >
                     <span class="chip-tick">&check;</span>
-                    ${t("wigs.chip.fitted", { count: String(counts.fitted) })}
-                </button>
-                <button
-                    class="fchip ${this._filter === "unfitted" ? "on" : ""}"
-                    @click=${() => (this._filter = "unfitted")}
-                >
-                    ${t("wigs.chip.unfitted", {
-                        count: String(counts.unfitted),
+                    ${t("wigs.chip.perfect", {
+                        count: String(counts.perfect),
                     })}
                 </button>
                 ${this._libraryVersion

@@ -203,19 +203,27 @@ def claims_ledger(wig: Wig, install_key: str | None) -> dict[str, Any]:
 def claims_summary(wig: Wig, install_key: str | None) -> dict[str, Any]:
     """The closet row's check, DERIVED from claims.
 
-    Two tiers now (perfect-or-nothing, owner ruling 2026-08-07,
-    replacing the three-tier RULED 2026-08-03 shape): a wig is either a
-    PERFECT FIT or it is not, and "not" carries no state of its own for
-    the closet row to show. A row and a filename saying different
-    things about the same wig is a contradiction somebody has to
-    resolve by opening it, so this stays the one place both the closet
-    tick and the download filename tier derive from:
+    TWO NAMES (ruled 2026-09-16), and only the second is earned. A wig
+    is a wig: somebody built it and shared it, and it may carry no
+    attestation at all or a fitting that covers some of its rows. A
+    PERFECT FIT is a wig one person's claims cover every row of, in
+    one fitting. A row and a filename saying different things about
+    the same wig is a contradiction somebody has to resolve by opening
+    it, so this stays the one place both the closet tick and the
+    download filename tier derive from:
 
-    - ``None``: no complete attestation -- nothing at all, or a signed
-      bundle that does not cover every row (a matrix carrying
-      exclusions, or partial coverage). The ledger still lists it; the
-      closet just shows no tick for it.
+    - ``None``: just a wig. Nothing has been attested, or a fitting
+      has been and it does not cover every row (a matrix carrying
+      exclusions, or partial coverage). This is the normal state of a
+      shared remote and not a defect in one: nobody has finished
+      proving it yet. The ledger lists the fitting and counts its
+      coverage; there is simply no tick to show.
     - "perfect": at least one person's claims cover every row.
+
+    Two fittings never add up. Somebody else proving half the wig
+    leaves the next person's checklist starting empty, because the
+    claim the tick makes is that ONE person found the whole thing
+    working on their own hardware.
 
     GREEN IS KEYED TO ONE PERSON'S COMPLETE COVERAGE. Union coverage
     across fitters never inflates it: three people who each proved a

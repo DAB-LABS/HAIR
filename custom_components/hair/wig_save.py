@@ -148,9 +148,8 @@ class PlanOldFittingsGrade:
 
     state: str | None
     #: Fitting bundles, not unique handles -- the same count
-    #: ``SupersedeOldFittings.count`` reports, so ``supersede.
-    #: fitted_scoped``'s existing plural key means the same thing in
-    #: both places.
+    #: ``SupersedeOldFittings.count`` reports, so the two doorways
+    #: mean the same thing by it.
     count: int = 0
     handles: list[str] = field(default_factory=list)
 
@@ -1085,6 +1084,18 @@ def update_text(
     # stale client whose UI has not caught up to say so.
     if attestation is not None:
         attestation = drop_ghost_claims(attestation, source_wig)
+    # AN EMPTY CHECKLIST IS NOT AN ATTESTATION (fitting: two names,
+    # ruled 2026-09-16), the same guard ``create_text`` has always
+    # carried. A bundle with no rows would be signed, appended, and
+    # counted as a fitter for a person who claimed nothing -- and
+    # after the ruling a save with nothing ticked is an ordinary thing
+    # to do, so the hole stopped being hypothetical. The renames read
+    # above still ride: proposing a name is a content edit, not a
+    # claim. Ghost-dropping runs first, so a checklist that claimed
+    # only rows the file does not carry lands here empty and is
+    # treated the same way.
+    if attestation is not None and attestation.is_empty():
+        attestation = None
     bundle = (
         build_bundle(source_wig.wig_id or "", aliases, attestation)
         if attestation is not None
@@ -1229,6 +1240,14 @@ def detect_supersession(
             "count": summary["fitters"],
             "state": summary["state"],
             "handles": handles,
+            # Two names (ruled 2026-09-16): the confirm names a
+            # partial fitting by what it covers, so the coverage pair
+            # rides along with the grade. Union across bundles, the
+            # same numbers the ledger's own line reports -- one
+            # function answering both, so the dialog and the ledger
+            # cannot describe the same ancestor differently.
+            "covered": summary["covered"],
+            "total": summary["total"],
         }
 
         return {

@@ -5408,6 +5408,25 @@ def _attestation_from(msg: dict[str, Any]) -> Any | None:
     )
 
 
+def _claiming(attestation: Any | None) -> bool:
+    """Does this block actually claim anything about any row?
+
+    AN EMPTY CHECKLIST IS NOT AN ATTESTATION (fitting: two names,
+    ruled 2026-09-16). The dialog lets a save through with nothing
+    ticked now -- that writes the wig and no bundle -- and it sends no
+    attest block at all in that case. A block can still arrive with no
+    claims in it from a caller that has renames to propose and nothing
+    proved, and from anything driving the endpoint directly.
+
+    Either way nothing signs: a bundle with no rows is a signature
+    over an empty promise, it would count as a fitter in the ledger,
+    and it would say a person vouched for a wig they said nothing
+    about. The rename side of such a block is a content edit rather
+    than a claim, so it rides on; only the claims are read as absent.
+    """
+    return attestation is not None and not attestation.is_empty()
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/save",
@@ -5486,7 +5505,10 @@ async def ws_wigs_save(
     from .fitting_signing import async_get_private_key
 
     attestation = _attestation_from(msg)
-    key = await async_get_private_key(hass) if attestation else None
+    # The key is fetched for a block that claims something, never for
+    # one that does not: nothing signs an empty checklist (see
+    # ``_claiming``), so there is nothing here to fetch a key for.
+    key = await async_get_private_key(hass) if _claiming(attestation) else None
 
     manager: DeviceManager = data["device_manager"]
     matrix = (
@@ -5509,7 +5531,7 @@ async def ws_wigs_save(
     # open, so nobody should reach this. It stands behind that for
     # anything calling the endpoint directly, which is exactly why a
     # ruled UI shape does not make a server-side check redundant.
-    if attestation is not None and matrix is not None:
+    if _claiming(attestation) and matrix is not None:
         from .tangles import FIT_HAS_TANGLES, list_tangles
 
         open_rows = await hass.async_add_executor_job(
@@ -5528,7 +5550,7 @@ async def ws_wigs_save(
     # STAMPED HERE, from the matrix this server just read -- never
     # carried back from the dialog. A claim about a lattice must bind
     # the lattice that exists, not one the caller says it saw.
-    if attestation is not None and matrix is not None:
+    if _claiming(attestation) and matrix is not None:
         from .wig_format import cells_content_hash
 
         attestation.cells_hash = cells_content_hash(matrix)
@@ -5641,6 +5663,13 @@ async def _do_update(
         if reject_flat_exclusions(attestation, wig):
             return "exclusion_on_flat_row"
 
+        # An attest block with no claims in it is not an attestation
+        # (see ``_claiming``): nothing binds the lattice, nothing gets
+        # signed, and nothing is appended. Its rename proposals still
+        # travel, because proposing a name is a content edit.
+        claiming = _claiming(attestation)
+        renames = list(attestation.renames) if attestation else []
+
         # Metadata edits are a legitimate content PR (plan Section 4:
         # they ride the PR as reviewed changes), so an update carries
         # them even with no fitting attached. What hard rule 3 protects
@@ -5653,18 +5682,18 @@ async def _do_update(
         # be attested as-is: signing would bind bytes the fitter never
         # tested. Proposing the repair resolves it, because then the
         # lattice being bound is the one going into the file.
-        if attestation is not None and changes and not propose:
+        if claiming and changes and not propose:
             return "lattice_diverged"
 
         edits = _metadata_edits(wig, msg)
-        if attestation is None and not propose and not edits:
+        if not claiming and not propose and not edits and not renames:
             # NOW the refusal is honest: nothing was attested and
             # nothing was changed, so writing would produce a shop PR
             # that says nothing.
             return "nothing_to_update"
 
         written = update_text(
-            text, wig, attestation, key,
+            text, wig, attestation, key if claiming else None,
             mutate=(lambda w: _apply_metadata(w, edits)) if edits else None,
             device_matrix=device_matrix,
             cell_changes=changes if propose else None,
@@ -5799,6 +5828,12 @@ async def _do_create(
 
     if reject_flat_exclusions(attestation, build.wig):
         return "exclusion_on_flat_row"
+    # An attest block with no claims in it is not an attestation (see
+    # ``_claiming``). A mint has no rename side to preserve -- renames
+    # rewrite an existing file's aliases and this wig is being born --
+    # so the whole block drops, and the wig is written unsigned.
+    if not _claiming(attestation):
+        attestation, key = None, None
     if mark_repair:
         from .tangles import REPAIR_SUCCESSOR
 
