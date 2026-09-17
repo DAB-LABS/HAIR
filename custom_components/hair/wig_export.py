@@ -25,14 +25,28 @@ from .ir_command import raw_to_pronto
 from .models import IRDevice
 from .wig_format import ClimateMatrix, Wig, WigSignal
 
-# Device-type to wig kind, unambiguous mappings only. media_player
-# stays out (tv / soundbar / receiver / settopbox all live there) and
-# switch / other say nothing about what the hardware is.
+# Device-type to wig kind. THE RULE: a device type maps to a kind only
+# when one word on KIND_LIST is the unmistakable default for it.
+# Everything else exports with NO kind and the dropdown asks the
+# person, because a guess here writes a word into a file that travels
+# to other people's closets.
+#
+# The three that stay each have a word of the same name that covers
+# nearly every device of that type; the other words seeding those types
+# (heater and fireplace on ac, airpurifier on fan, candles on light) are
+# the unusual case, and the dropdown is right there to correct the
+# default.
+#
+# media_player has always stayed out: tv, monitor, projector, soundbar,
+# receiver and six more live there, with no default among them. screen
+# left with it on 2026-09-16, when windowcovering joined the list -- a
+# projection screen and a motorized blind are both SCREEN devices, and
+# this table used to stamp "screen" on the blind. switch and other say
+# nothing about what the hardware is.
 _KIND_BY_DEVICE_TYPE = {
     "ac": "ac",
     "fan": "fan",
     "light": "light",
-    "screen": "screen",
 }
 
 @dataclass

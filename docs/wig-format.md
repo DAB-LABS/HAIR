@@ -60,7 +60,43 @@ Dittos are device grammar rather than environment. A strict receiver rejects a l
 
 **`origin`** (optional, free-form string) records where the codes came from: `"captured"` for signals exported off real hardware, `"clipped"` for remotes assembled in HAIR's Clipper from pasted or library codes, `"device"` for a HAIR device's command set, `"converted"` or `"converted:smartir"` for adapter output that never touched hardware, `"plucked"` or `"plucked:tuya_local"` for codes extracted live from a vendor blaster. HAIR uses this to explain a wig's provenance in the UI. If you write an adapter, stamp your own: `"converted:yourtool"`.
 
-**`kind`** (optional, added in HAIR 0.8.0) says what the device is: a short lowercase word with no separators, such as `tv`, `soundbar`, `settopbox`, `candles`, `fan`, `ac`. Brand and model say who made the device and which one; kind says what it is, which is what people search for when wigs are shared. Any value is accepted; HAIR suggests common ones and squashes whatever is entered to lowercase letters and digits (so `Sound Bar` and `sound-bar` both store as `soundbar`). HAIR asks for it once when a fitting is recorded on a wig that has none.
+**`kind`** (optional, added in HAIR 0.8.0) says what the device is: a short lowercase word with no separators. Brand and model say who made the device and which one; kind says what it is, which is what people search for when wigs are shared.
+
+Since 2026-09-16 it is **a value from one list**, offered as a dropdown everywhere HAIR edits it, so that wigs from different closets say the same word for the same thing. The list, with the device type each word seeds when a wig is adopted onto a device:
+
+| key | label | device type |
+|---|---|---|
+| `tv` | TV | `media_player` |
+| `monitor` | Monitor | `media_player` |
+| `projector` | Projector | `media_player` |
+| `screen` | Projector screen | `screen` |
+| `windowcovering` | Window covering | `screen` |
+| `settopbox` | Set-top box | `media_player` |
+| `player` | Disc or tape player | `media_player` |
+| `soundbar` | Soundbar | `media_player` |
+| `receiver` | Receiver | `media_player` |
+| `amplifier` | Amplifier | `media_player` |
+| `preamp` | Preamp | `media_player` |
+| `dac` | DAC | `media_player` |
+| `speaker` | Speaker | `media_player` |
+| `minisystem` | Mini system | `media_player` |
+| `avswitch` | AV switch | `other` |
+| `camera` | Camera | `other` |
+| `ac` | Air conditioner | `ac` |
+| `heater` | Heater | `ac` |
+| `fireplace` | Fireplace | `ac` |
+| `fan` | Fan | `fan` |
+| `airpurifier` | Air purifier | `fan` |
+| `humidifier` | Humidifier | `other` |
+| `dehumidifier` | Dehumidifier | `other` |
+| `light` | Light | `light` |
+| `candles` | Candles | `light` |
+| `robotvacuum` | Robot vacuum | `other` |
+| `other` | Other | `other` |
+
+**Files are never rewritten.** A wig carrying a word that is not on the list keeps it, byte for byte, however it got there: an older HAIR, another tool, a hand edit. HAIR reads such a word through a small alias map (`airconditioner` means `ac`, `blinds` means `windowcovering`) and, when even that cannot place it, shows the wig as Other with the file's own value beside it until somebody picks. Only new WRITES are gated: the save handlers take a list key or an alias and refuse anything else, which reaches an old client or a hand-built payload rather than a person, since the dropdown cannot produce one.
+
+The stored value is squashed to lowercase letters and digits (so `Sound Bar` and `sound-bar` both mean `soundbar`). The WigShop accepts any kind; the dropdown is what makes uploads arrive saying the same thing.
 
 **`identifiers`** (optional, added in HAIR 0.8.0) is a map of product identity anchors, for hardware whose brand and model do not mean much. The devices only community code sets will ever cover are exactly the ones with no real brand: the marketplace candle set, the no-name fan. When present it must be an object; each value is a non-empty string or a non-empty array of non-empty strings, since rebadged device families often carry several UPCs or listings for the same hardware (`"upc": ["812345678901", "812345678902"]`). Keys are free-form; these four are the documented conventions:
 

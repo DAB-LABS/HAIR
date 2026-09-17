@@ -141,6 +141,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_delete)
     websocket_api.async_register_command(hass, ws_wigs_supersede)
     websocket_api.async_register_command(hass, ws_wigs_get)
+    websocket_api.async_register_command(hass, ws_wigs_kinds)
     websocket_api.async_register_command(hass, ws_wigs_claims)
     websocket_api.async_register_command(hass, ws_wigs_update)
     websocket_api.async_register_command(hass, ws_command_listen)
@@ -4465,6 +4466,14 @@ async def ws_wigs_list(
                         sig.alias for sig in loaded.wig.signals
                     ],
                     "kind": loaded.wig.kind,
+                    # What the dropdown should select, and the file's
+                    # own word when the list cannot place it (ruled
+                    # 2026-09-16). Derived here so the closet does not
+                    # re-implement the alias map, and beside ``kind``
+                    # rather than instead of it: ``kind`` is still what
+                    # the file says, which is what search and the
+                    # download name read.
+                    **_kind_fields(loaded.wig.kind),
                     "identifiers": loaded.wig.identifiers,
                     # The closet's matrix summary (owner ruling
                     # 2026-07-28): state count, vocabularies, and temp
@@ -4625,6 +4634,7 @@ async def ws_wigs_upload(
                 "brand": wig.brand,
                 "model": wig.model,
                 "kind": wig.kind,
+                **_kind_fields(wig.kind),
                 "signal_count": len(wig.signals),
                 "matrix": (
                     matrix_summary(wig.climate)
@@ -5115,6 +5125,76 @@ async def ws_wigs_claims(
     )
 
 
+#: Refusal code for a write whose ``kind`` is not on KIND_LIST and not
+#: an alias of anything on it. The schemas still accept any string of a
+#: sane length, so an old client reaches the handler and gets told what
+#: is wrong rather than being cut off at the door with a validation
+#: error it cannot read.
+INVALID_KIND = "invalid_kind"
+
+
+def _invalid_kind_message(value: str) -> str:
+    """Name the value. "Invalid kind" alone leaves somebody guessing
+    which of the fields they submitted the server disliked."""
+    return (
+        f'"{value.strip()}" is not a kind HAIR knows. '
+        "Pick one from the list."
+    )
+
+
+def _kind_fields(raw: str | None) -> dict[str, Any]:
+    """``kind_key`` and ``kind_raw`` for a wig payload.
+
+    The dropdown needs to know which option to select and whether the
+    file says something the list cannot place; both come off
+    ``kind_display`` so the panel never carries a second copy of the
+    alias map. ``kind_raw`` is None whenever the file's word and the
+    list's word are the same thing.
+    """
+    from .wig_format import kind_display
+
+    key, raw_value = kind_display(raw)
+    return {"kind_key": key, "kind_raw": raw_value}
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/kinds",
+})
+@callback
+def ws_wigs_kinds(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The kind vocabulary, in dropdown order.
+
+    ONE LIST, ONE PLACE (ruled 2026-09-16). The list lives in
+    ``wig_format.KIND_LIST`` and the panel reads it from here rather
+    than carrying a copy, which is how the old eleven words managed to
+    exist in three hand-maintained places and disagree with each other.
+    Each entry hands over the key a file stores, the device type it
+    seeds in the adopt dialog, and the locale key for its label -- the
+    panel translates, the server never does.
+
+    Synchronous and argument-free: it is a constant, so there is
+    nothing to read off disk and nothing to wait for. The panel asks
+    once per session.
+    """
+    from .wig_format import KIND_LIST
+
+    connection.send_result(msg["id"], {
+        "kinds": [
+            {
+                "key": entry.key,
+                "device_type": entry.device_type,
+                "label_key": entry.label_key,
+            }
+            for entry in KIND_LIST
+        ],
+    })
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/get",
@@ -5250,9 +5330,27 @@ async def ws_wigs_update(
             if key in msg:
                 setattr(wig, key, msg[key].strip() or None)
         if "kind" in msg:
-            from .wig_format import kind_slug
+            # One list (ruled 2026-09-16): a write must name a word on
+            # it. The dropdown cannot produce anything else, so this
+            # catches an old client or a hand-rolled payload rather
+            # than a person, and it refuses instead of storing a word
+            # the shop and the next closet will not recognise. An empty
+            # string still clears the field, as it always did, and a
+            # caller that leaves ``kind`` out entirely leaves the
+            # file's own word alone.
+            from .wig_format import normalize_kind
 
-            wig.kind = kind_slug(msg["kind"]) or None
+            if not msg["kind"].strip():
+                wig.kind = None
+            else:
+                key = normalize_kind(msg["kind"])
+                if key is None:
+                    return {
+                        "success": False,
+                        "errors": [_invalid_kind_message(msg["kind"])],
+                        "error_code": INVALID_KIND,
+                    }
+                wig.kind = key
         _apply_identifier_edits(wig, msg)
         path = wigs_dir(hass.config.config_dir) / filename
         path.write_text(serialize_wig(wig), encoding="utf-8")
@@ -5501,6 +5599,21 @@ async def ws_wigs_save(
     if device is None:
         connection.send_error(msg["id"], "not_found", "HAIR device not found")
         return
+
+    # One list (ruled 2026-09-16), checked at the door so the answer can
+    # name the value. Both save verbs write kind further down -- the
+    # UPDATE branch through _apply_metadata, the mint through _do_create
+    # -- and refusing here means neither of them has to invent a way to
+    # report it from inside an executor job. An empty string still
+    # clears the field; an absent one leaves it alone.
+    if msg.get("kind", "").strip():
+        from .wig_format import normalize_kind
+
+        if normalize_kind(msg["kind"]) is None:
+            connection.send_error(
+                msg["id"], INVALID_KIND, _invalid_kind_message(msg["kind"]),
+            )
+            return
 
     from .fitting_signing import async_get_private_key
 
@@ -5773,9 +5886,17 @@ def _apply_metadata(wig: Any, edits: dict[str, str]) -> None:
         if key not in edits:
             continue
         if key == "kind":
-            from .wig_format import kind_slug
+            # ws_wigs_save refused an off-list word before this ran, so
+            # the only way to reach it with one is a caller that never
+            # went through the wire. Keep the file's own word in that
+            # case rather than storing something the list does not
+            # know: this helper has no connection to refuse on.
+            from .wig_format import normalize_kind
 
-            wig.kind = kind_slug(edits[key]) or None
+            if not edits[key]:
+                wig.kind = None
+            else:
+                wig.kind = normalize_kind(edits[key]) or wig.kind
         else:
             setattr(wig, key, edits[key] or None)
     if any(key in edits for key in _IDENT_FIELDS):
@@ -5844,9 +5965,13 @@ async def _do_create(
         if msg.get(field_name, "").strip():
             setattr(build.wig, field_name, msg[field_name].strip())
     if msg.get("kind", "").strip():
-        from .wig_format import kind_slug
+        # Refused at ws_wigs_save's door for anything arriving on the
+        # wire; an off-list word can only get here from a direct
+        # caller, and the export's own seeded kind is the better answer
+        # than a word the list does not know.
+        from .wig_format import normalize_kind
 
-        build.wig.kind = kind_slug(msg["kind"]) or build.wig.kind
+        build.wig.kind = normalize_kind(msg["kind"]) or build.wig.kind
     _apply_identifier_edits(build.wig, msg)
 
     def _write() -> dict[str, Any] | None:

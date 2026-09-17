@@ -41,7 +41,12 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
-import type { CodeBrand, CodeCodebook, WigInfo } from "./types.js";
+import type {
+    CodeBrand,
+    CodeCodebook,
+    KindEntry,
+    WigInfo,
+} from "./types.js";
 
 const UNBRANDED_KEY = "__unbranded__";
 
@@ -78,6 +83,9 @@ export class IrWigPicker extends LitElement {
     @state() private _search = "";
     @state() private _filter: WigPickFilter = "all";
     @state() private _loaded = false;
+    /** The kind vocabulary, for the labels this picker shows and
+     * searches. Fetched once per session; the api caches it. */
+    @state() private _kinds: KindEntry[] = [];
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -95,6 +103,11 @@ export class IrWigPicker extends LitElement {
             this._library = [];
         } finally {
             this._loaded = true;
+        }
+        try {
+            this._kinds = (await this.api.wigsKinds()).kinds;
+        } catch {
+            this._kinds = [];
         }
     }
 
@@ -133,7 +146,13 @@ export class IrWigPicker extends LitElement {
         if (row.label.toLowerCase().includes(query)) return true;
         const wig = row.wig;
         if (!wig) return false;
+        // Both the stored word and the label somebody is reading.
+        // Typing "air conditioner" has to find a wig filed as "ac"
+        // now that the label is what the dropdown showed when it was
+        // filed (one list, one dropdown, ruled 2026-09-16), and the
+        // stored word still matches for anyone who knows it.
         if (wig.kind?.toLowerCase().includes(query)) return true;
+        if (this._kindLabel(wig).toLowerCase().includes(query)) return true;
         for (const value of Object.values(wig.identifiers ?? {})) {
             const list = Array.isArray(value) ? value : [value];
             if (list.some((v) => String(v).toLowerCase().includes(query))) {
@@ -178,11 +197,34 @@ export class IrWigPicker extends LitElement {
         );
     }
 
+    /** The wig's kind as a person reads it: the locale's label for the
+     * list entry the server placed it on. Empty when the wig carries
+     * no kind, or when the fetch has not landed yet.
+     *
+     * It used to be the stored word with its first letter capitalised,
+     * which read "Settopbox" in every language (one list, one
+     * dropdown, ruled 2026-09-16). A word the list cannot place keeps
+     * the old treatment, since there is no label to look up and the
+     * file's own word is the only honest thing to show. */
+    private _kindLabel(wig: WigInfo): string {
+        const key = wig.kind_key ?? "";
+        if (key && key !== "other") {
+            const entry = this._kinds.find((k) => k.key === key);
+            if (entry) return t(entry.label_key);
+        }
+        const raw = wig.kind_raw || wig.kind || "";
+        if (!raw) return "";
+        if (key === "other" && !wig.kind_raw) {
+            const entry = this._kinds.find((k) => k.key === "other");
+            if (entry) return t(entry.label_key);
+        }
+        return raw.charAt(0).toUpperCase() + raw.slice(1);
+    }
+
     private _matrixNote(wig: WigInfo): string {
-        return wig.kind
-            ? t("wigpicker.matrix_note_kind", {
-                  kind: wig.kind.charAt(0).toUpperCase() + wig.kind.slice(1),
-              })
+        const label = this._kindLabel(wig);
+        return label
+            ? t("wigpicker.matrix_note_kind", { kind: label })
             : t("wigpicker.matrix_note_plain");
     }
 

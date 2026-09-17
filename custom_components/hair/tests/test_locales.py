@@ -213,12 +213,12 @@ class TestNoUnintentionalDuplication:
     not read identically in ten unrelated languages.
     """
 
-    # Legitimate exception: a literal example-value placeholder
-    # listing device category keywords, intentionally left
-    # untranslated -- the same pattern already used elsewhere in the
-    # codebase (e.g. "wig" itself stays untranslated in many strings).
+    # wigs.editor.kind_placeholder used to sit here: a literal
+    # example-value placeholder listing device category keywords,
+    # intentionally left untranslated. It retired with the free-text
+    # kind box on 2026-09-16 (one list, one dropdown), and the words it
+    # listed are translated labels now, one per KIND_LIST entry.
     EXEMPT_DUPLICATE_KEYS: ClassVar[set[str]] = {
-        "wigs.editor.kind_placeholder",
         # exit-to-entity-link.md (2026-08-12), same shape as
         # cmdrow.map_action_label before it: a translation pass
         # hasn't touched the nine non-English locales yet, so all ten
@@ -387,6 +387,41 @@ class TestBackendTranslationParity:
         extra = sorted(locale_paths - en_paths)
         assert not missing, f"{path.name} missing: {missing[:8]}"
         assert not extra, f"{path.name} extra: {extra[:8]}"
+
+
+class TestTheKindVocabulary:
+    """One list, one dropdown (ruled 2026-09-16). KIND_LIST is the
+    vocabulary and the panel renders it through ``t(label_key)``, so a
+    missing label is a dropdown row reading "wigs.kind.dac". The census
+    is where that has to be caught: adding a word to the list is a
+    ten-file change, exactly like adding any other string."""
+
+    @pytest.mark.parametrize(
+        "path", [LOCALES_DIR / f"{stem}.json" for stem in (
+            "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru",
+        )], ids=lambda p: p.stem,
+    )
+    def test_every_list_entry_has_a_label(self, path):
+        from custom_components.hair.wig_format import KIND_LIST
+
+        locale = _load(path)
+        missing = [
+            entry.label_key for entry in KIND_LIST
+            if entry.label_key not in locale
+        ]
+        assert not missing, f"{path.name} missing kind labels: {missing}"
+
+    def test_no_orphan_kind_labels(self):
+        """A label whose entry left the list is a string nine
+        translators maintain for a dropdown row nobody can pick."""
+        from custom_components.hair.wig_format import KIND_LIST
+
+        known = {entry.label_key for entry in KIND_LIST}
+        orphans = [
+            key for key in EN
+            if key.startswith("wigs.kind.") and key not in known
+        ]
+        assert not orphans, orphans
 
 
 class TestPseudoLocale:
