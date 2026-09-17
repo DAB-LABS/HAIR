@@ -6,7 +6,12 @@ from enum import StrEnum
 DOMAIN = "hair"
 STORAGE_KEY = "hair_devices"
 STORAGE_VERSION = 1
-STORAGE_VERSION_MINOR = 1
+# Bumped to 2 by the protocol pack: the Dyson rolling counter moved from
+# the F byte's low two bits to its high two, so every stored DYSON row's
+# function and counter have to be recomputed. The remap is a bijection
+# and is NOT idempotent, so it runs from the store's migration hook,
+# exactly once, rather than from the load-time backfill chain.
+STORAGE_VERSION_MINOR = 2
 
 CONF_EMITTER_ENTITY_ID = "emitter_entity_id"
 CONF_CAPTURE_DEVICE_ID = "capture_device_id"
@@ -153,6 +158,10 @@ NATIVE_RECEIVER_AVAILABLE = "native_receiver_available"
 # ---------------------------------------------------------------------------
 SIGNAL_STORAGE_KEY = "hair_unknown_signals"
 SIGNAL_STORAGE_VERSION = 1
+# The unknown-signal catalog does its schema evolution with load-time
+# backfills, so this minor version exists only for changes a backfill
+# cannot express. 2 is the Dyson counter split: see STORAGE_VERSION_MINOR.
+SIGNAL_STORAGE_VERSION_MINOR = 2
 SIGNAL_BUFFER_MAX_DEVICES = 500
 # Signal caps (GH #72, 2026-07-29). Ambient noise on a subscribed RF
 # receiver minted 104k signals / 340MB / 500 phantom remotes in 33

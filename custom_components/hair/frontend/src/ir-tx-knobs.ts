@@ -55,6 +55,9 @@ const ICON_DITTO =
  * ignoring repeat_count, and they do not.
  *
  *   NEC         67 -> 71 -> 79    a 4-entry ditto frame. The real thing.
+ *   APPLE       67 -> 71 -> 79    the same, and for the same reason: an
+ *                                 Apple remote is an NEC1 frame and its
+ *                                 definition carries the NEC repeat group.
  *   Samsung32   67 -> 135 -> 271  duplicates the entire frame
  *   RC-5        21 -> 43 -> 87    duplicates the entire frame
  *   Sharp       64 -> 128 -> 256  duplicates the entire frame
@@ -71,15 +74,33 @@ const ICON_DITTO =
  * send-spacing air-time cap and by the spacing estimate, both of which
  * measure the built command rather than the frame (GH #151).
  */
+export const DITTO_PROTOCOLS: ReadonlySet<string> = new Set(["NEC", "APPLE"]);
+
+/**
+ * APPLE joins the set, and only APPLE.
+ *
+ * An Apple remote sends an NEC1 frame, and that frame layout carries
+ * the standard repeat group (8990/-2230/568).
+ * So a ditto is a real thing for this family and `AppleCommand`
+ * emits the marker rather than a second copy of the frame: 67 -> 71 ->
+ * 79 timings as repeat_count goes 0, 1, 3, the same shape NEC gives.
+ *
+ * Nothing else in the protocol pack qualifies. The 42-bit layouts
+ * either have no repeat group at all or one whose space is 4500 rather
+ * than the ditto's 2250, and both Pioneer timing sets repeat the whole
+ * frame. A non-complement NEC frame captured off the air is not
+ * decoded at all, so it has no protocol pill and no ditto knob to
+ * widen to.
+ */
 export const DITTO_PROTOCOL = "NEC";
 
-/** Whether a row may carry dittos: NEC, and not pinned to raw replay. */
+/** Whether a row may carry dittos: a real ditto family, not pinned to raw. */
 export function isDittoable(
     protocol: string | null | undefined,
     bypassed: boolean | null | undefined,
 ): boolean {
     if (bypassed) return false;
-    return (protocol ?? "").toUpperCase() === DITTO_PROTOCOL;
+    return DITTO_PROTOCOLS.has((protocol ?? "").toUpperCase());
 }
 
 @customElement("ir-tx-knobs")

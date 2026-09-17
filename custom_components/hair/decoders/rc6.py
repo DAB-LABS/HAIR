@@ -128,7 +128,7 @@ _MAX_RUN_UNITS = 3
 # and what actually rejects a Sony frame is the structure behind it: the
 # fixed start bit, the mode gate, the exact payload width, and the
 # Manchester consistency of every symbol. That combination rejected all
-# 129,772 non-RC6 raw signals in the archive with no false positive.
+# 129,772 non-RC6 raw signals measured with no false positive.
 _UNIT_TOLERANCE = 0.4
 
 _MODE_0 = 0

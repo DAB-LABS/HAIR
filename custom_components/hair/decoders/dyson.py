@@ -7,20 +7,68 @@ carried by Dyson AM/TP/HP-family fans. Canonical IRP:
 
 - 38 kHz carrier, 780us base unit, space-length encoding.
 - Leader: 2340us mark (3 units), 780us space.
-- 15 payload bits, LSB-first per field: D:7 then F:8. Bit 0 is
+- 15 payload bits, LSB-first per field: D:7 then F:8, where F carries
+  the function in bits 0-5 and the rolling counter in bits 6-7. Bit 0 is
   780us mark + 780us space; bit 1 is 780us mark + 1560us space.
 - Single 780us trailer mark, then a ~104ms frame period.
 - NO checksum of any kind.
 
-The F byte is really two fields: the button (upper 6 bits) and a
-mod-4 ROLLING COUNTER in the low 2 bits that increments on every
-press -- and on every second frame while a button is held. The fan
-tracks the last counter it accepted and rejects a frame that reuses
-it: true anti-replay rotation, and the root cause of the ~33%
-replay-reliability symptom (GH #33, Esp32-zapper). HAIR therefore
-treats device+function as identity and the counter as press state,
-exactly like an RC-5 toggle: it rides in ``decoded_extras`` and the
-transmit path advances it after every logical press.
+The F byte is really two fields: the button (**low 6 bits**) and a
+ROLLING COUNTER in the **high 2 bits**, which are the last two bits on
+the wire. The counter advances on every press -- and on every second
+frame while a button is held. The fan tracks the last counter it
+accepted and rejects a frame that reuses it: true anti-replay rotation,
+and the root cause of the ~33% replay-reliability symptom (GH #33,
+Esp32-zapper). HAIR therefore treats device+function as identity and
+the counter as press state, exactly like an RC-5 toggle: it rides in
+``decoded_extras`` and the transmit path advances it after every
+logical press.
+
+WHERE THE COUNTER ACTUALLY LIVES, corrected 2026-09-16. Until then this
+module read the counter from F's LOW two bits, which are wire bits 7
+and 8, immediately after the seven device bits. That was wrong, and
+three independent lines of evidence say so:
+
+- The frame layout is thirteen payload bits and then TWO toggle bits
+  at the end, each under a bitspec of opposite polarity, so a toggle of
+  0 goes out as the wire pair ``1,0``. The rotating bits are wire bits
+  13 and 14, the last two.
+- Upstream's own Dyson enum freezes three codes for one power button
+  (0x00, 0x01, 0x02) that differ only in the last two bits of an
+  MSB-first byte, which are the same two wire bits.
+- Reading a corpus of rendered AM07 commands under the corrected split
+  gives the same counter value on every one, as it must when they are
+  all rendered with the toggle at zero; under the old split it
+  scattered across all four values, which is the signature of a counter
+  field eating two function bits.
+
+Recomputed under the corrected split, with device 9 throughout:
+
+    button        wire (15 bits)   F byte   old reading    corrected
+    PowerToggle   100100000000010   0x40     0x10, ctr 0    0x00, ctr 1
+    FanSpeedUp    100100001010110   0x6A     0x1A, ctr 2    0x2A, ctr 1
+    FanSpeedDown  100100011111110   0x7F     0x1F, ctr 3    0x3F, ctr 1
+    Oscillate     100100010101010   0x55     0x15, ctr 1    0x15, ctr 1
+    TimerUp       100100001111010   0x5E     0x17, ctr 2    0x1E, ctr 1
+    TimerDown     100100011001110   0x73     0x1C, ctr 3    0x33, ctr 1
+
+The corrected PowerToggle function is 0, which is what this package's
+own round-trip test already called AM04/07/09 power.
+
+THE VALUES OF EVERY STORED DYSON ROW THEREFORE MOVED, and a stored row
+transmits from its decoded triple, so a migration recomputes them
+through the F byte rather than leaving them to re-encode as a different
+button. ``storage._backfill_dyson_counter_split`` does it, gated on the
+store's minor version because the remap is a bijection and not
+idempotent.
+
+WHETHER THE COUNTER ROTATES OVER FOUR VALUES IS STILL OPEN. The
+definition can only ever emit the pairs ``10`` and ``01``, because its
+two toggle bits are one field rendered twice with opposite polarity,
+and upstream's enum shows 00, 01 and 10 but never 11. Nothing available
+settles whether the fourth value is legal, so the mod-4 advance in the
+transmit path is deliberately unchanged; the GH #33 hardware capture
+has to answer it before that moves.
 
 Device values seen in the wild: 5 (AM02/AM03 towers), 9 (AM04/AM07/
 AM09 -- the ``0b1001000`` preamble of upstream's encoder is this same
@@ -56,7 +104,7 @@ _ONE_SPACE_US = 2 * _UNIT_US    # 1560
 # let a ~1000us space match both nominals. 0.3 keeps them disjoint.
 _TOLERANCE = 0.3
 
-_DATA_BITS = 15  # D:7 + F:8 (F = function:6 + counter:2)
+_DATA_BITS = 15  # D:7 + F:8 (F = function in bits 0-5, counter in 6-7)
 # leader pair (2) + 15 bit pairs (30) + trailer mark (1)
 _MIN_FRAME_LEN = 2 + _DATA_BITS * 2 + 1
 # Largest intra-frame space is 1560us; the inter-frame period is
@@ -103,10 +151,11 @@ class DysonCommand(Command):
 
         Positive values are mark (high) durations in microseconds;
         negative values are space (low) durations. One frame: leader,
-        fifteen LSB-first bits (D:7 then F:8 with the counter in F's
-        low two bits), trailer mark.
+        fifteen LSB-first bits (D:7 then F:8 with the function in F's
+        low six bits and the counter in its high two, which are the last
+        two bits on the wire), trailer mark.
         """
-        f_byte = ((self.function & 0x3F) << 2) | (self.counter & 0x3)
+        f_byte = ((self.counter & 0x3) << 6) | (self.function & 0x3F)
         timings: list[int] = [_LEADER_MARK_US, -_LEADER_SPACE_US]
         for field, width in ((self.device, 7), (f_byte, 8)):
             for bit_index in range(width):  # LSB first
@@ -186,7 +235,7 @@ class DysonCommand(Command):
         f_byte = 0
         for bit_index in range(8):
             f_byte |= bits[7 + bit_index] << bit_index
-        return (device, (f_byte >> 2) & 0x3F, f_byte & 0x3)
+        return (device, f_byte & 0x3F, (f_byte >> 6) & 0x3)
 
     @staticmethod
     def _classify_space(space_us: int) -> int | None:

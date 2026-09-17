@@ -564,18 +564,55 @@ _stub("homeassistant.helpers.restore_state", {
 
 
 class _Store:
-    """Minimal stub of homeassistant.helpers.storage.Store."""
+    """Minimal stub of homeassistant.helpers.storage.Store.
+
+    HONOURS THE MIGRATION HOOK, because HAIR now ships a migration that
+    runs from it. HA calls ``_async_migrate_func`` when the version on
+    disk is older than the version the Store was constructed with, and a
+    stub that never called it would let a broken migration pass every
+    test in the suite.
+
+    Behaviour is unchanged for every existing caller: a store that has
+    never been written holds no data and migrates nothing, and anything
+    written through ``async_save`` is stamped with the current version,
+    so a save/load round trip is the identity it always was. Seed an old
+    payload with ``seed_stored`` to exercise a migration.
+    """
     def __init__(self, hass, version, key, *, minor_version=1,
                  atomic_writes=False, private=False, encoder=None):
         self._data = None
         self.version = version
+        self.minor_version = minor_version
         self.key = key
+        self._stored_version = version
+        self._stored_minor = minor_version
+
+    def seed_stored(self, data, version=None, minor_version=None):
+        """Put a payload on disk as if an older release had written it."""
+        self._data = data
+        self._stored_version = (
+            self.version if version is None else version
+        )
+        self._stored_minor = (
+            self.minor_version if minor_version is None else minor_version
+        )
 
     async def async_load(self):
+        if self._data is None:
+            return None
+        stored = (self._stored_version, self._stored_minor)
+        if stored < (self.version, self.minor_version):
+            self._data = await self._async_migrate_func(
+                self._stored_version, self._stored_minor, self._data
+            )
+            self._stored_version = self.version
+            self._stored_minor = self.minor_version
         return self._data
 
     async def async_save(self, data):
         self._data = data
+        self._stored_version = self.version
+        self._stored_minor = self.minor_version
 
 _stub("homeassistant.helpers.storage", {"Store": _Store})
 
