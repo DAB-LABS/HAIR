@@ -646,7 +646,6 @@
     "wigs.editor.oem": "OEM (belegter Hersteller)",
     "wigs.editor.ids_hint": "Produktkennungen, alle optional. Mehrere mit Kommas trennen.",
     "wigs.editor.kind": "Art",
-    "wigs.editor.kind_hint": "Was das Gerät ist. Eine einzige Liste, damit Perücken im Wig Shop dasselbe Wort für dieselbe Sache sagen.",
     "wigs.editor.kind_unset": "Nicht gesetzt",
     "wigs.editor.kind_file_value": "(Datei sagt: {value})",
     "wigs.error.invalid_kind": "\"{value}\" ist keine Art, die HAIR kennt. Wähle eine aus der Liste.",

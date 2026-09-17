@@ -646,7 +646,6 @@
     "wigs.editor.oem": "OEM (bevestigde maker)",
     "wigs.editor.ids_hint": "Productkenmerken, allemaal optioneel. Scheid meerdere met komma's.",
     "wigs.editor.kind": "Soort",
-    "wigs.editor.kind_hint": "Wat het apparaat is. Eén lijst, zodat pruiken in de Wig Shop hetzelfde woord voor hetzelfde ding gebruiken.",
     "wigs.editor.kind_unset": "Niet ingesteld",
     "wigs.editor.kind_file_value": "(bestand zegt: {value})",
     "wigs.error.invalid_kind": "\"{value}\" is geen soort die HAIR kent. Kies er een uit de lijst.",

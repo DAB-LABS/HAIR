@@ -646,7 +646,6 @@
     "wigs.editor.oem": "OEM (produttore verificato)",
     "wigs.editor.ids_hint": "Identificativi del prodotto, tutti facoltativi. Separane più di uno con virgole.",
     "wigs.editor.kind": "Tipo",
-    "wigs.editor.kind_hint": "Che cos'è l'apparecchio. Un solo elenco, così le parrucche condivise nel Wig Shop dicono la stessa parola per la stessa cosa.",
     "wigs.editor.kind_unset": "Non impostato",
     "wigs.editor.kind_file_value": "(il file dice: {value})",
     "wigs.error.invalid_kind": "\"{value}\" non è un tipo che HAIR conosce. Scegline uno dall'elenco.",
