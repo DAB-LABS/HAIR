@@ -224,6 +224,20 @@ export type LinkedEntry =
     | { kind: "remote"; remote_id: string; remote_name: string };
 
 // Wigs (v0.7.0 Big Wig): portable code sets in /config/hair/wigs/.
+/** One word in the kind vocabulary, as hair/wigs/kinds serves it.
+ *
+ * One list, one dropdown (ruled 2026-09-16): KIND_LIST in
+ * wig_format.py is the only source of truth and the panel reads it
+ * over the wire. There is deliberately no copy of the words here --
+ * the drift this replaced was two hand-maintained arrays plus a
+ * self-growing datalist, which is how "screen" came to exist in the
+ * type table and nowhere else. */
+export interface KindEntry {
+    key: string;
+    device_type: string;
+    label_key: string;
+}
+
 export interface WigInfo {
     filename: string;
     name: string;
@@ -235,8 +249,16 @@ export interface WigInfo {
     // Signal aliases for the count-click peek popover (v0.7.0).
     signals?: string[];
     // What the device IS ("candles", "tv"): squashed lowercase slug,
-    // set at signing or in the editor (v0.8.0).
+    // set at signing or in the editor (v0.8.0). THE FILE'S OWN WORD,
+    // which may be one the list retired or never had.
     kind?: string | null;
+    /** Which dropdown option that word means: a KIND_LIST key, "other"
+     * when the list cannot place it, "" when the file carries no kind.
+     * Server-derived through the alias map (2026-09-16). */
+    kind_key?: string;
+    /** The file's word, present only when the list could not place it,
+     * so the editor can show what it is about to replace. */
+    kind_raw?: string | null;
     // Product identity anchors (v0.8.0): fcc_id / upc / asin / oem
     // conventions, single or multiple values. Editor fields shipped
     // with v0.8.0; closet search matches these since v0.8.1.

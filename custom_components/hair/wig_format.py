@@ -111,18 +111,93 @@ _KNOWN_CLIMATE = {
 }
 _KNOWN_CELL = {"mode", "fan", "swing", "temp", "pronto", "send_count"}
 
-# Curated kind suggestions (v0.8.0). The field accepts ANY value (the
-# dialogs offer these plus a custom entry); values are squashed-slug
-# lowercase alphanumerics with no separators (owner ruling 2026-07-27:
-# the repo naming convention <brand>-<kind>-<model>-infrared already
-# carries the dashes, so the kind itself stays one word --
-# "soundbar", "settopbox"). Kind labels the device for discovery once
-# wigs are shared (the Wig Shop) and picks the factory's wrapper
-# platform.
-KIND_SUGGESTIONS = (
-    "tv", "soundbar", "receiver", "settopbox", "projector",
-    "fan", "light", "candles", "ac", "heater", "blinds",
+@dataclass(frozen=True)
+class KindEntry:
+    """One word in the kind vocabulary.
+
+    ``key`` is what a file stores: a squashed lowercase slug, the same
+    shape ``kind_slug`` produces, because the repo naming convention
+    ``<brand>-<kind>-<model>-infrared`` already carries the dashes
+    (owner ruling 2026-07-27). ``device_type`` is the ``DeviceType``
+    this word seeds when a wig is adopted into a device, and
+    ``label_key`` is the locale key the dropdown shows. The label key
+    is always ``wigs.kind.<key>`` and a test pins that, but it is
+    spelled out here so a search for the locale key lands on the entry
+    that uses it.
+    """
+
+    key: str
+    device_type: str
+    label_key: str
+
+
+# THE KIND LIST (ruled 2026-09-16, "one list, one dropdown"). The one
+# source of truth: the frontend reads it over hair/wigs/kinds and keeps
+# no copy of its own, the closet editor and every save dialog draw the
+# same dropdown from it, and a new word enters through a pull request
+# that adds a row here.
+#
+# Order is the order the dropdown shows: video and displays, then audio
+# and switching, then air, then light, then the rest, with "other"
+# last. It is grouped by what a person is looking at rather than
+# alphabetically, because a list of twenty-seven words sorted a-z is a
+# list nobody reads to the end of.
+#
+# ``other`` is a real entry, not a null: a device that fits no word is
+# a thing the list has an answer for. What it is NOT is "nobody said
+# yet" -- a wig with no kind carries no kind at all, and nothing here
+# invents one for it.
+#
+# Nothing semantic hangs off kind. Entity platforms come from
+# device_type, the matrix from the climate block, the shop folder from
+# brand. Kind labels the device for discovery once wigs are shared, and
+# seeds the adopt dialog's type.
+KIND_LIST: tuple[KindEntry, ...] = (
+    KindEntry("tv", "media_player", "wigs.kind.tv"),
+    KindEntry("monitor", "media_player", "wigs.kind.monitor"),
+    KindEntry("projector", "media_player", "wigs.kind.projector"),
+    KindEntry("screen", "screen", "wigs.kind.screen"),
+    KindEntry("windowcovering", "screen", "wigs.kind.windowcovering"),
+    KindEntry("settopbox", "media_player", "wigs.kind.settopbox"),
+    KindEntry("player", "media_player", "wigs.kind.player"),
+    KindEntry("soundbar", "media_player", "wigs.kind.soundbar"),
+    KindEntry("receiver", "media_player", "wigs.kind.receiver"),
+    KindEntry("amplifier", "media_player", "wigs.kind.amplifier"),
+    KindEntry("preamp", "media_player", "wigs.kind.preamp"),
+    KindEntry("dac", "media_player", "wigs.kind.dac"),
+    KindEntry("speaker", "media_player", "wigs.kind.speaker"),
+    KindEntry("minisystem", "media_player", "wigs.kind.minisystem"),
+    KindEntry("avswitch", "other", "wigs.kind.avswitch"),
+    KindEntry("camera", "other", "wigs.kind.camera"),
+    KindEntry("ac", "ac", "wigs.kind.ac"),
+    KindEntry("heater", "ac", "wigs.kind.heater"),
+    KindEntry("fireplace", "ac", "wigs.kind.fireplace"),
+    KindEntry("fan", "fan", "wigs.kind.fan"),
+    KindEntry("airpurifier", "fan", "wigs.kind.airpurifier"),
+    KindEntry("humidifier", "other", "wigs.kind.humidifier"),
+    KindEntry("dehumidifier", "other", "wigs.kind.dehumidifier"),
+    KindEntry("light", "light", "wigs.kind.light"),
+    KindEntry("candles", "light", "wigs.kind.candles"),
+    KindEntry("robotvacuum", "other", "wigs.kind.robotvacuum"),
+    KindEntry("other", "other", "wigs.kind.other"),
 )
+
+KIND_BY_KEY: dict[str, KindEntry] = {entry.key: entry for entry in KIND_LIST}
+
+# Spellings real files carry that mean a word on the list. Read at the
+# display boundary only -- NOTHING REWRITES A FILE for kind -- the way
+# MODE_ALIAS (wig_climate.py) folds climate-mode spellings without
+# touching the lattice.
+#
+# It grows from spellings found in real files and from words the list
+# itself retired, never from invention. ``airconditioner`` is what the
+# bundled Komeco wig says; ``blinds`` was on the old suggestion list
+# and the list replaced it with ``windowcovering``, which is a wider
+# word for the same shade, curtain or blind.
+KIND_ALIAS: dict[str, str] = {
+    "airconditioner": "ac",
+    "blinds": "windowcovering",
+}
 
 
 def kind_slug(value: str) -> str:
@@ -131,8 +206,54 @@ def kind_slug(value: str) -> str:
     "Sound Bar", "sound-bar", and "soundbar" must collapse to one form
     because kind feeds the generated-integration naming convention.
     Returns "" when nothing survives.
+
+    This is the SHAPE rule and says nothing about the vocabulary: a
+    value it returns may still be off the list. ``normalize_kind`` is
+    the one that answers that question.
     """
     return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def normalize_kind(raw: str | None) -> str | None:
+    """The list key this value means, or None when it means none of them.
+
+    Slug first, then the alias map, then membership. None is the honest
+    answer for an off-list word, and the save handlers turn it into a
+    refusal; nothing here rewrites a file.
+    """
+    if not raw:
+        return None
+    slug = kind_slug(raw)
+    if not slug:
+        return None
+    slug = KIND_ALIAS.get(slug, slug)
+    return slug if slug in KIND_BY_KEY else None
+
+
+def kind_display(raw: str | None) -> tuple[str, str | None]:
+    """What the dropdown should show for a stored value.
+
+    Returns ``(key, raw_to_show)``:
+
+    - A word on the list, or an alias of one, selects its key and shows
+      nothing beside it: the file already says the same thing the list
+      does, in its own spelling at worst.
+    - A word the list cannot place selects ``other`` and hands back the
+      file's own value, so the editor can say "(file says: foo)"
+      instead of quietly presenting the wig as an Other. The file keeps
+      its word until somebody picks a different one.
+    - No kind at all selects nothing (``""``). A wig nobody has
+      described is not an Other; it is a wig nobody has described, and
+      a dropdown that defaulted to a real value would write one on the
+      next unrelated edit.
+    """
+    key = normalize_kind(raw)
+    if key is not None:
+        return key, None
+    value = (raw or "").strip()
+    if not value:
+        return "", None
+    return "other", value
 
 
 # Blessed identifier keys, documented in docs/wig-format.md. The map
@@ -318,9 +439,14 @@ class Wig:
     brand: str | None = None
     model: str | None = None
     # What the device IS ("candles", "tv", "soundbar"): a squashed
-    # lowercase slug, any value, curated suggestions in
-    # KIND_SUGGESTIONS. Labels the device for Wig Shop discovery and
-    # picks the factory's wrapper platform (v0.8.0).
+    # lowercase slug from KIND_LIST (v0.8.0; one list, one dropdown,
+    # ruled 2026-09-16). Labels the device for Wig Shop discovery and
+    # seeds the adopt dialog's device type.
+    #
+    # READ IT WITH kind_display. A file may carry any word -- one the
+    # list retired, one an older HAIR or another tool wrote, one a
+    # person typed before the dropdown existed -- and none of them are
+    # rewritten on load. New WRITES are gated at the save handlers.
     kind: str | None = None
     notes: str | None = None
     origin: str | None = None

@@ -44,6 +44,7 @@ import {
     trashButtonStyles,
 } from "./ir-icons.js";
 import { HairApi } from "./api.js";
+import { renderKindField } from "./ir-save-metadata-fields.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
@@ -64,6 +65,7 @@ import type {
     CombSummary,
     FittingSummary,
     IRDevice,
+    KindEntry,
     LinkedEntry,
     MatrixSummary,
     ReverseSupersessionBlock,
@@ -241,6 +243,14 @@ export class IrWigs extends LitElement {
     @state() private _editBrand = "";
     @state() private _editModel = "";
     @state() private _editKind = "";
+    /** The file's own word when the list cannot place it, and whether
+     * anybody picked. An untouched dropdown sends no kind at all, so
+     * editing the brand on a wig whose kind the list does not know
+     * leaves that word exactly where it is (ruled 2026-09-16). */
+    @state() private _editKindRaw = "";
+    private _editKindTouched = false;
+    /** The kind vocabulary, fetched once per session. */
+    @state() private _kinds: KindEntry[] = [];
     @state() private _editNotes = "";
     // Identifier fields (v0.8.0): single input each; commas become
     // the format's list form server-side.
@@ -257,6 +267,19 @@ export class IrWigs extends LitElement {
     connectedCallback(): void {
         super.connectedCallback();
         void this._refresh();
+        void this._loadKinds();
+    }
+
+    /** The kind vocabulary, once per session (the api caches it). The
+     * closet needs it for the editor's dropdown and for seeding the
+     * adopt dialog's device type; a failure leaves both falling back
+     * to what the wig already says. */
+    private async _loadKinds(): Promise<void> {
+        try {
+            this._kinds = (await this.api.wigsKinds()).kinds;
+        } catch {
+            this._kinds = [];
+        }
     }
 
     disconnectedCallback(): void {
@@ -970,28 +993,31 @@ export class IrWigs extends LitElement {
         this._editUpc = ident("upc");
         this._editAsin = ident("asin");
         this._editOem = ident("oem");
+        // Server-derived: which option the dropdown selects, and the
+        // file's own word when the list could not place it. The editor
+        // used not to prefill kind at all, so every save through this
+        // popover quietly cleared it.
+        this._editKind = wig.kind_key ?? "";
+        this._editKindRaw = wig.kind_raw ?? "";
+        this._editKindTouched = false;
         this._editError = null;
     }
 
     /** Seed the promote dialog's type from the wig's kind (ruled
      * 2026-07-28): the deferred type-inference, nearly free now that
-     * kind exists. Unknown kinds fall back to empty (dialog default). */
+     * kind exists. A kind the list cannot place falls back to empty,
+     * which is the dialog's own default.
+     *
+     * The table this used to carry is gone (one list, one dropdown,
+     * ruled 2026-09-16): every entry's device type comes from
+     * KIND_LIST over hair/wigs/kinds, which is how "screen" ended up
+     * in here and in wig_export and in neither suggestion list. Takes
+     * the row's ``kind_key`` -- the server has already run the alias
+     * map, so "blinds" arrives as windowcovering and seeds SCREEN. */
     private _typeFromKind(kind: string | null | undefined): string {
-        const map: Record<string, string> = {
-            fan: "fan",
-            ac: "ac",
-            heater: "ac",
-            light: "light",
-            candles: "light",
-            tv: "media_player",
-            soundbar: "media_player",
-            receiver: "media_player",
-            settopbox: "media_player",
-            projector: "media_player",
-            blinds: "screen",
-            screen: "screen",
-        };
-        return map[kind ?? ""] ?? "";
+        if (!kind) return "";
+        const entry = this._kinds.find((k) => k.key === kind);
+        return entry?.device_type ?? "";
     }
 
     /**
@@ -1182,25 +1208,6 @@ export class IrWigs extends LitElement {
             </div>`;
     }
 
-    /** Curated kinds plus every kind already used in this closet, so
-     * a custom kind typed once becomes a suggestion from then on
-     * (owner ruling 2026-07-27: dropdown plus custom, self-growing,
-     * no central registry). */
-    private _kindSuggestions(): string[] {
-        const curated = [
-            "tv", "soundbar", "receiver", "settopbox", "projector",
-            "fan", "light", "candles", "ac", "heater", "blinds",
-        ];
-        const seen = new Set(curated);
-        for (const wig of this._wigs) {
-            if (wig.kind && !seen.has(wig.kind)) {
-                seen.add(wig.kind);
-                curated.push(wig.kind);
-            }
-        }
-        return curated;
-    }
-
     private _originSentence(origin: string | null): string {
         if (!origin) return t("wigs.origin.unknown");
         if (origin.startsWith("converted")) {
@@ -1228,7 +1235,12 @@ export class IrWigs extends LitElement {
                 name: this._editName.trim() || this._editing.name,
                 brand: this._editBrand.trim(),
                 model: this._editModel.trim(),
-                kind: this._editKind.trim(),
+                // Only when somebody picked (ruled 2026-09-16): an
+                // untouched dropdown leaves the file's own word alone,
+                // which is what keeps a brand fix from rewriting a kind
+                // the list cannot place -- or from rewriting an alias
+                // to its key behind the person's back.
+                ...(this._editKindTouched ? { kind: this._editKind } : {}),
                 notes: this._editNotes.trim(),
                 fcc_id: this._editFccId.trim(),
                 upc: this._editUpc.trim(),
@@ -1236,7 +1248,15 @@ export class IrWigs extends LitElement {
                 oem: this._editOem.trim(),
             });
             if (!result.success) {
-                this._editError = (result.errors ?? []).join("; ");
+                // The one refusal the panel can word itself: the
+                // server names the value in English, and the panel
+                // knows which value it sent (ruled 2026-09-16).
+                this._editError =
+                    result.error_code === "invalid_kind"
+                        ? t("wigs.error.invalid_kind", {
+                              value: this._editKind,
+                          })
+                        : (result.errors ?? []).join("; ");
                 return;
             }
             this._editing = null;
@@ -1472,7 +1492,7 @@ export class IrWigs extends LitElement {
                       .hass=${this.hass}
                       .suggestedName=${this._adoptWig.name}
                       .suggestedType=${this._typeFromKind(
-                          this._adoptWig.kind,
+                          this._adoptWig.kind_key,
                       )}
                       .isMatrix=${!!this._adoptWig.matrix}
                       .wigFilename=${this._adoptWig.filename}
@@ -1924,27 +1944,19 @@ export class IrWigs extends LitElement {
                             ).value)}
                     />
                 </div>
-                <div class="field">
-                    <label>${t("wigs.editor.kind")}</label>
-                    <input
-                        type="text"
-                        list="wig-kind-suggestions"
-                        placeholder=${t("wigs.editor.kind_placeholder")}
-                        .value=${this._editKind}
-                        @input=${(e: Event) =>
-                            (this._editKind = (
-                                e.target as HTMLInputElement
-                            ).value)}
-                    />
-                    <datalist id="wig-kind-suggestions">
-                        ${this._kindSuggestions().map(
-                            (k) => html`<option value=${k}></option>`,
-                        )}
-                    </datalist>
-                    <div class="ident-hint">
-                        ${t("wigs.editor.kind_hint")}
-                    </div>
-                </div>
+                ${renderKindField(
+                    {
+                        kind: this._editKind,
+                        kindRaw: this._editKindRaw,
+                        kinds: this._kinds,
+                    },
+                    {
+                        setKind: (v) => {
+                            this._editKind = v;
+                            this._editKindTouched = true;
+                        },
+                    },
+                )}
                 <div class="ident-grid">
                     <div class="field">
                         <label>${t("wigs.editor.fcc_id")}</label>

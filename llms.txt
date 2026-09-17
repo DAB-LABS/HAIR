@@ -95,6 +95,14 @@ Key components:
   kind (one lowercase word: "candles", "soundbar") and product identifiers
   (FCC ID, UPC, ASIN, verified-OEM anchors, single values or lists) keep
   off-brand hardware findable; closet search matches both (v0.8.0/0.8.1).
+  ONE LIST, ONE DROPDOWN (2026-09-16): kind is a value from KIND_LIST in
+  wig_format (twenty-six words plus "other"), served to the panel over
+  hair/wigs/kinds so no copy of the vocabulary exists client-side, and
+  every surface that edits kind draws the same dropdown. Files are never
+  rewritten: a word the list cannot place reads through KIND_ALIAS
+  (airconditioner -> ac, blinds -> windowcovering) or shows as Other
+  beside the file's own value, and only new WRITES are gated -- the save
+  handlers refuse an off-list kind with invalid_kind.
   Optional supersedes (v0.9.7): the wig's ancestry, wig ids newest-first,
   stamped automatically by Save as new (prepend source id onto source's
   own list, [source] alone when the source is not local, none from a

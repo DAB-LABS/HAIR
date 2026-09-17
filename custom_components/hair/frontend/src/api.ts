@@ -25,6 +25,7 @@ import type {
     IRCommand,
     IRDevice,
     IRTrigger,
+    KindEntry,
     LearnedStore,
     LearnedStoreImport,
     MatrixCellDetail,
@@ -92,6 +93,9 @@ interface HaConnection {
 interface HassLike {
     connection: HaConnection;
 }
+
+/** Session cache for hair/wigs/kinds; see HairApi.wigsKinds. */
+let _kindsPromise: Promise<{ kinds: KindEntry[] }> | null = null;
 
 export class HairApi {
     constructor(private readonly hass: HassLike) {}
@@ -518,6 +522,32 @@ export class HairApi {
         }>({ type: "hair/wigs/get", filename });
     }
 
+    /** The kind vocabulary, in dropdown order (ruled 2026-09-16).
+     *
+     * One list, one place: KIND_LIST on the server. Cached for the
+     * session in a module-level promise below -- it is a constant, and
+     * three dialogs plus the closet asking on every open would be a
+     * round trip each for a list that cannot have changed. The cache
+     * is module-level rather than per-instance because a new HairApi
+     * is built whenever the panel's `hass` object changes, which has
+     * nothing to do with the vocabulary. */
+    wigsKinds(): Promise<{ kinds: KindEntry[] }> {
+        if (_kindsPromise === null) {
+            _kindsPromise = this.hass.connection
+                .sendMessagePromise<{ kinds: KindEntry[] }>({
+                    type: "hair/wigs/kinds",
+                })
+                .catch((err) => {
+                    // A failed fetch must not poison the session: the
+                    // next opener asks again rather than inheriting a
+                    // rejected promise forever.
+                    _kindsPromise = null;
+                    throw err;
+                });
+        }
+        return _kindsPromise;
+    }
+
     wigsUpdate(
         filename: string,
         patch: Partial<{
@@ -531,7 +561,14 @@ export class HairApi {
             asin: string;
             oem: string;
         }>,
-    ): Promise<{ success: boolean; filename?: string; errors?: string[] }> {
+    ): Promise<{
+        success: boolean;
+        filename?: string;
+        errors?: string[];
+        /** Set when the refusal has a code the panel can word itself;
+         * today only "invalid_kind". */
+        error_code?: string;
+    }> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/wigs/update",
             filename,

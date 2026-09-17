@@ -70,6 +70,7 @@ import {
 } from "./ir-save-metadata-fields.js";
 import type { HairApi } from "./api.js";
 import type {
+    KindEntry,
     SavePlan,
     SavePlanMissingRow,
     SavePlanRow,
@@ -117,6 +118,15 @@ export class IrSavePerfectDialog extends LitElement {
     @state() private _upc = "";
     @state() private _asin = "";
     @state() private _oem = "";
+    /** One list, one dropdown (ruled 2026-09-16). ``_kind`` is a
+     * KIND_LIST key or "" for not set; ``_kindRaw`` is the file's own
+     * word when the list could not place it; ``_kindTouched`` is what
+     * keeps an untouched dropdown from rewriting that word -- the save
+     * sends no kind at all unless somebody actually picked one. */
+    @state() private _kind = "";
+    @state() private _kindRaw = "";
+    @state() private _kinds: KindEntry[] = [];
+    private _kindTouched = false;
     @state() private _busy = false;
     @state() private _error: string | null = null;
     @state() private _done: SaveResult | null = null;
@@ -230,9 +240,29 @@ export class IrSavePerfectDialog extends LitElement {
             ["asin", this._asin],
             ["oem", this._oem],
         ];
+        // A kind pick counts as an edit, and only a pick does: the
+        // dropdown prefills from the plan and an untouched one is not
+        // a change to anything (one list, one dropdown, ruled
+        // 2026-09-16). Without this, choosing a kind and nothing else
+        // on a matching UPDATE would leave Save disabled with a
+        // changed field on screen.
+        if (this._kindTouched && this._kind !== (before.kind_key ?? "")) {
+            return true;
+        }
         return pairs.some(
             ([key, value]) => value.trim() !== (before[key] ?? "").trim(),
         );
+    }
+
+    /** The vocabulary, once per session (the api caches it). A failure
+     * leaves the dropdown holding whatever the file already said,
+     * which is better than an empty list that looks like a choice. */
+    private async _loadKinds(): Promise<void> {
+        try {
+            this._kinds = (await this.api.wigsKinds()).kinds;
+        } catch {
+            this._kinds = [];
+        }
     }
 
     private get _metadataValues(): MetadataFieldValues {
@@ -245,6 +275,9 @@ export class IrSavePerfectDialog extends LitElement {
             upc: this._upc,
             asin: this._asin,
             oem: this._oem,
+            kind: this._kind,
+            kindRaw: this._kindRaw,
+            kinds: this._kinds,
         };
     }
 
@@ -258,6 +291,10 @@ export class IrSavePerfectDialog extends LitElement {
             setUpc: (v) => (this._upc = v),
             setAsin: (v) => (this._asin = v),
             setOem: (v) => (this._oem = v),
+            setKind: (v) => {
+                this._kind = v;
+                this._kindTouched = true;
+            },
         };
     }
 
@@ -459,6 +496,9 @@ export class IrSavePerfectDialog extends LitElement {
             this._upc = plan.metadata.upc ?? "";
             this._asin = plan.metadata.asin ?? "";
             this._oem = plan.metadata.oem ?? "";
+            this._kind = plan.metadata.kind_key ?? "";
+            this._kindRaw = plan.metadata.kind_raw ?? "";
+            void this._loadKinds();
             // Second Fitting v3 punch list, item 3: the route
             // itself was the arming, so the checklist seeds its
             // defaults (everything checked) the moment the plan
@@ -731,6 +771,13 @@ export class IrSavePerfectDialog extends LitElement {
         for (const [key, value] of pairs) {
             if (value.trim()) out[key] = value.trim();
         }
+        // Only when somebody picked. An untouched dropdown sends
+        // nothing, so a file whose word the list cannot place keeps it
+        // (ruled 2026-09-16) and an alias is not quietly rewritten to
+        // its key by a save that was about the brand. An empty pick is
+        // deliberate and does clear the field, which is why this sits
+        // outside the non-empty filter above.
+        if (this._kindTouched) out.kind = this._kind;
         return out;
     }
 

@@ -323,12 +323,28 @@ def _comb_of(device: IRDevice, command_id: str) -> tuple[bool, str | None]:
     return False, None
 
 
+def _kind_prefill(raw: str | None) -> dict[str, str]:
+    """Which kind option the dialog's dropdown should select, and the
+    file's own word when the list cannot place it (one list, one
+    dropdown, ruled 2026-09-16).
+
+    Beside ``kind`` rather than instead of it: the plan's metadata is a
+    flat string map that the dialog sends straight back, so the raw
+    value stays where it was and these two ride along for the select.
+    """
+    from .wig_format import kind_display
+
+    key, raw_value = kind_display(raw)
+    return {"kind_key": key, "kind_raw": raw_value or ""}
+
+
 def _device_metadata(device: IRDevice, wig: Wig) -> dict[str, Any]:
     return {
         "name": wig.name,
         "brand": wig.brand or device.manufacturer or "",
         "model": wig.model or device.model or "",
         "kind": wig.kind or "",
+        **_kind_prefill(wig.kind),
         "notes": "",
     }
 
@@ -359,6 +375,7 @@ def _wig_metadata(wig: Wig) -> dict[str, Any]:
         "brand": wig.brand or "",
         "model": wig.model or "",
         "kind": wig.kind or "",
+        **_kind_prefill(wig.kind),
         "notes": wig.notes or "",
         "fcc_id": _one("fcc_id"),
         "upc": _one("upc"),

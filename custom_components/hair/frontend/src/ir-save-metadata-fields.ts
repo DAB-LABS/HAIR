@@ -16,8 +16,33 @@
  */
 import { html } from "lit";
 import { t } from "./localize.js";
+import type { KindEntry } from "./types.js";
 
-export interface MetadataFieldValues {
+/** What the kind dropdown needs, on its own.
+ *
+ * Split out from the metadata form because the closet editor renders
+ * the same dropdown without the rest of the form around it, and one
+ * list, one dropdown (ruled 2026-09-16) is a promise about the markup
+ * as much as about the words. */
+export interface KindFieldValues {
+    /** The KIND_LIST key the dropdown has selected, "" for a wig
+     * nobody has described yet. Never a free-text word. */
+    kind: string;
+    /** The file's own word, when the list cannot place it. Shown under
+     * the dropdown so the person can see what they are about to
+     * replace; empty whenever the file and the list agree. */
+    kindRaw: string;
+    /** The vocabulary, as hair/wigs/kinds served it. Empty until the
+     * fetch lands, which renders the dropdown with its current value
+     * alone rather than an empty list. */
+    kinds: KindEntry[];
+}
+
+export interface KindFieldSetters {
+    setKind: (v: string) => void;
+}
+
+export interface MetadataFieldValues extends KindFieldValues {
     name: string;
     brand: string;
     model: string;
@@ -28,7 +53,7 @@ export interface MetadataFieldValues {
     oem: string;
 }
 
-export interface MetadataFieldSetters {
+export interface MetadataFieldSetters extends KindFieldSetters {
     setName: (v: string) => void;
     setBrand: (v: string) => void;
     setModel: (v: string) => void;
@@ -55,6 +80,51 @@ function _field(
                 @input=${(e: Event) =>
                     set((e.target as HTMLInputElement).value)}
             />
+        </div>
+    `;
+}
+
+/** The kind dropdown, shared by every surface that edits kind.
+ *
+ * One list, one dropdown (ruled 2026-09-16): the options come from
+ * hair/wigs/kinds and nothing here knows a kind word of its own. The
+ * leading blank is "not set", which is what a wig nobody has described
+ * carries -- distinct from Other, which is a real answer for a device
+ * that fits no word on the list. `kindRaw` renders the file's own word
+ * under it when the list could not place what the file says.
+ */
+export function renderKindField(
+    values: KindFieldValues,
+    set: KindFieldSetters,
+) {
+    return html`
+        <div class="field">
+            <label>${t("wigs.editor.kind")}</label>
+            <select
+                .value=${values.kind}
+                @change=${(e: Event) =>
+                    set.setKind((e.target as HTMLSelectElement).value)}
+            >
+                <option value="" ?selected=${!values.kind}>
+                    ${t("wigs.editor.kind_unset")}
+                </option>
+                ${values.kinds.map(
+                    (entry) => html`<option
+                        value=${entry.key}
+                        ?selected=${entry.key === values.kind}
+                    >
+                        ${t(entry.label_key)}
+                    </option>`,
+                )}
+            </select>
+            ${values.kindRaw
+                ? html`<div class="ident-hint">
+                      ${t("wigs.editor.kind_file_value", {
+                          value: values.kindRaw,
+                      })}
+                  </div>`
+                : ""}
+            <div class="ident-hint">${t("wigs.editor.kind_hint")}</div>
         </div>
     `;
 }
@@ -96,6 +166,7 @@ export function renderMetadataFields(
             ${_field(t("wigs.editor.oem"), values.oem, set.setOem)}
         </div>
         <div class="ident-hint">${t("wigs.editor.ids_hint")}</div>
+        ${renderKindField(values, set)}
         <div class="field">
             <label>${t("wigs.editor.notes")}</label>
             <input
