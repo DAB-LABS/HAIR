@@ -124,7 +124,6 @@ export function renderKindField(
                       })}
                   </div>`
                 : ""}
-            <div class="ident-hint">${t("wigs.editor.kind_hint")}</div>
         </div>
     `;
 }

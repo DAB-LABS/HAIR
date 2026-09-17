@@ -682,7 +682,6 @@
     "wigs.editor.oem": "OEM (potwierdzony producent)",
     "wigs.editor.ids_hint": "Identyfikatory produktu, wszystkie opcjonalne. Kilka oddziel przecinkami.",
     "wigs.editor.kind": "Rodzaj",
-    "wigs.editor.kind_hint": "Czym jest urządzenie. Jedna lista, żeby peruki w Wig Shopie nazywały te same rzeczy tak samo.",
     "wigs.editor.kind_unset": "Nie ustawiono",
     "wigs.editor.kind_file_value": "(plik podaje: {value})",
     "wigs.error.invalid_kind": "\"{value}\" to nie jest rodzaj, który HAIR zna. Wybierz coś z listy.",

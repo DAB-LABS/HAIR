@@ -646,7 +646,6 @@
     "wigs.editor.oem": "OEM (verified maker)",
     "wigs.editor.ids_hint": "Product identifiers, all optional. Separate multiples with commas.",
     "wigs.editor.kind": "Kind",
-    "wigs.editor.kind_hint": "What the device is. One list, so wigs shared in the Wig Shop say the same word for the same thing.",
     "wigs.editor.kind_unset": "Not set",
     "wigs.editor.kind_file_value": "(file says: {value})",
     "wigs.error.invalid_kind": "\"{value}\" is not a kind HAIR knows. Pick one from the list.",

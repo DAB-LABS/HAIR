@@ -683,7 +683,6 @@
     "wigs.editor.oem": "OEM (подтверждённый производитель)",
     "wigs.editor.ids_hint": "Идентификаторы товара, все необязательны. Несколько значений разделяйте запятыми.",
     "wigs.editor.kind": "Тип",
-    "wigs.editor.kind_hint": "Что это за устройство. Список один, чтобы парики в Wig Shop называли одно и то же одним словом.",
     "wigs.editor.kind_unset": "Не задано",
     "wigs.editor.kind_file_value": "(в файле: {value})",
     "wigs.error.invalid_kind": "\"{value}\" -- такого типа HAIR не знает. Выберите значение из списка.",

@@ -646,7 +646,6 @@
     "wigs.editor.oem": "OEM（確認済みメーカー）",
     "wigs.editor.ids_hint": "製品識別子はすべて任意です。複数はカンマで区切ってください。",
     "wigs.editor.kind": "種類",
-    "wigs.editor.kind_hint": "この機器が何かを表します。リストはひとつだけなので、Wig Shopで共有されるウィッグは同じものを同じ言葉で呼べます。",
     "wigs.editor.kind_unset": "未設定",
     "wigs.editor.kind_file_value": "（ファイルの記載: {value}）",
     "wigs.error.invalid_kind": "「{value}」はHAIRが知らない種類です。リストから選んでください。",
