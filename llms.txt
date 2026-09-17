@@ -473,6 +473,23 @@ Key components:
   successful send. GE-AC registers identity-only (tx_rebuild=False): decoded
   identity matches/collapses signals, but TX always replays the captured
   raw, since re-encoding AC state risks transmitting wrong state.
+  The protocol pack added the NEC1-shaped tier: APPLE (address pinned to
+  0x87EE plus a parity bit over the last two bytes; the pairing id is
+  identity and rides the fingerprint suffix :p<xx>) and NEC42 / NEC42EXT
+  (one 42-bit wire format, two readings; the checked one probes first,
+  the unchecked one at the end of the strict tier). Two classes ship
+  UNREGISTERED and are reached only from file readers and tests:
+  NECNoComplementCommand, which builds an NEC1 frame with both payload
+  bytes verbatim so a Flipper NECext line transmits the bytes it states,
+  and PioneerCommand, which carries the 40 kHz carrier into a stored
+  Pronto. Neither mints an identity from air: a non-complement capture
+  has no error detection left to gate on and the genuine population sits
+  one bit from a legal NEC frame, and Pioneer is inside every NEC
+  tolerance once the carrier is gone. The no-steal census
+  (tests/test_no_steal_census.py, baseline decode-census-v0150.json) is
+  the licence for the tier's probe position: it records a label for every
+  capture in the repo including "raw", and a row that was raw and is now
+  claimed fails unless its fixture is on an explicit allowlist.
   A Dyson decoder followed (beta v0.7.1, stable v0.7.2): Dyson fans
   rotate a mod-4 counter in every frame and reject a replayed value, so
   HAIR keeps device+button as the signal's identity (rotating presses

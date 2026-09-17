@@ -7,12 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Apple remotes decode. An Apple remote sends an NEC-shaped frame whose last two bytes are not the checksum NEC expects, so every press used to be refused. HAIR now reads them: the third byte carries the button and a parity bit, the fourth carries the remote's pairing id, and the id becomes part of the signal's identity because a paired box acts on it. Two remotes paired to two boxes are therefore two identities for the same button, and re-pairing a remote mints a new one, which is honest but does mean a trigger built on the old pairing has to be pointed at the new one. The ditto control is available on these rows, since an Apple remote repeats the way any NEC remote does.
+- The 42-bit NEC frame decodes, in both the readings in circulation: one that checks the two complements it carries and one that reads the same 42 bits as a wider address and command with no check at all. The checked reading is tried first.
+- Flipper files carrying NEC42, NEC42ext and Pioneer lines now import instead of being turned away, and they import with or without the optional protocol library installed. A field too wide for its protocol is refused by name rather than quietly trimmed, so a line HAIR cannot represent is reported instead of transmitted wrong.
+
+### Fixed
+
+- A Flipper NECext line no longer loses its fourth byte. HAIR rebuilt that byte as the complement of the third, which is right for an ordinary remote and wrong for any file that states something else there: an Apple remote's pairing id was being replaced with a number the remote never sends. Files whose fourth byte was the complement are unaffected and produce exactly the code they always did. Two kinds of file change: one whose fourth byte is not a complement, and one written as NECext with an address of 255 or less, which now goes out as the two bytes the file states.
+- A 42-bit signal can no longer be rebuilt as a 32-bit one. The label lookup matched "NEC42" against the NEC family's bit-count rule, so a stored 42-bit identity would have transmitted a truncated frame.
+
 ### Changed
 
 - A fitting no longer has to cover the whole wig to be saved. The save dialog records the rows you proved, however many that is: check some and the button reads Save Fitting, check all of them and it reads Save Perfect Fit, check none and it is a plain Save that writes the wig and no claims. Nothing signs without the oath, and nothing signs an empty checklist.
 - There are two names for a wig now, and only the second is earned. A wig is a wig, with no suffix and no badge, whether it carries no fitting or one that covers part of it. A Perfect Fit is a wig one person proved every row of in one fitting, and it keeps the green tick, the -perfect-fit download name and the top of the shelf. Two fittings never add up: somebody else proving half the wig leaves your checklist starting empty, and the closet still reports what everybody proved between them.
 - The route that opens the checklist is called Fit This Wig, since it records a fitting of any size rather than only the best case. The closet's Fitted and Not fitted filter chips are replaced by one Perfect Fit chip, and the claims ledger calls a bundle that covers part of a wig a Fitting rather than Incomplete, beside the row count it already showed.
 - Replacing a wig that carries a fitting covering part of itself now says so before the replacement, naming who fitted it and how far they got. Only a Perfect Fit said so before; a partial fitting retired in silence.
+- **Dyson identities have moved, and stored rows are migrated on the first start after upgrading.** The rolling counter is in the last two bits of the frame, not the two just after the device code, which is what the protocol definition, the upstream code table and the rendered codesets all say. Reading it in the wrong place split one button across as many as four identities and is the likely cause of the reported one-in-three reliability. Every saved Dyson row is recomputed so it keeps transmitting the frame it always did; wig files store the code itself and need nothing. The reported values for a fan change as a result, so a Dyson row will show a different function number than it did before. Whether the counter cycles through four values or alternates between two is still open, and the transmit side is deliberately unchanged until a hardware capture settles it.
+- Pioneer remotes are still reported as NEC, on purpose. What separates the two protocols is the carrier, which a receiver strips before HAIR sees anything, and every remaining timing sits inside NEC's tolerance. A Pioneer line imported from a file is stored with its correct 40 kHz carrier; its identity still reads NEC, because that is all the air can honestly say.
 
 ## [0.15.0] - 2026-09-12 -- Even Cut
 

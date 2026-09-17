@@ -630,15 +630,76 @@ class TestDyson:
         expected.append(780)
         assert timings == expected
 
-    def test_counter_lives_in_f_low_bits(self):
-        """counter=1 must flip exactly the FIRST F bit on the wire
-        (F is sent LSB-first), matching upstream's 0x4800/01/02 enum
-        packing where the same button differs only in F & 0x3."""
+    def test_counter_lives_in_the_last_two_wire_bits(self):
+        """The counter is F's HIGH two bits: wire bits 13 and 14.
+
+        Replaces a test that asserted the low two bits and cited
+        upstream's 0x00/0x01/0x02 enum as differing in ``F & 0x3``. That
+        citation was the bug written down: those three codes differ in
+        the last two bits of an MSB-first byte, which are the LAST two
+        bits on the wire, not the first two of the F field.
+
+        Indexed off the frame layout rather than off any plan. Each data
+        bit is a mark then a space, after a two-element leader, so wire
+        bit ``n`` has its mark at ``2 + 2n`` and its SPACE at
+        ``2 + 2n + 1``. Only the space carries the bit value; the mark is
+        780us for every bit, so an assertion naming a mark index could
+        never fail.
+        """
         base = DysonCommand(device=9, function=0, counter=0).get_raw_timings()
-        bumped = DysonCommand(device=9, function=0, counter=1).get_raw_timings()
-        diffs = [i for i, (a, b) in enumerate(zip(base, bumped, strict=True)) if a != b]
-        # F bit 0 is the 8th data bit: index 2 (header) + 7*2 (D bits) + 1.
-        assert diffs == [2 + 7 * 2 + 1]
+
+        def moved(counter: int) -> list[int]:
+            other = DysonCommand(
+                device=9, function=0, counter=counter
+            ).get_raw_timings()
+            return [
+                i
+                for i, (a, b) in enumerate(zip(base, other, strict=True))
+                if a != b
+            ]
+
+        assert moved(1) == [2 + 13 * 2 + 1]
+        assert moved(2) == [2 + 14 * 2 + 1]
+        # And both together move both, which is what rules out the two
+        # indices having been read off one bit by luck.
+        assert moved(3) == [2 + 13 * 2 + 1, 2 + 14 * 2 + 1]
+
+    def test_am07_button_set_reads_as_counter_one_throughout(self):
+        """The six AM07 buttons, as the frame layout puts them.
+
+        Each is rendered with its toggle at zero, which the layout turns
+        into the wire pair ``1,0``, so every one must read counter 1
+        under the corrected split. Under the old split these same wires
+        gave counters 0, 1, 2 and 3, which is the signature of a counter
+        field eating two function bits.
+
+        The wire strings are the ones recomputed under the corrected
+        split and cross-checked against the rendered waveforms; the
+        table is in ``decoders/dyson.py``. Synthesized here by
+        round-tripping this package's own encoder rather than by
+        carrying third-party data.
+        """
+        expected = {
+            "PowerToggle": (0x00, "100100000000010"),
+            "FanSpeedUp": (0x2A, "100100001010110"),
+            "FanSpeedDown": (0x3F, "100100011111110"),
+            "Oscillate": (0x15, "100100010101010"),
+            "TimerUp": (0x1E, "100100001111010"),
+            "TimerDown": (0x33, "100100011001110"),
+        }
+        for name, (function, wire) in expected.items():
+            timings = DysonCommand(
+                device=9, function=function, counter=1
+            ).get_raw_timings()
+            bits = "".join(
+                "1" if -timings[3 + 2 * i] > 1100 else "0" for i in range(15)
+            )
+            assert bits == wire, name
+            decoded = DysonCommand.from_raw_timings(timings)
+            assert decoded is not None
+            assert (decoded.device, decoded.function, decoded.counter) == (
+                9, function, 1
+            ), name
 
     def test_rolling_presses_share_identity(self):
         """Three captures of one button at counters 0/1/2 -- the GH #33

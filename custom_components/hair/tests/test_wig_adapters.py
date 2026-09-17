@@ -313,9 +313,9 @@ class TestSmartIR:
 
 class TestFlipper:
     def test_parsed_necext(self):
-        # Parsed Flipper entries re-encode through the code library; on
-        # the no-library CI leg (py3.12) they skip with a reason instead.
-        pytest.importorskip("infrared_protocols")
+        # NECext builds through this package's own verbatim class now,
+        # so it no longer needs the library on either leg. The skip that
+        # used to guard this went with the builder that needed it.
         result = convert(
             _fixture("flipper_parsed_Apple_TV_Gen3_v2.ir"),
             name_hint="Apple_TV_Gen3_v2.ir",
@@ -508,3 +508,134 @@ class TestGirr:
         assert not any(
             "no usable representation" in r for r in result.skipped
         )
+
+
+class TestFlipperNecFamilyBuilders:
+    """The builder table the protocol pack rewrites.
+
+    The Apple fixture is the one file in the repo whose stored waveform
+    this pack deliberately changes, so the assertions here are about
+    bytes rather than about whether a conversion happened.
+    """
+
+    def _wire_bytes(self, pronto: str) -> list[int]:
+        from custom_components.hair.ir_command import ProntoCommand
+
+        timings = ProntoCommand(pronto).get_raw_timings()
+        data = [0, 0, 0, 0]
+        for index in range(32):
+            if -timings[3 + 2 * index] > 1100:
+                data[index // 8] |= 1 << (index % 8)
+        return data
+
+    def test_the_apple_fixture_keeps_its_pairing_id(self):
+        """Byte 4 is 0x2E, the id the file states.
+
+        It used to be 0xFD, the complement of byte 3, because the
+        builder re-derived it. HAIR stored a frame the remote never
+        sends, and an Apple TV would most likely have ignored it.
+        """
+        result = convert(
+            _fixture("flipper_parsed_Apple_TV_Gen3_v2.ir"),
+            name_hint="Apple_TV_Gen3_v2.ir",
+        )
+        assert result.error is None
+        signals = {s.alias: s for s in result.wigs[0].signals}
+        menu = self._wire_bytes(signals["Menu"].pronto)
+        assert menu == [0xEE, 0x87, 0x02, 0x2E]
+        assert menu[3] != (~menu[2]) & 0xFF, "the old builder's mistake"
+
+    def test_the_apple_fixture_decodes_back_to_an_apple_identity(self):
+        from custom_components.hair.ir_command import ProntoCommand
+        from custom_components.hair.protocol_decode import try_decode_identity
+
+        result = convert(
+            _fixture("flipper_parsed_Apple_TV_Gen3_v2.ir"),
+            name_hint="Apple_TV_Gen3_v2.ir",
+        )
+        signals = {s.alias: s for s in result.wigs[0].signals}
+        identity = try_decode_identity(
+            ProntoCommand(signals["Menu"].pronto).get_raw_timings()
+        )
+        assert identity is not None
+        assert identity.fingerprint == "APPLE:0x87ee:0x01:p2e"
+
+    def test_the_second_pairing_id_in_the_same_file_is_its_own_identity(self):
+        """Reboot carries 0x37 where the other seven carry 0x2E.
+
+        One exported file, two pairing ids. Worth pinning because it is
+        the honest cost of putting the id in the fingerprint, and a
+        reader should meet it here rather than in the field.
+        """
+        from custom_components.hair.ir_command import ProntoCommand
+        from custom_components.hair.protocol_decode import try_decode_identity
+
+        result = convert(
+            _fixture("flipper_parsed_Apple_TV_Gen3_v2.ir"),
+            name_hint="Apple_TV_Gen3_v2.ir",
+        )
+        signals = {s.alias: s for s in result.wigs[0].signals}
+        assert self._wire_bytes(signals["Reboot"].pronto)[3] == 0x37
+        identity = try_decode_identity(
+            ProntoCommand(signals["Reboot"].pronto).get_raw_timings()
+        )
+        assert identity is not None
+        assert identity.fingerprint == "APPLE:0x87ee:0x0c:p37"
+
+    def test_a_complement_valid_necext_line_does_not_move(self):
+        """Every other NECext file must produce the Pronto it always did.
+
+        Built through both routes and compared as strings, so a drift in
+        any timing constant fails here rather than in somebody's closet.
+        """
+        upstream = pytest.importorskip("infrared_protocols.commands.nec")
+        from custom_components.hair.ir_command import raw_to_pronto
+        from custom_components.hair.wig_adapters import _flipper_builders
+
+        builders = _flipper_builders()
+        for address, command in ((0x87EE, 0x5E), (0x40BF, 0x12), (0xFF00, 0xA5)):
+            before = raw_to_pronto(
+                upstream.NECCommand(
+                    address=address, command=command).get_raw_timings(),
+                frequency=38000,
+            )
+            verbatim = command | ((~command & 0xFF) << 8)
+            after = raw_to_pronto(
+                builders["NECext"](address, verbatim).get_raw_timings(),
+                frequency=38000,
+            )
+            assert after == before, hex(address)
+
+    def test_the_new_entries_exist_on_both_legs(self):
+        """These resolve to local classes, so the bare leg gets them."""
+        from custom_components.hair.wig_adapters import _flipper_builders
+
+        builders = _flipper_builders()
+        for name in ("NECext", "NEC42", "NEC42ext", "Pioneer"):
+            assert name in builders, name
+
+    def test_an_out_of_range_field_is_refused_with_a_receipt(self):
+        """Checked, not masked: a mask invents a code.
+
+        The class refuses and the row lands in ``skipped`` naming the
+        range, so the person is told which line was dropped and why.
+        """
+        text = (
+            "Filetype: IR signals file\nVersion: 1\n#\n"
+            "name: Bad\ntype: parsed\nprotocol: NEC42\n"
+            "address: FF FF 00 00\ncommand: 01 00 00 00\n#\n"
+        )
+        result = convert(text, name_hint="bad.ir")
+        assert any("Bad" in reason for reason in result.skipped), result.skipped
+        assert any("0x1FFF" in reason for reason in result.skipped)
+
+    def test_a_pioneer_line_is_stored_at_40_khz(self):
+        text = (
+            "Filetype: IR signals file\nVersion: 1\n#\n"
+            "name: Power\ntype: parsed\nprotocol: Pioneer\n"
+            "address: 5A A5 00 00\ncommand: 14 EB 00 00\n#\n"
+        )
+        result = convert(text, name_hint="pio.ir")
+        assert result.error is None
+        signal = result.wigs[0].signals[0]
+        assert signal.pronto.split()[1] == "0068"

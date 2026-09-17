@@ -27,6 +27,7 @@ from .const import (
     SIGNAL_SAVE_MAX_DELAY_S,
     SIGNAL_STORAGE_KEY,
     SIGNAL_STORAGE_VERSION,
+    SIGNAL_STORAGE_VERSION_MINOR,
 )
 from .identity import (
     TIER_BYTE_HASH,
@@ -57,6 +58,11 @@ class _SignalCatalogStore(Store):
     way the composed plain ``Store`` would have.
     """
 
+    #: See ``storage._HAIRDeviceStore.dyson_split_rows``: a migration
+    #: that is not written back runs again next boot, and this one is a
+    #: bijection that must run exactly once.
+    dyson_split_rows: int = 0
+
     async def _async_migrate_func(
         self,
         old_major_version: int,
@@ -64,11 +70,16 @@ class _SignalCatalogStore(Store):
         old_data: dict[str, Any],
     ) -> dict[str, Any]:
         _LOGGER.info(
-            "Migrating HAIR signal store from v%s.%s to v%s",
+            "Migrating HAIR signal store from v%s.%s to v%s.%s",
             old_major_version,
             old_minor_version,
             SIGNAL_STORAGE_VERSION,
+            SIGNAL_STORAGE_VERSION_MINOR,
         )
+        if old_major_version == 1 and old_minor_version < 2:
+            from .dyson_migration import migrate_signal_store
+
+            self.dyson_split_rows = migrate_signal_store(old_data)
         return old_data
 
 
@@ -81,6 +92,7 @@ class SignalStore:
             hass,
             SIGNAL_STORAGE_VERSION,
             SIGNAL_STORAGE_KEY,
+            minor_version=SIGNAL_STORAGE_VERSION_MINOR,
             atomic_writes=True,
         )
         self._devices: dict[str, UnknownDevice] = {}
@@ -158,6 +170,15 @@ class SignalStore:
         # the same row it landed on before the restart.
         self.rebuild_signal_index()
         self._loaded = True
+        # A store migration that ran this load rewrote rows in place and
+        # has to reach disk: the version gate that stops it repeating
+        # only closes once the new minor version is written.
+        # ``isinstance`` because a test may replace the store with a
+        # mock, and reading any attribute off one of those returns a
+        # truthy object. The flag is an int by contract, so anything
+        # else means this is not the real store and nothing migrated.
+        migrated = getattr(self._store, "dyson_split_rows", 0)
+        dirty = dirty or (isinstance(migrated, int) and migrated > 0)
         if dirty:
             # PERSIST THE MIGRATION (GH #125), the way
             # ``HAIRStore.async_load`` already does for the device side.

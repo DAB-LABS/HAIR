@@ -591,11 +591,6 @@ def _flipper_builders():
         builders["NEC"] = lambda a, c: NECCommand(
             address=a & 0xFF, command=c & 0xFF
         )
-        # NECext: 16-bit address; Flipper packs command + inverse into
-        # 16 bits (byte0 = command, byte1 = its inverse).
-        builders["NECext"] = lambda a, c: NECCommand(
-            address=a & 0xFFFF, command=c & 0xFF
-        )
     except ImportError:
         pass
     try:
@@ -628,6 +623,64 @@ def _flipper_builders():
         )
     except ImportError:
         pass
+
+    # --- the NEC-family block -------------------------------------------
+    #
+    # LOCAL CLASSES, SO THESE WORK ON BOTH LEGS. Everything above is
+    # feature-detected against ``infrared_protocols`` and disappears when
+    # the library is absent; everything here is in this package, so a
+    # Flipper file carrying these protocols converts either way. Imported
+    # directly rather than through ``protocol_decode.get_spec`` because
+    # two of the four classes are deliberately unregistered and a builder
+    # table that reached into the registry would not find them.
+    from .decoders.nec42 import NEC42Command, NEC42ExtCommand
+    from .decoders.nec_variant import NECNoComplementCommand
+    from .decoders.pioneer import PioneerCommand
+
+    # NECext: 16-bit address, and the command field is the THIRD AND
+    # FOURTH WIRE BYTES AS WRITTEN, not a command whose complement is
+    # re-derived.
+    #
+    # This used to build ``NECCommand(address=a & 0xFFFF, command=c &
+    # 0xFF)``, which threw the file's fourth byte away and wrote the
+    # complement of the third in its place. For an ordinary remote that
+    # is the same frame and nobody noticed. For an Apple remote the
+    # fourth byte is the pairing id, so HAIR stored a Pronto the remote
+    # never sends: the repo's own Apple fixture carries pairing id 0x2E
+    # and was being rendered with 0xFD.
+    #
+    # Where the file's fourth byte IS the complement of its third, the
+    # wire is byte-identical to what this built before -- the verbatim
+    # class carries upstream's exact NEC timing constants for that
+    # reason, and a test asserts the Pronto string does not move.
+    #
+    # ONE CASE DOES CHANGE BESIDES THE NON-COMPLEMENT ONE. Upstream
+    # treats an address of 0xFF or less as a standard 8-bit NEC address
+    # and emits its complement as the second byte. A file that says
+    # ``NECext`` and gives a low address means the two bytes it wrote,
+    # so they go out as written and that file's Pronto moves.
+    builders["NECext"] = lambda a, c: NECNoComplementCommand(
+        address=a & 0xFFFF, command=c & 0xFFFF
+    )
+
+    # The 42-bit family. NO MASKS: these check and let the class refuse.
+    # A mask invents a code -- it silently turns an address the file
+    # could not have meant into one HAIR will happily transmit -- and
+    # the refusal lands in ``result.skipped`` with the range in it, so
+    # the person is told which row was dropped and why. The entries
+    # above keep their masks because changing them would move existing
+    # imports.
+    builders["NEC42"] = lambda a, c: NEC42Command(address=a, command=c)
+    builders["NEC42ext"] = lambda a, c: NEC42ExtCommand(address=a, command=c)
+
+    # Pioneer buys one thing an air capture cannot: the 40 kHz carrier
+    # and the tighter leader, carried into the stored Pronto through the
+    # command's ``modulation``. The row's decoded identity still comes
+    # from re-decoding that Pronto, which lands on NEC, because HAIR
+    # cannot tell Pioneer from NEC without the carrier and does not
+    # pretend to. See ``decoders/pioneer.py``.
+    builders["Pioneer"] = lambda a, c: PioneerCommand(address=a, command=c)
+
     return builders
 
 

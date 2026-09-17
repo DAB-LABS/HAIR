@@ -118,6 +118,45 @@ class TestRegistryContents:
         assert get_spec("UNKNOWN99") is None
         assert get_spec(None) is None
 
+    def test_an_exact_label_beats_a_prefix_match(self):
+        """The two-pass rule, pinned at the label that needed it.
+
+        A single pass in registry order resolved "NEC42" to the **nec**
+        spec: nec is registered first, "NEC42" starts with "NEC", and
+        "42" is a digit string, so the bit-count-variant rule fired on a
+        label another family owns outright. ``build_protocol_command``
+        would then have rebuilt a 42-bit identity as a 32-bit NEC frame
+        and transmitted it.
+        """
+        from custom_components.hair.tests.leg import strict_nec_available
+
+        if strict_nec_available():
+            # Only registered when the library is installed; the labels
+            # below are local classes and resolve on both legs.
+            assert get_spec("NEC").key == "nec"
+        assert get_spec("NEC42").key == "nec42"
+        assert get_spec("NEC42EXT").key == "nec42ext"
+        assert get_spec("APPLE").key == "apple"
+
+    def test_the_variant_rule_still_works_after_the_exact_pass(self):
+        """The exact pass must not cost the labels the prefix rule is
+        for. None of these has a spec of its own, so all three still
+        resolve through the second pass."""
+        assert get_spec("SONY12").key == "sony"
+        assert get_spec("SONY20").key == "sony"
+        assert get_spec("KASEIKYO56").key == "kaseikyo"
+        assert get_spec("SYMPHONY8").key == "symphony"
+
+    def test_the_unregistered_classes_resolve_to_nothing(self):
+        """NECNC and PIONEER are encoder labels, not decoded labels.
+
+        If either ever resolves, something registered it, and the
+        rulings in ``decoders/nec_variant.py`` and ``decoders/pioneer.py``
+        have been reversed without anyone reading them.
+        """
+        assert get_spec("NECNC") is None
+        assert get_spec("PIONEER") is None
+
 
 # ---------------------------------------------------------------------------
 # Fingerprint formatting (N2: one formatter; N3: per-protocol formats)

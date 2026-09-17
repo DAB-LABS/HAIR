@@ -39,6 +39,13 @@ class _HAIRDeviceStore(Store):
     migration ships.
     """
 
+    #: Rows the Dyson counter-split migration touched on this load, so
+    #: ``HAIRStore.async_load`` knows it must persist the result. A
+    #: migration that is not written back would run again on the next
+    #: boot, and this one is a bijection: running it twice lands on a
+    #: third, wrong value.
+    dyson_split_rows: int = 0
+
     async def _async_migrate_func(
         self,
         old_major_version: int,
@@ -47,9 +54,15 @@ class _HAIRDeviceStore(Store):
     ) -> dict[str, Any]:
         """Migrate storage schema between versions.
 
-        v1.1 is the initial schema. Future migrations bump
-        ``STORAGE_VERSION_MINOR`` (or ``STORAGE_VERSION`` for breaking
-        changes) and add branches here.
+        v1.1 is the initial schema.
+
+        v1.2 is the Dyson counter split. The rolling counter moved from
+        the F byte's low two bits to its high two, so every stored DYSON
+        row's function and counter are recomputed through the byte both
+        readings share. This lives here rather than in the load-time
+        backfill chain because the remap is NOT idempotent: the version
+        gate is what makes it run exactly once. See
+        ``dyson_migration`` for the arithmetic and the reasoning.
         """
         _LOGGER.info(
             "Migrating HAIR device store from v%s.%s to v%s.%s",
@@ -58,6 +71,10 @@ class _HAIRDeviceStore(Store):
             STORAGE_VERSION,
             STORAGE_VERSION_MINOR,
         )
+        if old_major_version == 1 and old_minor_version < 2:
+            from .dyson_migration import migrate_device_store
+
+            self.dyson_split_rows = migrate_device_store(old_data)
         return old_data
 
 
@@ -233,6 +250,21 @@ class HAIRStore:
         # mismatch live captures and silence the trigger, a tier-2 miss
         # being fatal). All run BEFORE the index rebuild (the index shape
         # depends on byte_hash presence) and fold into one save.
+        # A store migration that ran this load has already rewritten
+        # rows in place; it MUST be written back, because the version
+        # gate that stops it running twice only closes once the new
+        # minor version reaches disk.
+        # ``isinstance`` because a test may replace the store with a
+        # mock, and reading any attribute off one of those returns a
+        # truthy object. The flag is an int by contract, so anything
+        # else means this is not the real store and nothing migrated.
+        migrated = getattr(self._store, "dyson_split_rows", 0)
+        migrated = migrated if isinstance(migrated, int) else 0
+        if migrated:
+            from .dyson_migration import retarget_dyson_triggers
+
+            retarget_dyson_triggers(self._triggers.values())
+
         changed = self._backfill_decoded_fields()
         changed = self._backfill_byte_hash() or changed
         changed = self._backfill_trigger_decoded() or changed
@@ -241,7 +273,7 @@ class HAIRStore:
         changed = self._backfill_pin_bindings() or changed
         self._rebuild_command_index()
         self._loaded = True
-        if changed:
+        if changed or migrated:
             await self.async_save()
 
     async def async_save(self) -> None:

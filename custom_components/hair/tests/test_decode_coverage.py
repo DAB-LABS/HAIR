@@ -629,6 +629,35 @@ class TestEveryLocalDecoderCountsItsOwnFrames:
         assert rebuilt.frames_explained == 2
         assert rebuilt.repeat_count + 1 == 1
 
+    @pytest.mark.parametrize("repeats", [0, 1, 3])
+    def test_apple_counts_its_frame_plus_its_repeat_markers(self, repeats):
+        """A ditto is not a vote: it carries no payload to read, but it
+        is part of the capture and something has to account for it."""
+        from custom_components.hair.decoders.apple import AppleCommand
+
+        source = AppleCommand(
+            command=0x01, pair_id=0x2E, repeat_count=repeats)
+        rebuilt = self._built(source, repeats)
+        assert rebuilt.frames_explained == repeats + 1
+
+    @pytest.mark.parametrize("repeats", [0, 1, 3])
+    def test_nec42_counts_its_votes(self, repeats):
+        from custom_components.hair.decoders.nec42 import NEC42Command
+
+        source = NEC42Command(
+            address=0x1234, command=0x56, repeat_count=repeats)
+        rebuilt = self._built(source, repeats)
+        assert rebuilt.frames_explained == repeats + 1
+
+    @pytest.mark.parametrize("repeats", [0, 1, 3])
+    def test_nec42ext_counts_its_votes(self, repeats):
+        from custom_components.hair.decoders.nec42 import NEC42ExtCommand
+
+        source = NEC42ExtCommand(
+            address=0x2345678, command=0xABCD, repeat_count=repeats)
+        rebuilt = self._built(source, repeats)
+        assert rebuilt.frames_explained == repeats + 1
+
     def test_dyson_and_nokia32_report_a_census_they_do_not_store(self):
         """Both discard the vote count for repeat_count on purpose. The
         census is the thing that survives that."""
@@ -649,10 +678,14 @@ class TestEveryLocalDecoderCountsItsOwnFrames:
         silently not being judged is how this bug lasted four minor
         versions."""
         from custom_components.hair.decoders import (
+            apple,
             dyson,
             kaseikyo,
             marantz_extended,
+            nec42,
+            nec_variant,
             nokia32,
+            pioneer,
             rc5,
             rc6,
             rca,
@@ -663,6 +696,15 @@ class TestEveryLocalDecoderCountsItsOwnFrames:
         )
 
         pairs = [
+            (apple.AppleCommand, apple._FRAME_GAP_US),
+            (nec42.NEC42Command, nec42._FRAME_GAP_US),
+            (nec42.NEC42ExtCommand, nec42._FRAME_GAP_US),
+            # The two unregistered classes declare it too. The coverage
+            # accounting never reads theirs, because nothing registers
+            # them, but a class in this package that grows a registry
+            # entry later must not arrive without the seam.
+            (nec_variant.NECNoComplementCommand, nec_variant._FRAME_GAP_US),
+            (pioneer.PioneerCommand, pioneer._FRAME_GAP_US),
             (dyson.DysonCommand, dyson._FRAME_GAP_US),
             (kaseikyo.KaseikyoCommand, kaseikyo._FRAME_GAP_US),
             (marantz_extended.MarantzExtendedCommand,
@@ -770,3 +812,54 @@ class TestTheRetiredCellMintIsExempt:
 
         doc = inspect.getdoc(websocket_api._mint_cell_rows) or ""
         assert "NOT ABSORBED INTO mint_command" in doc
+
+
+# ---------------------------------------------------------------------------
+# 12. Decode trust for the protocol pack's registered decoders
+# ---------------------------------------------------------------------------
+
+
+class TestPackDecodersAreJudged:
+    """A clean capture covers itself; a capture with a blob beside it
+    does not.
+
+    Both halves matter. Without the first the decoder is refusing real
+    presses; without the second it is the false-positive class GH #134
+    was opened for, where a decoder finds a frame inside something that
+    is not one and the verdict says it read the whole capture.
+    """
+
+    def _junk_state_frame(self):
+        """A long opaque payload, the shape an AC state blob has."""
+        timings = [3400, -1700]
+        for index in range(60):
+            timings += [430, -1300 if index % 3 else -430]
+        timings.append(430)
+        return timings
+
+    def _pair(self, command):
+        clean = command.get_raw_timings()
+        noisy = [*clean, -100_000, *self._junk_state_frame()]
+        return clean, noisy
+
+    def test_apple(self):
+        from custom_components.hair.decoders.apple import AppleCommand
+
+        clean, noisy = self._pair(AppleCommand(command=0x01, pair_id=0x2E))
+        assert decode_coverage(clean) is True
+        assert decode_coverage(noisy) is False
+
+    def test_nec42(self):
+        from custom_components.hair.decoders.nec42 import NEC42Command
+
+        clean, noisy = self._pair(NEC42Command(address=0x1234, command=0x56))
+        assert decode_coverage(clean) is True
+        assert decode_coverage(noisy) is False
+
+    def test_nec42ext(self):
+        from custom_components.hair.decoders.nec42 import NEC42ExtCommand
+
+        clean, noisy = self._pair(
+            NEC42ExtCommand(address=0x2345678, command=0xABCD))
+        assert decode_coverage(clean) is True
+        assert decode_coverage(noisy) is False

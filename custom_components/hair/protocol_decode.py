@@ -158,6 +158,41 @@ def _construct_nec(cls: type, label: str, address: int, command: int,
     return cls(address=address, command=command)
 
 
+def _extract_apple(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    # The pairing id is IDENTITY, not press state: it is on the wire in
+    # every frame, constant between presses, and a paired box acts on
+    # it. That is the class of Sharp's extension and RC-6's customer,
+    # and it rides the fingerprint suffix for the same reason. Parity is
+    # NOT carried: it is derived on encode from the command and the
+    # pairing id, so a stored identity cannot hold a stale parity bit.
+    return ("APPLE", int(cmd.address), int(cmd.command),
+            {"pair_id": int(cmd.pair_id)})
+
+
+def _construct_apple(cls: type, label: str, address: int, command: int,
+                     extras: Any) -> Any:
+    pair_id = int((extras or {}).get("pair_id", 0))
+    return cls(command=command, pair_id=pair_id, address=address)
+
+
+def _extract_nec42(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    return ("NEC42", int(cmd.address), int(cmd.command), None)
+
+
+def _construct_nec42(cls: type, label: str, address: int, command: int,
+                     extras: Any) -> Any:
+    return cls(address=address, command=command)
+
+
+def _extract_nec42ext(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    return ("NEC42EXT", int(cmd.address), int(cmd.command), None)
+
+
+def _construct_nec42ext(cls: type, label: str, address: int, command: int,
+                        extras: Any) -> Any:
+    return cls(address=address, command=command)
+
+
 def _extract_sony(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
     total = _SONY_ADDRESS_BITS_TO_TOTAL[int(cmd.address_bits)]
     return (f"SONY{total}", int(cmd.address), int(cmd.command), None)
@@ -358,6 +393,12 @@ def _identity_suffix(protocol: str, extras: Mapping[str, int] | None) -> str:
     if protocol == "NOKIA32":
         # X (system/OEM) separates Foxtel/Sky/Mediamaster on one protocol.
         return f":x{int(extras.get('extension', 0)):02x}"
+    if protocol == "APPLE":
+        # The remote's pairing id. Constant between presses and acted on
+        # by the paired box, so it separates two remotes the way Sharp's
+        # extension separates two devices. Re-pairing a remote mints a
+        # new identity, which is honest: it is a different signal.
+        return f":p{int(extras.get('pair_id', 0)):02x}"
     if protocol == "RC6":
         # Mode picks the frame shape; the customer/OEM field separates
         # Media Center from a VU+ box from any other mode 6 vendor that
@@ -382,6 +423,28 @@ def _identity_suffix(protocol: str, extras: Mapping[str, int] | None) -> str:
 _REGISTRATIONS: tuple[tuple, ...] = (
     ("nec", "infrared_protocols.commands.nec", "NECCommand",
      None, True, _extract_nec, _construct_nec, (DECODED_PROTOCOL_NEC,)),
+    # THE NEC1-SHAPED TIER, all three AFTER strict NEC.
+    #
+    # Apple first of the three, because an Apple frame is also a 32-bit
+    # NEC1 frame and the 42-bit readers below would never see it anyway,
+    # but the variant tier's order is written down rather than inferred.
+    # Apple can never take a frame strict NEC would have claimed: a
+    # complement-valid frame has popcount(byte3) + popcount(~byte3) = 8,
+    # which is even, and Apple's parity rule demands odd. That is a
+    # proof, not a measurement, and it is what lets a decoder with one
+    # parity bit sit this high.
+    #
+    # NEC42 carries a real checksum -- twenty-one of its forty-two bits
+    # are redundant -- so it belongs in the strict tier on the same
+    # reasoning that promoted RCA. NEC42EXT has no checksum at all and
+    # is registered further down, at the end of the strict tier, where
+    # the doctrine in this comment block puts a checksum-free reader.
+    ("apple", None, "AppleCommand",
+     "custom_components.hair.decoders.apple", True,
+     _extract_apple, _construct_apple, ("APPLE",)),
+    ("nec42", None, "NEC42Command",
+     "custom_components.hair.decoders.nec42", True,
+     _extract_nec42, _construct_nec42, ("NEC42",)),
     ("samsung32", "infrared_protocols.commands.samsung", "Samsung32Command",
      "custom_components.hair.decoders.samsung", True,
      _extract_samsung, _construct_samsung, ("SAMSUNG32",)),
@@ -425,6 +488,19 @@ _REGISTRATIONS: tuple[tuple, ...] = (
     ("kaseikyo", "infrared_protocols.commands.kaseikyo", "KaseikyoCommand",
      "custom_components.hair.decoders.kaseikyo", True,
      _extract_kaseikyo, _construct_kaseikyo, ("KASEIKYO",)),
+    # NEC42EXT reads forty-two bits and checks nothing, so it probes at
+    # the END of the checksum-validated tier rather than beside NEC42:
+    # the registry's doctrine is strict first, checksum-free last, and a
+    # reader with no integrity check does not belong ahead of RCA's
+    # whole-payload complement or Kaseikyo's vendor checksum. Nothing is
+    # lost by the position. No registered protocol above can match a
+    # 42-bit NEC1 frame (Samsung32's leader is 4500/4500, RCA's
+    # 4000/4000, Kaseikyo's 3368/1684, and Sony, RC-5, RC-6, Nokia32 and
+    # Marantz have no 9 ms mark), which the no-steal census measures
+    # rather than assumes.
+    ("nec42ext", None, "NEC42ExtCommand",
+     "custom_components.hair.decoders.nec42", True,
+     _extract_nec42ext, _construct_nec42ext, ("NEC42EXT",)),
     ("geac", "infrared_protocols.commands.general_electric", "GEACCommand",
      None, False, _extract_geac, _construct_geac, ("GEAC",)),
     # Upstream's DysonCoolCommand (7.3.0+) is encode-only with the
@@ -499,14 +575,24 @@ def get_spec(protocol: str | None) -> ProtocolSpec | None:
     Labels either match a spec exactly ("NEC", "RC5", "SHARP") or start
     with the spec's registered prefix carrying a bit-count variant
     ("SONY15", "KASEIKYO48", "SYMPHONY12").
+
+    EXACT BEFORE PREFIX, IN TWO PASSES. A single pass in registry order
+    resolved "NEC42" to the **nec** spec, because ``nec`` is registered
+    first and "42" is a digit string, so ``build_protocol_command``
+    would have rebuilt a 42-bit identity as a 32-bit NEC frame and
+    transmitted it. The prefix rule is for bit-count variants of one
+    family and must never outrank a label another family owns outright,
+    so every exact label is offered first and the prefix pass only sees
+    what nothing claimed by name.
     """
     if not protocol:
         return None
     for spec in _ensure_registry():
+        if protocol in spec.labels:
+            return spec
+    for spec in _ensure_registry():
         for label in spec.labels:
-            if protocol == label or (
-                protocol.startswith(label) and protocol[len(label):].isdigit()
-            ):
+            if protocol.startswith(label) and protocol[len(label):].isdigit():
                 return spec
     return None
 
