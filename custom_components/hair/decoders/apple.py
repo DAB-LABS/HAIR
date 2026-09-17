@@ -43,6 +43,23 @@ in each: Menu 0x01, Up 0x05, Down 0x06, Left 0x04, Right 0x03 and
 Reboot 0x0C, read from different byte3 values because the parity
 differs with the pairing id.
 
+THE 33 FRAMES OUTSIDE THE RULE are a known population and this class
+does not widen to claim them. They sit in eight codesets and the
+corpus acceptance test names each one by codeset and keycode.
+Seventeen of the 33 are ordinary Apple command bytes (Menu 0x01, Right
+0x03, Left 0x04, Up 0x05, Down 0x06, Play/Pause 0x2E and 0x2F) under
+pairing ids 0x01 to 0x05 with the parity bit left at zero: the Apple
+command table rendered with the parity never computed. The other
+sixteen are an accessory table under pairing id 0x5E (eight rows whose
+buttons are named Light and Shuffle, one of which happens to be
+complement-valid and so reads as strict NEC, exactly as the
+disjointness proof says it must) and two identical sets of Input1..4
+whose byte3 values are the plain numbers 1, 2, 4 and 7 under pairing id
+0x52. A device carrying one of these tables gets its rule-conformant
+buttons as APPLE and the others as raw rows, which is the conservative
+outcome: a raw row replays what was heard, and nothing invents a parity
+the remote did not send.
+
 THE PAIRING ID IS IDENTITY and rides the fingerprint suffix ``:p<xx>``.
 It is on the wire in every frame, it never changes between presses, and
 a paired Apple TV acts on it. The honest cost, stated because a review

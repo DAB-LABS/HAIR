@@ -65,8 +65,12 @@ class TestPioneerIsNeverMinted:
         means a future registration cannot land without this test going
         red and somebody reading the docstring in ``decoders/pioneer``.
         """
-        command = 0x14 | ((~0x14 & 0xFF) << 8)
-        source = PioneerCommand(address=0xA55A, command=command)
+        from custom_components.hair.wig_adapters import _build_pioneer
+
+        # Built the way the Flipper importer builds it: from the two
+        # 8-bit payload bytes a Flipper line carries, complements derived.
+        source = _build_pioneer(0x5A, 0x14)
+        assert (source.address, source.command) == (0xA55A, 0xEB14)
         identity = try_decode_identity(source.get_raw_timings())
         if not strict_nec_available():
             assert identity is None, "no NEC decoder on this leg"

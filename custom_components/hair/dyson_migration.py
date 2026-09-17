@@ -38,7 +38,18 @@ a Pronto code but no triple, so there is no F byte to rebuild and the
 arithmetic has nothing to work on. They are re-decoded from the stored
 code instead, which is what ``_backfill_trigger_decoded`` already does
 for a trigger that never had an identity, and which gives the answer a
-fresh capture of the same button would give.
+fresh capture of the same button would give. The repoint runs whenever
+the version hop ran, not only when a device row moved: a trigger minted
+from the Sniffer catalog has no device row beside it, and a repoint
+gated on the device count left such triggers on an identity no press
+would ever match again (review round 2, finding 3).
+
+ON THE WRITE-BACK. The store helper persists migrated data itself as
+soon as the hook returns, so on a real install the version gate closes
+there; the ``dyson_split_rows`` and ``dyson_split_ran`` flags the two
+stores carry are what tell the load path to run the trigger repoint and
+to save the parsed result, and they are also what the test stub needs
+to make the save happen at all.
 
 WIGS ON DISK NEED NOTHING. A wig stores Pronto, so its rows re-derive
 their identity on the next parse. Signed fittings are over the code

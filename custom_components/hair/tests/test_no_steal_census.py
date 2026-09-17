@@ -8,19 +8,30 @@ asserted afterwards.
 
 WHAT MAKES IT ABLE TO FAIL. Review round 1 found the first draft could
 not: it asserted that rows which already had an identity kept it, and
-filed rows that gained one under "informational". A new wrong identity
-is the whole false-positive class, so that census would have reported
-the thing it existed to catch and passed. Here:
+filed rows that gained one under "informational". Review round 2 found
+the second draft could be walked around: a decoder planted ahead of
+strict NEC stole every NEC row, and renaming the two fixtures that hold
+most of them plus adding one line to the four modules that hold the rest
+moved every stolen row to a key the baseline had never seen, which was
+"new" and therefore not a failure. Here:
 
 - ``raw`` is a label. A row nothing decoded is recorded as ``raw``, and
   a row that was ``raw`` and is now claimed FAILS unless its fixture is
   on ``EXPECTED_CLAIMS`` below, by path and by the exact label.
-- A row whose label changed between two protocols fails, always, with
-  no allowlist. That is the must-not-change list expressed as a test.
+- A row whose label changed between two protocols fails, with the same
+  allowlist and nothing wider: the one entry exists because the Apple
+  fixture's rows genuinely move from NEC to APPLE.
 - Rows are keyed by ``(source, index)``. A later phase adding fixtures
   must not read as every later row changing, so a key the baseline has
   never seen is reported and does not fail, while a key it has whose
   label moved always does.
+- A KEY THAT VANISHES FAILS unless ``RETIRED_KEYS`` names it with a
+  reason. Inline rows are keyed by module plus a digest of their
+  content, so editing a test cannot orphan its rows; fixture rows are
+  keyed by path, so a rename is noticed.
+- The round 2 attack is a self-test at the bottom of this file, run
+  against a doctored copy of the corpus with the planted decoder
+  registered. It has to fail the census, on both legs.
 
 THE BASELINE'S PROVENANCE IS CHECKABLE, not asserted. It was generated
 by ``tests/tools/gen_decode_census.py`` run against a pristine checkout
@@ -32,11 +43,23 @@ would not survive that.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
-from custom_components.hair.tests.census_corpus import census, corpus, sources
+from custom_components.hair.tests.census_corpus import (
+    ROOT_CONFTEST,
+    TESTS,
+    census,
+    corpus,
+    lost_rows,
+    moved_rows,
+    newly_claimed_rows,
+    source_of,
+    sources,
+    vanished_rows,
+)
 from custom_components.hair.tests.leg import BASELINE_SUFFIX
 
 #: The baseline for the leg this run is on. See ``tests/leg.py``: the
@@ -64,13 +87,15 @@ EXPECTED_CLAIMS: dict[str, set[str]] = {
     "adapters:flipper_parsed_Apple_TV_Gen3_v2.ir": {"APPLE"},
 }
 
+#: Baseline keys that are allowed to be absent from the walk, each with
+#: the reason. A fixture deleted or renamed on purpose goes here by its
+#: old key; nothing else does. Empty means every baseline row is still
+#: walked, which is the state this file is in.
+RETIRED_KEYS: dict[str, str] = {}
+
 
 def _baseline() -> dict:
     return json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-
-
-def _source_of(key: str) -> str:
-    return key.rsplit("#", 1)[0]
 
 
 class TestCensusCorpus:
@@ -101,6 +126,26 @@ class TestCensusCorpus:
             "the review counted at least 18 carrying NEC-shaped leaders"
         )
 
+    def test_inline_keys_survive_a_shifted_line(self, tmp_path):
+        """The keying rule from round 2, stated as a test.
+
+        Copy one module that carries inline NEC captures, put a line
+        above everything, and every one of its rows keeps its key.
+        """
+        from custom_components.hair.tests.census_corpus import _inline_rows
+
+        original = TESTS / "test_event_parser.py"
+        before = {row.key for row in _inline_rows(original)}
+        assert before, "the module chosen for this test carries no rows"
+        shifted = tmp_path / original.name
+        shifted.write_text(
+            "# a line that moves everything below it\n"
+            + original.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        after = {row.key for row in _inline_rows(shifted)}
+        assert after == before
+
     def test_baseline_records_its_own_provenance(self):
         data = _baseline()
         assert data["base_commit"], "the baseline does not say what it is of"
@@ -113,21 +158,12 @@ class TestNoSteal:
     def test_no_row_changes_protocol(self):
         """A row that decoded as X must still decode as X.
 
-        No allowlist reaches this: a protocol moving to another protocol
-        is a steal whatever the fixture, and it is the must-not-change
-        list stated as an assertion.
+        The allowlist reaches this only by fixture path and exact label,
+        because the Apple fixture's rows genuinely move from NEC to
+        APPLE; anywhere else a protocol moving to another protocol is a
+        steal, and it is the must-not-change list stated as an assertion.
         """
-        base = _baseline()["rows"]
-        now = census()
-        moved = [
-            (key, base[key], now[key])
-            for key in base
-            if key in now and base[key] != now[key] and base[key] != "raw"
-        ]
-        offenders = [
-            row for row in moved
-            if row[2] not in EXPECTED_CLAIMS.get(_source_of(row[0]), set())
-        ]
+        offenders = moved_rows(_baseline()["rows"], census(), EXPECTED_CLAIMS)
         assert not offenders, "\n".join(
             f"{key}: {was} -> {is_now}" for key, was, is_now in offenders
         )
@@ -140,17 +176,9 @@ class TestNoSteal:
         where a fixture is named above and only for the label named
         with it.
         """
-        base = _baseline()["rows"]
-        now = census()
-        claimed = [
-            (key, now[key])
-            for key in base
-            if key in now and base[key] == "raw" and now[key] != "raw"
-        ]
-        offenders = [
-            (key, label) for key, label in claimed
-            if label not in EXPECTED_CLAIMS.get(_source_of(key), set())
-        ]
+        offenders = newly_claimed_rows(
+            _baseline()["rows"], census(), EXPECTED_CLAIMS
+        )
         assert not offenders, "\n".join(
             f"{key}: was unclaimed, now {label}" for key, label in offenders
         )
@@ -158,12 +186,35 @@ class TestNoSteal:
     def test_no_claimed_row_becomes_raw(self):
         """The opposite failure: a decoder that stopped reading a frame."""
         base = _baseline()["rows"]
-        now = census()
-        lost = [
-            key for key in base
-            if key in now and base[key] != "raw" and now[key] == "raw"
-        ]
+        lost = lost_rows(base, census())
         assert not lost, "\n".join(f"{key}: {base[key]} -> raw" for key in lost)
+
+    def test_no_baseline_row_vanishes_from_the_walk(self, capsys):
+        """A row the walk no longer finds is a row nobody is checking.
+
+        This is the assertion round 2 found missing. A renamed fixture
+        or a retired module takes its rows out of every comparison
+        above, so the absence itself has to fail, unless the key is
+        retired by name in ``RETIRED_KEYS`` with a reason, in which case
+        the retirement is printed rather than hidden.
+        """
+        base = _baseline()["rows"]
+        now = census()
+        retired = sorted(k for k in RETIRED_KEYS if k in base and k not in now)
+        if retired:
+            print(f"census: {len(retired)} retired row(s)")
+            for key in retired:
+                print(f"  retired {key}: {RETIRED_KEYS[key]}")
+        stale = sorted(k for k in RETIRED_KEYS if k in now)
+        assert not stale, (
+            "RETIRED_KEYS names rows the walk still finds; drop the entries: "
+            + ", ".join(stale)
+        )
+        vanished = vanished_rows(base, now, RETIRED_KEYS)
+        assert not vanished, (
+            f"{len(vanished)} baseline row(s) are no longer walked and are "
+            "not retired by name:\n" + "\n".join(vanished[:20])
+        )
 
     def test_every_allowlisted_fixture_actually_changed(self):
         """The allowlist cannot rot into a blanket permission.
@@ -186,7 +237,7 @@ class TestNoSteal:
             changed = {
                 now[key]
                 for key in now
-                if _source_of(key) == source
+                if source_of(key) == source
                 and base.get(key) != now[key]
             }
             assert changed, (
@@ -208,42 +259,162 @@ class TestNoSteal:
         assert True
 
 
-class TestCensusCanFail:
-    """The census is only a licence if it can refuse one.
+# ---------------------------------------------------------------------------
+# The census is only a licence if it can refuse one
+# ---------------------------------------------------------------------------
 
-    A test suite that has never seen its own failure mode is a suite
-    that might be asserting nothing, which is precisely what round 1
-    found the first draft doing.
+
+class _EvilCommand:
+    """The round 2 attack decoder: claims every complement-valid NEC frame.
+
+    Built on the verbatim reader so it works on both legs, and gated on
+    the complement so it takes exactly the rows strict NEC owns, which
+    is the steal the census exists to catch. Registered AHEAD of ``nec``
+    by the self-test and nowhere else.
     """
 
-    def test_a_planted_steal_is_caught(self, monkeypatch):
-        base = _baseline()["rows"]
-        # Any claimed row will do. Not pinned to NEC: on the bare leg
-        # there is no strict NEC decoder and no NEC row to plant on.
-        victim = next(k for k, v in base.items() if v != "raw")
-        decoy = "SAMSUNG32" if base[victim] != "SAMSUNG32" else "SONY12"
-
-        planted = dict(census())
-        planted[victim] = decoy
-        monkeypatch.setattr(
-            "custom_components.hair.tests.test_no_steal_census.census",
-            lambda: planted,
+    @classmethod
+    def from_raw_timings(cls, timings):
+        from custom_components.hair.decoders.nec_variant import (
+            NECNoComplementCommand,
         )
-        with pytest.raises(AssertionError, match=f"-> {decoy}"):
-            TestNoSteal().test_no_row_changes_protocol()
 
-    def test_a_planted_false_positive_is_caught(self, monkeypatch):
+        got = NECNoComplementCommand.from_raw_timings(timings)
+        if got is None or not got.complement_holds:
+            return None
+        return got
+
+
+def _plant_evil_ahead_of_nec(monkeypatch) -> None:
+    from custom_components.hair import protocol_decode
+
+    entry = (
+        "evil", None, "_EvilCommand", __name__, True,
+        lambda cmd: ("EVIL", int(cmd.address), int(cmd.command), None),
+        lambda cls, label, address, command, extras: None,
+        ("EVIL",),
+    )
+    monkeypatch.setattr(
+        protocol_decode, "_REGISTRATIONS",
+        (entry, *protocol_decode._REGISTRATIONS),
+    )
+    protocol_decode._reset_registry_for_tests()
+
+
+#: The two fixtures and four modules the round 2 attack touched. They
+#: are the ones that hold the corpus's NEC rows, which is why the attack
+#: chose them; if the corpus moves, move these with it.
+ATTACK_RENAMES = (
+    ("fixtures/nec_test_fixtures.json", "fixtures/nec_test_fixtures_v2.json"),
+    (
+        "fixtures/adapters/girr_irscrutinizer_export.girr",
+        "fixtures/adapters/girr_irscrutinizer_export_v2.girr",
+    ),
+)
+ATTACK_EDITS = (
+    "test_event_parser.py",
+    "test_send_spacing_doors.py",
+    "test_send_spacing_field.py",
+    "test_wig_identity.py",
+)
+
+
+def _doctored_corpus(tmp_path: Path) -> dict[str, Path]:
+    """A copy of the corpus with the round 2 attack's file changes applied."""
+    tests = tmp_path / "tests"
+    shutil.copytree(
+        TESTS, tests, ignore=shutil.ignore_patterns("__pycache__", "tools")
+    )
+    conftest = tmp_path / "conftest.py"
+    shutil.copy(ROOT_CONFTEST, conftest)
+    for old, new in ATTACK_RENAMES:
+        assert (tests / old).is_file(), f"{old} is gone; update ATTACK_RENAMES"
+        (tests / old).rename(tests / new)
+    for name in ATTACK_EDITS:
+        path = tests / name
+        assert path.is_file(), f"{name} is gone; update ATTACK_EDITS"
+        path.write_text(
+            "# one line, above everything\n" + path.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    return {
+        "fixtures": tests / "fixtures",
+        "tests": tests,
+        "root_conftest": conftest,
+    }
+
+
+class TestCensusCanFail:
+    """A test suite that has never seen its own failure mode is a suite
+    that might be asserting nothing, which is precisely what rounds 1
+    and 2 found the earlier drafts doing."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_registry(self):
+        from custom_components.hair import protocol_decode
+
+        yield
+        protocol_decode._reset_registry_for_tests()
+
+    def test_a_planted_decoder_alone_is_caught(self, monkeypatch):
+        """Registry-level, not dict-level: the walk has to see it."""
+        base = _baseline()["rows"]
+        _plant_evil_ahead_of_nec(monkeypatch)
+        now = census()
+        stolen = [k for k, v in now.items() if v == "EVIL"]
+        assert stolen, "the planted decoder claimed nothing; the plant is broken"
+        offenders = moved_rows(base, now, EXPECTED_CLAIMS) + newly_claimed_rows(
+            base, now, EXPECTED_CLAIMS
+        )
+        assert offenders, "a decoder stole rows and the census did not fail"
+
+    def test_the_round_2_attack_is_caught(self, tmp_path, monkeypatch):
+        """The whole attack: planted decoder, two renames, four edits.
+
+        Against the second draft this passed 10 of 10, because every
+        stolen row had moved to a key the baseline had never seen. Now
+        the renamed fixtures' rows VANISH (their old keys are gone and
+        not retired) and the edited modules' rows keep their keys and so
+        show as MOVED or newly claimed. Either alone fails the census;
+        both are asserted so neither guard can rot without notice.
+        """
+        base = _baseline()["rows"]
+        _plant_evil_ahead_of_nec(monkeypatch)
+        now = census(**_doctored_corpus(tmp_path))
+
+        vanished = vanished_rows(base, now, RETIRED_KEYS)
+        assert vanished, "the renamed fixtures' rows should have vanished"
+        assert any(source_of(k) == "fixtures/nec_test_fixtures.json" for k in vanished)
+
+        stolen_inline = [
+            k for k, v in now.items() if v == "EVIL" and k.startswith("TEST:")
+        ]
+        assert stolen_inline, "the edited modules' rows were not walked"
+        assert all(k in base for k in stolen_inline), (
+            "an edited module's rows changed key; inline keys must not "
+            "depend on line numbers"
+        )
+        offenders = moved_rows(base, now, EXPECTED_CLAIMS) + newly_claimed_rows(
+            base, now, EXPECTED_CLAIMS
+        )
+        assert offenders, "the stolen inline rows did not fail the census"
+
+    def test_a_planted_false_positive_is_caught(self):
         base = _baseline()["rows"]
         victim = next(
             k for k, v in base.items()
-            if v == "raw" and _source_of(k) not in EXPECTED_CLAIMS
+            if v == "raw" and source_of(k) not in EXPECTED_CLAIMS
         )
-
-        planted = dict(census())
+        planted = dict(base)
         planted[victim] = "NEC42EXT"
-        monkeypatch.setattr(
-            "custom_components.hair.tests.test_no_steal_census.census",
-            lambda: planted,
-        )
-        with pytest.raises(AssertionError, match="now NEC42EXT"):
-            TestNoSteal().test_no_raw_row_becomes_claimed_off_the_allowlist()
+        assert newly_claimed_rows(base, planted, EXPECTED_CLAIMS) == [
+            (victim, "NEC42EXT")
+        ]
+
+    def test_a_retired_key_is_not_a_failure_and_a_stale_one_is(self):
+        base = {"fixtures/gone.json#/a": "NEC", "fixtures/kept.json#/b": "NEC"}
+        now = {"fixtures/kept.json#/b": "NEC"}
+        assert vanished_rows(base, now, {}) == ["fixtures/gone.json#/a"]
+        assert vanished_rows(
+            base, now, {"fixtures/gone.json#/a": "deleted on purpose"}
+        ) == []

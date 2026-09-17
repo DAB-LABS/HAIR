@@ -46,6 +46,14 @@ class _HAIRDeviceStore(Store):
     #: third, wrong value.
     dyson_split_rows: int = 0
 
+    #: True when the 1.1 to 1.2 hop ran on this load, whatever it found.
+    #: The trigger repoint keys on THIS and not on the row count above:
+    #: a trigger can be minted from the Sniffer catalog with no Dyson
+    #: device command anywhere in the store, and a repoint gated on the
+    #: count left exactly those triggers on their old identity, where a
+    #: tier 1 mismatch silenced them for good (review round 2, finding 3).
+    dyson_split_ran: bool = False
+
     async def _async_migrate_func(
         self,
         old_major_version: int,
@@ -74,6 +82,7 @@ class _HAIRDeviceStore(Store):
         if old_major_version == 1 and old_minor_version < 2:
             from .dyson_migration import migrate_device_store
 
+            self.dyson_split_ran = True
             self.dyson_split_rows = migrate_device_store(old_data)
         return old_data
 
@@ -256,14 +265,20 @@ class HAIRStore:
         # minor version reaches disk.
         # ``isinstance`` because a test may replace the store with a
         # mock, and reading any attribute off one of those returns a
-        # truthy object. The flag is an int by contract, so anything
-        # else means this is not the real store and nothing migrated.
+        # truthy object. The flags are an int and a bool by contract, so
+        # anything else means this is not the real store and nothing
+        # migrated.
         migrated = getattr(self._store, "dyson_split_rows", 0)
         migrated = migrated if isinstance(migrated, int) else 0
-        if migrated:
+        ran = getattr(self._store, "dyson_split_ran", False)
+        ran = ran if isinstance(ran, bool) else False
+        if ran:
+            # Every trigger, whether or not a device row moved: the
+            # repoint re-decodes each DYSON trigger's own code, so it is
+            # idempotent and costs nothing when there is nothing to do.
             from .dyson_migration import retarget_dyson_triggers
 
-            retarget_dyson_triggers(self._triggers.values())
+            migrated += retarget_dyson_triggers(self._triggers.values())
 
         changed = self._backfill_decoded_fields()
         changed = self._backfill_byte_hash() or changed
@@ -273,7 +288,7 @@ class HAIRStore:
         changed = self._backfill_pin_bindings() or changed
         self._rebuild_command_index()
         self._loaded = True
-        if changed or migrated:
+        if changed or migrated or ran:
             await self.async_save()
 
     async def async_save(self) -> None:

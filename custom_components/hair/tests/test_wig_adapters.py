@@ -12,6 +12,7 @@ import pytest
 
 from custom_components.hair.ir_command import raw_to_pronto
 from custom_components.hair.pronto_validator import validate_pronto
+from custom_components.hair.tests.leg import strict_nec_available
 from custom_components.hair.wig_adapters import (
     broadlink_packet_to_pronto,
     convert,
@@ -629,13 +630,60 @@ class TestFlipperNecFamilyBuilders:
         assert any("Bad" in reason for reason in result.skipped), result.skipped
         assert any("0x1FFF" in reason for reason in result.skipped)
 
-    def test_a_pioneer_line_is_stored_at_40_khz(self):
+    def test_a_pioneer_line_is_the_frame_flipper_meant(self):
+        """Written the way a Flipper writes it: eight bits of each.
+
+        A Flipper ``Pioneer`` line comes from a decoder that reads the
+        32-bit frame, checks both inverse bytes, and records only the
+        two payload bytes. So the line below means the wire
+        ``A5 5A 1E E1``. The first cut of this builder took the two
+        fields as sixteen verbatim bits and rendered ``A5 00 1E 00``
+        (review round 2, finding 1): no complements, no decoder claims
+        it, no Pioneer accepts it. The test that let it through used an
+        input with the complements hand-spelled into the 16-bit fields,
+        which the Flipper parser cannot produce.
+
+        Asserted: the stored bytes carry both complements, the carrier
+        is 40 kHz, and the row re-decodes to NEC with the address and
+        command the file states, which is round 1's ruling (Pioneer is
+        never minted from air). The row is stored bypass, because the
+        NEC encoder would rebuild it at 38 kHz with NEC's timings and
+        the whole point of the 40 kHz Pronto is to send it as rendered.
+        """
+        from custom_components.hair.wig_identity import wig_signal_identity
+
         text = (
             "Filetype: IR signals file\nVersion: 1\n#\n"
             "name: Power\ntype: parsed\nprotocol: Pioneer\n"
-            "address: 5A A5 00 00\ncommand: 14 EB 00 00\n#\n"
+            "address: A5 00 00 00\ncommand: 1E 00 00 00\n#\n"
         )
         result = convert(text, name_hint="pio.ir")
         assert result.error is None
+        assert result.skipped == []
         signal = result.wigs[0].signals[0]
-        assert signal.pronto.split()[1] == "0068"
+        assert signal.pronto.split()[1] == "0068"  # 40 kHz
+        assert self._wire_bytes(signal.pronto) == [0xA5, 0x5A, 0x1E, 0xE1]
+        identity = wig_signal_identity(signal.pronto)
+        if strict_nec_available():
+            assert identity.decoded_protocol == "NEC"
+            assert identity.decoded_address == 0x5AA5
+            assert identity.decoded_command == 0x1E
+            assert signal.bypass_protocol is True
+        else:
+            # Nothing decodes it without the library, so there is no
+            # triple to distrust and the raw replay needs no bypass.
+            assert identity.decoded_protocol is None
+            assert signal.bypass_protocol is False
+
+    def test_a_pioneer_field_wider_than_eight_bits_is_refused_by_name(self):
+        """Checked, not masked, like the 42-bit entries."""
+        text = (
+            "Filetype: IR signals file\nVersion: 1\n#\n"
+            "name: Wide\ntype: parsed\nprotocol: Pioneer\n"
+            "address: A5 01 00 00\ncommand: 1E 00 00 00\n#\n"
+        )
+        result = convert(text, name_hint="pio.ir")
+        assert result.wigs == [] or result.wigs[0].signals == []
+        assert any("Wide" in r and "8 bits" in r for r in result.skipped), (
+            result.skipped
+        )

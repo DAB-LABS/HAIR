@@ -58,9 +58,10 @@ own round-trip test already called AM04/07/09 power.
 THE VALUES OF EVERY STORED DYSON ROW THEREFORE MOVED, and a stored row
 transmits from its decoded triple, so a migration recomputes them
 through the F byte rather than leaving them to re-encode as a different
-button. ``storage._backfill_dyson_counter_split`` does it, gated on the
-store's minor version because the remap is a bijection and not
-idempotent.
+button. ``dyson_migration`` does it from the two stores' migration
+hooks (storage minor version 1 to 2), gated on the version because the
+remap is a bijection and not idempotent; triggers are re-decoded from
+their stored code on the same hop.
 
 WHETHER THE COUNTER ROTATES OVER FOUR VALUES IS STILL OPEN. The
 definition can only ever emit the pairs ``10`` and ``01``, because its
