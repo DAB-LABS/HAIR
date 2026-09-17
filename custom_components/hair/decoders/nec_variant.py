@@ -46,7 +46,13 @@ ONE CASE DOES CHANGE, and it is named rather than absorbed. Upstream's
 encoder treats an address of 0xFF or less as a standard 8-bit NEC
 address and emits its complement as the second byte. A file that says
 ``NECext`` and gives a low address means the two bytes it wrote, so
-this class emits them verbatim. Such a file's Pronto changes.
+this class emits them verbatim. Such a file's Pronto changes, and so
+does its identity (``NEC:0x0004:...`` where the complemented rendering
+read ``NEC:0xfb04:...``). The Pronto alone would not have put those
+bytes on the air, because the send path rebuilds a decodable row from
+its triple through the upstream encoder; the importer therefore checks
+every rendered row against that rebuild and stores the ones it cannot
+reproduce with the protocol bypass set (``wig_adapters._triple_reproduces``).
 
 License rule (package docstring): written from the public NEC frame
 description. No third-party decoder implementation was consulted.

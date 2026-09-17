@@ -133,7 +133,9 @@ def _rows() -> dict[str, list[dict]]:
         for command in data.get("commands") or []:
             protocol = command.get("protocol")
             if protocol in found:
-                found[protocol].append(command)
+                # The codeset a row came from rides along, so a failure
+                # or a report line can name it rather than a bare button.
+                found[protocol].append({**command, "_codeset": path.stem})
     return found
 
 
@@ -273,13 +275,34 @@ class TestApple:
         _report("Apple", counts)
         assert not failures, "\n".join(failures[:20])
 
-    def test_the_parity_rule_separates_the_two_populations(self):
-        """Every 0x87EE row is odd and no other address is.
+    #: The measured population at Apple's address, over the whole
+    #: corpus. 432 frames satisfy the parity rule and 33 do not; of the
+    #: 33, one is complement-valid and so is strict NEC's by NEC's own
+    #: rule, and the other 32 are nobody's. These are asserted as
+    #: numbers so the test moves when the corpus or the gate does,
+    #: instead of passing on any input.
+    PARITY_HOLDS = 432
+    PARITY_FAILS = 33
+    COMPLEMENT_VALID = 1
 
-        The claim the gate rests on, measured over the whole corpus
-        rather than over one sampled codeset.
+    def test_the_parity_rule_over_the_whole_corpus(self, capsys):
+        """The numbers the gate rests on, asserted rather than printed.
+
+        An earlier draft of this test said in its docstring that every
+        0x87EE row is odd, and its two assertions could not fail: the
+        first ended in ``or True`` and the second was satisfied by the
+        disjointness proof whatever the input. Over the corpus it is
+        432 to 33. The 33 are refused by APPLE and stay raw, with one
+        exception the proof predicts: the single complement-valid row
+        is a legal NEC frame, so strict NEC claims it where the library
+        is present. The 33 are printed by codeset and keycode so the
+        build report can name them.
         """
+        from custom_components.hair.tests.leg import strict_nec_available
+
         counts: Counter = Counter()
+        failing_rows: list[str] = []
+        failures: list[str] = []
         for command in _rows()["Toshiba 32 Bit"]:
             parsed = _first_value(command.get("keycode", ""), 32)
             if parsed is None:
@@ -290,22 +313,48 @@ class TestApple:
                 for n in range(4)
             ]
             address = wire[0] | (wire[1] << 8)
+            if address != APPLE_ADDRESS:
+                counts["other-address"] += 1
+                continue
             ones = bin(wire[2]).count("1") + bin(wire[3]).count("1")
             complement = wire[2] ^ wire[3] == 0xFF
-            key = "0x87EE" if address == APPLE_ADDRESS else "other"
-            counts[f"{key}:{'odd' if ones % 2 else 'even'}"] += 1
+            if ones % 2 == 1:
+                counts["0x87EE:holds"] += 1
+                assert not complement, "a complement-valid frame can never be odd"
+                continue
+            counts["0x87EE:fails"] += 1
             if complement:
-                counts[f"{key}:complement-valid"] += 1
+                counts["0x87EE:complement-valid"] += 1
+            failing_rows.append(
+                f"{command.get('_codeset')} {command.get('name')} "
+                f"{command.get('keycode')} byte3={wire[2]:02X} "
+                f"byte4={wire[3]:02X}"
+                + (" complement-valid" if complement else "")
+            )
+            pronto = command.get("pronto")
+            if not pronto:
+                continue
+            identity = try_decode_identity(
+                ProntoCommand(pronto).get_raw_timings()
+            )
+            label = None if identity is None else identity.protocol
+            expected = (
+                "NEC" if complement and strict_nec_available() else None
+            )
+            if label != expected:
+                failures.append(
+                    f"{command.get('_codeset')} {command.get('name')}: "
+                    f"expected {expected}, decoded {label}"
+                )
+
         _report("Apple parity", counts)
-        # A complement-valid frame can never be odd. That is the
-        # disjointness proof, and here it is over the whole corpus.
-        assert counts["0x87EE:complement-valid"] == 0 or True
-        for key in ("0x87EE", "other"):
-            odd = counts[f"{key}:odd"]
-            comp = counts[f"{key}:complement-valid"]
-            assert not (odd and comp and odd + comp > sum(
-                v for k, v in counts.items() if k.startswith(key)
-            )), key
+        print("\n[Apple parity: the rows outside the rule]")
+        for row in failing_rows:
+            print("  " + row)
+        assert counts["0x87EE:holds"] == self.PARITY_HOLDS
+        assert counts["0x87EE:fails"] == self.PARITY_FAILS
+        assert counts["0x87EE:complement-valid"] == self.COMPLEMENT_VALID
+        assert not failures, "\n".join(failures)
 
 
 class TestNECNoComplementEncoder:

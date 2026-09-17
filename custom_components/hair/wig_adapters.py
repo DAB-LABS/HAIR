@@ -635,7 +635,6 @@ def _flipper_builders():
     # table that reached into the registry would not find them.
     from .decoders.nec42 import NEC42Command, NEC42ExtCommand
     from .decoders.nec_variant import NECNoComplementCommand
-    from .decoders.pioneer import PioneerCommand
 
     # NECext: 16-bit address, and the command field is the THIRD AND
     # FOURTH WIRE BYTES AS WRITTEN, not a command whose complement is
@@ -658,7 +657,10 @@ def _flipper_builders():
     # treats an address of 0xFF or less as a standard 8-bit NEC address
     # and emits its complement as the second byte. A file that says
     # ``NECext`` and gives a low address means the two bytes it wrote,
-    # so they go out as written and that file's Pronto moves.
+    # so they go out as written and that file's Pronto moves. The
+    # stored Pronto alone would not have been enough: the row decodes to
+    # a 16-bit NEC address the NEC encoder re-complements on send, which
+    # is why ``_triple_reproduces`` marks such a row bypass.
     builders["NECext"] = lambda a, c: NECNoComplementCommand(
         address=a & 0xFFFF, command=c & 0xFFFF
     )
@@ -679,9 +681,42 @@ def _flipper_builders():
     # from re-decoding that Pronto, which lands on NEC, because HAIR
     # cannot tell Pioneer from NEC without the carrier and does not
     # pretend to. See ``decoders/pioneer.py``.
-    builders["Pioneer"] = lambda a, c: PioneerCommand(address=a, command=c)
+    #
+    # THE FILE CARRIES EIGHT BITS OF EACH, AND THE COMPLEMENTS ARE
+    # IMPLIED. A Flipper ``Pioneer`` line is written by a decoder that
+    # reads an 8-bit address, an 8-bit command and their two inverse
+    # bytes, refuses the frame unless both inverses hold, and records
+    # only the two payload bytes. So ``address: A5 00 00 00`` means the
+    # wire ``A5 5A`` and ``command: 1E 00 00 00`` means ``1E E1``. The
+    # first cut of this builder took both fields as sixteen verbatim
+    # bits and rendered ``A5 00 1E 00``, a frame no Pioneer accepts and
+    # no decoder here claims (review round 2, finding 1). The two bytes
+    # are expanded here, and a value with bits above eight is refused by
+    # name rather than masked, for the same reason the 42-bit entries
+    # above carry no masks.
+    builders["Pioneer"] = _build_pioneer
 
     return builders
+
+
+def _build_pioneer(address: int, command: int):
+    """A Flipper ``Pioneer`` line to the 32-bit frame it stands for."""
+    from .decoders.pioneer import PioneerCommand
+
+    if not 0 <= address <= 0xFF:
+        raise ValueError(
+            f"Pioneer address {address:#x} is wider than the 8 bits a "
+            "Flipper Pioneer line carries"
+        )
+    if not 0 <= command <= 0xFF:
+        raise ValueError(
+            f"Pioneer command {command:#x} is wider than the 8 bits a "
+            "Flipper Pioneer line carries"
+        )
+    return PioneerCommand(
+        address=address | ((~address & 0xFF) << 8),
+        command=command | ((~command & 0xFF) << 8),
+    )
 
 
 def _flipper_bytes_value(raw: str) -> int:
@@ -691,6 +726,51 @@ def _flipper_bytes_value(raw: str) -> int:
     for i, part in enumerate(parts):
         value |= int(part, 16) << (8 * i)
     return value
+
+
+def _triple_reproduces(pronto: str, timings: list[int]) -> bool:
+    """Would the send path's re-encode put these bytes on the air?
+
+    THE DECODE-TRUST RULE, APPLIED AT THE IMPORT DOOR. HAIR transmits a
+    decodable row from its decoded triple, not from its stored code. A
+    file can state bytes the encoder for that triple does not
+    reproduce: a ``NECext`` line whose address is 0xFF or less decodes
+    to a 16-bit NEC address, and the NEC encoder treats any address
+    that small as 8-bit and writes its complement as the second byte,
+    so ``04 00 08 F7`` in the file would go out as ``04 FB 08 F7``
+    (review round 2, finding 2). The same rule covers the other cases
+    where a rendering outruns the encoders: a non-complement fourth
+    byte, and a Pioneer line whose 40 kHz Pronto the NEC encoder would
+    rebuild at 38 kHz with NEC's own timings.
+
+    So every rendered row is checked the way a capture is checked at
+    mint: decode it, re-encode the triple, compare the Pronto strings.
+    A row the triple cannot reproduce is stored with ``bypass_protocol``
+    set, so the air carries the bytes the file wrote. A row nothing
+    decodes needs no bypass, because there is no triple to re-encode
+    from and the send path already replays it.
+    """
+    from .ir_command import build_decoded_command
+    from .protocol_decode import try_decode_identity
+
+    try:
+        identity = try_decode_identity(list(timings))
+    except Exception:
+        return True
+    if identity is None:
+        return True
+    rebuilt = build_decoded_command(
+        identity.protocol,
+        identity.address,
+        identity.command,
+        decoded_extras=dict(identity.extras) if identity.extras else None,
+    )
+    if rebuilt is None:
+        return True
+    modulation = int(getattr(rebuilt, "modulation", 0) or 0) or 38000
+    return raw_to_pronto(
+        list(rebuilt.get_raw_timings()), frequency=modulation
+    ) == pronto
 
 
 def _convert_flipper(text: str, name_hint: str) -> AdapterResult:
@@ -736,9 +816,11 @@ def _convert_flipper(text: str, name_hint: str) -> AdapterResult:
                 modulation = int(
                     getattr(command, "modulation", 0) or 0
                 ) or 38000
+                pronto = raw_to_pronto(timings, frequency=modulation)
                 signals.append(WigSignal(
                     alias=name,
-                    pronto=raw_to_pronto(timings, frequency=modulation),
+                    pronto=pronto,
+                    bypass_protocol=not _triple_reproduces(pronto, timings),
                 ))
             except Exception as err:
                 result.skipped.append(f"{name}: encode failed ({err})")

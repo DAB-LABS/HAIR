@@ -22,7 +22,9 @@ from custom_components.hair.dyson_migration import (
     migrate_signal_store,
     remap_fields,
 )
-from custom_components.hair.models import IRCommand, IRDevice
+from custom_components.hair.ir_command import raw_to_pronto
+from custom_components.hair.models import IRCommand, IRDevice, IRTrigger
+from custom_components.hair.protocol_decode import try_decode_identity
 from custom_components.hair.storage import HAIRStore
 
 #: The AM07 PowerToggle, as the old reader stored it and as the frame
@@ -59,6 +61,21 @@ def _wire_under_the_old_split(device: int, function: int, counter: int) -> str:
     bits = [(device >> i) & 1 for i in range(7)]
     bits += [(f_byte >> i) & 1 for i in range(8)]
     return "".join(str(bit) for bit in bits)
+
+
+def _old_frame(device: int, function: int, counter: int) -> list[int]:
+    """The timings the PREVIOUS encoder emitted for a triple.
+
+    What a fan actually heard, and what a trigger learned from the
+    catalog has stored as its code. Same packing as
+    ``_wire_under_the_old_split``, rendered as marks and spaces.
+    """
+    f_byte = ((function & 0x3F) << 2) | (counter & 0x3)
+    timings = [2340, -780]
+    for field, width in ((device, 7), (f_byte, 8)):
+        for index in range(width):
+            timings += [780, -1560 if (field >> index) & 1 else -780]
+    return [*timings, 780]
 
 
 def _row(function: int, counter: int, address: int = 9) -> dict:
@@ -292,3 +309,68 @@ class TestThroughTheStore:
         command = store.get_all_devices()[0].commands[0]
         assert command.decoded_command == 0x00
         assert command.decoded_extras["counter"] == 1
+
+
+class TestTriggersWithoutADevice:
+    """The repoint keys on the hop, not on the device rows it moved.
+
+    A trigger can be minted straight from the Sniffer catalog, with no
+    Dyson device command anywhere in the store. The first cut gated the
+    repoint on how many device rows the migration changed, so exactly
+    those triggers kept their old fingerprint, and because a decided
+    tier mismatch is final they would never have matched a press again
+    (review round 2, finding 3).
+    """
+
+    def _trigger(self) -> IRTrigger:
+        code = raw_to_pronto(
+            _old_frame(9, OLD_POWER["function"], OLD_POWER["counter"]), 38000
+        )
+        return IRTrigger(
+            name="Fan power",
+            signal_fingerprint="S9L6",
+            protocol="PRONTO",
+            code=code,
+            decoded_fingerprint="DYSON:0x0009:0x10",
+            origin="remote",
+        )
+
+    async def test_a_catalog_minted_trigger_is_repointed_and_fires(
+        self, fake_hass
+    ):
+        store = HAIRStore(fake_hass)
+        payload = {"devices": [], "triggers": [self._trigger().to_dict()],
+                   "trigger_remotes": [], "trigger_drawer_name": "HAIR"}
+        store._store.seed_stored(payload, version=STORAGE_VERSION,
+                                 minor_version=1)
+        await store.async_load()
+
+        trigger = store.get_all_triggers()[0]
+        assert trigger.decoded_fingerprint == "DYSON:0x0009:0x00"
+
+        # The press the fan hears is the frame the old encoder built,
+        # decoded by today's reader: it must land on the trigger.
+        press = try_decode_identity(
+            _old_frame(9, OLD_POWER["function"], OLD_POWER["counter"])
+        )
+        assert press is not None and press.fingerprint == "DYSON:0x0009:0x00"
+        assert trigger.matches_signal(
+            "S9L6", decoded_fingerprint=press.fingerprint
+        )
+        # And the repoint is on disk, so the next boot does not undo it.
+        assert store._store._stored_minor == STORAGE_VERSION_MINOR
+        saved = [t for t in store._store._data["triggers"]]
+        assert saved[0]["decoded_fingerprint"] == "DYSON:0x0009:0x00"
+
+    async def test_a_current_store_leaves_triggers_alone(self, fake_hass):
+        store = HAIRStore(fake_hass)
+        trigger = self._trigger()
+        trigger.decoded_fingerprint = "DYSON:0x0009:0x00"
+        payload = {"devices": [], "triggers": [trigger.to_dict()],
+                   "trigger_remotes": [], "trigger_drawer_name": "HAIR"}
+        store._store.seed_stored(payload, version=STORAGE_VERSION,
+                                 minor_version=STORAGE_VERSION_MINOR)
+        await store.async_load()
+        assert store.get_all_triggers()[0].decoded_fingerprint == (
+            "DYSON:0x0009:0x00"
+        )

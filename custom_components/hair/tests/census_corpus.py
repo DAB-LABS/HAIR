@@ -18,6 +18,18 @@ Two rules make it able to fail, both from review round 1:
    changing. A key absent from the baseline is a new row: reported,
    never a failure. A key present whose label moved always fails.
 
+3. A KEY THAT VANISHES IS A FAILURE. Review round 2 planted a decoder
+   ahead of strict NEC that stole every NEC row, renamed the two
+   fixture files that hold them and added one line to the four test
+   modules that hold the rest, and the first cut passed: the stolen
+   rows had all moved to keys the baseline had never seen, and nothing
+   noticed the old keys were gone. So a baseline key the walk no longer
+   finds fails unless ``RETIRED_KEYS`` in the test names it with a
+   reason, and inline rows are keyed by MODULE PLUS A HASH OF THEIR
+   CONTENT rather than by line and column, so reformatting or moving a
+   test cannot orphan a row. Fixture rows stay keyed by path, because a
+   renamed fixture should be noticed.
+
 The corpus is every fixture under ``tests/fixtures/`` that decodes to
 timings by any route this repo can read, plus every inline capture the
 test modules expose. The inline half matters: eighteen modules carry
@@ -34,6 +46,7 @@ import ast
 import base64
 import csv
 import gzip
+import hashlib
 import io
 import json
 import re
@@ -43,6 +56,8 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).parent / "fixtures"
 TESTS = Path(__file__).parent
+#: The root conftest the inline walk also reads (the repo root).
+ROOT_CONFTEST = TESTS.parent.parent.parent / "conftest.py"
 
 # Broadlink tick, the same figure ``wig_adapters`` uses. Duplicated here
 # rather than imported so the corpus reader keeps working if the adapter
@@ -159,8 +174,8 @@ def _read(path: Path) -> str:
     return path.read_text(errors="replace")
 
 
-def _fixture_rows(path: Path) -> Iterator[CensusRow]:
-    source = str(path.relative_to(FIXTURES.parent))
+def _fixture_rows(path: Path, fixtures: Path = FIXTURES) -> Iterator[CensusRow]:
+    source = str(path.relative_to(fixtures.parent))
     try:
         text = _read(path)
     except Exception:
@@ -209,12 +224,22 @@ def _fixture_rows(path: Path) -> Iterator[CensusRow]:
             yield CensusRow(source, f"pronto@{match.start()}", raw)
 
 
+def _content_key(payload: str) -> str:
+    """A short, stable digest of a row's content."""
+    return "sha" + hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+
+
 def _inline_rows(path: Path) -> Iterator[CensusRow]:
-    """Inline captures in one test module, addressed by source offset.
+    """Inline captures in one test module, addressed by content.
 
     Parsed with ``ast`` rather than a regex over the text: a list
     literal of signed ints is unambiguous in the tree and guessable at
-    best in the text, and the offset of the node is a stable key.
+    best in the text. The key is the module name plus a digest of the
+    literal's values (or of the Pronto text), NOT its line and column:
+    a row must keep its key when the test around it is reformatted,
+    reordered or moved further down the file, or a change that shifts
+    lines would retire every row in the module and mint them again as
+    "new", which is exactly the hole a steal can hide in.
     """
     source = f"TEST:{path.name}"
     try:
@@ -240,17 +265,13 @@ def _inline_rows(path: Path) -> Iterator[CensusRow]:
                     values = []
                     break
             if values:
-                yield CensusRow(
-                    source, f"line{node.lineno}col{node.col_offset}", values
-                )
+                yield CensusRow(source, _content_key(json.dumps(values)), values)
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             text = node.value.strip()
             if _PRONTO_RE.fullmatch(text):
                 raw = _pronto_to_raw(text)
                 if raw is not None:
-                    yield CensusRow(
-                        source, f"line{node.lineno}col{node.col_offset}", raw
-                    )
+                    yield CensusRow(source, _content_key(" ".join(text.split())), raw)
 
 
 def _adapter_rows(path: Path) -> Iterator[CensusRow]:
@@ -283,20 +304,28 @@ def _adapter_rows(path: Path) -> Iterator[CensusRow]:
                 yield CensusRow(source, signal.alias or "?", raw)
 
 
-def corpus() -> list[CensusRow]:
-    """Every capture the census walks, in a stable order."""
+def corpus(
+    fixtures: Path = FIXTURES,
+    tests: Path = TESTS,
+    root_conftest: Path = ROOT_CONFTEST,
+) -> list[CensusRow]:
+    """Every capture the census walks, in a stable order.
+
+    The roots are parameters so the self-test in
+    ``test_no_steal_census.py`` can walk a doctored copy of the corpus
+    (fixtures renamed, modules edited) without touching the real one.
+    """
     rows: list[CensusRow] = []
-    for path in sorted(FIXTURES.rglob("*")):
+    for path in sorted(fixtures.rglob("*")):
         if path.is_file():
-            rows.extend(_fixture_rows(path))
-    for path in sorted((FIXTURES / "adapters").glob("*")):
+            rows.extend(_fixture_rows(path, fixtures))
+    for path in sorted((fixtures / "adapters").glob("*")):
         if path.is_file():
             rows.extend(_adapter_rows(path))
-    for path in sorted(TESTS.glob("*.py")):
+    for path in sorted(tests.glob("*.py")):
         rows.extend(_inline_rows(path))
-    conftest = TESTS.parent.parent.parent / "conftest.py"
-    if conftest.is_file():
-        rows.extend(_inline_rows(conftest))
+    if root_conftest.is_file():
+        rows.extend(_inline_rows(root_conftest))
     seen: set[str] = set()
     unique: list[CensusRow] = []
     for row in rows:
@@ -322,14 +351,75 @@ def label_for(timings: list[int]) -> str:
     return "raw" if identity is None else identity.protocol
 
 
-def census() -> dict[str, str]:
+def census(**roots: Path) -> dict[str, str]:
     """``{row key: label}`` for the whole corpus."""
-    return {row.key: label_for(row.timings) for row in corpus()}
+    return {row.key: label_for(row.timings) for row in corpus(**roots)}
 
 
-def sources() -> dict[str, int]:
+def sources(**roots: Path) -> dict[str, int]:
     """``{source: row count}``, for the report's walk list."""
     counts: dict[str, int] = {}
-    for row in corpus():
+    for row in corpus(**roots):
         counts[row.source] = counts.get(row.source, 0) + 1
     return counts
+
+
+# --- the comparisons -------------------------------------------------------
+#
+# Pure functions of (baseline rows, current rows), so the test module
+# asserts on them and the self-test can run them against a walk of a
+# doctored corpus with a planted decoder. Each returns the offenders;
+# an empty list is a pass.
+
+
+def source_of(key: str) -> str:
+    return key.rsplit("#", 1)[0]
+
+
+def moved_rows(
+    base: dict[str, str], now: dict[str, str], allowed: dict[str, set[str]]
+) -> list[tuple[str, str, str]]:
+    """Rows whose label changed from one protocol to another."""
+    return [
+        (key, base[key], now[key])
+        for key in base
+        if key in now
+        and base[key] != now[key]
+        and base[key] != "raw"
+        and now[key] not in allowed.get(source_of(key), set())
+    ]
+
+
+def newly_claimed_rows(
+    base: dict[str, str], now: dict[str, str], allowed: dict[str, set[str]]
+) -> list[tuple[str, str]]:
+    """Rows that were ``raw`` and now carry a label off the allowlist."""
+    return [
+        (key, now[key])
+        for key in base
+        if key in now
+        and base[key] == "raw"
+        and now[key] != "raw"
+        and now[key] not in allowed.get(source_of(key), set())
+    ]
+
+
+def lost_rows(base: dict[str, str], now: dict[str, str]) -> list[str]:
+    """Rows a decoder used to read and no longer does."""
+    return [
+        key for key in base
+        if key in now and base[key] != "raw" and now[key] == "raw"
+    ]
+
+
+def vanished_rows(
+    base: dict[str, str], now: dict[str, str], retired: dict[str, str]
+) -> list[str]:
+    """Baseline keys the walk no longer finds, minus the retired ones.
+
+    The hole round 2 found: a row that disappears from the walk is not
+    compared at all, so renaming a fixture or shifting a module's lines
+    took every row in it out of the census. A vanished key is a failure
+    unless it is retired by name with a reason.
+    """
+    return [key for key in base if key not in now and key not in retired]
