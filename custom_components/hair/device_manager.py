@@ -738,7 +738,11 @@ class DeviceManager:
         if not device.emitter_entity_ids:
             raise RuntimeError(f"Device {device_id} has no emitters configured")
 
-        from .ir_command import build_command, build_decoded_command
+        from .ir_command import (
+            build_command,
+            build_decoded_command,
+            carrier_or_default,
+        )
 
         # Prefer canonical encode-from-decoded when the command carries a
         # decoded protocol identity and the user has not pinned it to the
@@ -805,7 +809,7 @@ class DeviceManager:
                 protocol=command.protocol,
                 code=command.code,
                 raw_timings=command.raw_timings,
-                frequency=command.frequency or 38000,
+                frequency=carrier_or_default(command.frequency),
                 repeat_count=command.repeat_count or 0,
             )
 
@@ -902,7 +906,13 @@ class DeviceManager:
         )
 
         from .ir_command import TERMINATOR_SPACE_US, block_duration_us
-        from .send_plan import emitter_platform, plan_send, silence_us
+        from .send_plan import (
+            emitter_platform,
+            is_unmodulated,
+            plan_send,
+            refuse_unmodulated,
+            silence_us,
+        )
         from .tx_gate import gated_send
 
         # Emitter resilience (GH #65, rvgfox): multi-emitter is the
@@ -914,6 +924,7 @@ class DeviceManager:
         # (the Athom in the report did exactly that).
         skipped: dict[str, str] = {}
         attempt_ids: list[str] = []
+        carrierless = is_unmodulated(ir_cmd)
         for emitter_id in device.emitter_entity_ids:
             state = self._hass.states.get(emitter_id)
             # "unavailable" is down. "unknown" is merely NEVER USED: an
@@ -928,9 +939,28 @@ class DeviceManager:
             if state is not None and state.state == "unavailable":
                 skipped[emitter_id] = state.state
                 continue
+            # A NON-MODULATED CODE IS REFUSED, NOT DOWNGRADED (item 6).
+            # A Pronto ``0100`` code carries no carrier on purpose, and
+            # an emitter that cannot transmit one would either modulate
+            # it at its own rate or drop the carrier word on the floor.
+            # Either way the device hears something it was not sent, so
+            # the emitter is skipped here with a reason the person can
+            # read, exactly as an unavailable one is.
+            refusal = refuse_unmodulated(
+                ir_cmd, emitter_platform(self._hass, emitter_id)
+            )
+            if refusal is not None:
+                skipped[emitter_id] = refusal
+                continue
             attempt_ids.append(emitter_id)
         if not attempt_ids:
             self._notify_emitter_degraded(device, skipped)
+            if carrierless:
+                raise RuntimeError(
+                    f"No emitter on {device.name} can send a non-modulated "
+                    "code, and HAIR will not send one with a carrier it "
+                    "was not given"
+                )
             raise RuntimeError(
                 f"All emitters for {device.name} are unavailable"
             )

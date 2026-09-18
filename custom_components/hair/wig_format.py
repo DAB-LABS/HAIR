@@ -72,9 +72,26 @@ WIG_FORMAT_MAJOR_CLIMATE = 2
 # version instead is the difference between "update HAIR to import it"
 # and an accusation.
 WIG_FORMAT_MAJOR_RECIPE = 3
+# hair-wig/4 (import phase 1): a climate block may carry ``extras``,
+# lattices on an axis the main one has no room for. A fork climate file
+# names presets, one preset becomes the main lattice and the rest ride
+# here, and GH #155's extra modes will ride the same shape.
+#
+# EXTRAS ARE INSIDE THE DIGEST, which is what forces the bump. They are
+# real transmit recipes, and a claim binds ``cells_hash`` on a matrix
+# wig: outside the hash, an extras lattice could be replaced wholesale
+# on a signed wig and the signature would still verify. A signature
+# that covers some of a file's codes and not others is worse than none
+# for the purpose people will use it for.
+#
+# The version follows the content, as /2 did: a wig with no extras is
+# still a /3 file that every install reads, and only a wig that carries
+# one demands the version it needs.
+WIG_FORMAT_MAJOR_EXTRAS = 4
 WIG_FORMAT_V1 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR}"
 WIG_FORMAT_V2 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_CLIMATE}"
 WIG_FORMAT_V3 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_RECIPE}"
+WIG_FORMAT_V4 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_EXTRAS}"
 
 WIG_SUFFIX = ".wig.json"
 
@@ -107,7 +124,7 @@ _KNOWN_TOP = {
 
 _KNOWN_CLIMATE = {
     "min_temp", "max_temp", "precision", "unit", "modes", "fan_modes",
-    "swing_modes", "off", "on", "cells",
+    "swing_modes", "off", "on", "cells", "extras",
 }
 _KNOWN_CELL = {"mode", "fan", "swing", "temp", "pronto", "send_count"}
 
@@ -386,6 +403,22 @@ class ClimateCell:
 
 
 @dataclass
+class ClimateExtra:
+    """One lattice the main one has no axis for.
+
+    ``axis`` names what this lattice varies that the main lattice does
+    not (``preset`` today, ``mode`` for GH #155's extra modes), ``key``
+    is the source file's own word for it, verbatim, and ``cells`` is
+    exactly the shape of ``ClimateMatrix.cells`` so every cell tool
+    reads it unchanged.
+    """
+
+    axis: str
+    key: str
+    cells: list[ClimateCell] = field(default_factory=list)
+
+
+@dataclass
 class ClimateMatrix:
     """The hair-wig/2 climate block: a stateful device's full lattice."""
 
@@ -404,6 +437,11 @@ class ClimateMatrix:
     fan_modes: list[str] = field(default_factory=list)
     swing_modes: list[str] = field(default_factory=list)
     on: str | None = None
+    # hair-wig/4. Lattices on an axis the main one does not carry. They
+    # are inside ``canonical_cells_json`` when present, so they are
+    # signed with everything else; a matrix with none of them hashes
+    # exactly as it did before the key existed.
+    extras: list[ClimateExtra] = field(default_factory=list)
     extra: dict = field(default_factory=dict)
 
 
@@ -528,7 +566,7 @@ def parse_wig(text: str) -> WigParseResult:
         return WigParseResult(None, [
             f'"format" is {fmt!r}, expected "hair-wig/1"'
         ])
-    if int(match.group(1)) > WIG_FORMAT_MAJOR_RECIPE:
+    if int(match.group(1)) > WIG_FORMAT_MAJOR_EXTRAS:
         return WigParseResult(None, [
             f"this wig uses {fmt}, which this version of HAIR does not "
             "read yet; update HAIR to import it"
@@ -568,7 +606,7 @@ def parse_wig(text: str) -> WigParseResult:
 
     climate: ClimateMatrix | None = None
     if "climate" in data:
-        climate = _parse_climate(data["climate"], errors)
+        climate = _parse_climate(data["climate"], errors, int(match.group(1)))
 
     raw_signals = data.get("signals")
     signals: list[WigSignal] = []
@@ -780,13 +818,79 @@ def _num(value: object) -> float | None:
     return float(value)
 
 
-def _parse_climate(raw: object, errors: list[str]) -> ClimateMatrix | None:
+def _parse_cells(
+    raw_cells: object, path: str, errors: list[str]
+) -> list[ClimateCell]:
+    """Validate a list of climate cells, appending field-path errors.
+
+    One reader for the main lattice AND for every extras lattice, so a
+    cell inside ``extras`` is held to exactly the rule a cell in
+    ``cells`` is -- including its Pronto, which is the point: extras
+    ride inside the digest, and a code nothing validated has no
+    business inside a hash somebody signs.
+    """
+    cells: list[ClimateCell] = []
+    if not isinstance(raw_cells, list) or not raw_cells:
+        errors.append(f"{path}: required, must be a non-empty list")
+        return cells
+    for i, raw_cell in enumerate(raw_cells):
+        cell_errors_before = len(errors)
+        if not isinstance(raw_cell, dict):
+            errors.append(f"{path}[{i}]: must be an object")
+            continue
+        mode = raw_cell.get("mode")
+        if not isinstance(mode, str) or not mode.strip():
+            errors.append(f"{path}[{i}].mode: required, non-empty string")
+        for dim in ("fan", "swing"):
+            value = raw_cell.get(dim)
+            if value is not None and (
+                not isinstance(value, str) or not value.strip()
+            ):
+                errors.append(
+                    f"{path}[{i}].{dim}: must be a non-empty string when "
+                    "present"
+                )
+        temp = raw_cell.get("temp")
+        if temp is not None and _num(temp) is None:
+            errors.append(f"{path}[{i}].temp: must be a number when present")
+        pronto = raw_cell.get("pronto")
+        if not isinstance(pronto, str) or not validate_pronto(pronto).valid:
+            errors.append(
+                f"{path}[{i}].pronto: required, must be a valid Pronto code"
+            )
+        send_count = raw_cell.get("send_count", 1)
+        if not isinstance(send_count, int) or isinstance(send_count, bool):
+            errors.append(
+                f"{path}[{i}].send_count: must be an integer when present"
+            )
+            send_count = 1
+        if len(errors) > cell_errors_before:
+            continue
+        cells.append(ClimateCell(
+            mode=mode,
+            fan=raw_cell.get("fan"),
+            swing=raw_cell.get("swing"),
+            temp=_num(temp) if temp is not None else None,
+            pronto=pronto.strip(),
+            send_count=max(1, min(send_count, MAX_SEND_COUNT)),
+            extra={k: v for k, v in raw_cell.items() if k not in _KNOWN_CELL},
+        ))
+    return cells
+
+
+def _parse_climate(
+    raw: object, errors: list[str], major: int = WIG_FORMAT_MAJOR_EXTRAS
+) -> ClimateMatrix | None:
     """Validate the climate block strictly-with-reasons.
 
     Appends field-path errors like the rest of parse_wig; returns None
     whenever anything is wrong (parse fails as a whole on any error).
     Vocabulary strings pass through verbatim -- validation checks
     types, never spelling.
+
+    ``major`` is the file's own declared major, because the version is
+    a FLOOR for ``extras`` as well as a ceiling for the file (see the
+    extras block below).
     """
     if not isinstance(raw, dict):
         errors.append('"climate" must be an object when present')
@@ -839,61 +943,59 @@ def _parse_climate(raw: object, errors: list[str]) -> ClimateMatrix | None:
         errors.append("climate.on: must be a valid Pronto code when present")
         on = None
 
-    raw_cells = raw.get("cells")
-    cells: list[ClimateCell] = []
-    if not isinstance(raw_cells, list) or not raw_cells:
-        errors.append("climate.cells: required, must be a non-empty list")
-    else:
-        for i, raw_cell in enumerate(raw_cells):
-            cell_errors_before = len(errors)
-            if not isinstance(raw_cell, dict):
-                errors.append(f"climate.cells[{i}]: must be an object")
-                continue
-            mode = raw_cell.get("mode")
-            if not isinstance(mode, str) or not mode.strip():
-                errors.append(
-                    f"climate.cells[{i}].mode: required, non-empty string"
-                )
-            for dim in ("fan", "swing"):
-                value = raw_cell.get(dim)
-                if value is not None and (
-                    not isinstance(value, str) or not value.strip()
-                ):
+    cells = _parse_cells(raw.get("cells"), "climate.cells", errors)
+
+    # hair-wig/4 extras. Validated exactly as ``cells`` is, including
+    # every Pronto, because these are transmit recipes and they sit
+    # inside the digest: an unvalidated code inside a hash somebody
+    # signs is the thing this key exists not to be.
+    # THE VERSION IS A FLOOR FOR THIS KEY, not only a ceiling for the
+    # file. The gate above refuses a major this HAIR does not know; it
+    # said nothing about a file that stamps an older major and carries
+    # a newer key. Those bytes read two ways: an older HAIR keeps
+    # ``extras`` as an unknown-key passthrough and hashes the matrix
+    # without it, this one folds it into ``cells_hash``, and the two
+    # installs then disagree about a hash a fitting signature binds,
+    # with neither able to say why. HAIR's own writer stamps /4 for
+    # every wig that carries extras, so nothing legitimate is refused
+    # here; what is refused is a hand edit or a stale format line.
+    extras: list[ClimateExtra] = []
+    raw_extras = raw.get("extras")
+    if raw_extras is not None and major < WIG_FORMAT_MAJOR_EXTRAS:
+        errors.append(
+            f"climate.extras: this wig carries extra lattices, which need "
+            f"{WIG_FORMAT_V4}; it is stamped "
+            f"{WIG_FORMAT_NAME}/{major}"
+        )
+    elif raw_extras is not None:
+        if not isinstance(raw_extras, list):
+            errors.append("climate.extras: must be a list when present")
+        else:
+            for i, raw_extra in enumerate(raw_extras):
+                extra_errors_before = len(errors)
+                if not isinstance(raw_extra, dict):
+                    errors.append(f"climate.extras[{i}]: must be an object")
+                    continue
+                axis = raw_extra.get("axis")
+                if not isinstance(axis, str) or not axis.strip():
                     errors.append(
-                        f"climate.cells[{i}].{dim}: must be a non-empty "
-                        "string when present"
+                        f"climate.extras[{i}].axis: required, non-empty string"
                     )
-            temp = raw_cell.get("temp")
-            if temp is not None and _num(temp) is None:
-                errors.append(
-                    f"climate.cells[{i}].temp: must be a number when present"
+                key = raw_extra.get("key")
+                if not isinstance(key, str) or not key.strip():
+                    errors.append(
+                        f"climate.extras[{i}].key: required, non-empty string"
+                    )
+                extra_cells = _parse_cells(
+                    raw_extra.get("cells"),
+                    f"climate.extras[{i}].cells",
+                    errors,
                 )
-            pronto = raw_cell.get("pronto")
-            if not isinstance(pronto, str) or not validate_pronto(pronto).valid:
-                errors.append(
-                    f"climate.cells[{i}].pronto: required, must be a valid "
-                    "Pronto code"
+                if len(errors) > extra_errors_before:
+                    continue
+                extras.append(
+                    ClimateExtra(axis=axis, key=key, cells=extra_cells)
                 )
-            send_count = raw_cell.get("send_count", 1)
-            if not isinstance(send_count, int) or isinstance(send_count, bool):
-                errors.append(
-                    f"climate.cells[{i}].send_count: must be an integer "
-                    "when present"
-                )
-                send_count = 1
-            if len(errors) > cell_errors_before:
-                continue
-            cells.append(ClimateCell(
-                mode=mode,
-                fan=raw_cell.get("fan"),
-                swing=raw_cell.get("swing"),
-                temp=_num(temp) if temp is not None else None,
-                pronto=pronto.strip(),
-                send_count=max(1, min(send_count, MAX_SEND_COUNT)),
-                extra={
-                    k: v for k, v in raw_cell.items() if k not in _KNOWN_CELL
-                },
-            ))
 
     if len(errors) > before:
         return None
@@ -908,6 +1010,7 @@ def _parse_climate(raw: object, errors: list[str]) -> ClimateMatrix | None:
         off=off,
         on=on,
         cells=cells,
+        extras=extras,
         extra={k: v for k, v in raw.items() if k not in _KNOWN_CLIMATE},
     )
 
@@ -925,7 +1028,15 @@ def serialize_wig(wig: Wig) -> str:
     # Both kinds stamp /3: the break changed cell hashes as well as
     # signal hashes, so a matrix wig has to refuse on an old install for
     # exactly the same reason a flat one does.
+    #
+    # /4 ONLY FOR A WIG THAT CARRIES EXTRAS. They are inside the cell
+    # hash, so an older install would compute a different one and
+    # report a good file as tampered; refusing on the version says
+    # "update HAIR" instead. A wig with no extras is untouched by the
+    # bump and still stamps /3.
     fmt = WIG_FORMAT_V3
+    if wig.climate is not None and wig.climate.extras:
+        fmt = WIG_FORMAT_V4
     # No wig reaches disk without an identity (v0.9.5). See
     # ensure_wig_id for why this is here and not at each constructor.
     ensure_wig_id(wig)
@@ -1019,6 +1130,15 @@ def _climate_out(matrix: ClimateMatrix) -> dict:
     if matrix.on is not None:
         out["on"] = matrix.on
     out["cells"] = [_cell_out(c) for c in matrix.cells]
+    if matrix.extras:
+        out["extras"] = [
+            {
+                "axis": extra.axis,
+                "key": extra.key,
+                "cells": [_cell_out(c) for c in extra.cells],
+            }
+            for extra in matrix.extras
+        ]
     out.update(matrix.extra)
     return out
 
@@ -1113,6 +1233,18 @@ def canonical_cells_json(matrix: ClimateMatrix) -> str:
         result = validate_pronto(code)
         return (result.normalized if result.valid else code).lower()
 
+    def _cells(cells: list[ClimateCell]) -> list[dict]:
+        return [
+            {
+                "mode": c.mode,
+                "fan": c.fan,
+                "swing": c.swing,
+                "temp": _json_temp(c.temp) if c.temp is not None else None,
+                "pronto": _pronto(c.pronto),
+            }
+            for c in cells
+        ]
+
     canon = {
         "unit": matrix.unit,
         "off": _pronto(matrix.off),
@@ -1128,6 +1260,15 @@ def canonical_cells_json(matrix: ClimateMatrix) -> str:
             for c in matrix.cells
         ],
     }
+    # EXTRAS JOIN THE HASH, AND ONLY WHEN THERE ARE ANY. The key is
+    # absent from the canonical object for a matrix that carries none,
+    # so every wig written before hair-wig/4 hashes to exactly what it
+    # hashed to before -- which a test asserts fixture by fixture.
+    if matrix.extras:
+        canon["extras"] = [
+            {"axis": e.axis, "key": e.key, "cells": _cells(e.cells)}
+            for e in matrix.extras
+        ]
     return json.dumps(
         canon, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )

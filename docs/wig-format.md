@@ -1,8 +1,8 @@
-# The wig format (hair-wig/3)
+# The wig format (hair-wig/3, and /4 for extra lattices)
 
 A wig is a portable IR code set: one JSON file describing one remote. HAIR reads wigs from `/config/hair/wigs/`, and any tool can emit them. This page is the format contract; if you build something that writes wigs, this is everything you need.
 
-The current version is `hair-wig/3`, and it is the only version to write: HAIR emits it for every wig, plain button sets and climate matrices alike, and new files -- including anything submitted to the WigShop -- must declare it. It supersedes `hair-wig/1` and `hair-wig/2`; the short history of those majors, and how existing old files are handled, lives in the collapsed section near the bottom.
+The current version is `hair-wig/3`, and it is what nearly every file declares: HAIR emits it for every wig, plain button sets and climate matrices alike, and new files -- including anything submitted to the WigShop -- must declare it or better. `hair-wig/4` adds exactly one thing, the climate block's `extras` key, and a file says `4` only when it carries one; a wig without extras is still a v3 file that every install already reads. Both supersede `hair-wig/1` and `hair-wig/2`; the short history of those majors, and how existing old files are handled, lives in the collapsed section near the bottom.
 
 ## A complete example
 
@@ -34,7 +34,7 @@ The current version is `hair-wig/3`, and it is the only version to write: HAIR e
 
 **Required fields:** `format`, `name`, and a non-empty `signals` list. Each signal requires `alias` and `pronto`. Everything else is optional. One exception: a wig with a `climate` block may have an empty or absent `signals` list -- matrix-only wigs are legal, because the matrix is the payload and flat signals are the optional extras riding alongside it.
 
-**`format`** must be `"hair-wig/3"` for any file written today. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing. Readers below 3 refuse a v3 file with a version message, and that refusal is the point: without it an older reader would compute the previous canonical form, see a mismatch, and report what looks like tampering on a perfectly good file, which is the worst possible thing to tell someone about a file they trust. (For what v3 changed and how the superseded majors are handled, see the collapsed section near the bottom.)
+**`format`** must be `"hair-wig/3"` for any file written today, or `"hair-wig/4"` for the one case that needs it: a climate block carrying `extras` (see Extra lattices below). The version follows the content, exactly as v2 did for the climate block itself, so a wig that does not use the key pays nothing for its existence. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing. Readers below 3 refuse a v3 file with a version message, and that refusal is the point: without it an older reader would compute the previous canonical form, see a mismatch, and report what looks like tampering on a perfectly good file, which is the worst possible thing to tell someone about a file they trust. A reader that knows up to 3 refuses a v4 file for the same reason: it would otherwise hash a matrix without the codes in `extras` and call a good file tampered. The rule runs both ways, so a file stamped `/3` that carries `extras` is refused too (see Extra lattices below). (For what v3 changed and how the superseded majors are handled, see the collapsed section near the bottom.)
 
 **`pronto`** carries the raw Pronto hex code, and it is the entire payload. Deliberately, there are no decoded-protocol fields in the file: the importing HAIR install decodes every signal fresh through its own decoders, so a wig can never carry a stale or wrong identity, and it benefits from decoders that shipped after the wig was written. Codes must be valid learned-format Pronto (`0000` header, correct burst-pair length math); HAIR validates each one and rejects the file with a per-signal reason if any code is malformed. Stored codes end in a zero trailing gap by design, which keeps signal identity byte-stable; a copy ready to transmit or to paste into another tool comes from the HAIR panel, which serves every code it shows with a real terminator.
 
@@ -162,6 +162,30 @@ The field rules:
 - **Sparse matrices are honest.** A combination the device cannot do is simply not a cell. Readers must not invent, interpolate, or snap to invented states; HAIR sends nothing on a sparse miss.
 - Unknown keys inside `climate` and inside each cell are tolerated and preserved, the same growth rule as everywhere else in the format.
 
+### Extra lattices
+
+Some sources vary a dimension the climate block has no axis for. The clearest case is a preset: a file may carry one complete mode / fan / swing / temperature lattice per preset name, so the lattices are peers rather than cells of one another. `extras` (optional list, added in `hair-wig/4`) carries the peer lattices.
+
+```json
+"extras": [
+    {
+        "axis": "preset",
+        "key": "eco",
+        "cells": [
+            {"mode": "cool", "fan": "auto", "temp": 22, "pronto": "0000 006d 0022 0002 ..."}
+        ]
+    }
+]
+```
+
+- **`axis`** (required, non-empty string) names what this lattice varies that the main one does not. `preset` is the only axis written today.
+- **`key`** (required, non-empty string) is the source's own word for the value, verbatim, under the rule every vocabulary string follows: never case-normalized, never respelled.
+- **`cells`** is a list of cells in exactly the `climate.cells` shape, held to exactly the `climate.cells` rules with Pronto validation included. Anything that already walks cells reads an extras lattice unchanged.
+- One lattice stays in `cells` and the rest ride here. The one that stays is the source's own default where it names one; an importer says in its receipt which it kept.
+- **Extras are inside the cells hash** when a matrix carries any (see Canonical cells form). They are real transmit recipes and a claim has to bind them: left outside, an extras lattice could be swapped wholesale on a signed wig and the signature would still verify, and a signature that covers some of a file's codes but not others is worse than none for what people use it for.
+- A matrix with no extras is untouched in every respect. The key is absent from the file, absent from the canonical form, and the wig stays `hair-wig/3` with the hash it already had.
+- **The version is a floor for this key.** A file carrying `extras` under a stamp below `hair-wig/4` is refused with a message naming the version it needs. The reason is the hash: a reader that predates the key keeps `extras` as an unknown-key passthrough and hashes the matrix without it, this one folds it in, and the same bytes would then produce two `cells_hash` values with a signature binding one of them. HAIR always stamps `/4` when it writes extras, so only a hand edit or a stale format line meets this refusal.
+
 A wig may carry a matrix, flat `signals`, or both. The flat signals alongside a matrix are the depth-0 extras (sleep timers, LED toggles, one-shot codes) that are buttons, not states.
 
 ## Canonical signals form
@@ -183,10 +207,11 @@ The hash form is `sha256:<hex digest>` over the UTF-8 encoding of that string. N
 
 Matrix fittings bind to the matrix, so the format defines a canonical form for the climate block, with the same posture as the signals form:
 
-- A JSON object carrying exactly `unit`, `off`, `on`, and `cells`.
+- A JSON object carrying exactly `unit`, `off`, `on`, and `cells`, plus `extras` when and only when the matrix carries at least one extra lattice.
 - `cells` is an array of objects in the wig's cell order; each object carries exactly `mode`, `fan`, `swing`, `temp`, and `pronto`, with absent dimensions as explicit `null`. Unknown keys are excluded. `send_count` left this object in the same break that removed it from signals, for the same reason: the dimension checklist never transmitted it. Cells carry no `ditto_count` at all, because dittos are an NEC-family frame construct and an air-conditioner state blob is one long frame.
 - Every Pronto (`off`, `on`, each cell) whitespace-normalized to single spaces and lowercased; an absent `on` is `null`.
 - Keys sorted alphabetically, compact separators (no whitespace).
+- `extras`, when present, is the array in wig order; each entry carries exactly `axis`, `key`, and `cells`, and its cells are canonicalized one for one by the rule above. Because the key is omitted entirely for a matrix with no extras, every wig written before `hair-wig/4` canonicalizes to the byte string it always did and keeps its existing hash.
 - `unit` participates on purpose: the same numbers on a different scale are different states, so a 22 C lattice and a 22 F lattice can never share a fitting ledger.
 
 The hash form is again `sha256:<hex digest>` over the UTF-8 encoding. Which hash a fitting binds to follows the wig's type: signal wigs use the canonical signals hash, matrix wigs use the canonical cells hash. The flat extras riding alongside a matrix are outside the cells hash -- renaming an extra never invalidates a matrix fitting, and changing any cell always does.
@@ -374,7 +399,7 @@ Three records ride along, all in `extra` maps and all **outside every canonical 
 
 <br>
 
-`hair-wig/1` (HAIR 0.7.0) was the original: a plain list of button signals, a wig-level canonical signals hash, and `bypass_protocol` emitted only when true. `hair-wig/2` (HAIR 0.8.8) added the optional `climate` block for state-matrix devices; exporters wrote v2 only when a matrix was present. `hair-wig/3` (HAIR 0.9.5) is the current major and marks the one canonical break: `ditto_count` entered the signal hash, `bypass_protocol` became always-explicit, `send_count` left the hash entirely, and per-row claims replaced whole-file fittings. Since then HAIR writes v3 for every wig regardless of content.
+`hair-wig/1` (HAIR 0.7.0) was the original: a plain list of button signals, a wig-level canonical signals hash, and `bypass_protocol` emitted only when true. `hair-wig/2` (HAIR 0.8.8) added the optional `climate` block for state-matrix devices; exporters wrote v2 only when a matrix was present. `hair-wig/3` (HAIR 0.9.5) is the current major and marks the one canonical break: `ditto_count` entered the signal hash, `bypass_protocol` became always-explicit, `send_count` left the hash entirely, and per-row claims replaced whole-file fittings. Since then HAIR writes v3 for every wig whose climate block carries no `extras`, and `hair-wig/4` for the ones that do. v4 changed nothing else, and it is documented with the climate block above rather than here, because it is current rather than superseded.
 
 Compatibility rules for old files:
 

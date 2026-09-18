@@ -22,7 +22,7 @@ import os
 import re
 from typing import Any
 
-from .ir_command import raw_to_pronto
+from .ir_command import carrier_or_default, raw_to_pronto
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -485,7 +485,7 @@ def _materialize_member(member) -> dict[str, Any] | None:
         return None
     try:
         timings = list(command.get_raw_timings())
-        modulation = int(getattr(command, "modulation", 0) or 0) or 38000
+        modulation = carrier_or_default(getattr(command, "modulation", None))
         code = raw_to_pronto(timings, frequency=modulation)
     except Exception:
         return None

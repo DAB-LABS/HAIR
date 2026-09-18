@@ -242,7 +242,11 @@ def canonical_pronto(code: str | None) -> str | None:
     if not raw:
         return None
     try:
-        return raw_to_pronto(raw, frequency=command.modulation)
+        return raw_to_pronto(
+            raw,
+            frequency=command.modulation,
+            timebase_hz=command.timebase_hz,
+        )
     except (ValueError, TypeError):
         return None
 

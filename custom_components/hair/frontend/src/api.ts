@@ -1791,6 +1791,42 @@ export class HairApi {
  * rule cannot miss one -- the previous arrangement had three sites and
  * two of them only claimed, in a comment, to agree with the third.
  */
+/** What a drop that filed several remotes at once should say.
+ *
+ * A PURE FUNCTION RETURNING A KEY AND ITS PARAMS, never a sentence.
+ * ``api.ts`` imports nothing but types, which erase, so the emitted
+ * module stands alone under node -- that is what lets the test RUN
+ * this rule rather than read it, the way the two pluck helpers below
+ * are already run. Localizing here would pull in a runtime import and
+ * take that away.
+ *
+ * Names are listed in the order the server filed them and capped, so a
+ * forty-block file does not paint a paragraph. The count is always
+ * exact; when the list is capped, the key carries the remainder.
+ */
+export interface LandedNotice {
+    key: string;
+    params: Record<string, string | number>;
+}
+
+export function landedManyNotice(
+    filenames: string[],
+    count: number,
+): LandedNotice {
+    const shown = filenames.slice(0, 4);
+    const rest = count - shown.length;
+    if (rest > 0) {
+        return {
+            key: "wigs.upload_landed_many_capped",
+            params: { count, names: shown.join(", "), rest },
+        };
+    }
+    return {
+        key: "wigs.upload_landed_many",
+        params: { count, names: shown.join(", ") },
+    };
+}
+
 export function anyPluckReadyNow(sources: PluckSource[] | null | undefined): boolean {
     return (sources ?? []).some((source) =>
         Object.values(source.ready).includes(true),

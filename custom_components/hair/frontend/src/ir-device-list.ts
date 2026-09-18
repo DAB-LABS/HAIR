@@ -46,6 +46,7 @@ import "./ir-ghost-tile.js";
 import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
 import { PINNING_UI_ENABLED, PIN_BLUE } from "./ir-pin-flag.js";
 import type { HairApi } from "./api.js";
+import { landedManyNotice } from "./api.js";
 import type { MatrixCardPick } from "./ir-matrix-card.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
@@ -776,8 +777,33 @@ export class IrDeviceList extends LitElement {
             return;
         }
         const landed = result.files ?? [];
-        if (landed.length !== 1) return;
-        this._offerWig(kind, landed[0]);
+        if (landed.length === 0) {
+            this._dropFailed(t("wigs.upload_landed_none"));
+            return;
+        }
+        if (landed.length === 1) {
+            this._offerWig(kind, landed[0]);
+            return;
+        }
+        // SEVERAL REMOTES ARRIVED. There is no dialog for that and there
+        // should not be one: they are in the closet, and the only thing
+        // missing was anybody saying so. The list refetches because the
+        // closet count moved.
+        this.dispatchEvent(
+            new CustomEvent("drop-upload-landed", {
+                detail: (() => {
+                    const notice = landedManyNotice(
+                        result.filenames ?? [], landed.length,
+                    );
+                    return t(notice.key, notice.params);
+                })(),
+                bubbles: true,
+                composed: true,
+            }),
+        );
+        this.dispatchEvent(
+            new CustomEvent("device-changed", { bubbles: true, composed: true }),
+        );
     }
 
     private _dropFailed(reason: string): void {
