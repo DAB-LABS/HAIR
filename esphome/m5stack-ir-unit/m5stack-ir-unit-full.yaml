@@ -39,7 +39,7 @@ esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
   comment: "M5Stack AtomS3 Lite & IR Unit Infrared Proxy"
-
+  min_version: 2026.8.0
   on_boot:
     - priority: -100
       then:
