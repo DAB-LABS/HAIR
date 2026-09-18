@@ -156,7 +156,10 @@ only paste format the Clipper accepts.
 
 **Carrier frequency.** The rate the infrared LED pulses, usually around 38 kHz.
 Most remotes use one of a handful of standard values, and HAIR can snap a
-slightly-off capture onto the nearest standard one.
+slightly-off capture onto the nearest standard one. A code can also state
+that it has no carrier at all, which some equipment expects; HAIR keeps such
+a code as it is and sends it only through an emitter that can transmit
+without one.
 
 **Fingerprint.** How HAIR tells one button from another without knowing the
 protocol. It classifies each pulse as short or long and uses the resulting
@@ -326,6 +329,18 @@ Three routes: **Save as New** files a fresh wig and leaves the original alone;
 from a vendor integration, or converted from another format. It is shown
 plainly, because a converted code set has never touched your hardware and may
 not work first time.
+
+**Kind.** What the device is, chosen from one short list when a wig is saved
+or edited: TV, receiver, air conditioner, fan and so on, with Other for
+anything that fits nothing. Brand and model say who made it; kind says what
+it is, so two people filing the same sort of remote file it under the same
+word. A wig whose file says something not on the list keeps its own word.
+
+**Extra lattice.** A second complete state matrix carried inside a climate
+wig beside the main one, in the file's own words, for a preset the remote
+offers as a whole mode of its own. The main matrix drives the thermostat;
+the extra lattices travel with the wig, covered by the same signature, so
+their codes are there to be reached.
 
 **Import funnel.** The drop bar on the Closet, which accepts wig files, SmartIR
 JSON, Flipper Zero `.ir` files, LIRC `lircd.conf` files, and Girr exports and
