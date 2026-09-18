@@ -39,7 +39,7 @@ esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
   comment: "M5Stack AtomS3 Lite & IR Unit Infrared Proxy"
-
+  min_version: 2026.8.0
   on_boot:
     - priority: -100
       then:
@@ -91,7 +91,7 @@ light:
   - id: rgb_led
     name: "${friendly_name} LED"
     platform: esp32_rmt_led_strip
-    rgb_order: GRB
+    channel_colors: GRB
     pin: GPIO35
     num_leds: 1
     chipset: WS2812
