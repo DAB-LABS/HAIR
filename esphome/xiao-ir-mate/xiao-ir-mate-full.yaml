@@ -38,7 +38,8 @@ esphome:
   name: ${name}
   name_add_mac_suffix: true
   friendly_name: ${friendly_name}
-
+  min_version: 2026.8.0
+  
 esp32:
   board: seeed_xiao_esp32c3
   framework:
