@@ -9,6 +9,7 @@ import { LitElement, html, css, type PropertyValues } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { HairApi } from "./api.js";
 import { setPanelLanguage, t } from "./localize.js";
+import { nextNotice } from "./notice-state.js";
 import "./ir-device-list.js";
 import "./ir-add-controlled-device-dialog.js";
 import "./ir-add-trigger-remote-dialog.js";
@@ -44,6 +45,7 @@ export class HaPanelIrDevices extends LitElement {
     @state() private _expandedDeviceId: string | null = null;
     @state() private _loading = true;
     @state() private _error: string | null = null;
+    @state() private _notice: string | null = null;
     @state() private _addDialogOpen = false;
     @state() private _addRemoteDialogOpen = false;
     // Ghost tile drop wiring (signpost 3, Track 3 item 3): the wig a
@@ -151,6 +153,14 @@ export class HaPanelIrDevices extends LitElement {
         try {
             this._devices = await this._api.listDevices();
             this._error = null;
+            // A REFRESH IS NOT A DISMISSAL. This used to be
+            // `this._notice = null`, and a drop that filed several wigs
+            // dispatches the notice and a device-changed in the same
+            // breath: the refetch that device-changed triggers lands
+            // right back here, so the banner was cleared one websocket
+            // round trip after it rendered. The rule lives in
+            // notice-state.ts, where it can be driven.
+            this._notice = nextNotice(this._notice, { kind: "refreshed" });
         } catch (err) {
             this._error = t("panel.load_failed", { message: (err as Error).message });
         } finally {
@@ -199,7 +209,24 @@ export class HaPanelIrDevices extends LitElement {
      *  funnel's own refusal string, surfaced through the panel's
      *  existing error banner -- no new error copy, per the plan. */
     private _onDropUploadFailed(e: CustomEvent<string>): void {
+        // A new drop is a new user action, so last drop's receipt goes.
+        this._notice = nextNotice(this._notice, { kind: "drop-failed" });
         this._error = e.detail;
+    }
+
+    /** A drop that filed SEVERAL remotes (import phase 1). Not an
+     *  error and not a dialog: the wigs are in the closet, and this is
+     *  the sentence that says so. Same banner markup as the refusal,
+     *  neutral type. */
+    private _onDropUploadLanded(e: CustomEvent<string>): void {
+        this._notice = nextNotice(
+            this._notice, { kind: "landed", text: e.detail },
+        );
+    }
+
+    /** The other place a notice ends: the person said they read it. */
+    private _dismissNotice(): void {
+        this._notice = nextNotice(this._notice, { kind: "dismissed" });
     }
 
     private _onNavigatePlucker(
@@ -387,6 +414,14 @@ export class HaPanelIrDevices extends LitElement {
                 ${this._error
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
+                ${this._notice
+                    ? html`<ha-alert
+                          alert-type="info"
+                          dismissable
+                          @alert-dismissed-clicked=${this._dismissNotice}
+                          >${this._notice}</ha-alert
+                      >`
+                    : ""}
                 ${this._activeTab === "devices"
                     ? html`
                           <ir-device-list
@@ -407,6 +442,7 @@ export class HaPanelIrDevices extends LitElement {
                               @add-device=${this._openAddDialog}
                               @add-trigger-remote=${this._openAddRemoteDialog}
                               @drop-upload-failed=${this._onDropUploadFailed}
+                              @drop-upload-landed=${this._onDropUploadLanded}
                               @remote-deleted=${this._onRemoteDeleted}
                               @remote-renamed=${this._onRemoteChanged}
                               @remote-duplicated=${this._onRemoteChanged}

@@ -75,7 +75,7 @@ from .identity import (
     canonical_fingerprint,
     norm_fingerprint,
 )
-from .ir_command import raw_to_pronto
+from .ir_command import carrier_or_default, raw_to_pronto
 from .models import CaptureResult, UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
 from .protocol_decode import try_decode_identity
@@ -2578,12 +2578,35 @@ class SignalMonitor:
                     protocol=signal.protocol,
                     code=signal.code,
                     raw_timings=signal.raw_timings,
-                    frequency=signal.frequency or 38000,
+                    frequency=carrier_or_default(signal.frequency),
                     repeat_count=signal.repeat_count or 0,
                 )
             except ValueError as exc:
                 return {"success": False, "code": "no_signal_data",
                         "error": str(exc)}
+
+        # A NON-MODULATED CODE IS REFUSED HERE TOO (item 6, review
+        # round 2 finding 1). The device broadcast path has asked this
+        # since item 6 landed; the Test button did not, so a ``0100``
+        # row assigned to a device could be tested onto a blaster that
+        # modulates whatever it is handed, and the panel would report
+        # the send as a success. Both paths ask the same helper now,
+        # before anything is audited or transmitted.
+        from .send_plan import emitter_platform as _emitter_platform
+        from .send_plan import refuse_unmodulated
+
+        refusal = refuse_unmodulated(
+            ir_cmd, _emitter_platform(self._hass, emitter_entity_id)
+        )
+        if refusal is not None:
+            return {
+                "success": False,
+                "code": "no_carrier",
+                "error": (
+                    f"{emitter_entity_id} {refusal}, and HAIR will not send "
+                    "one with a carrier it was not given"
+                ),
+            }
 
         # Honor the signal's whole-frame send_count, mirroring
         # device_manager.async_send_command: transmit the built Command N times

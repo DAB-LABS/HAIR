@@ -23,11 +23,13 @@ from __future__ import annotations
 
 import base64
 import binascii
+import itertools
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from .ir_command import raw_to_pronto
+from .ir_command import carrier_or_default, raw_to_pronto
 from .tuya_ir import tuya_b64_to_pronto
 from .wig_format import Wig, WigSignal
 
@@ -35,6 +37,13 @@ from .wig_format import Wig, WigSignal
 # inverse conversion (python-broadlink protocol.md, verified against
 # real RC5 captures -- NOT 32.84 us/tick, which misreads the ratio).
 _BROADLINK_TICK_US = 1_000_000 / 32_768
+
+# The two Flipper file headers. A remote file is one device's buttons
+# and is what HAIR reads; a library file is the firmware's shotgun file
+# for a whole device type, carrying the same handful of buttons for
+# hundreds of models. See ``_refuse_flipper_library``.
+FLIPPER_REMOTE_HEADER = "Filetype: IR signals file"
+FLIPPER_LIBRARY_HEADER = "Filetype: IR library file"
 
 # SmartIR climate files are mode x fan x temperature matrices; importing
 # one naively yields hundreds of context-free rows.
@@ -60,47 +69,230 @@ class AdapterResult:
     error: str | None = None
 
 
-def sniff_format(text: str) -> str | None:
-    """Identify a dropped file: "smartir" | "smartir_climate" |
-    "flipper" | "lirc" | "girr" | None (wig files are handled before
-    this by ``parse_wig``; None means nothing recognized)."""
+@dataclass(frozen=True)
+class FormatProbe:
+    """One format's claim on a file.
+
+    ``rank`` orders the claims: a file that matches several formats is
+    the highest-ranked one that matched. The ranks below reproduce the
+    if-chain this registry replaced, and the overlaps they resolve are
+    real (a fork climate file matches both the fork probe and the
+    ordinary climate probe, a climate file matches the generic SmartIR
+    probe as well).
+
+    ``probe`` takes the text and the parsed JSON (None when the file is
+    not a JSON object), so the JSON formats do not each re-parse it.
+    """
+
+    name: str
+    rank: int
+    probe: Callable[[str, object], bool]
+
+
+@dataclass(frozen=True)
+class SniffResult:
+    """What the registry made of a file."""
+
+    format: str | None
+    candidates: tuple[str, ...] = ()
+    reason: str | None = None
+
+
+# NO LIGHT PROBE LIVES HERE, ON PURPOSE. An earlier cut of this work
+# carried one, keyed first on a ``brightness`` array and then on the
+# light command vocabulary, and both markers are the ordinary light
+# schema's own: the vocabulary IS the upstream vocabulary, so the probe
+# fired on stock light files and refused a file that imported as seven
+# buttons the day before. Nothing in the content separates the two
+# light schemas, so no narrowing of the marker set can be correct.
+# Light files keep the flat-button path they have always had, and a
+# light schema this reader cannot represent is a later phase's problem,
+# to be keyed on whatever a real pair of files turns out to differ by.
+
+
+def _is_json_object(parsed: object) -> bool:
+    return isinstance(parsed, dict)
+
+
+def _smartir_shaped(parsed: object) -> bool:
+    """A SmartIR family file: a JSON object with a ``commands`` object."""
+    return _is_json_object(parsed) and isinstance(
+        parsed.get("commands"), dict  # type: ignore[union-attr]
+    )
+
+
+def _probe_fork_climate(text: str, parsed: object) -> bool:
+    """A fork climate file: a non-empty top-level ``presetModes``.
+
+    ONE MARKER, NOT TWO. The plan also listed "``operationModes`` is an
+    object rather than a list", and the review measured it across
+    every file it walked: it fires on nothing, and the fork schema says
+    the key is a list. What ``presetModes`` answers is the question the
+    deeper walk actually needs answered -- does this file carry a preset
+    level -- and the files that carry it are the files that need it.
+    """
+    if not _smartir_shaped(parsed):
+        return False
+    presets = parsed.get("presetModes")  # type: ignore[union-attr]
+    return isinstance(presets, list) and len(presets) > 0
+
+
+def _probe_girr(text: str, parsed: object) -> bool:
+    return text.lstrip().startswith("<") and (
+        "harctoolbox.org/Girr" in text or "girrVersion" in text
+    )
+
+
+def _probe_smartir_climate(text: str, parsed: object) -> bool:
+    return _smartir_shaped(parsed) and bool(
+        _SMARTIR_CLIMATE_KEYS & set(parsed)  # type: ignore[arg-type]
+    )
+
+
+def _probe_smartir(text: str, parsed: object) -> bool:
+    return _smartir_shaped(parsed) and any(
+        key in parsed  # type: ignore[operator]
+        for key in ("commandsEncoding", "supportedController", "manufacturer")
+    )
+
+
+# A HEADER LINE, NOT A SUBSTRING. Both of these read a declaration
+# that a Flipper file makes on a line of its own, so both are anchored
+# to one. An unanchored search refused a legitimate single-remote file
+# whose comment quoted the library header -- which is precisely the
+# file the library refusal tells a person to go and make.
+_FLIPPER_HEADER_RE = re.compile(
+    r"^Filetype:\s*IR (signals|library) file\s*$", re.MULTILINE
+)
+
+
+def _flipper_header(text: str) -> str | None:
+    """``"signals"``, ``"library"``, or None: the file's own claim."""
+    if text.lstrip().startswith("{"):
+        return None
+    match = _FLIPPER_HEADER_RE.search(text)
+    return match.group(1) if match else None
+
+
+def _probe_flipper_library(text: str, parsed: object) -> bool:
+    return _flipper_header(text) == "library"
+
+
+def _probe_flipper(text: str, parsed: object) -> bool:
+    return _flipper_header(text) == "signals"
+
+
+def _probe_lirc(text: str, parsed: object) -> bool:
+    return not text.lstrip().startswith("{") and bool(
+        re.search(r"^\s*begin remote\b", text, re.MULTILINE)
+    )
+
+
+# THE REGISTRY. Ranks reproduce the if-chain exactly, including its one
+# structural rule: a file that starts with "{" is a JSON file and is
+# never read as Flipper or LIRC, whatever else its bytes contain. The
+# old chain got that from returning early inside the JSON branch; here
+# each text probe carries the same guard, because a registry runs every
+# probe rather than stopping at the first.
+_PROBES: tuple[FormatProbe, ...] = (
+    FormatProbe("smartir_fork_climate", 60, _probe_fork_climate),
+    FormatProbe("girr", 50, _probe_girr),
+    FormatProbe("smartir_climate", 40, _probe_smartir_climate),
+    FormatProbe("smartir", 30, _probe_smartir),
+    FormatProbe("flipper_library", 25, _probe_flipper_library),
+    FormatProbe("flipper", 20, _probe_flipper),
+    FormatProbe("lirc", 10, _probe_lirc),
+)
+
+# Which extension names which format, for the tie-break below. A hint
+# may only CHOOSE between formats that already matched at the top rank
+# (GH #108 settled that content wins): it can never add a format no
+# probe matched, and never veto one.
+_HINT_FORMATS: dict[str, tuple[str, ...]] = {
+    ".ir": ("flipper", "flipper_library"),
+    ".conf": ("lirc",),
+    ".girr": ("girr",),
+    ".xml": ("girr",),
+    ".json": (
+        "smartir_fork_climate", "smartir_climate", "smartir",
+    ),
+}
+
+
+def sniff(text: str, name_hint: str = "") -> SniffResult:
+    """Identify a dropped file through the probe registry.
+
+    Every probe runs; the answer is the highest rank that matched, and
+    only when exactly one probe holds that rank. Two at the top rank is
+    a refusal naming both, which the file's extension may break if it
+    names one of them.
+
+    NO SHIPPED PAIR CAN TIE TODAY. Every rank in the table is distinct,
+    so ``max`` is always held by one probe and the refusal below is
+    unreachable from any file. It is here for phase 2, which adds
+    formats identified by punctuation rather than by a header word, and
+    it is tested by registering a probe at a rank another one already
+    holds. Saying that plainly is the point: a reader should not take
+    the code below for a guard that fires today.
+    """
+    parsed: object = None
     stripped = text.lstrip()
-    if stripped.startswith("<") and (
-        "harctoolbox.org/Girr" in text
-        or "girrVersion" in text
-    ):
-        return "girr"
     if stripped.startswith("{"):
         try:
-            data = json.loads(text)
+            parsed = json.loads(text)
         except (json.JSONDecodeError, RecursionError):
-            return None
-        if not isinstance(data, dict):
-            return None
-        if isinstance(data.get("commands"), dict):
-            if _SMARTIR_CLIMATE_KEYS & set(data):
-                return "smartir_climate"
-            if any(
-                key in data
-                for key in ("commandsEncoding", "supportedController",
-                            "manufacturer")
-            ):
-                return "smartir"
-        return None
-    if "Filetype: IR signals file" in text:
-        return "flipper"
-    if re.search(r"^\s*begin remote\b", text, re.MULTILINE):
-        return "lirc"
-    return None
+            parsed = None
+    matched = [p for p in _PROBES if p.probe(text, parsed)]
+    if not matched:
+        return SniffResult(None)
+    top = max(p.rank for p in matched)
+    holders = [p.name for p in matched if p.rank == top]
+    if len(holders) == 1:
+        return SniffResult(holders[0], tuple(holders))
+    suffix = _name_suffix(name_hint)
+    preferred = [
+        name for name in holders if name in _HINT_FORMATS.get(suffix, ())
+    ]
+    if len(preferred) == 1:
+        return SniffResult(
+            preferred[0], tuple(holders),
+            f"resolved to {preferred[0]} by the filename extension",
+        )
+    return SniffResult(
+        None, tuple(holders),
+        "this file matches both "
+        + " and ".join(holders)
+        + ", and HAIR will not guess",
+    )
+
+
+def _name_suffix(name_hint: str) -> str:
+    name = (name_hint or "").strip().lower()
+    dot = name.rfind(".")
+    return name[dot:] if dot > 0 else ""
+
+
+def sniff_format(text: str) -> str | None:
+    """Identify a dropped file: the format name, or None.
+
+    Kept as the one-argument answer both existing call sites want; the
+    registry behind it is :func:`sniff`.
+    """
+    return sniff(text).format
 
 
 def convert(text: str, name_hint: str = "") -> AdapterResult:
     """Route a non-wig file through its adapter."""
-    fmt = sniff_format(text)
-    if fmt == "smartir_climate":
-        return _convert_smartir_climate(text)
+    result = sniff(text, name_hint)
+    fmt = result.format
+    if fmt is None and result.candidates:
+        return AdapterResult(format="ambiguous", error=result.reason)
+    if fmt in ("smartir_climate", "smartir_fork_climate"):
+        return _convert_smartir_climate(text, fork=fmt.startswith("smartir_fork"))
     if fmt == "smartir":
         return _convert_smartir(text)
+    if fmt == "flipper_library":
+        return _refuse_flipper_library(text)
     if fmt == "flipper":
         return _convert_flipper(text, name_hint)
     if fmt == "lirc":
@@ -321,7 +513,17 @@ def _convert_smartir(text: str) -> AdapterResult:
             result.skipped.append(f"{alias}: {reason}")
             continue
         signals.append(WigSignal(
-            alias=alias, pronto=pronto, send_count=send_count
+            alias=alias, pronto=pronto, send_count=send_count,
+            # Item 7 on this door too. A Pronto-encoded file states its
+            # own carrier in the code's header word; every other
+            # encoding this reader handles (Broadlink, Tuya, a decimal
+            # timing list) carries no carrier at all, so the 38 kHz in
+            # the code is HAIR's and the row says so.
+            extra=_carrier_from_pronto(
+                pronto,
+                "declared" if encoding.strip().lower() == "pronto"
+                else "assumed",
+            ),
         ))
     if not signals:
         result.error = "no convertible codes in this SmartIR file"
@@ -365,11 +567,62 @@ def _is_temp_key(key: str) -> bool:
         return False
 
 
-def _convert_smartir_climate(text: str) -> AdapterResult:
-    from .wig_climate import ha_mode_for
-    from .wig_format import ClimateCell, ClimateMatrix
+def _climate_flat_signal(alias: str, pronto: str, source: str = "assumed"):
+    """One depth-0 button from a climate file, with its bypass decided.
 
-    result = AdapterResult(format="smartir_climate")
+    THE SAME ROUND-TRIP CHECK THE FLIPPER PATH USES. A code whose
+    decoded triple cannot reproduce it is pinned to raw replay, which
+    for a climate file's flat buttons is where a non-modulated code
+    and any code whose encoder rounds differently both land.
+
+    A matrix CELL needs no flag: the send path already refuses to
+    re-encode anything carrying ``matrix_cell`` (GH #134), so a cell
+    transmits its stored bytes whatever its decode says.
+    """
+    from .ir_command import ProntoCommand
+
+    stamp = _carrier_from_pronto(pronto, source)
+    try:
+        timings = ProntoCommand(pronto).get_raw_timings()
+    except (ValueError, IndexError, TypeError):
+        return WigSignal(alias=alias, pronto=pronto, extra=stamp)
+    return WigSignal(
+        alias=alias,
+        pronto=pronto,
+        bypass_protocol=not _triple_reproduces(pronto, timings),
+        extra=stamp,
+    )
+
+
+def _trim(value: float) -> str:
+    """``1.0`` -> ``1``, ``0.5`` -> ``0.5``: a number in a receipt."""
+    return f"{value:g}"
+
+
+def _observed_precision(cells: list) -> float | None:
+    """The finest temperature step these cells actually use, or None.
+
+    None when there are fewer than two distinct temperatures, which is
+    the case the plan names: below two there is nothing to measure and
+    the declared value stands.
+    """
+    temps = sorted({c.temp for c in cells if c.temp is not None})
+    if len(temps) < 2:
+        return None
+    steps = [
+        round(b - a, 6) for a, b in itertools.pairwise(temps)
+        if b > a
+    ]
+    return min(steps) if steps else None
+
+
+def _convert_smartir_climate(text: str, fork: bool = False) -> AdapterResult:
+    from .wig_climate import ha_mode_for
+    from .wig_format import ClimateCell, ClimateExtra, ClimateMatrix
+
+    result = AdapterResult(
+        format="smartir_fork_climate" if fork else "smartir_climate"
+    )
     data = json.loads(text)
 
     encoding = str(data.get("commandsEncoding") or "")
@@ -441,6 +694,51 @@ def _convert_smartir_climate(text: str) -> AdapterResult:
                 temp=float(temp_key), pronto=pronto,
             ))
 
+    def _deeper_than_upstream(node: object) -> str | None:
+        """A branch the upstream walk has no name for, or None.
+
+        The upstream shape is mode / fan / [swing] / temp. A dict
+        sitting where a code belongs -- under the swing level -- is a
+        level this file did not declare and the walk cannot name, and
+        reading it as one of the levels it does know is exactly the
+        silent mis-keying this work exists to stop. It is refused with
+        the branch and the depth in the receipt.
+        """
+        for mode_key, mode_val in node.items():  # type: ignore[union-attr]
+            if str(mode_key).startswith("$") or str(mode_key) in ("off", "on"):
+                continue
+            if not isinstance(mode_val, dict):
+                continue
+            # THE SAME SKIP THE WALK ITSELF APPLIES. A mode with no
+            # Home Assistant word (ion, ifeel, money_saver) is skipped
+            # with a receipt rather than read, so how deep its subtree
+            # goes is not this check's business: judging it here
+            # refused a whole file over a branch the converter would
+            # never have opened.
+            if ha_mode_for(str(mode_key)) is None:
+                continue
+            for fan_key, fan_val in mode_val.items():
+                if not isinstance(fan_val, dict):
+                    continue
+                keys = [
+                    k for k in map(str, fan_val) if not k.startswith("$")
+                ]
+                if keys and all(_is_temp_key(k) for k in keys):
+                    continue
+                for swing_key, swing_val in fan_val.items():
+                    if not isinstance(swing_val, dict):
+                        continue
+                    deeper = [
+                        k for k, v in swing_val.items()
+                        if isinstance(v, dict)
+                    ]
+                    if deeper:
+                        return (
+                            f"{mode_key}/{fan_key}/{swing_key}/"
+                            f"{deeper[0]} is five levels deep"
+                        )
+        return None
+
     def _walk_fan_value(mode: str, fan: str | None, value: object) -> None:
         # Below the fan level sits either temps (numeric keys) or a
         # swing layer (census: swing is between fan and temp in all 37
@@ -467,6 +765,156 @@ def _convert_smartir_climate(text: str) -> AdapterResult:
         if pronto is not None:
             cells.append(ClimateCell(mode=mode, fan=fan, pronto=pronto))
 
+    # THE FORK'S EXTRA LEVEL, NAMED FROM THE DECLARED LISTS.
+    #
+    # A fork climate file carries a preset level between the mode and
+    # the fan, so its tree is four deep where an upstream file's is
+    # three -- and an upstream file WITH swing is four deep too, with a
+    # different meaning at each level. Depth cannot separate them; the
+    # declared vocabulary can, and only it can. So every level below
+    # the mode is named by testing its keys against ``presetModes``,
+    # then ``fanModes``, then ``swingModes``, then the numeric test for
+    # temperatures, and a level whose keys match none of them is
+    # refused with a receipt rather than read as whatever sits at that
+    # depth in some other file.
+    declared: dict[str, set[str]] = {}
+    for axis, source_key in (
+        ("preset", "presetModes"),
+        ("fan", "fanModes"),
+        ("swing", "swingModes"),
+    ):
+        values = data.get(source_key)
+        declared[axis] = {
+            str(v) for v in values if str(v).strip()
+        } if isinstance(values, list) else set()
+
+    # READ ONLY AS A LIST OF STRINGS, and anything else is absent with
+    # a receipt. The comprehension this replaces iterated the value
+    # before checking its type, so a scalar raised TypeError out of
+    # ``convert`` at an upload handler that has no try/except, and a
+    # string iterated into single characters and mis-keyed silently.
+    raw_presets = data.get("presetModes")
+    preset_order: list[str] = []
+    if isinstance(raw_presets, list):
+        preset_order = [
+            str(v) for v in raw_presets
+            if isinstance(v, str) and v.strip()
+        ]
+        if len(preset_order) != len(raw_presets):
+            result.folds.append(
+                "presetModes: entries that are not names were ignored"
+            )
+    elif raw_presets is not None:
+        result.folds.append(
+            "presetModes is not a list of names, so it was read as absent"
+        )
+    # The main lattice takes the first declared preset; the rest become
+    # extra lattices. An empty main lattice would make every fork wig
+    # hash as the same empty matrix at the upload door, which is the
+    # collision the matrix-wig hash already learned about once.
+    # CHOSEN AFTER THE WALK, not from the declared list. A file may
+    # declare a preset its code tree does not carry -- a neutral name
+    # offered for Home Assistant's benefit, or simply a stale list --
+    # and taking the declared first meant the main lattice came out
+    # empty and a file full of convertible cells was refused as having
+    # none. The walk files every preset's cells; the promotion below
+    # picks the first declared preset that actually has some.
+    main_preset: str | None = None
+    preset_cells: dict[str, list[ClimateCell]] = {}
+
+    def _level_axis(keys: list[str]) -> str | None:
+        """What this level is, from what the file declared it to be."""
+        if keys and all(_is_temp_key(k) for k in keys):
+            return "temp"
+        names = set(keys)
+        for axis in ("preset", "fan", "swing"):
+            if declared[axis] and names <= declared[axis]:
+                return axis
+        return None
+
+    # mode / preset / fan / swing / temp is five, and the cap is one
+    # more, so a shape this reader can actually name always fits. Past
+    # it the walk stops with a receipt instead of recursing until the
+    # interpreter raises out of an upload handler that cannot catch it.
+    fork_depth_cap = 6
+
+    def _walk_fork(
+        mode: str, preset: str | None, fan: str | None,
+        swing: str | None, node: object, path: str, depth: int = 1,
+    ) -> None:
+        """One branch of a fork tree, level by declared level."""
+        if depth > fork_depth_cap:
+            reason = (
+                f"{path} is more than {fork_depth_cap} levels deep; the "
+                "rest of that branch was not read"
+            )
+            fail_counts[reason] = fail_counts.get(reason, 0) + 1
+            return
+        if not isinstance(node, dict):
+            pronto = _cell_pronto(node)
+            if pronto is not None:
+                _place(mode, preset, fan, swing, None, pronto)
+            return
+        keys = [k for k in map(str, node) if not k.startswith("$") and k]
+        axis = _level_axis(keys)
+        if axis is None:
+            fail_counts[
+                f"level under {path} names none of the declared lists "
+                f"({', '.join(sorted(keys)[:4])})"
+            ] = fail_counts.get(
+                f"level under {path} names none of the declared lists "
+                f"({', '.join(sorted(keys)[:4])})", 0
+            ) + 1
+            return
+        for raw_child, child in node.items():
+            child_key = str(raw_child)
+            if child_key.startswith("$") or not child_key:
+                continue
+            if axis == "temp":
+                pronto = _cell_pronto(child)
+                if pronto is not None:
+                    _place(
+                        mode, preset, fan, swing, float(child_key), pronto
+                    )
+                continue
+            _walk_fork(
+                mode,
+                child_key if axis == "preset" else preset,
+                child_key if axis == "fan" else fan,
+                child_key if axis == "swing" else swing,
+                child,
+                f"{path}/{child_key}",
+                depth + 1,
+            )
+
+    def _place(
+        mode: str, preset: str | None, fan: str | None,
+        swing: str | None, temp: float | None, pronto: str,
+    ) -> None:
+        """File one cell, in the main lattice or in a preset's own."""
+        cell = ClimateCell(
+            mode=mode, fan=fan, swing=swing, temp=temp, pronto=pronto,
+        )
+        if preset is None:
+            # A branch with no preset level at all belongs to the main
+            # lattice whichever preset is promoted.
+            cells.append(cell)
+            return
+        preset_cells.setdefault(preset, []).append(cell)
+
+    if not fork:
+        deeper = _deeper_than_upstream(commands)
+        if deeper is not None:
+            result.error = (
+                f"this file has a level HAIR cannot name: {deeper}. A "
+                "climate file whose branches go deeper than mode, fan, "
+                "swing and temperature has to say what the extra level "
+                "is (the fork schema names it with presetModes); reading "
+                "it as one of the levels HAIR does know would store the "
+                "wrong state on every cell"
+            )
+            return result
+
     for raw_key, value in commands.items():
         key = str(raw_key)
         if key.startswith("$") or not key:
@@ -488,11 +936,15 @@ def _convert_smartir_climate(text: str) -> AdapterResult:
             # flat signal list (census second pass).
             pronto = _cell_pronto(value)
             if pronto is not None:
-                signals.append(WigSignal(
-                    alias=_humanize_key(key), pronto=pronto,
+                signals.append(_climate_flat_signal(
+                    _humanize_key(key), pronto,
+                    "declared" if encoding.strip().lower() == "pronto"
+                    else "assumed",
                 ))
             continue
-        if isinstance(value, dict):
+        if fork:
+            _walk_fork(key, None, None, None, value, key)
+        elif isinstance(value, dict):
             for fan_key, fval in value.items():
                 if str(fan_key).startswith("$") or not str(fan_key):
                     continue
@@ -500,10 +952,46 @@ def _convert_smartir_climate(text: str) -> AdapterResult:
         else:
             _walk_fan_value(key, None, value)
 
+    def _emit_receipts() -> None:
+        """Every receipt the walk gathered, before any answer.
+
+        BEFORE EVERY EARLY RETURN, not only the last one. Both refusals
+        below used to return with ``fail_counts``, ``absent`` and
+        ``skipped_modes`` still in hand, so the five-level fork case
+        reported "no convertible state cells in this file" and an empty
+        skipped list -- the file said nothing about why, and neither
+        did HAIR.
+        """
+        for reason, count in sorted(fail_counts.items()):
+            result.skipped.append(f"{count} cells: {reason}")
+        if absent:
+            result.skipped.append(
+                f"{absent} absent states (null or empty cells) skipped"
+            )
+        for mode in skipped_modes:
+            result.skipped.append(
+                f'mode "{mode}": no Home Assistant equivalent, subtree '
+                "skipped"
+            )
+
+    if fork:
+        main_preset = next(
+            (key for key in preset_order if preset_cells.get(key)), None
+        )
+        if main_preset is not None:
+            cells.extend(preset_cells.pop(main_preset))
+        for key in preset_order:
+            if not preset_cells.get(key) and key != main_preset:
+                result.folds.append(
+                    f'preset "{key}" is declared but carries no cells'
+                )
+
     if off_pronto is None:
+        _emit_receipts()
         result.error = 'no convertible "off" code (every climate file needs one)'
         return result
     if not cells:
+        _emit_receipts()
         result.error = "no convertible state cells in this file"
         return result
 
@@ -532,28 +1020,82 @@ def _convert_smartir_climate(text: str) -> AdapterResult:
     # (their climate corpus is Celsius throughout; owner ruling
     # 2026-07-29 rejected detection heuristics -- a file that "looks
     # Fahrenheit" is a hand-edit problem, not an import guess).
+    # THE DECLARED PRECISION, KEPT UNLESS IT CANNOT BE TRUE.
+    #
+    # A matrix declaring 0.1 over whole-degree cells makes the comb
+    # invent twenty-seven missing temperatures spelled with float drift.
+    # But demoting on any mismatch is worse: a real half-degree device
+    # whose observed temperatures happen to be whole would lose its
+    # step, and the comb would stop reporting the half-degree holes it
+    # exists to report. So the rule is one-sided -- a declared value is
+    # kept unless it is FINER than the spacing the cells actually show
+    # by more than one step of itself -- and the result never goes
+    # below the finest spacing observed.
+    # AND NEVER COARSER THAN A WHOLE DEGREE. A sparse lattice carrying
+    # 16, 22 and 30 shows a six-degree spacing and is not a device that
+    # steps by six: those are holes, and reporting them is the comb's
+    # job. Demoting there would silence the comb in exactly the way the
+    # review warned about for half-degree files, so the demotion stops
+    # at 1.0 and a declared whole degree is never rewritten.
+    observed = _observed_precision(cells)
+    stored_precision = float(precision)
+    if observed is not None and observed - stored_precision > stored_precision:
+        demoted = min(observed, 1.0)
+        if demoted > stored_precision:
+            stored_precision = demoted
+            # A FOLD, NOT A SKIP. ``skipped`` is rows that did not
+            # convert, and the panel counts it: "{count} signals could
+            # not convert". Every cell converted here; one number was
+            # rewritten, which is what ``folds`` is for.
+            result.folds.append(
+                f"declared precision {_trim(precision)} is finer than the "
+                f"{_trim(observed)} step these cells actually use; stored "
+                f"as {_trim(demoted)}"
+            )
+
     matrix = ClimateMatrix(
         min_temp=float(min_temp),
         max_temp=float(max_temp),
-        precision=float(precision),
+        precision=stored_precision,
         modes=_ordered(data.get("operationModes"), obs_modes),
         fan_modes=_ordered(data.get("fanModes"), obs_fans),
         swing_modes=_ordered(data.get("swingModes"), obs_swings),
         off=off_pronto,
         on=on_pronto,
         cells=cells,
+        extras=[
+            ClimateExtra(axis="preset", key=key, cells=preset_cells[key])
+            for key in preset_order
+            if preset_cells.get(key)
+        ],
     )
+    if matrix.extras:
+        result.folds.append(
+            f'preset "{main_preset}" read as the main lattice; '
+            f"{len(matrix.extras)} other preset(s) kept as extra lattices"
+        )
+        # A MODE THAT EXISTS ONLY UNDER A SECONDARY PRESET LEAVES THE
+        # MODE LIST, AND IS SAID SO. The climate entity is built from
+        # the main lattice, so a file whose heating codes live only
+        # under an eco preset yields a cooling-only entity. The codes
+        # are in the file, inside the digest, and the device detail
+        # grid can reach them later; what must not happen is the mode
+        # disappearing without a word. Not a promotion: promoting one
+        # mode out of an extra lattice would mix two presets into one
+        # entity and send the wrong state.
+        reported: set[str] = set(matrix.modes)
+        for extra in matrix.extras:
+            for mode in dict.fromkeys(c.mode for c in extra.cells):
+                if mode in reported:
+                    continue
+                reported.add(mode)  # named once, not once per preset
+                result.folds.append(
+                    f'mode "{mode}" is only under preset "{extra.key}"; it '
+                    "is kept as an extra lattice and is not on the climate "
+                    "entity"
+                )
 
-    for reason, count in sorted(fail_counts.items()):
-        result.skipped.append(f"{count} cells: {reason}")
-    if absent:
-        result.skipped.append(
-            f"{absent} absent states (null or empty cells) skipped"
-        )
-    for mode in skipped_modes:
-        result.skipped.append(
-            f'mode "{mode}": no Home Assistant equivalent, subtree skipped'
-        )
+    _emit_receipts()
 
     manufacturer = str(data.get("manufacturer") or "").strip()
     models = data.get("supportedModels") or []
@@ -696,7 +1238,85 @@ def _flipper_builders():
     # above carry no masks.
     builders["Pioneer"] = _build_pioneer
 
+    # --- the Manchester and RCA block (import phase 1) ----------------
+    #
+    # THROUGH THE REGISTRY, NOT THROUGH THE LIBRARY. These three resolve
+    # their class with ``get_spec``, which answers with whichever
+    # implementation is registered: upstream ships no RC-6 and no RCA,
+    # so those are this package's own decoders, and they are real
+    # encoders. A Flipper file carrying these lines therefore converts
+    # with or without the optional library installed, which the block
+    # above already established for the NEC family.
+    #
+    # WIDTHS ARE THE FIRMWARE'S, AND EACH IS CHECKED RATHER THAN MASKED.
+    # A mask invents a code: it turns a value the file could not have
+    # meant into one HAIR will happily transmit. A value too wide for
+    # its field raises here and lands in ``result.skipped`` naming the
+    # row, which is what the person needs to see.
+    #
+    # Kaseikyo is NOT here. Its Flipper address is a packed 26-bit
+    # composite (an id, a 16-bit vendor, two 4-bit genre nibbles) and
+    # the firmware's own files disagree about whether the command is 10
+    # or 12 bits wide, while this package's class takes a vendor
+    # address and payload BYTES. That mapping cannot be confirmed from
+    # the firmware as it stands, so the entry is not added and the
+    # honest "not encodable yet" receipt stays.
+    def _rc6(address: int, command: int):
+        # Flipper's RC6: address 8 bits, command 8 bits, and its encoder
+        # writes mode 0 only. The toggle is pinned to 0 for the same
+        # reason the LIRC reader pins it: a wig holds one Pronto per
+        # button and the toggle flips per press.
+        cls = _registry_class("RC6")
+        if cls is None:
+            raise ValueError("no RC-6 encoder is registered")
+        _check_width("RC6 address", address, 0xFF)
+        _check_width("RC6 command", command, 0xFF)
+        return cls(address=address, command=command, mode=0, toggle=0)
+
+    def _rc5x(address: int, command: int):
+        # Flipper's RC5X: address 5 bits, command 7 bits. NOT the RC5
+        # entry's ``& 0x3F``: this package's class spends the second
+        # start bit on command bit 6, so 0x40..0x7F is exactly what
+        # RC5X means and a six-bit mask cannot express it.
+        cls = _registry_class("RC5")
+        if cls is None:
+            raise ValueError("no RC-5 encoder is registered")
+        _check_width("RC5X address", address, 0x1F)
+        _check_width("RC5X command", command, 0x7F)
+        return cls(address=address, command=command, toggle=0)
+
+    def _rca(address: int, command: int):
+        # Flipper's RCA: address 4 bits, command 8 bits, with both
+        # complements derived by the encoder.
+        cls = _registry_class("RCA")
+        if cls is None:
+            raise ValueError("no RCA encoder is registered")
+        _check_width("RCA device", address, 0xF)
+        _check_width("RCA function", command, 0xFF)
+        return cls(device=address, function=command)
+
+    builders["RC6"] = _rc6
+    builders["RC5X"] = _rc5x
+    builders["RCA"] = _rca
+
     return builders
+
+
+def _registry_class(label: str):
+    """The registered command class for a decoded label, or None."""
+    from .protocol_decode import get_spec
+
+    spec = get_spec(label)
+    return None if spec is None else spec.command_cls
+
+
+def _check_width(what: str, value: int, limit: int) -> None:
+    """Refuse a field the file could not have meant, by name."""
+    if not 0 <= value <= limit:
+        raise ValueError(
+            f"{what} {value:#x} is wider than the {limit.bit_length()} "
+            "bits a Flipper line carries for it"
+        )
 
 
 def _build_pioneer(address: int, command: int):
@@ -717,6 +1337,73 @@ def _build_pioneer(address: int, command: int):
         address=address | ((~address & 0xFF) << 8),
         command=command | ((~command & 0xFF) << 8),
     )
+
+
+def _carrier_for(
+    declared_hz: int | None, protocol_hz: int | None = None
+) -> tuple[int, str]:
+    """``(carrier, source)`` for one row, and where the number came from.
+
+    ``declared`` is the file's own value, ``protocol`` an encoder's
+    nominal, ``assumed`` HAIR's 38 kHz fallback, and ``none`` a code
+    that carries no carrier at all. Every reader in import phase 1 goes
+    through here so the four answers are spelled one way.
+    """
+    if declared_hz is not None:
+        return (int(declared_hz), "none" if declared_hz == 0 else "declared")
+    if protocol_hz:
+        return (int(protocol_hz), "protocol")
+    return (38000, "assumed")
+
+
+def _carrier_extra(carrier: int, source: str) -> dict:
+    """The per-signal carrier stamp.
+
+    Rides ``WigSignal.extra``, which round trips through ``_KNOWN_SIGNAL``
+    and is excluded from ``canonical_signals_json``, so this is additive
+    and outside every digest: a wig written before this carries no
+    stamp and hashes exactly as it did.
+    """
+    return {"carrier": {"hz": carrier, "source": source}}
+
+
+def _carrier_from_pronto(pronto: str, source: str) -> dict:
+    """The stamp for a row whose carrier is already inside its code.
+
+    A Pronto's header word IS a carrier statement, so a file that wrote
+    the Pronto stated it (``declared``) and a code HAIR built at its own
+    default did not (``assumed``). A ``0100`` code states that there is
+    no carrier at all, which reads as ``none`` whoever wrote it.
+    """
+    from .ir_command import ProntoCommand
+
+    try:
+        command = ProntoCommand(pronto)
+    except (ValueError, IndexError, TypeError):
+        return {}
+    if command.unmodulated:
+        return _carrier_extra(0, "none")
+    return _carrier_extra(int(command.modulation or 0), source)
+
+
+def _int_or_none(value: object) -> int | None:
+    """A declared number, or None when the file declared nothing.
+
+    The import readers distinguish "the file says 0" from "the file
+    says nothing" from here on, because zero is a carrier that means no
+    carrier and the two answers are not the same (item 6). Anything
+    that will not read as a number is None: an unreadable value is an
+    absent one for this purpose, and the row still converts.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
 
 
 def _flipper_bytes_value(raw: str) -> int:
@@ -767,10 +1454,37 @@ def _triple_reproduces(pronto: str, timings: list[int]) -> bool:
     )
     if rebuilt is None:
         return True
-    modulation = int(getattr(rebuilt, "modulation", 0) or 0) or 38000
+    modulation = carrier_or_default(getattr(rebuilt, "modulation", None))
     return raw_to_pronto(
         list(rebuilt.get_raw_timings()), frequency=modulation
     ) == pronto
+
+
+def _refuse_flipper_library(text: str) -> AdapterResult:
+    """A Flipper universal library file, refused by name.
+
+    These are the firmware's shotgun files -- ``tv.ir``, ``ac.ir``,
+    ``audio.ir``, ``projector.ir`` -- one per device type, carrying the
+    same six or so buttons for hundreds of models, walked in full by
+    the Flipper's own Universal Remote feature. They are a database,
+    and a database lookup is not what a wig is: a wig is one remote.
+
+    The refusal names what the file is and what to do with it, because
+    a person who dropped one has a reasonable question. The count comes
+    from the ``# Model:`` markers when the file carries them; the file
+    is refused either way.
+    """
+    models = len(re.findall(r"^#\s*Model:", text, re.MULTILINE))
+    counted = f" ({models} models)" if models else ""
+    return AdapterResult(
+        format="flipper_library",
+        error=(
+            f"this is a Flipper universal remote library{counted}, not a "
+            "single remote. HAIR imports one remote per file. Copy the "
+            "block for your model into its own file with "
+            f"'{FLIPPER_REMOTE_HEADER}' at the top and drop that."
+        ),
+    )
 
 
 def _convert_flipper(text: str, name_hint: str) -> AdapterResult:
@@ -790,13 +1504,15 @@ def _convert_flipper(text: str, name_hint: str) -> AdapterResult:
             if len(values) < 4:
                 result.skipped.append(f"{name}: raw data too short")
                 return
-            frequency = int(current.get("frequency", "38000") or 38000)
+            declared_hz = _int_or_none(current.get("frequency"))
+            frequency, source = _carrier_for(declared_hz)
             timings = [
                 v if i % 2 == 0 else -v for i, v in enumerate(values)
             ]
             signals.append(WigSignal(
                 alias=name,
                 pronto=raw_to_pronto(timings, frequency=frequency),
+                extra=_carrier_extra(frequency, source),
             ))
             return
         if sig_type == "parsed":
@@ -813,14 +1529,15 @@ def _convert_flipper(text: str, name_hint: str) -> AdapterResult:
                 command_v = _flipper_bytes_value(current.get("command", "0"))
                 command = builder(address, command_v)
                 timings = list(command.get_raw_timings())
-                modulation = int(
-                    getattr(command, "modulation", 0) or 0
-                ) or 38000
+                modulation, source = _carrier_for(
+                    None, _int_or_none(getattr(command, "modulation", None))
+                )
                 pronto = raw_to_pronto(timings, frequency=modulation)
                 signals.append(WigSignal(
                     alias=name,
                     pronto=pronto,
                     bypass_protocol=not _triple_reproduces(pronto, timings),
+                    extra=_carrier_extra(modulation, source),
                 ))
             except Exception as err:
                 result.skipped.append(f"{name}: encode failed ({err})")
@@ -896,7 +1613,10 @@ def _lirc_params(block: str) -> dict[str, list[str]]:
 def _convert_lirc_remote(block: str, result: AdapterResult) -> Wig | None:
     params = _lirc_params(block)
     remote_name = (params.get("name") or ["LIRC Remote"])[0]
-    frequency = int((params.get("frequency") or ["38000"])[0])
+    # The file's own carrier, or None when it declares none. Item 7:
+    # the reader records which of those it was rather than spelling a
+    # silent 38000 the file never said.
+    declared_hz = _int_or_none((params.get("frequency") or [None])[0])
     flags = " ".join(params.get("flags", [])).upper()
     signals: list[WigSignal] = []
 
@@ -912,9 +1632,13 @@ def _convert_lirc_remote(block: str, result: AdapterResult) -> Wig | None:
             timings = [
                 v if i % 2 == 0 else -v for i, v in enumerate(numbers)
             ]
+            carrier, source = _carrier_for(declared_hz)
+            pronto = raw_to_pronto(timings, frequency=carrier)
             signals.append(WigSignal(
                 alias=name,
-                pronto=raw_to_pronto(timings, frequency=frequency),
+                pronto=pronto,
+                bypass_protocol=not _triple_reproduces(pronto, timings),
+                extra=_carrier_extra(carrier, source),
             ))
     else:
         codes_section = re.search(
@@ -923,12 +1647,20 @@ def _convert_lirc_remote(block: str, result: AdapterResult) -> Wig | None:
         if codes_section is None:
             result.skipped.append(f"{remote_name}: no codes section")
             return None
-        if "RC5" in flags or "RC6" in flags:
-            result.skipped.append(
-                f"{remote_name}: RC5/RC6 coded remotes are not "
-                "reconstructable yet"
+        if "RC5" in flags or "SHIFT_ENC" in flags or "RC6" in flags:
+            signals.extend(_convert_lirc_manchester(
+                params, codes_section.group(1), remote_name, flags,
+                declared_hz, result,
+            ))
+            if not signals:
+                result.skipped.append(f"{remote_name}: nothing convertible")
+                return None
+            return Wig(
+                name=remote_name,
+                signals=signals,
+                notes="Imported from a LIRC lircd.conf",
+                origin="converted:lirc",
             )
-            return None
         builder = _LircSpaceEnc.from_params(params)
         if builder is None:
             result.skipped.append(
@@ -949,9 +1681,13 @@ def _convert_lirc_remote(block: str, result: AdapterResult) -> Wig | None:
                 result.skipped.append(f"{remote_name}/{name}: bad code")
                 continue
             timings = builder.build(value)
+            carrier, source = _carrier_for(declared_hz)
+            pronto = raw_to_pronto(timings, frequency=carrier)
             signals.append(WigSignal(
                 alias=_humanize_key(name.removeprefix("KEY_").lower()),
-                pronto=raw_to_pronto(timings, frequency=frequency),
+                pronto=pronto,
+                bypass_protocol=not _triple_reproduces(pronto, timings),
+                extra=_carrier_extra(carrier, source),
             ))
 
     if not signals:
@@ -963,6 +1699,280 @@ def _convert_lirc_remote(block: str, result: AdapterResult) -> Wig | None:
         notes="Imported from a LIRC lircd.conf",
         origin="converted:lirc",
     )
+
+
+# --- LIRC RC-5 and RC-6, through this package's own encoders ---------
+#
+# A block with the RC5, SHIFT_ENC or RC6 flag states its codes as a
+# NUMBER, not as a pulse train, and until now HAIR refused it as "not
+# reconstructable". Both encoders have been in ``decoders/`` all along;
+# what was missing was the mapping from the file's fields onto them.
+#
+# WHAT THE OBJECT IS. ``lircd.conf(5)`` gives the frame as
+# ``header | plead | pre data | pre | data | post | post data | ptrail |
+# foot | gap`` and says the toggle mask "is applied to the concatenated
+# value of pre data - data - post_data". So the word these readers split
+# is that concatenation, MSB first, of width
+# ``pre_data_bits + bits + post_data_bits``.
+#
+# RECONSTRUCTED FROM THE PROTOCOL, NOT FROM THE FILE'S NUMBERS. The
+# timings come from the encoders' canonical units (889 us half-bits for
+# RC-5, 444 us units for RC-6), not from the block's measured ``one`` /
+# ``zero`` / ``plead``, exactly as the Flipper parsed path already
+# rebuilds from parameters. The receipt says so.
+#
+# THE TOGGLE IS PINNED TO 0 AND THE RECEIPT SAYS SO. A wig holds one
+# Pronto per button and the toggle flips per press, so there is no
+# "the" toggle to preserve; ``decoders/rc5.py`` states that callers
+# must keep it out of identity, and both extractors put it in extras
+# rather than in the fingerprint suffix.
+
+
+class LircManchesterError(ValueError):
+    """A block this reader will not guess at, with the reason."""
+
+
+def _lirc_word(params: dict) -> tuple[int, int]:
+    """``(value, width)`` for the pre_data|code|post_data concatenation.
+
+    Returns the width alone here; the code is folded in per row.
+    """
+    pre_bits = int((params.get("pre_data_bits") or ["0"])[0])
+    post_bits = int((params.get("post_data_bits") or ["0"])[0])
+    bits = int((params.get("bits") or ["0"])[0])
+    return (pre_bits, bits, post_bits)
+
+
+def _lirc_concat(params: dict, code: int) -> tuple[int, int]:
+    """The whole word and its width, for one row's code."""
+    pre_bits, bits, post_bits = _lirc_word(params)
+    pre_values = params.get("pre_data")
+    post_values = params.get("post_data")
+    pre = int(pre_values[0], 0) if pre_values else 0
+    post = int(post_values[0], 0) if post_values else 0
+    width = pre_bits + bits + post_bits
+    value = 0
+    if pre_bits:
+        value = pre & ((1 << pre_bits) - 1)
+    value = (value << bits) | (code & ((1 << bits) - 1))
+    if post_bits:
+        value = (value << post_bits) | (post & ((1 << post_bits) - 1))
+    return value, width
+
+
+def _toggle_position(params: dict, width: int) -> int | None:
+    """Which bit from the MSB the file says the toggle is, or None.
+
+    ``toggle_bit_mask`` first, because it is unambiguous: a mask over
+    the concatenated word. ``toggle_bit`` second, which ``lircd.conf(5)``
+    documents as one-based from the most significant bit. ``rc6_mask``
+    is NOT read: it is absent from the man page, 21 of the 86 native
+    RC-6 blocks do not carry it (including the database's own generic
+    template), and every one of those says the same thing with
+    ``toggle_bit``.
+    """
+    mask_values = params.get("toggle_bit_mask")
+    if mask_values:
+        mask = int(mask_values[0], 0)
+        if mask and mask.bit_count() == 1:
+            return width - mask.bit_length()
+    bit_values = params.get("toggle_bit")
+    if bit_values:
+        one_based = int(bit_values[0], 0)
+        if 1 <= one_based <= width:
+            return one_based - 1
+    return None
+
+
+def _lirc_rc5_fields(params: dict, code: int) -> tuple[int, int]:
+    """``(address, command)`` for one RC-5 row, or raise.
+
+    W is the concatenation's width. 13 is the common shape, S1 riding as
+    ``plead`` and the reconstruction supplying it; 14 carries S1 in the
+    word and it must read 1. S2 is the RC5X bit: 0 folds command bit 6
+    on, which is exactly the inverse of what ``decoders/rc5.py`` does on
+    encode.
+    """
+    _pre_bits, _bits, post_bits = _lirc_word(params)
+    if post_bits:
+        raise LircManchesterError(
+            "RC-5 with post_data is not read: the command bits cannot be "
+            "told from the trailing field"
+        )
+    value, width = _lirc_concat(params, code)
+    if width == 14:
+        if (value >> 13) & 1 != 1:
+            raise LircManchesterError(
+                "14-bit RC-5 word whose first start bit reads 0"
+            )
+        value &= (1 << 13) - 1
+    elif width != 13:
+        raise LircManchesterError(
+            f"RC-5 word is {width} bits; this reader knows 13 and 14"
+        )
+    start2 = (value >> 12) & 1
+    address = (value >> 6) & 0x1F
+    command = value & 0x3F
+    if not start2:
+        command |= 0x40
+    return address, command
+
+
+def _lirc_rc6_fields(params: dict, code: int) -> tuple[dict, list[str]]:
+    """RC-6 constructor kwargs for one row, plus any receipt notes.
+
+    THE LIRC WORD IS THE BITWISE COMPLEMENT of the logical RC-6 bits.
+    Derived rather than assumed, and every native block the review
+    checked agrees: complementing the concatenation gives a leading 1
+    on all of them but one, which is mode 15 and is refused on mode
+    anyway.
+    Reading the word uncomplemented gives a leading 0, which RC-6 does
+    not permit.
+
+    Layout after complementing, MSB first: S:1, mode:3, trailer:1, then
+    the payload. Mode 6's customer field states its own width with its
+    first bit, which is what ``decoders/rc6.py`` reads, so the width is
+    taken from the field and never from W.
+    """
+    value, width = _lirc_concat(params, code)
+    if width == 25:
+        raise LircManchesterError(
+            "RC-6-6-20 (a 25-bit word) is a documented deferral in this "
+            "package's RC-6 decoder"
+        )
+    if width not in (21, 29, 37):
+        raise LircManchesterError(
+            f"RC-6 word is {width} bits; this reader knows 21, 29 and 37"
+        )
+    word = (~value) & ((1 << width) - 1)
+    if (word >> (width - 1)) & 1 != 1:
+        raise LircManchesterError(
+            "RC-6 start bit reads 0 after complementing the word"
+        )
+    mode = (word >> (width - 4)) & 0b111
+    if mode not in (0, 6):
+        raise LircManchesterError(f"RC-6 mode {mode} is not read")
+    trailer = (word >> (width - 5)) & 1
+    notes: list[str] = []
+    if _toggle_position(params, width) is None:
+        notes.append(
+            "the block names no toggle bit, so the trailer position was "
+            "assumed to be it"
+        )
+    rest_bits = width - 5
+    rest = word & ((1 << rest_bits) - 1)
+    if mode == 0:
+        if rest_bits != 16:
+            raise LircManchesterError(
+                f"RC-6 mode 0 payload is {rest_bits} bits, expected 16"
+            )
+        return (
+            {"address": (rest >> 8) & 0xFF, "command": rest & 0xFF,
+             "mode": 0, "toggle": 0},
+            notes,
+        )
+    # Mode 6. The customer field's first bit gives its width, then one
+    # toggle bit, then a 7-bit device and an 8-bit function.
+    if trailer:
+        raise LircManchesterError(
+            "RC-6 mode 6 with a set trailer is not submode 6A"
+        )
+    lead = (rest >> (rest_bits - 1)) & 1
+    customer_bits = 16 if lead else 8
+    if rest_bits < customer_bits + 16:
+        raise LircManchesterError(
+            f"RC-6 mode 6 word is {rest_bits} bits after the header, too "
+            f"short for a {customer_bits}-bit customer field"
+        )
+    customer = (rest >> (rest_bits - customer_bits)) & (
+        (1 << customer_bits) - 1
+    )
+    remainder_bits = rest_bits - customer_bits
+    if remainder_bits != 16:
+        raise LircManchesterError(
+            f"RC-6 mode 6 remainder is {remainder_bits} bits, expected 16"
+        )
+    remainder = rest & 0xFFFF
+    return (
+        {
+            "address": (remainder >> 8) & 0x7F,
+            "command": remainder & 0xFF,
+            "mode": 6,
+            "toggle": 0,
+            "customer": customer,
+        },
+        notes,
+    )
+
+
+def _convert_lirc_manchester(
+    params: dict, codes_section: str, remote_name: str,
+    flags: str, declared_hz: int | None, result: AdapterResult,
+) -> list[WigSignal]:
+    """Every row of an RC-5 or RC-6 block, or an empty list."""
+    is_rc6 = "RC6" in flags
+    label = "RC-6" if is_rc6 else "RC-5"
+    cls = _registry_class("RC6" if is_rc6 else "RC5")
+    if cls is None:
+        result.skipped.append(
+            f"{remote_name}: no {label} encoder is registered"
+        )
+        return []
+    signals: list[WigSignal] = []
+    notes_seen: set[str] = set()
+    for line in codes_section.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        name = parts[0]
+        try:
+            code = int(parts[1], 0)
+        except ValueError:
+            result.skipped.append(f"{remote_name}/{name}: bad code")
+            continue
+        try:
+            if is_rc6:
+                kwargs, notes = _lirc_rc6_fields(params, code)
+            else:
+                address, command = _lirc_rc5_fields(params, code)
+                kwargs, notes = (
+                    {"address": address, "command": command, "toggle": 0},
+                    [],
+                )
+            # Every construction is wrapped: a value the class refuses
+            # is a receipted skip, never a ValueError out of the
+            # converter.
+            command_obj = cls(**kwargs)
+        except (LircManchesterError, ValueError, TypeError) as err:
+            result.skipped.append(f"{remote_name}/{name}: {err}")
+            continue
+        notes_seen.update(notes)
+        timings = list(command_obj.get_raw_timings())
+        carrier, source = _carrier_for(
+            declared_hz, getattr(command_obj, "modulation", None)
+        )
+        pronto = raw_to_pronto(timings, frequency=carrier)
+        signals.append(WigSignal(
+            alias=_humanize_key(name.removeprefix("KEY_").lower()),
+            pronto=pronto,
+            bypass_protocol=not _triple_reproduces(pronto, timings),
+            extra=_carrier_extra(carrier, source),
+        ))
+    if signals:
+        result.folds.append(
+            f"{remote_name}: {len(signals)} {label} rows rebuilt from the "
+            "protocol's own timings, with the toggle pinned to 0"
+        )
+    # A FOLD, NOT A SKIP, for the same reason the precision note is:
+    # these rows converted. What the note records is an assumption the
+    # reconstruction made, and "{count} signals could not convert" is
+    # not what happened.
+    for note in sorted(notes_seen):
+        result.folds.append(f"{remote_name}: {note}")
+    return signals
 
 
 def _lirc_raw_entries(section: str):
@@ -1122,13 +2132,19 @@ def _girr_sequence_timings(sequence) -> list[int]:
     ]
 
 
-def _girr_raw_pronto(command) -> tuple[str | None, str | None]:
-    """(pronto, caveat) from a <raw> element, or (None, None)."""
+def _girr_raw_pronto(command) -> tuple[str | None, str | None, str]:
+    """(pronto, caveat, carrier source) from a <raw> element.
+
+    ``(None, None, "assumed")`` when there is no usable raw element.
+    The third value is item 7's: a ``frequency`` attribute is the
+    file's own statement, and its absence is HAIR's 38 kHz default,
+    which the row records rather than passing off as the file's.
+    """
     for raw in _girr_children(command, "raw"):
         try:
-            frequency = int(float(raw.get("frequency") or 38000))
+            frequency, source = _carrier_for(_int_or_none(raw.get("frequency")))
         except ValueError:
-            frequency = 38000
+            frequency, source = 38000, "assumed"
         intro = repeat = None
         has_ending = False
         for child in raw:
@@ -1151,8 +2167,8 @@ def _girr_raw_pronto(command) -> tuple[str | None, str | None]:
             "'ending' sequence dropped (inexpressible in Pronto)"
             if has_ending else None
         )
-        return raw_to_pronto(timings, frequency=frequency), caveat
-    return None, None
+        return raw_to_pronto(timings, frequency=frequency), caveat, source
+    return None, None, "assumed"
 
 
 def _girr_scope_has_parameters(remote) -> set[int]:
@@ -1212,8 +2228,11 @@ def _convert_girr(text: str, name_hint: str) -> AdapterResult:
             alias = _humanize_key(cmd_name) if cmd_name \
                 else f"Signal {len(signals) + 1}"
             pronto = _girr_ccf(command)
+            # A ccf element IS a Pronto the file wrote, header word and
+            # all, so its carrier is declared by the source.
+            carrier_source = "declared"
             if pronto is None:
-                pronto, caveat = _girr_raw_pronto(command)
+                pronto, caveat, carrier_source = _girr_raw_pronto(command)
                 if pronto is not None and caveat:
                     result.skipped.append(
                         f"{remote_name}/{alias}: {caveat}"
@@ -1235,7 +2254,11 @@ def _convert_girr(text: str, name_hint: str) -> AdapterResult:
                         "representation"
                     )
                 continue
-            signals.append(WigSignal(alias=alias, pronto=pronto))
+            signals.append(WigSignal(
+                alias=alias,
+                pronto=pronto,
+                extra=_carrier_from_pronto(pronto, carrier_source),
+            ))
         if not signals:
             result.skipped.append(f"{remote_name}: nothing convertible")
             continue

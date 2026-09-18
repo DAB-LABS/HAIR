@@ -113,7 +113,7 @@ class TestParseRejections:
         # The message must stay a version message: an old HAIR that
         # reported TAMPER on a good file is the failure this gate exists
         # to prevent.
-        result = _parse(_wig_dict(format="hair-wig/4"))
+        result = _parse(_wig_dict(format="hair-wig/5"))
         assert not result.ok
         assert len(result.errors) == 1
         assert "update HAIR" in result.errors[0]
@@ -867,7 +867,7 @@ class TestRecipeFormatGate:
         assert f'"format": "{WIG_FORMAT_V3}"' in serialize_wig(flat)
 
     def test_the_refusal_never_says_tamper(self):
-        result = _parse(_wig_dict(format="hair-wig/4"))
+        result = _parse(_wig_dict(format="hair-wig/5"))
         assert not result.ok
         joined = " ".join(result.errors).lower()
         assert "update hair" in joined

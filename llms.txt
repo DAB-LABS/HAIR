@@ -34,8 +34,9 @@ Key components:
   cannot grow the store without bound.
 - Clipper: a manual-entry surface (a third panel tab) for building virtual remotes by
   pasting Pronto hex codes, for cases where a live signal cannot be sniffed. Each
-  pasted code is validated (hex shape, four-digit words, a learned-code 0000 header,
-  burst-pair length math, and a carrier-frequency sanity warning) and then behaves
+  pasted code is validated (hex shape, four-digit words, a learned-code 0000 or
+  0100 header, burst-pair length math, and a carrier-frequency sanity warning
+  that is skipped on the unmodulated 0100 form) and then behaves
   identically to a sniffed signal: test, trigger, assign, or promote. Pasted signals
   share the same catalog as sniffed signals, distinguished by a source field
   (sniffed, manual, or plucked). Manual and plucked remotes are never auto-evicted. Pasting an identical
@@ -131,12 +132,33 @@ Key components:
   wig editor renders as a plain-English provenance sentence. The drop bar is
   also an import funnel: SmartIR JSON (all four encodings; climate files
   convert to state-matrix wigs, see below), Flipper Zero .ir (raw + parsed
-  via library encoders), LIRC lircd.conf (raw codes + SPACE_ENC
-  reconstruction), and Girr (IrScrutinizer's XML; ccf Pronto verbatim, raw
+  via library encoders, plus RC6 / RC5X / RCA at the firmware's own field
+  widths; Kaseikyo stays skipped because the firmware contradicts itself
+  on the command width), LIRC lircd.conf (raw codes + SPACE_ENC
+  reconstruction + RC5 / RC6 through HAIR's own encoders at 36 kHz, with
+  the toggle located from toggle_bit_mask or toggle_bit and pinned to 0),
+  and Girr (IrScrutinizer's XML; ccf Pronto verbatim, raw
   synthesized, parameters-only skipped; any of the four spec root elements
   accepted since v0.7.1) all convert INTO
   wigs on drop, with skip reasons appended to the wig's notes -- one funnel,
-  one-way doors. A Broadlink .storage scan and a CSV wizard remain planned.
+  one-way doors. Format identification is a probe registry (import phase 1):
+  each probe declares a rank and a predicate, the highest matched rank wins,
+  a genuine tie is refused rather than guessed and a filename extension may
+  only choose between tied candidates, never add one (GH #108). A Flipper
+  universal library file ("Filetype: IR library file") is recognised and
+  refused by name with a model count, since a wig is one remote; both
+  Flipper probes anchor to a header LINE, so a comment quoting either
+  header changes nothing. No probe claims light files: both light
+  schemas share one command vocabulary, so nothing in the content can
+  tell them apart and light files keep the flat-button path. Every row
+  any phase 1 reader renders goes through the same round-trip check the
+  Flipper readers use: decode the rendered code, re-encode the triple, and
+  store the row bypassed when the two Pronto strings differ. Each row also
+  records its carrier and where the number came from (declared / protocol /
+  assumed / none) through one helper, so the 38 kHz fallback applies only
+  to a genuinely missing value and a declared 0 means no carrier. A drop
+  that files several wigs reports what landed (up to four names plus a
+  count) instead of returning silently. A Broadlink .storage scan and a CSV wizard remain planned.
   The Add picker intermixes local wigs into the library alphabet. HAIR
   ships zero codes: wigs are the landing spot for codes that cannot or have
   not yet gone upstream.
@@ -228,7 +250,19 @@ Key components:
   no conditional rules; cells drop send_count and carry no ditto field.
   Format major bumps to hair-wig/3 for BOTH kinds: a pure capability
   gate, so an older install refuses with a version message instead of
-  reporting tamper on a good file. Bypass x ditto are mutually
+  reporting tamper on a good file. hair-wig/4 (import phase 1) adds
+  climate.extras: peer lattices on an axis the main one has no room for
+  ({axis, key, cells}, cells exactly the ClimateCell shape and validated
+  as such). Extras are INSIDE canonical_cells_json, hence inside the
+  claim, because they are real transmit recipes and a signature covering
+  some of a file's codes and not others is worse than none. The key is
+  emitted only when non-empty and the version follows the content, so a
+  wig with no extras is still /3 and its cells_hash is byte-identical.
+  The major is a FLOOR for this key as well as a ceiling for the file:
+  extras under a stamp below /4 is a parse error naming the version,
+  because an older reader keeps them as an unknown-key passthrough and
+  hashes without them, which would split cells_hash across installs on
+  one file a signature binds. Bypass x ditto are mutually
   exclusive (the exporter writes 0 with a receipt; the comb raises an
   advisory on a hand-made file carrying both). Fitting transmit is
   max(row send_count, session send times) -- the row states the device
@@ -330,7 +364,11 @@ Key components:
   temperature combination. Dropping a SmartIR climate JSON on the closet
   converts it into a wig carrying the structured matrix (depth detected per
   branch; mode/fan/swing words kept verbatim; flat extras like sleep timers
-  ride alongside as ordinary buttons). Matrix wigs write hair-wig/2 with an
+  ride alongside as ordinary buttons). A climate file that declares presets
+  at the top level (non-empty presetModes) carries one full lattice per
+  preset: the first declared preset becomes the matrix and the rest are kept
+  verbatim as climate.extras lattices (import phase 1), which is what the
+  hair-wig/4 bump buys. Matrix wigs write hair-wig/2 with an
   optional climate.unit field ("C" or "F", default "C", the SmartIR corpus
   convention); plain wigs stay hair-wig/1 so older installs keep reading
   them. ADOPT on a matrix wig creates a real climate entity: every
@@ -580,7 +618,12 @@ send (v0.8.0): sends succeed when at least one emitter fires, known-down
 emitters are skipped, and only an all-emitters failure errors; a dead emitter
 raises one self-replacing persistent notification naming the blaster and the
 reason, dismissed automatically when it answers again (v0.8.1). RC-5 toggle
-and Dyson counter state advance when at least one send lands.
+and Dyson counter state advance when at least one send lands. A code with no
+carrier (Pronto header 0100, a time base where an ordinary code states a
+frequency) is offered only to emitters that can transmit unmodulated:
+send_plan.CARRIERLESS_PLATFORMS ships EMPTY because no shipped emitter
+platform documents unmodulated transmit, so such a code is refused with that
+reason rather than sent modulated and reported as delivered.
 
 Supported device types and resulting HA entities:
 - Media Player -> media_player (power, volume, mute, source, channels, navigation, transport)
@@ -650,8 +693,9 @@ Receiver architecture:
 - [info.md](https://github.com/DAB-LABS/HAIR/blob/main/info.md): HACS short-form
   summary shown in the HACS UI during install.
 - [The wig format](https://github.com/DAB-LABS/HAIR/blob/main/docs/wig-format.md):
-  the portable code-set file format (hair-wig/1 and hair-wig/2), including the
-  climate state-matrix block, fittings, and the canonical hash forms.
+  the portable code-set file format (hair-wig/1 through hair-wig/4), including
+  the climate state-matrix block and its extra lattices, fittings, and the
+  canonical hash forms.
 - [Making your integration pluckable](https://github.com/DAB-LABS/HAIR/blob/main/docs/making-your-integration-pluckable.md):
   guide for HA integration authors on exposing the cross-emitter replay service the
   Plucker needs. The registry file format is documented in

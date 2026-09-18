@@ -343,14 +343,22 @@ class TestFlipper:
             assert validate_pronto(sig.pronto).valid, sig.alias
 
     def test_unknown_parsed_protocol_skips_with_reason(self):
+        """A protocol with no builder is skipped, naming it.
+
+        The example was RCA until import phase 1 added an RCA entry.
+        Kaseikyo is the one that stays unbuilt, and deliberately: its
+        Flipper address is a packed composite and the firmware's own
+        files disagree on the command width, so the entry would be a
+        guess. This test is the receipt for that decision.
+        """
         text = (
             "Filetype: IR signals file\nVersion: 1\n#\n"
-            "name: Weird\ntype: parsed\nprotocol: RCA\n"
+            "name: Weird\ntype: parsed\nprotocol: Kaseikyo\n"
             "address: 01 00 00 00\ncommand: 02 00 00 00\n"
         )
         result = convert(text, "x.ir")
         assert result.wigs == []
-        assert any("RCA" in reason for reason in result.skipped)
+        assert any("Kaseikyo" in reason for reason in result.skipped)
 
 
 class TestLirc:

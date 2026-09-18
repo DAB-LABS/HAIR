@@ -38,6 +38,7 @@ from .ir_command import (
     TERMINATOR_SPACE_US,
     RepeatedCommand,
     block_duration_us,
+    carrier_or_default,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,6 +47,81 @@ _LOGGER = logging.getLogger(__name__)
 # Everything else -- mqtt, and any entity HAIR cannot resolve to a
 # platform -- is "incapable" and takes the old per-frame loop.
 EXACT_PLATFORMS = {"esphome", "broadlink"}
+
+# Emitter platforms known to transmit a code with NO CARRIER, for a
+# Pronto ``0100`` code (item 6). EMPTY, deliberately, and a platform
+# joins it only once somebody has read that integration's infrared
+# entity and can say what it does with a modulation of zero. What the
+# 2026.7 implementations do today:
+#
+# - ``broadlink`` never reads ``command.modulation`` at all. Its packet
+#   has no carrier field and the hardware modulates at its own fixed
+#   rate, so a zero-carrier code would go out modulated. It cannot
+#   qualify.
+# - ``esphome`` passes ``carrier_frequency=command.modulation`` to the
+#   device API unchanged, and ``smlight`` passes it as ``freq``. Both
+#   hand a zero onward rather than rejecting it, and neither says what
+#   the firmware at the other end does with it. Passing a value on is
+#   not evidence that it is honoured, so neither is listed on the
+#   strength of a read of the integration alone; a bench capture of a
+#   zero-carrier send is what would move them.
+# - ``mqtt`` ships no infrared entity at that tag, so there was nothing
+#   to read.
+#
+# The consequence is deliberate and is the honest one: HAIR refuses to
+# transmit a non-modulated code rather than sending it modulated and
+# calling that a send.
+CARRIERLESS_PLATFORMS: set[str] = set()
+
+
+def can_send_unmodulated(platform: str | None) -> bool:
+    """Can this emitter platform transmit a code with no carrier?
+
+    ``None`` means HAIR could not resolve the platform, which reads as
+    incapable for the same reason it does in ``emitter_platform``: an
+    emitter nobody has checked is not an emitter to send an unusual
+    waveform through.
+    """
+    return platform in CARRIERLESS_PLATFORMS
+
+
+#: Why an emitter was passed over for a code with no carrier. One
+#: string, because the device broadcast path shows it in the skipped
+#: list and the Test button shows it in its own result, and two
+#: spellings of the same refusal read as two different rules.
+NO_CARRIER_REASON = "cannot send a code with no carrier"
+
+
+def refuse_unmodulated(command: Any, platform: str | None) -> str | None:
+    """The reason this emitter may not have this code, or ``None``.
+
+    THE ONE DOOR BOTH SEND PATHS ASK. ``device_manager`` asks it per
+    emitter while building its attempt list, and ``test_signal`` asks
+    it for the single emitter the Test button names. They asked
+    separately once, and only one of them was asking at all, which is
+    how a ``0100`` code reached a blaster that modulates everything it
+    is handed.
+    """
+    if not is_unmodulated(command):
+        return None
+    if can_send_unmodulated(platform):
+        return None
+    return NO_CARRIER_REASON
+
+
+def is_unmodulated(command: Any) -> bool:
+    """Does this built command carry no carrier?
+
+    Read off the BUILT command rather than off the row, so the refusal
+    and the bytes that would go out can never disagree about which one
+    of them is non-modulated. ``modulation`` is 0 for exactly the codes
+    ``raw_to_pronto`` wrote a ``0100`` header on.
+    """
+    try:
+        return int(getattr(command, "modulation", 38000) or 0) == 0
+    except (TypeError, ValueError):
+        return False
+
 
 # The Broadlink packet encoder (python-broadlink's pulses_to_data)
 # writes one byte per value under 256 ticks and three bytes above,
@@ -274,7 +350,7 @@ def build_like_send_path(row: Any) -> Any:
         protocol=getattr(row, "protocol", None),
         code=getattr(row, "code", None),
         raw_timings=getattr(row, "raw_timings", None),
-        frequency=getattr(row, "frequency", None) or 38000,
+        frequency=carrier_or_default(getattr(row, "frequency", None)),
         repeat_count=repeat_count,
     )
 

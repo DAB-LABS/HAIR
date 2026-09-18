@@ -386,9 +386,23 @@ class TestRawToPronto:
         with pytest.raises(ValueError, match="empty"):
             raw_to_pronto([])
 
-    def test_zero_frequency_raises(self):
+    def test_zero_frequency_is_no_carrier_not_an_error(self):
+        """Item 6: zero is a carrier value and it means no carrier.
+
+        This used to raise. A ``0100`` code is the format for a device
+        driven without a carrier, and the encoder has to be able to
+        write one; the header is what says so, and the second word
+        stays the time base the timing words count in.
+        """
+        pronto = raw_to_pronto([100, -200], frequency=0)
+        assert pronto.startswith("0100 ")
+        assert pronto.split()[1] == raw_to_pronto(
+            [100, -200], frequency=38000
+        ).split()[1]
+
+    def test_a_negative_frequency_still_raises(self):
         with pytest.raises(ValueError, match="frequency"):
-            raw_to_pronto([100, -200], frequency=0)
+            raw_to_pronto([100, -200], frequency=-1)
 
     def test_unsigned_timings_work(self):
         """Unsigned (all positive) alternating timings should work."""

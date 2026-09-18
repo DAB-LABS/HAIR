@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .const import MAX_DITTO_COUNT
-from .ir_command import raw_to_pronto
+from .ir_command import carrier_or_default, raw_to_pronto
 from .models import IRDevice
 from .wig_format import ClimateMatrix, Wig, WigSignal
 
@@ -82,7 +82,7 @@ def _pronto_for(
     if raw_timings:
         try:
             return raw_to_pronto(
-                list(raw_timings), frequency=frequency or 38000
+                list(raw_timings), frequency=carrier_or_default(frequency)
             )
         except Exception:
             return None

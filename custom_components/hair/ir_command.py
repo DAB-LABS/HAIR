@@ -34,6 +34,12 @@ _LOGGER = logging.getLogger(__name__)
 
 # Pronto hex word 0 == 0x0000 means "learned / raw" format.
 _PRONTO_LEARNED = 0x0000
+# The unmodulated learned format. Same layout as ``0000`` -- the second
+# word is still what the timing words count in -- but the emitter holds
+# the LED on for the mark instead of modulating it. Devices driven
+# without a carrier (some plasma displays, powerline and mains-signalled
+# gear) are what it exists for.
+_PRONTO_UNMODULATED = 0x0100
 # Pronto frequency is encoded as 1_000_000 / (word[1] * 0.241246).
 _PRONTO_FREQ_FACTOR = 0.241246
 
@@ -213,7 +219,17 @@ class ProntoCommand(Command):
         if freq_word == 0:
             raise ValueError("Pronto frequency word is zero")
 
-        self._frequency = round(1_000_000 / (freq_word * _PRONTO_FREQ_FACTOR))
+        # ``0100`` IS THE SAME LAYOUT WITH NO CARRIER. The second word
+        # still sets the period the timing words count in, so the maths
+        # below is unchanged; what changes is that there is no carrier
+        # to report, and a modulation of 0 is how that travels. Any
+        # other header is the validator's business, not this class's:
+        # it has always read words[1] and ignored words[0].
+        self._unmodulated = words[0] == _PRONTO_UNMODULATED
+        self._timebase_hz = round(
+            1_000_000 / (freq_word * _PRONTO_FREQ_FACTOR)
+        )
+        self._frequency = 0 if self._unmodulated else self._timebase_hz
         self._period_us = freq_word * _PRONTO_FREQ_FACTOR  # microseconds per period
 
         burst1_pairs = words[2]
@@ -257,6 +273,22 @@ class ProntoCommand(Command):
             modulation=self._frequency,
             repeat_count=repeat_count,
         )
+
+    @property
+    def timebase_hz(self) -> int:
+        """The frequency the timing words count periods of.
+
+        The same number as ``modulation`` for a modulated code. For a
+        ``0100`` code it is the only one of the two that exists, and
+        it is what a re-encode has to be handed so the words come back
+        the width they went in at.
+        """
+        return self._timebase_hz
+
+    @property
+    def unmodulated(self) -> bool:
+        """True for a ``0100`` code: no carrier, timings as written."""
+        return self._unmodulated
 
     def get_raw_timings(self) -> list[int]:
         """Return signed microsecond timings (positive=mark, negative=space)."""
@@ -302,9 +334,31 @@ class RawTimingsCommand(Command):
         return list(self._timings)
 
 
+def carrier_or_default(value: int | None, default: int = 38000) -> int:
+    """The carrier to use for ``value``, defaulting only when it is absent.
+
+    ZERO IS A CARRIER, AND IT MEANS "NO CARRIER". Every reader of a
+    frequency in this integration used to spell the default as
+    ``value or 38000``, which is right for ``None`` and wrong for ``0``:
+    a non-modulated row (a Pronto ``0100`` code, the format that exists
+    for devices driven without a carrier) came out of that expression
+    modulated at 38 kHz, and the two sites on the transmit path put it
+    on the air that way. Import phase 1 replaces all of them with this,
+    so a zero survives every hop and only a missing value defaults.
+
+    The transmit path then refuses rather than lying: see
+    ``send_plan.can_send_unmodulated``.
+    """
+    if value is None:
+        return default
+    return int(value)
+
+
 def raw_to_pronto(
     timings: list[int],
     frequency: int = 38000,
+    *,
+    timebase_hz: int | None = None,
 ) -> str:
     """Convert signed microsecond timings to a Pronto hex string.
 
@@ -315,18 +369,36 @@ def raw_to_pronto(
     Args:
         timings: Signed microsecond values (positive=mark, negative=space).
             May also be unsigned alternating mark/space.
-        frequency: Carrier frequency in Hz (default 38 kHz).
+        frequency: Carrier frequency in Hz (default 38 kHz). **Zero means
+            no carrier**: the result carries the ``0100`` header rather
+            than ``0000`` and the device drives its emitter without
+            modulating it.
+        timebase_hz: The frequency whose period the timing words are
+            counted in. Only meaningful for a non-modulated code, where
+            the second word is a time base rather than a carrier; a
+            modulated code counts in periods of its own carrier and this
+            argument is ignored. Defaults to 38 kHz, which is what every
+            ``0100`` code in circulation uses.
 
     Returns:
         Pronto hex string (e.g. "0000 006D 0016 0000 ...").
     """
     if not timings:
         raise ValueError("Cannot encode empty timings to Pronto hex")
-    if frequency <= 0:
+    if frequency < 0:
         raise ValueError(f"Invalid carrier frequency: {frequency}")
 
+    # A ``0100`` code has no carrier, and its second word is the time
+    # base the timing words count in. Everything below is identical
+    # either way: the layout of the two formats is the same and only
+    # the header word and the meaning of the second word differ.
+    modulated = frequency > 0
+    base_hz = frequency if modulated else carrier_or_default(timebase_hz)
+    if base_hz <= 0:
+        raise ValueError(f"Invalid Pronto time base: {base_hz}")
+
     # Pronto frequency word: freq_word = 1_000_000 / (frequency * 0.241246)
-    freq_word = round(1_000_000 / (frequency * _PRONTO_FREQ_FACTOR))
+    freq_word = round(1_000_000 / (base_hz * _PRONTO_FREQ_FACTOR))
     period_us = freq_word * _PRONTO_FREQ_FACTOR  # microseconds per period
 
     # Build mark/space pairs from raw timings.
@@ -342,7 +414,10 @@ def raw_to_pronto(
 
     # Pronto format: type(0000) freq burst1_count burst2_count timing_words...
     # All pairs go into burst sequence 1; burst sequence 2 is empty.
-    words: list[int] = [_PRONTO_LEARNED, freq_word, len(pairs), 0]
+    words: list[int] = [
+        _PRONTO_LEARNED if modulated else _PRONTO_UNMODULATED,
+        freq_word, len(pairs), 0,
+    ]
     for mark, space in pairs:
         words.extend([mark, space])
 
@@ -378,7 +453,11 @@ def pronto_for_export(pronto: str) -> str:
     command = ProntoCommand(pronto)
     timings = command.get_raw_timings()
     _normalize_trailing_space(timings)
-    return raw_to_pronto(timings, frequency=command.modulation)
+    return raw_to_pronto(
+        timings,
+        frequency=command.modulation,
+        timebase_hz=command.timebase_hz,
+    )
 
 
 def snap_pronto(pronto: str, target_frequency: int) -> str:
@@ -446,7 +525,9 @@ def build_command(
     Raises ValueError if neither Pronto hex nor raw timings are usable.
     """
     is_pronto = False
-    if (protocol and protocol.upper() == "PRONTO") or (code and code.startswith("0000 ")):
+    if (protocol and protocol.upper() == "PRONTO") or (
+        code and (code.startswith("0000 ") or code.startswith("0100 "))
+    ):
         is_pronto = True
 
     if is_pronto and code:

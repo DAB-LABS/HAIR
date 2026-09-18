@@ -53,10 +53,34 @@ def test_wrong_word_length_errors():
     assert any("4 hex digits" in e for e in r.errors)
 
 
-def test_wrong_header_errors():
+def test_the_unmodulated_header_is_accepted_and_says_so():
+    """Item 6: ``0100`` is a learned code with no carrier.
+
+    It was refused here until import phase 1, with the message that
+    named ``0000``. The layout is the same and the second word is still
+    the time base; what the header says is that nothing modulates it,
+    which the result now carries as ``modulated``.
+    """
     r = validate_pronto("0100 006D 0002 0000 0010 0010 0010 0010")
+    assert r.valid is True
+    assert r.modulated is False
+    assert r.frequency_khz is None
+    assert r.warnings == []
+
+
+def test_a_modulated_code_still_reports_its_carrier():
+    r = validate_pronto("0000 006D 0002 0000 0010 0010 0010 0010")
+    assert r.valid is True
+    assert r.modulated is True
+    assert r.frequency_khz == 38.0
+
+
+def test_a_parameter_header_is_still_refused_by_name():
+    """``5000`` and its kin name a code rather than a waveform."""
+    r = validate_pronto("5000 006D 0002 0000 0010 0010 0010 0010")
     assert r.valid is False
-    assert any("starting with 0000" in e for e in r.errors)
+    assert any("0000 or 0100" in e for e in r.errors)
+    assert any("5000" in e for e in r.errors)
 
 
 def test_header_only_is_length_error():
