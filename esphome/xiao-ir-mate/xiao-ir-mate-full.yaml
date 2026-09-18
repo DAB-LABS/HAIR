@@ -223,7 +223,7 @@ switch:
 # WS2812 status LED. Turns on when WiFi connects, off when disconnected.
 light:
   - platform: esp32_rmt_led_strip
-    rgb_order: GRB
+    channel_colors: GRB
     pin: GPIO7
     num_leds: 1
     chipset: WS2812
