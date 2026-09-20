@@ -381,3 +381,127 @@ class TestUnits:
         # The dial itself stays NATIVE (HA core converts it): the
         # transmitted cell's own 22, never 72.
         assert entity.target_temperature == 22.0
+
+
+class TestExtrasDoNotMoveTheDial:
+    """Item 5b: the thermostat is driven by the MAIN lattice.
+
+    An extras cell's coordinates name a cell in an extras lattice, and
+    the same coordinates in the main lattice carry a different code.
+    Applying them here would move the dial to a state nothing
+    transmitted, silently. The readout still says what went out,
+    because that is true.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_extras_send_moves_the_readout_and_nothing_else(self):
+        from custom_components.hair.send_signal import DeviceSent
+
+        entity, _mgr = await _entity()
+        # Put the dial somewhere definite first.
+        entity._apply_sent(DeviceSent(
+            device_id="dev-1", command_id="c1",
+            command_name="cool / fan: auto / 22",
+            matrix_cell={"mode": "cool", "fan": "auto",
+                         "swing": None, "temp": 22.0},
+            power=None, starred=False, origin="card",
+        ))
+        before = (
+            entity.hvac_mode, entity.fan_mode,
+            entity.swing_mode, entity.target_temperature,
+        )
+        entity._apply_sent(DeviceSent(
+            device_id="dev-1", command_id="c2",
+            command_name="(eco) heat / fan: low / 30",
+            matrix_cell={
+                "mode": "heat", "fan": "low", "swing": None, "temp": 30.0,
+                "axis": "preset", "lattice": "eco",
+            },
+            power=None, starred=False, origin="card",
+        ))
+        after = (
+            entity.hvac_mode, entity.fan_mode,
+            entity.swing_mode, entity.target_temperature,
+        )
+        assert after == before, "an extras send moved the dial"
+        # The readout is the one thing that does move: it says what
+        # actually went out, parentheses and all.
+        assert entity.extra_state_attributes["matrix_cell"] == (
+            "(eco) heat / fan: low / 30"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_main_lattice_send_still_moves_every_dimension(self):
+        """The same coordinates, no lattice: unchanged behaviour."""
+        from custom_components.hair.send_signal import DeviceSent
+
+        entity, _mgr = await _entity()
+        entity._apply_sent(DeviceSent(
+            device_id="dev-1", command_id="c1",
+            command_name="heat / fan: low / 30",
+            matrix_cell={"mode": "heat", "fan": "low",
+                         "swing": None, "temp": 30.0},
+            power=None, starred=False, origin="card",
+        ))
+        assert entity.hvac_mode == HVACMode.HEAT
+        assert entity.fan_mode == "low"
+        assert entity.target_temperature == 30.0
+        assert entity.extra_state_attributes["matrix_cell"] == (
+            "heat / fan: low / 30"
+        )
+
+
+class TestExtrasDoNotRestoreAPreset:
+    """Item 5b, the second guard.
+
+    An extras STATE row can be starred like any other -- that is the
+    point of the whole patch, and the star is deliberately untouched.
+    What it must not do is come back as the preset after a restart: its
+    coordinates resolve against the MAIN lattice, where they are a
+    different code, so the name would claim a state the thermostat is
+    not in.
+    """
+
+    async def _entity_with_starred(self, sent_state):
+        from custom_components.hair.const import CommandSource
+        from custom_components.hair.mint import mint_command
+
+        entity, _mgr = await _entity()
+        command = mint_command(
+            name="Night",
+            source=CommandSource.MATRIX,
+            protocol="PRONTO",
+            code="P-C-A-22",
+            sent_state=sent_state,
+        )
+        entity._device.add_command(command)
+        entity._device.entity_config.starred = ["Night"]
+        return entity
+
+    @pytest.mark.asyncio
+    async def test_a_starred_extras_row_restores_no_preset(self):
+        from homeassistant.core import State
+
+        entity = await self._entity_with_starred({
+            "mode": "cool", "fan": "auto", "swing": None, "temp": 22.0,
+            "axis": "preset", "lattice": "eco",
+        })
+        cell = entity._matrix.cells[1]
+        entity._restore_preset(
+            State("climate.x", "cool", {"preset_mode": "Night"}), cell
+        )
+        assert entity.preset_mode is None
+
+    @pytest.mark.asyncio
+    async def test_a_starred_main_lattice_row_still_restores(self):
+        """Unchanged behaviour for every row that existed before."""
+        from homeassistant.core import State
+
+        entity = await self._entity_with_starred({
+            "mode": "cool", "fan": "auto", "swing": None, "temp": 22.0,
+        })
+        cell = entity._matrix.cells[1]
+        entity._restore_preset(
+            State("climate.x", "cool", {"preset_mode": "Night"}), cell
+        )
+        assert entity.preset_mode == "Night"

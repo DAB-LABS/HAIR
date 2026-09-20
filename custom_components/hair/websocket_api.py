@@ -7443,17 +7443,68 @@ def _matrix_cells_payload(matrix: Any) -> dict[str, Any]:
     """
     from .wig_climate import matrix_summary
 
+    def _compact(source: list[Any]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for c in source:
+            cell: dict[str, Any] = {"m": c.mode}
+            if c.fan is not None:
+                cell["f"] = c.fan
+            if c.swing is not None:
+                cell["s"] = c.swing
+            if c.temp is not None:
+                cell["t"] = c.temp
+            out.append(cell)
+        return out
+
+    def _vocab(source: list[Any]) -> dict[str, list[str]]:
+        """One lattice's own vocabulary, by ``matrix_summary``'s rule.
+
+        Declared order first, observed strays after, never-observed
+        dropped. The declared lists are the matrix's, because an extra
+        declares none of its own; what makes the answer the extra's is
+        that only ITS cells are observed. An extra is usually narrower
+        than the main lattice -- one real file's ``eco`` carries fan
+        ``auto`` alone across four modes -- so reading the axes off the
+        matrix would offer the card values that do not exist.
+        """
+        modes: list[str] = []
+        fans: list[str] = []
+        swings: list[str] = []
+        for c in source:
+            if c.mode not in modes:
+                modes.append(c.mode)
+            if c.fan is not None and c.fan not in fans:
+                fans.append(c.fan)
+            if c.swing is not None and c.swing not in swings:
+                swings.append(c.swing)
+
+        def _ordered(declared: list[str], observed: list[str]) -> list[str]:
+            out = [v for v in declared if v in observed]
+            out += [v for v in observed if v not in out]
+            return out
+
+        return {
+            "modes": _ordered(matrix.modes, modes),
+            "fan_modes": _ordered(matrix.fan_modes, fans),
+            "swing_modes": _ordered(matrix.swing_modes, swings),
+        }
+
     summary = matrix_summary(matrix)
-    cells: list[dict[str, Any]] = []
-    for c in matrix.cells:
-        cell: dict[str, Any] = {"m": c.mode}
-        if c.fan is not None:
-            cell["f"] = c.fan
-        if c.swing is not None:
-            cell["s"] = c.swing
-        if c.temp is not None:
-            cell["t"] = c.temp
-        cells.append(cell)
+    cells = _compact(matrix.cells)
+    # EVERY LATTICE, IN ONE PAYLOAD (extras-in-the-matrix-card.md 6).
+    # The main lattice stays exactly where it is at the top level, so a
+    # client that ignores this key behaves as it always did, and a
+    # matrix with no extras serializes byte for byte what it did
+    # before: the key is omitted entirely rather than sent empty.
+    lattices = [
+        {
+            "axis": extra.axis,
+            "key": extra.key,
+            **_vocab(extra.cells),
+            "cells": _compact(extra.cells),
+        }
+        for extra in (getattr(matrix, "extras", None) or ())
+    ]
     return {
         # Native bounds plus the native unit (unit ruling 2026-07-29):
         # the frontend converts for display per render and computes
@@ -7467,6 +7518,7 @@ def _matrix_cells_payload(matrix: Any) -> dict[str, Any]:
         "swing_modes": summary["swing_modes"],
         "has_on": matrix.on is not None,
         "cells": cells,
+        **({"lattices": lattices} if lattices else {}),
     }
 
 
@@ -7535,6 +7587,48 @@ async def ws_trigger_remote_matrix_cells(
     connection.send_result(msg["id"], _matrix_cells_payload(matrix))
 
 
+def _lattice_for_request(matrix: Any, msg: dict[str, Any]) -> Any:
+    """The ``ClimateExtra`` this request names, or None for the main one.
+
+    ONE PLACE, FOUR DOORS (extras-in-the-matrix-card.md 3a, coding plan
+    item 1 as amended 2026-09-19). ``_matrix_pick`` calls this and so
+    does matrix-send's inline cell branch, which picks its own cell for
+    a reason of its own (see 4a and the two doors' power rules). No
+    door carries a private copy of the validation, so the four cannot
+    drift into four readings of the same two fields.
+
+    THE EXTRA ITSELF, not its cells. ``matrix-command`` needs the axis
+    and the key for the display name and for ``sent_state``, and
+    re-deriving them from the message after validating it is exactly
+    how the two come to disagree.
+
+    Both fields absent is the main lattice, which is every request any
+    client sent before this existed. One without the other is a client
+    bug and says so. A pair naming no extra on this matrix is
+    ``not_found`` and NEVER the main lattice: every coordinate the
+    lattices share carries a different code, so a fallback would
+    transmit the wrong frame and call it a success.
+
+    Raises ``_MatrixPickError``, which every caller already hands
+    straight to ``send_error``.
+    """
+    axis = msg.get("axis")
+    lattice = msg.get("lattice")
+    if axis is None and lattice is None:
+        return None
+    if axis is None or lattice is None:
+        raise _MatrixPickError(
+            "invalid_format",
+            "Provide both axis and lattice, or neither",
+        )
+    for extra in getattr(matrix, "extras", None) or ():
+        if extra.axis == axis and extra.key == lattice:
+            return extra
+    raise _MatrixPickError(
+        "not_found", f"No {axis} lattice named {lattice} on this matrix"
+    )
+
+
 class _MatrixPickError(Exception):
     """One lattice coordinate set that did not resolve.
 
@@ -7584,14 +7678,27 @@ def _matrix_pick(
     if power is not None and mode is not None:
         raise _MatrixPickError("invalid_format", "Provide power or mode")
     if power is not None:
+        # POWER PLUS A LATTICE IS A CLIENT BUG HERE, and deliberately
+        # not on matrix-send (coding plan 4a). Off and on belong to the
+        # matrix, never to a lattice, and this door mints something that
+        # gets kept, so an ambiguous request is worth reporting rather
+        # than papering over -- the same footing as power plus mode
+        # directly above.
+        if msg.get("axis") is not None or msg.get("lattice") is not None:
+            raise _MatrixPickError(
+                "invalid_format", "Power codes belong to the matrix, "
+                "not to a lattice",
+            )
         pronto = matrix.off if power == "off" else matrix.on
         if pronto is None:
             raise _MatrixPickError("not_found", "This matrix has no on code")
         return state_display_name(power), pronto, 1, {"power": power}
     if mode is None:
         raise _MatrixPickError("invalid_format", "Provide power or mode")
+    extra = _lattice_for_request(matrix, msg)
     cell = exact_cell(
         matrix, mode, msg.get("fan"), msg.get("swing"), msg.get("temp"),
+        cells=None if extra is None else extra.cells,
     )
     if cell is None:
         raise _MatrixPickError("not_found", "No cell at those coordinates")
@@ -7600,11 +7707,19 @@ def _matrix_pick(
         unit=matrix.unit,
         display_unit=unit_letter(hass.config.units.temperature_unit),
         precision=matrix.precision,
+        lattice=None if extra is None else extra.key,
     )
-    return name, cell.pronto, cell.send_count, {
+    state: dict[str, Any] = {
         "mode": cell.mode, "fan": cell.fan,
         "swing": cell.swing, "temp": cell.temp,
     }
+    if extra is not None:
+        # WHICH LATTICE, carried with the coordinates rather than
+        # inferred from them later: the same coordinates exist in the
+        # main lattice under a different code (item 5).
+        state["axis"] = extra.axis
+        state["lattice"] = extra.key
+    return name, cell.pronto, cell.send_count, state
 
 
 @websocket_api.require_admin
@@ -7612,6 +7727,8 @@ def _matrix_pick(
     vol.Required("type"): f"{WS_PREFIX}/trigger-remote/matrix-cell",
     vol.Required("remote_id"): str,
     vol.Optional("mode"): str,
+    vol.Optional("axis"): str,
+    vol.Optional("lattice"): str,
     vol.Optional("fan"): vol.Any(str, None),
     vol.Optional("swing"): vol.Any(str, None),
     vol.Optional("temp"): vol.Any(int, float, None),
@@ -7698,6 +7815,8 @@ async def ws_trigger_remote_matrix_cell(
     vol.Required("type"): f"{WS_PREFIX}/devices/matrix-send",
     vol.Required("device_id"): str,
     vol.Optional("mode"): str,
+    vol.Optional("axis"): str,
+    vol.Optional("lattice"): str,
     vol.Optional("fan"): vol.Any(str, None),
     vol.Optional("swing"): vol.Any(str, None),
     vol.Optional("temp"): vol.Any(int, float, None),
@@ -7748,8 +7867,21 @@ async def ws_device_matrix_send(
                 msg["id"], "invalid_format", "Provide power or mode"
             )
             return
+        # POWER ALREADY WON ABOVE, lattice and all (coding plan 4a).
+        # This door lets power beat stale cell coordinates, and a
+        # lattice is part of those coordinates, so power plus a lattice
+        # sends the power code and says nothing -- the rule this door
+        # already had, with one more field under it. The _matrix_pick
+        # doors refuse the same combination, because they mint
+        # something that gets kept. That difference is deliberate.
+        try:
+            extra = _lattice_for_request(matrix, msg)
+        except _MatrixPickError as err:
+            connection.send_error(msg["id"], err.code, err.message)
+            return
         cell = exact_cell(
-            matrix, mode, msg.get("fan"), msg.get("swing"), msg.get("temp")
+            matrix, mode, msg.get("fan"), msg.get("swing"), msg.get("temp"),
+            cells=None if extra is None else extra.cells,
         )
         if cell is None:
             connection.send_error(
@@ -7765,16 +7897,23 @@ async def ws_device_matrix_send(
             unit=matrix.unit,
             display_unit=unit_letter(hass.config.units.temperature_unit),
             precision=matrix.precision,
+            lattice=None if extra is None else extra.key,
         )
         pronto = cell.pronto
         send_count = cell.send_count
         # The card follows this send (0.10.1 item 7): the coordinates
         # go with it structurally, since ``name`` above is display
-        # grammar and converts units live.
+        # grammar and converts units live. The lattice rides with them
+        # for the same reason -- the same coordinates name a different
+        # code in the main lattice, so without it the card would follow
+        # this send to the wrong tile (item 5).
         cell_state = {
             "mode": cell.mode, "fan": cell.fan,
             "swing": cell.swing, "temp": cell.temp,
         }
+        if extra is not None:
+            cell_state["axis"] = extra.axis
+            cell_state["lattice"] = extra.key
     # The echo hook behind the TEST button's SENT . HEARD reading
     # (Second Fitting v3 punch list item 14): a cell send rides the
     # exact same Mirror hook a stored command's TEST does via
@@ -7817,6 +7956,8 @@ async def ws_device_matrix_send(
     vol.Required("type"): f"{WS_PREFIX}/devices/matrix-command",
     vol.Required("device_id"): str,
     vol.Optional("mode"): str,
+    vol.Optional("axis"): str,
+    vol.Optional("lattice"): str,
     vol.Optional("fan"): vol.Any(str, None),
     vol.Optional("swing"): vol.Any(str, None),
     vol.Optional("temp"): vol.Any(int, float, None),

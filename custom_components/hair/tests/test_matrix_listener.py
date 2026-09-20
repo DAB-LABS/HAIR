@@ -1425,3 +1425,124 @@ def test_a_rebuilt_index_matches_a_capture_after_the_identity_move(tmp_path):
     )
     assert hit.cell_key == "cool/auto/23"
     assert tier == TIER_BYTE_HASH
+
+
+# ---------------------------------------------------------------------------
+# Extras lattices are heard too (extras-in-the-matrix-card.md item 5c)
+# ---------------------------------------------------------------------------
+
+# An extras code for the SAME coordinates as PRONTO_COOL_22, with its
+# own bytes. That is what the real corpus does, and it is what makes
+# matching by identity find the right lattice.
+PRONTO_ECO_22 = "0000 006D 0002 0000 00A0 00C0 00A0 00C0"
+
+
+def _matrix_with_extra() -> ClimateMatrix:
+    from custom_components.hair.wig_format import ClimateExtra
+
+    matrix = _matrix()
+    matrix.extras = [
+        ClimateExtra(
+            axis="preset",
+            key="eco",
+            cells=[
+                ClimateCell(
+                    mode="cool", fan="auto", temp=22.0, pronto=PRONTO_ECO_22
+                ),
+            ],
+        ),
+    ]
+    return matrix
+
+
+def test_the_index_carries_the_extras_cells_and_names_them():
+    index = build_cell_index(_matrix_with_extra())
+
+    names = {hit.cell_name for hit in index.fp_bytehash.values()}
+    # The main lattice is untouched and the extra arrives beside it.
+    assert "cool / fan: auto / 22" in names
+    assert "(eco) cool / fan: auto / 22" in names
+    lattices = {hit.lattice for hit in index.fp_bytehash.values()}
+    assert lattices == {None, "eco"}
+
+
+def test_the_main_lattice_index_is_unchanged_by_an_extra():
+    """Extras add reach without taking any away: an extras code never
+    collides with a main-lattice one, so every main hit is the hit it
+    was before."""
+    plain = build_cell_index(_matrix())
+    withextra = build_cell_index(_matrix_with_extra())
+    for key, hit in plain.fp_bytehash.items():
+        assert key in withextra.fp_bytehash
+        twin = withextra.fp_bytehash[key]
+        assert twin.cell_name == hit.cell_name
+        assert twin.cell_key == hit.cell_key
+        assert twin.lattice is None and twin.axis is None
+
+
+@pytest.mark.asyncio
+async def test_a_heard_extras_code_fires_state_heard_naming_its_lattice():
+    remote = TriggerRemote(id="r1", name="Bedroom AC", climate_matrix=True)
+    hass, _store, listener = _listener_ready(
+        remote, matrix=_matrix_with_extra()
+    )
+    identity = _identity(PRONTO_ECO_22)
+
+    heard = await listener.on_signal_captured(
+        identity.fingerprint, identity.byte_hash,
+        identity.decoded_fingerprint, "infrared.bedroom",
+    )
+
+    assert heard == ["r1"]
+    assert remote.last_heard["cell_name"] == "(eco) cool / fan: auto / 22"
+    assert remote.last_heard["axis"] == "preset"
+    assert remote.last_heard["lattice"] == "eco"
+    # The coordinates are the cell's own, as they are for any hit.
+    assert remote.last_heard["mode"] == "cool"
+    assert remote.last_heard["temp"] == 22.0
+
+    _event_type, event_data = hass.bus.async_fire.call_args[0]
+    assert event_data["lattice"] == "eco"
+    assert event_data["axis"] == "preset"
+
+
+@pytest.mark.asyncio
+async def test_a_heard_main_lattice_code_behaves_exactly_as_today():
+    """The same lattice file, the main code: null on both new fields,
+    which is what every row written before this carries."""
+    remote = TriggerRemote(id="r1", name="Bedroom AC", climate_matrix=True)
+    hass, _store, listener = _listener_ready(
+        remote, matrix=_matrix_with_extra()
+    )
+    identity = _identity(PRONTO_COOL_22)
+
+    await listener.on_signal_captured(
+        identity.fingerprint, identity.byte_hash,
+        identity.decoded_fingerprint, "infrared.bedroom",
+    )
+
+    assert remote.last_heard["cell_name"] == "cool / fan: auto / 22"
+    assert remote.last_heard["axis"] is None
+    assert remote.last_heard["lattice"] is None
+    _event_type, event_data = hass.bus.async_fire.call_args[0]
+    assert event_data["lattice"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_two_codes_at_one_coordinate_are_heard_apart():
+    """A trigger minted on an extras state fires on that code and not
+    on the main-lattice code at the same coordinates. Identity is what
+    tells them apart, which is why indexing the extras is enough."""
+    remote = TriggerRemote(id="r1", name="Bedroom AC", climate_matrix=True)
+    index = build_cell_index(_matrix_with_extra())
+    main = _identity(PRONTO_COOL_22)
+    eco = _identity(PRONTO_ECO_22)
+
+    main_hit = index.fp_bytehash[(main.fingerprint, main.byte_hash)]
+    eco_hit = index.fp_bytehash[(eco.fingerprint, eco.byte_hash)]
+
+    assert main.byte_hash != eco.byte_hash
+    assert main_hit.lattice is None
+    assert eco_hit.lattice == "eco"
+    assert main_hit.cell_name != eco_hit.cell_name
+    assert remote.climate_matrix

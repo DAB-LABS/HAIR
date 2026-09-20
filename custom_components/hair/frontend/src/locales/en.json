@@ -63,6 +63,8 @@
     "devices.matrix_never_heard": "Nothing heard yet",
     "devices.matrix_state_note": "Every heard state also fires the remote's state trigger",
     "devices.matrix_title": "State matrix",
+    "devices.matrix_dim_lattice": "Lattice",
+    "devices.matrix_lattice_main": "Main",
     "devices.matrix_dim_power": "Power",
     "devices.matrix_dim_mode": "Mode",
     "devices.matrix_dim_fan": "Fan",

@@ -34,6 +34,7 @@ from custom_components.hair.wig_climate import (
 )
 from custom_components.hair.wig_format import (
     ClimateCell,
+    ClimateMatrix,
     Wig,
     WigSignal,
     canonical_cells_json,
@@ -476,3 +477,84 @@ class TestRecipeBreakOnCells:
 
         matrix.unit = "F" if matrix.unit == "C" else "C"
         assert cells_content_hash(matrix) != base
+
+
+class TestExactCellOnAnExtra:
+    """extras-in-the-matrix-card.md 3b: an optional cell list, and the
+    same no-snapping contract on it."""
+
+    def _matrix(self):
+        return ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, precision=1.0,
+            modes=["cool"], fan_modes=["auto", "quiet"], swing_modes=[],
+            off="P-OFF",
+            cells=[
+                ClimateCell(mode="cool", fan="auto", temp=22.0,
+                            pronto="MAIN-22"),
+                ClimateCell(mode="cool", fan="quiet", temp=22.0,
+                            pronto="MAIN-Q-22"),
+            ],
+        )
+
+    def _extra_cells(self):
+        return [
+            ClimateCell(mode="cool", fan="auto", temp=22.0, pronto="ECO-22"),
+        ]
+
+    def test_the_default_is_byte_for_byte_what_it_was(self):
+        matrix = self._matrix()
+        assert exact_cell(matrix, "cool", "auto", None, 22).pronto == "MAIN-22"
+        assert exact_cell(matrix, "cool", "quiet", None, 22) is not None
+        assert exact_cell(matrix, "cool", "auto", None, 25) is None
+
+    def test_a_cell_list_is_searched_instead_of_the_matrix(self):
+        """The same coordinates, a different code. Coordinates alone
+        cannot say which lattice is meant."""
+        matrix = self._matrix()
+        found = exact_cell(
+            matrix, "cool", "auto", None, 22, cells=self._extra_cells()
+        )
+        assert found.pronto == "ECO-22"
+        assert found.pronto != exact_cell(matrix, "cool", "auto", None, 22).pronto
+
+    def test_no_snapping_and_no_fallback_to_the_matrix(self):
+        """The contract that makes the whole change safe: a coordinate
+        the extra lacks is None, even though the MATRIX has it."""
+        matrix = self._matrix()
+        assert exact_cell(matrix, "cool", "quiet", None, 22) is not None
+        assert exact_cell(
+            matrix, "cool", "quiet", None, 22, cells=self._extra_cells()
+        ) is None
+
+    def test_an_empty_cell_list_finds_nothing(self):
+        """Not falsey-checked into meaning the main lattice."""
+        assert exact_cell(self._matrix(), "cool", "auto", None, 22, cells=[]) is None
+
+
+class TestCellDisplayNameLattice:
+    """Owner ruling 2026-09-19: the lattice in parentheses, first."""
+
+    def _cell(self):
+        return ClimateCell(mode="cool", fan="auto", temp=22.0, pronto="X")
+
+    def test_a_main_lattice_name_does_not_change_in_any_respect(self):
+        assert cell_display_name(self._cell()) == "cool / fan: auto / 22"
+
+    def test_the_lattice_rides_in_parentheses_first(self):
+        assert cell_display_name(self._cell(), lattice="eco") == (
+            "(eco) cool / fan: auto / 22"
+        )
+
+    def test_the_word_rides_verbatim(self):
+        """As every other value on this surface does. A preset named
+        ``cool`` renders "(cool) cool / ..." -- correct, and ugly, and
+        not worth solving until a real file does it (design section
+        10)."""
+        assert cell_display_name(self._cell(), lattice="cool").startswith(
+            "(cool) cool"
+        )
+
+    def test_the_two_names_differ_which_is_what_add_command_keys_on(self):
+        plain = cell_display_name(self._cell())
+        eco = cell_display_name(self._cell(), lattice="eco")
+        assert plain != eco

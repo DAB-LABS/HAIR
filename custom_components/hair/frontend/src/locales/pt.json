@@ -63,6 +63,8 @@
     "devices.matrix_never_heard": "Ainda não foi ouvido nada",
     "devices.matrix_state_note": "Cada estado ouvido também dispara o acionador de estado do controle remoto",
     "devices.matrix_title": "Matriz de estados",
+    "devices.matrix_dim_lattice": "Retícula",
+    "devices.matrix_lattice_main": "Principal",
     "devices.matrix_dim_power": "Alimentação",
     "devices.matrix_dim_mode": "Modo",
     "devices.matrix_dim_fan": "Ventilador",

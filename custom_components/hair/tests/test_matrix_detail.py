@@ -829,3 +829,331 @@ class TestMatrixTypeLock:
         })
         conn.send_error.assert_not_called()
         assert device.device_type == DeviceType.FAN
+
+
+# ---------------------------------------------------------------------
+# Extras lattices reach the card (extras-in-the-matrix-card.md)
+# ---------------------------------------------------------------------
+
+
+def _extras_matrix(real_prontos: bool = False) -> ClimateMatrix:
+    """The main lattice plus one extra, sharing every coordinate.
+
+    THE SHARED COORDINATES ARE THE POINT. Every coordinate the two
+    lattices have in common carries a DIFFERENT code here, which is
+    what the real corpus does and what makes addressing a cell by
+    coordinates alone a wrong-frame bug rather than a tidy-up. The
+    ``eco`` lattice is also NARROWER than the main one -- fan ``auto``
+    only, no swing -- which is the shape one real file has and the
+    reason the browser must read its axes off the selected lattice.
+    """
+    from custom_components.hair.wig_format import ClimateExtra
+
+    def code(tag: str, word: str) -> str:
+        return _p(word) if real_prontos else tag
+
+    matrix = _entity_matrix(real_prontos=real_prontos)
+    matrix.extras = [
+        ClimateExtra(
+            axis="preset",
+            key="eco",
+            cells=[
+                # Same coordinates as the main lattice's first cell,
+                # different code.
+                ClimateCell(mode="cool", fan="auto", temp=22.0,
+                            pronto=code("E-C-A-22", "0160")),
+                ClimateCell(mode="dry", fan="auto",
+                            pronto=code("E-D-A", "0190")),
+            ],
+        ),
+    ]
+    return matrix
+
+
+class TestLatticeResolution:
+    """Item 1: two optional fields, one shared resolver, four doors."""
+
+    @pytest.mark.asyncio
+    async def test_no_lattice_sends_the_main_cell_exactly_as_before(
+        self, fake_hass
+    ):
+        """Pinned against today's output, byte for byte."""
+        manager, _device = _wire_matrix(fake_hass, _extras_matrix())
+        await ws_device_matrix_send(fake_hass, _make_connection(), {
+            "id": 1, "type": "hair/devices/matrix-send",
+            "device_id": "dev-1", "mode": "cool", "fan": "auto", "temp": 22,
+        })
+        manager.async_send_matrix_cell.assert_awaited_once_with(
+            "dev-1", "cool / fan: auto / 22", "P-C-A-22", 1,
+            heard_future=ANY,
+            cell={"mode": "cool", "fan": "auto", "swing": None, "temp": 22},
+            power=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_same_coordinates_in_two_lattices_send_two_codes(
+        self, fake_hass
+    ):
+        """THE TEST THAT MATTERS MOST (coding plan item 11).
+
+        One set of coordinates, two lattices, two different Prontos on
+        the wire. A resolver that addressed a cell by coordinates alone
+        would pass every other test in this file and send the wrong
+        frame here, reporting success.
+        """
+        manager, _device = _wire_matrix(fake_hass, _extras_matrix())
+        coords = {
+            "id": 1, "type": "hair/devices/matrix-send",
+            "device_id": "dev-1", "mode": "cool", "fan": "auto", "temp": 22,
+        }
+        await ws_device_matrix_send(fake_hass, _make_connection(), coords)
+        await ws_device_matrix_send(fake_hass, _make_connection(), {
+            **coords, "axis": "preset", "lattice": "eco",
+        })
+        sent = [c.args[2] for c in manager.async_send_matrix_cell.await_args_list]
+        assert sent == ["P-C-A-22", "E-C-A-22"]
+        assert sent[0] != sent[1]
+
+    @pytest.mark.asyncio
+    async def test_the_extras_send_carries_its_lattice_and_its_name(
+        self, fake_hass
+    ):
+        manager, _device = _wire_matrix(fake_hass, _extras_matrix())
+        await ws_device_matrix_send(fake_hass, _make_connection(), {
+            "id": 1, "type": "hair/devices/matrix-send",
+            "device_id": "dev-1", "mode": "cool", "fan": "auto", "temp": 22,
+            "axis": "preset", "lattice": "eco",
+        })
+        manager.async_send_matrix_cell.assert_awaited_once_with(
+            "dev-1", "(eco) cool / fan: auto / 22", "E-C-A-22", 1,
+            heard_future=ANY,
+            cell={
+                "mode": "cool", "fan": "auto", "swing": None, "temp": 22,
+                "axis": "preset", "lattice": "eco",
+            },
+            power=None,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("half", [
+        {"axis": "preset"}, {"lattice": "eco"},
+    ])
+    async def test_half_a_pair_is_invalid_format(self, fake_hass, half):
+        _wire_matrix(fake_hass, _extras_matrix())
+        conn = _make_connection()
+        await ws_device_matrix_send(fake_hass, conn, {
+            "id": 1, "type": "hair/devices/matrix-send",
+            "device_id": "dev-1", "mode": "cool", "fan": "auto", "temp": 22,
+            **half,
+        })
+        code = conn.send_error.call_args.args[1]
+        message = conn.send_error.call_args.args[2]
+        assert code == "invalid_format"
+        assert "axis" in message and "lattice" in message
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_pair_is_not_found_and_never_the_main_one(
+        self, fake_hass
+    ):
+        """No fallback. The main lattice HAS this coordinate, under a
+        different code, so a fallback would transmit the wrong frame
+        and report success."""
+        manager, _device = _wire_matrix(fake_hass, _extras_matrix())
+        conn = _make_connection()
+        await ws_device_matrix_send(fake_hass, conn, {
+            "id": 1, "type": "hair/devices/matrix-send",
+            "device_id": "dev-1", "mode": "cool", "fan": "auto", "temp": 22,
+            "axis": "preset", "lattice": "turbo",
+        })
+        assert conn.send_error.call_args.args[1] == "not_found"
+        assert "turbo" in conn.send_error.call_args.args[2]
+        manager.async_send_matrix_cell.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_coordinate_the_extra_lacks_is_not_found(
+        self, fake_hass
+    ):
+        """The extra is narrower, and exact_cell does not snap for it
+        any more than it does for the main lattice."""
+        manager, _device = _wire_matrix(fake_hass, _extras_matrix())
+        conn = _make_connection()
+        await ws_device_matrix_send(fake_hass, conn, {
+            "id": 1, "type": "hair/devices/matrix-send",
+            "device_id": "dev-1", "mode": "cool", "fan": "quiet",
+            "swing": "swing", "temp": 25,
+            "axis": "preset", "lattice": "eco",
+        })
+        assert conn.send_error.call_args.args[1] == "not_found"
+        manager.async_send_matrix_cell.assert_not_awaited()
+
+
+class TestPowerAndTheTwoDoors:
+    """Item 3 and 4a. The two doors disagree about power, exactly as
+    much as they did before a lattice existed, and that difference is
+    deliberate: matrix-send lets power beat stale coordinates, while
+    the _matrix_pick doors mint something that gets kept and report an
+    ambiguous request instead. Pinned so a later tidy-up cannot quietly
+    align them."""
+
+    @pytest.mark.asyncio
+    async def test_matrix_send_lets_power_win_over_a_lattice(
+        self, fake_hass
+    ):
+        manager, _device = _wire_matrix(fake_hass, _extras_matrix())
+        conn = _make_connection()
+        await ws_device_matrix_send(fake_hass, conn, {
+            "id": 1, "type": "hair/devices/matrix-send",
+            "device_id": "dev-1", "power": "off",
+            "mode": "cool", "fan": "auto", "temp": 22,
+            "axis": "preset", "lattice": "eco",
+        })
+        conn.send_error.assert_not_called()
+        manager.async_send_matrix_cell.assert_awaited_once_with(
+            "dev-1", "Off", "P-OFF", 1, heard_future=ANY,
+            cell=None, power="off",
+        )
+
+    @pytest.mark.asyncio
+    async def test_matrix_command_refuses_power_with_a_lattice(
+        self, fake_hass
+    ):
+        _manager, device = _wire_matrix(
+            fake_hass, _extras_matrix(real_prontos=True)
+        )
+        conn = _make_connection()
+        await ws_device_matrix_command(fake_hass, conn, {
+            "id": 1, "type": "hair/devices/matrix-command",
+            "device_id": "dev-1", "power": "off",
+            "axis": "preset", "lattice": "eco",
+        })
+        assert conn.send_error.call_args.args[1] == "invalid_format"
+        assert "lattice" in conn.send_error.call_args.args[2]
+        assert device.commands == []
+
+
+class TestExtrasCommands:
+    """Items 4 and 5: the name collision, and sent_state."""
+
+    @pytest.mark.asyncio
+    async def test_two_lattices_at_one_coordinate_mint_two_commands(
+        self, fake_hass
+    ):
+        """``add_command`` replaces by name. Without the parenthesised
+        lattice the second save would silently eat the first."""
+        _manager, device = _wire_matrix(
+            fake_hass, _extras_matrix(real_prontos=True)
+        )
+        coords = {
+            "id": 1, "type": "hair/devices/matrix-command",
+            "device_id": "dev-1", "mode": "cool", "fan": "auto", "temp": 22,
+        }
+        await ws_device_matrix_command(fake_hass, _make_connection(), coords)
+        await ws_device_matrix_command(fake_hass, _make_connection(), {
+            **coords, "axis": "preset", "lattice": "eco",
+        })
+        names = [c.name for c in device.commands]
+        assert sorted(names) == [
+            "(eco) cool / fan: auto / 22", "cool / fan: auto / 22",
+        ]
+        # Two commands, two codes: the saved rows transmit what their
+        # own lattice holds.
+        codes = {c.name: c.code for c in device.commands}
+        assert (
+            codes["cool / fan: auto / 22"]
+            != codes["(eco) cool / fan: auto / 22"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_saved_extras_row_carries_its_lattice(self, fake_hass):
+        _manager, device = _wire_matrix(
+            fake_hass, _extras_matrix(real_prontos=True)
+        )
+        await ws_device_matrix_command(fake_hass, _make_connection(), {
+            "id": 1, "type": "hair/devices/matrix-command",
+            "device_id": "dev-1", "mode": "cool", "fan": "auto", "temp": 22,
+            "axis": "preset", "lattice": "eco",
+        })
+        assert device.commands[0].sent_state == {
+            "mode": "cool", "fan": "auto", "swing": None, "temp": 22.0,
+            "axis": "preset", "lattice": "eco",
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_main_lattice_row_carries_neither_field(
+        self, fake_hass
+    ):
+        """A row saved before this patch carries neither and reads as
+        the main lattice, which is what it was. A row saved after it,
+        from the main lattice, is byte for byte that same shape."""
+        _manager, device = _wire_matrix(
+            fake_hass, _extras_matrix(real_prontos=True)
+        )
+        await ws_device_matrix_command(fake_hass, _make_connection(), {
+            "id": 1, "type": "hair/devices/matrix-command",
+            "device_id": "dev-1", "mode": "cool", "fan": "auto", "temp": 22,
+        })
+        assert device.commands[0].sent_state == {
+            "mode": "cool", "fan": "auto", "swing": None, "temp": 22.0,
+        }
+        assert device.commands[0].name == "cool / fan: auto / 22"
+
+
+class TestLatticesInTheBrowsePayload:
+    """Item 6."""
+
+    @pytest.mark.asyncio
+    async def test_a_matrix_with_no_extras_is_byte_identical(
+        self, fake_hass
+    ):
+        """The key is omitted entirely, not sent empty, so a client
+        that never heard of lattices sees the payload it always saw."""
+        _wire_matrix(fake_hass, _entity_matrix())
+        conn = _make_connection()
+        await ws_device_matrix_cells(fake_hass, conn, {
+            "id": 1, "type": "hair/devices/matrix-cells",
+            "device_id": "dev-1",
+        })
+        payload = conn.send_result.call_args.args[1]
+        assert "lattices" not in payload
+        assert payload == {
+            "min_temp": 16.0, "max_temp": 30.0, "precision": 1.0,
+            "unit": "C",
+            "modes": ["cool", "dry"],
+            "fan_modes": ["auto", "quiet"],
+            "swing_modes": ["swing"],
+            "has_on": False,
+            "cells": [
+                {"m": "cool", "f": "auto", "t": 22.0},
+                {"m": "cool", "f": "quiet", "s": "swing", "t": 25.0},
+                {"m": "dry", "f": "auto"},
+            ],
+        }
+
+    @pytest.mark.asyncio
+    async def test_each_extra_carries_its_own_narrower_vocabulary(
+        self, fake_hass
+    ):
+        """The main lattice stays exactly where it is, and the extra's
+        lists are ITS values, not the matrix's: reading the axes off
+        the matrix would offer the card a ``quiet`` fan and a swing
+        this lattice does not have."""
+        _wire_matrix(fake_hass, _extras_matrix())
+        conn = _make_connection()
+        await ws_device_matrix_cells(fake_hass, conn, {
+            "id": 1, "type": "hair/devices/matrix-cells",
+            "device_id": "dev-1",
+        })
+        payload = conn.send_result.call_args.args[1]
+        assert payload["modes"] == ["cool", "dry"]
+        assert payload["fan_modes"] == ["auto", "quiet"]
+        assert payload["lattices"] == [{
+            "axis": "preset",
+            "key": "eco",
+            "modes": ["cool", "dry"],
+            "fan_modes": ["auto"],
+            "swing_modes": [],
+            "cells": [
+                {"m": "cool", "f": "auto", "t": 22.0},
+                {"m": "dry", "f": "auto"},
+            ],
+        }]

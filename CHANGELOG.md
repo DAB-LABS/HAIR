@@ -5,6 +5,22 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Preset lattices are reachable from the device card. A climate wig that carries extra lattices -- a complete mode / fan / swing / temperature set for a preset the main lattice has no axis for -- could be imported, validated and signed, and then nothing could show or send one of those codes. The card now has a lattice row above the dimension browser: pick a preset and the browser redraws from that lattice's own vocabulary, which is usually narrower than the main one. A cell picked there sends, saves as a command, and mints a trigger exactly as a main-lattice cell does, and a saved one is an ordinary command that dashboards, buttons and the preset star all work on with no knowledge of lattices. A device whose wig carries no extra lattices shows no lattice row and is unchanged in every respect.
+- A state heard off the handset is recognized when it belongs to a preset lattice. Those codes were not in the listener's index, so pressing Eco on the remote raised nothing and drew no last-heard row, while the card could browse that same state and mint a trigger on it that would then never fire.
+
+### Changed
+
+- A cell in a preset lattice reads with the lattice in parentheses first: "(eco) cool / fan: auto / 22". A main-lattice cell's name is unchanged. This is what keeps two lattices saving the same coordinates from minting one command that the second save quietly replaces.
+- A saved state row records which lattice it came from, so sending it later moves the card to the state it actually transmits. A row saved before this carries no lattice and reads as the main one, which is what it was.
+
+### Fixed
+
+- The thermostat no longer follows a preset-lattice send. Those coordinates name a cell in a preset lattice, and the same coordinates in the main lattice are a different code, so the dial would have moved to a state nothing transmitted. The readout says what went out; the dial stays where the main lattice put it. A starred preset-lattice row no longer restores as the preset after a restart, for the same reason.
+
 ## [0.16.0] - 2026-09-17 -- Walk-Ins
 
 ### Added
