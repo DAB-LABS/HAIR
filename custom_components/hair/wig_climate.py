@@ -31,7 +31,7 @@ from .wig_format import (
     ClimateCell,
     ClimateMatrix,
     _temp_str,
-    cell_key,
+    lattice_cell_key,
     row_digest,
 )
 
@@ -237,18 +237,40 @@ class ChecklistRow:
     temp_less: bool = False
     # "min" / "max" on the temperature-range rows.
     temp_role: str | None = None
+    # Which extras lattice this row samples (extras-fitting-plan.md 3).
+    # Both None on a main-lattice row AND on the two power rows: on and
+    # off belong to the matrix, never to a lattice, and a preset has no
+    # power code of its own.
+    axis: str | None = None
+    lattice: str | None = None
 
 
 class _Branches:
-    """Cells indexed mode -> fan -> swing -> sorted temps."""
+    """Cells indexed mode -> fan -> swing -> sorted temps.
 
-    def __init__(self, matrix: ClimateMatrix) -> None:
+    ``cells`` is the lattice to index and ``matrix`` supplies only the
+    vocabulary to ORDER by (extras-fitting-plan.md 3). Omit ``cells``
+    and this is the main lattice, exactly as it always was, which is
+    how ``resolve_cell`` still uses it. Pass an extra's cells and the
+    same ordering rule applies to them: declared order first, observed
+    strays after, and -- the part that matters for an extra -- a value
+    the matrix declares but these cells never carry is DROPPED, never
+    walked. Membership comes from the cells; the vocabulary only says
+    in what order. An extra is usually narrower than the main lattice
+    (one real file's ``eco`` carries fan ``auto`` alone across four
+    modes), and a sampler that walked the matrix's declared fans would
+    invent rows that lattice does not have.
+    """
+
+    def __init__(
+        self, matrix: ClimateMatrix, cells: list[ClimateCell] | None = None,
+    ) -> None:
         self.matrix = matrix
         self.by_mode: dict[str, list[ClimateCell]] = {}
         self.index: dict[
             tuple[str, str | None, str | None], dict[float | None, ClimateCell]
         ] = {}
-        for cell in matrix.cells:
+        for cell in (matrix.cells if cells is None else cells):
             self.by_mode.setdefault(cell.mode, []).append(cell)
             self.index.setdefault(
                 (cell.mode, cell.fan, cell.swing), {}
@@ -311,16 +333,37 @@ class _Branches:
         return self.cell(mode, fan, swing, None)
 
 
-def dimension_checklist(matrix: ClimateMatrix) -> list[ChecklistRow]:
-    """The dimension check: deterministic, dedup'd, off last."""
-    branches = _Branches(matrix)
+def _sample_lattice(
+    matrix: ClimateMatrix,
+    cells: list[ClimateCell],
+    seen: set[str],
+    axis: str | None = None,
+    lattice: str | None = None,
+) -> list[ChecklistRow]:
+    """One lattice's sampled rows: every mode, every fan of the richest
+    mode, every swing of that mode's primary fan, and the two ends of
+    its temperature range.
+
+    THE SAME SAMPLER FOR EVERY LATTICE (extras-fitting-plan.md ruling
+    1). This is the body that sat between the ``on`` and ``off`` rows,
+    lifted unchanged so it can be called once for the matrix and once
+    per extra. It is not forked: a Perfect Fit means the same depth of
+    proof everywhere in the file, and two samplers would drift.
+
+    ``cells`` is the lattice and ``matrix`` only the vocabulary to order
+    by (see ``_Branches``). ``seen`` is SHARED across every call for one
+    checklist, and the key each row enters it under is qualified by its
+    lattice (``lattice_cell_key``): unqualified, the main lattice's rows
+    would eat the extras rows at the same coordinates. Power rows are
+    the caller's; a lattice contributes neither.
+    """
+    branches = _Branches(matrix, cells)
     rows: list[ChecklistRow] = []
-    seen: set[str] = set()
 
     def _add(section: str, cell: ClimateCell | None, **extra) -> None:
         if cell is None:
             return
-        key = cell_key(cell)
+        key = lattice_cell_key(cell, axis, lattice)
         if key in seen:
             return
         seen.add(key)
@@ -329,14 +372,9 @@ def dimension_checklist(matrix: ClimateMatrix) -> list[ChecklistRow]:
             key=key, section=section, pronto=cell.pronto,
             send_count=cell.send_count, mode=cell.mode, fan=cell.fan,
             swing=cell.swing, temp=cell.temp,
-            temp_less=not temps_here, **extra,
+            temp_less=not temps_here, axis=axis, lattice=lattice,
+            **extra,
         ))
-
-    if matrix.on is not None:
-        rows.append(ChecklistRow(
-            key="on", section=SECTION_START, pronto=matrix.on,
-        ))
-        seen.add("on")
 
     for mode in branches.modes():
         _add(SECTION_MODES, branches.representative(mode))
@@ -379,6 +417,34 @@ def dimension_checklist(matrix: ClimateMatrix) -> list[ChecklistRow]:
                 branches.cell(rich, primary_fan, primary_swing, temps[-1]),
                 temp_role="max",
             )
+    return rows
+
+
+def dimension_checklist(matrix: ClimateMatrix) -> list[ChecklistRow]:
+    """The dimension check: deterministic, dedup'd, off last.
+
+    ``on`` first and ``off`` last, both the MATRIX's: an extras lattice
+    contributes neither. Between them the main lattice's rows, in
+    exactly their old position and order, then each extras lattice in
+    wig order through the same sampler (extras-fitting-plan.md 3). A
+    matrix with no extras produces the byte-identical list it always
+    did; that is what keeps every existing checklist, digest and
+    completeness verdict where it is.
+    """
+    rows: list[ChecklistRow] = []
+    seen: set[str] = set()
+
+    if matrix.on is not None:
+        rows.append(ChecklistRow(
+            key="on", section=SECTION_START, pronto=matrix.on,
+        ))
+        seen.add("on")
+
+    rows += _sample_lattice(matrix, matrix.cells, seen)
+    for extra in getattr(matrix, "extras", None) or ():
+        rows += _sample_lattice(
+            matrix, extra.cells, seen, axis=extra.axis, lattice=extra.key,
+        )
 
     rows.append(ChecklistRow(
         key="off", section=SECTION_WRAP, pronto=matrix.off,

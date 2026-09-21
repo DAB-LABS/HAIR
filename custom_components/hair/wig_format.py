@@ -463,6 +463,36 @@ def cell_key(cell: ClimateCell) -> str:
     return "/".join(parts)
 
 
+def lattice_cell_key(
+    cell: ClimateCell, axis: str | None = None, lattice: str | None = None
+) -> str:
+    """``cell_key``, qualified by the extras lattice the cell lives in.
+
+    BUILT BESIDE ``cell_key``, NEVER INSIDE IT. That docstring is a
+    contract: fittings record ``cell_key`` in confirmed and failed, so
+    a main-lattice cell's key must not move by a byte. With no lattice
+    this returns exactly ``cell_key(cell)``, and every existing key,
+    digest, hash and signature stays as it is.
+
+    With one, the shape is ``<axis>:<key>/<coordinates>`` -- for
+    example ``preset:eco/cool/auto/22`` (extras-fitting-plan.md 3a).
+    The qualifier is load-bearing, not decorative: every extras lattice
+    shares its coordinates with the main one, and across the real fork
+    corpus every shared coordinate carries a DIFFERENT code. The
+    dimension checklist dedups on this key, so an unqualified one would
+    let the main lattice's rows eat the extras rows at the same
+    coordinates, and a checklist that looked complete would prove
+    nothing about the codes it skipped.
+
+    Both or neither: one without the other is the main lattice, exactly
+    as it is on the websocket doors.
+    """
+    base = cell_key(cell)
+    if axis is None or lattice is None:
+        return base
+    return f"{axis}:{lattice}/{base}"
+
+
 def _temp_str(temp: float) -> str:
     """``23.0`` -> ``"23"``; ``22.5`` stays ``"22.5"``."""
     return str(int(temp)) if float(temp).is_integer() else str(temp)

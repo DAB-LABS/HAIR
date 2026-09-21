@@ -194,7 +194,7 @@ To fit a wig:
 
 1. Adopt the wig onto a device and use it normally until you trust it.
 2. Open the device, click **Save to Closet**, and choose **Fit This Wig**.
-3. Hit **TEST** on each row of the checklist. HAIR reports SENT, or SENT and HEARD if a receiver caught the transmission.
+3. Hit **TEST** on each row of the checklist. HAIR reports SENT, or SENT and HEARD if a receiver caught the transmission. The checklist covers every lattice the wig carries, so a wig with presets lists each preset's rows under its own name.
 4. Check the rows you have proved. Check some of them and the button reads **Save Fitting**: your claims go on the file, and the closet lists the fitting with how far it got. Check all of them and it reads **Save Perfect Fit**. Check none and it is a plain **Save**, with no claims attached. On a state-matrix checklist, a dimension your unit genuinely does not have can be marked "not on my device" or "could not make it work" instead of checked. Three people excluding the same dimension tells you something real is going on.
 5. If your device has gained or dropped commands since the wig was last saved, review the **Changes with new fitting** section before you sign.
 6. Sign. Your verdicts tie to a key generated on your own install, not the name you type, so nobody can edit your results or fit in your name. Fitting the same wig again later just replaces your old signature.

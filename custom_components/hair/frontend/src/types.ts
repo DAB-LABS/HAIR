@@ -522,6 +522,12 @@ export interface SavePlanRow {
     comb_suspect?: boolean;
     /** The comb's finding for this row, tooltip material only. */
     comb_finding?: string | null;
+    /** Which extras lattice a checklist row samples. Absent on every
+     * other row, which is every row of a wig without extras, so such a
+     * plan reads exactly as it always did. TEST must carry both, or it
+     * sends the main lattice's code at the same coordinates. */
+    axis?: string | null;
+    lattice?: string | null;
 }
 
 /** A wig row nothing on the device covers. Second Fitting amendment v2

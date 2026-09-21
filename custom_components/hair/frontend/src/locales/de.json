@@ -583,6 +583,7 @@
     "wigs.save.reason.wont_work": "Nicht zum Laufen gebracht",
     "wigs.save.reason_hint": "Beides offen lassen, um zu dieser Zeile keine Aussage zu machen.",
     "wigs.save.comb_group_title": "Vom Kamm markiert",
+    "wigs.save.peer_main": "Haupt",
     "wigs.save.comb_flagged": "Ein Kammdurchlauf hat dieses Signal als fehlerhaft markiert und moeglicherweise ersetzungs- oder loeschbeduerftig. Testen und aktualisieren.",
     "wigs.save.rename_line": "Die Wig nennt das {theirs}; du nennst es {yours}.",
     "wigs.save.rename_propose": "Umbenennung vorschlagen",
