@@ -90,6 +90,14 @@ class PlanRow:
     temp_role: str | None = None
     #: "on" / "off" for the power rows, which have no coordinates.
     power: str | None = None
+    #: MATRIX ONLY: which extras lattice a checklist row samples, both
+    #: None for the main lattice and the power rows. TEST sends by
+    #: coordinate, and the same coordinates exist in the main lattice
+    #: under a different code, so without these the dialog would send
+    #: the main code and report success on the wrong frame
+    #: (extras-fitting-plan.md 4, 6).
+    axis: str | None = None
+    lattice: str | None = None
     #: UPDATE only: the wig row this matched, if any.
     wig_index: int | None = None
     #: UPDATE only: what the WIG calls this row. Differs from ``alias``
@@ -265,6 +273,14 @@ class SavePlan:
                     "power": row.power,
                     "comb_suspect": row.comb_suspect,
                     "comb_finding": row.comb_finding,
+                    # Present only on an extras row, so a plan for a
+                    # wig without extras serializes byte for byte what
+                    # it did before this existed.
+                    **(
+                        {"axis": row.axis, "lattice": row.lattice}
+                        if row.lattice is not None
+                        else {}
+                    ),
                 }
                 for row in self.rows
             ],
@@ -464,6 +480,8 @@ def _checklist_rows(matrix: ClimateMatrix) -> list[PlanRow]:
             temp_less=item.temp_less,
             temp_role=item.temp_role,
             power=power,
+            axis=item.axis,
+            lattice=item.lattice,
         ))
     return rows
 

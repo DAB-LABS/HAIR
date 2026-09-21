@@ -383,7 +383,8 @@ A fitting of any size is saved: check the rows you proved and the save reads
 the Device's Needs attention block is empty.
 
 **Perfect Fit.** A fitting that covers every row: every row of a flat wig
-checked, or every dimension of a state-matrix wig checked or honestly excluded
+checked, or every dimension of a state-matrix wig, across every lattice it
+carries, checked or honestly excluded
 ("not on my device", "could not make it work"), all by one person in one
 fitting. It earns the green tick, the `-perfect-fit` download name, and the
 top of the shop's shelf. Two fittings never add up -- somebody else proving

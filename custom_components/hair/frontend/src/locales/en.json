@@ -583,6 +583,7 @@
     "wigs.save.reason.wont_work": "Could not make it work",
     "wigs.save.reason_hint": "Leave both unpicked to make no claim about this row.",
     "wigs.save.comb_group_title": "Flagged by the comb",
+    "wigs.save.peer_main": "Main",
     "wigs.save.comb_flagged": "A combing showed this signal flawed and subject to replacement or removal. Test and update.",
     "wigs.save.rename_line": "The wig calls this {theirs}; you call it {yours}.",
     "wigs.save.rename_propose": "Suggest the rename",

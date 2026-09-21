@@ -8,7 +8,7 @@
  * one imports nothing but types, which erase, so a test can RUN it
  * instead of reading it.
  */
-import type { MatrixCellCoord, MatrixCells } from "./types.js";
+import type { MatrixCellCoord, MatrixCells, SavePlanRow } from "./types.js";
 
 /** What the dimension browser reads: cells plus the three vocabulary
  * lists that go with them. */
@@ -86,4 +86,86 @@ export function latticeFields(
         return { axis, lattice };
     }
     return {};
+}
+
+/** What TEST sends for one checklist row: a power code, or the row's
+ * coordinates plus its lattice.
+ *
+ * The Save dialog's TEST routes a checklist row by coordinate, and the
+ * same coordinates exist in the main lattice under a DIFFERENT code.
+ * So the lattice goes on through ``latticeFields`` -- both or nothing,
+ * and nothing at all for a main-lattice row, whose message is byte for
+ * byte what it always was. Without it TEST on an extras row sends the
+ * main code, the unit reacts, and the fitter ticks a row whose signed
+ * code was never pressed (extras-fitting-plan.md 6).
+ *
+ * Pure and type-only, like the two helpers above, so a test can run it
+ * on the rows the backend actually builds rather than read it. */
+export function checklistSendState(row: SavePlanRow): {
+    power?: "on" | "off";
+    mode?: string;
+    fan?: string | null;
+    swing?: string | null;
+    temp?: number | null;
+    axis?: string;
+    lattice?: string;
+} {
+    if (row.power) return { power: row.power as "on" | "off" };
+    return {
+        mode: row.mode ?? undefined,
+        fan: row.fan ?? null,
+        swing: row.swing ?? null,
+        temp: row.temp ?? null,
+        ...latticeFields(row),
+    };
+}
+
+/** One lattice's run of checklist rows, headed by its word (null for
+ * the main lattice). */
+export interface PeerGroup {
+    key: string | null;
+    rows: SavePlanRow[];
+}
+
+/** The Save dialog's grouping, or null when there is nothing to group.
+ *
+ * NULL WHEN NO ROW NAMES A LATTICE, which is every plan for a wig
+ * without extras: the dialog then draws its flat list exactly as it
+ * always did, with no headings (extras-fitting-plan.md 6).
+ *
+ * Otherwise the rows split three ways, and NOTHING MOVES. ``before``
+ * is everything ahead of the first sampled row (the ``on`` power row),
+ * ``groups`` is each lattice's consecutive run of samples in checklist
+ * order, and ``after`` is everything past the last sample: ``off``,
+ * then the flat buttons riding along on the device. The checklist
+ * already emits every extras sample after the main lattice's and
+ * before ``off``, so concatenating the three reproduces the input.
+ * Power stays outside every group because it belongs to the matrix,
+ * never to a lattice, and ``off`` stays last so the session leaves the
+ * unit off. */
+export function peerGroups(rows: SavePlanRow[]): {
+    before: SavePlanRow[];
+    groups: PeerGroup[];
+    after: SavePlanRow[];
+} | null {
+    if (!rows.some((r) => r.lattice != null)) return null;
+    const isSample = (r: SavePlanRow): boolean =>
+        !r.command_id && !r.power && !!r.mode;
+    const first = rows.findIndex(isSample);
+    let last = first;
+    rows.forEach((r, i) => {
+        if (isSample(r)) last = i;
+    });
+    const groups: PeerGroup[] = [];
+    for (const row of rows.slice(first, last + 1)) {
+        const key = row.lattice ?? null;
+        const open = groups[groups.length - 1];
+        if (open && open.key === key) open.rows.push(row);
+        else groups.push({ key, rows: [row] });
+    }
+    return {
+        before: rows.slice(0, first),
+        groups,
+        after: rows.slice(last + 1),
+    };
 }

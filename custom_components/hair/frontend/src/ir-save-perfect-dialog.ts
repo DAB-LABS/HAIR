@@ -69,6 +69,7 @@ import {
     type MetadataFieldValues,
 } from "./ir-save-metadata-fields.js";
 import type { HairApi } from "./api.js";
+import { checklistSendState, peerGroups } from "./matrix-lattice.js";
 import type {
     KindEntry,
     SavePlan,
@@ -590,16 +591,13 @@ export class IrSavePerfectDialog extends LitElement {
         // the cell send now rides the same Mirror echo hook a stored
         // command's TEST does, so it reports SENT . HEARD instead of
         // settling on SENT alone.
+        // The row's coordinates plus its lattice, through the helper
+        // every forwarder shares: without the lattice TEST on an extras
+        // row sends the MAIN code at the same coordinates and reports
+        // success on the wrong frame (extras-fitting-plan.md 6).
         const result = await this.api.matrixSend(
             this.sourceId,
-            row.power
-                ? { power: row.power as "on" | "off" }
-                : {
-                      mode: row.mode ?? undefined,
-                      fan: row.fan ?? null,
-                      swing: row.swing ?? null,
-                      temp: row.temp ?? null,
-                  },
+            checklistSendState(row),
         );
         return !!result?.heard;
     }
@@ -626,7 +624,7 @@ export class IrSavePerfectDialog extends LitElement {
      * the widget's own toggle-tracking key changes. */
     private _rowKey(row: SavePlanRow): string {
         if (row.command_id) return `cmd:${row.command_id}`;
-        return [
+        const parts = [
             "cell",
             row.power ?? "",
             row.section ?? "",
@@ -634,7 +632,17 @@ export class IrSavePerfectDialog extends LitElement {
             row.fan ?? "",
             row.swing ?? "",
             row.temp ?? "",
-        ].join(":");
+        ];
+        // AN EXTRAS ROW IS NOT ITS MAIN-LATTICE TWIN. The sampler picks
+        // cells the same way in every lattice, so an extras row usually
+        // lands on the very section and coordinates a main row already
+        // has; keyed on those alone, ticking one would tick both -- the
+        // same collision the docstring above describes for digests, and
+        // the frontend twin of the checklist's dedup trap. The pair is
+        // appended rather than folded in, so a main row's key, and every
+        // key of a wig without extras, is exactly what it was.
+        if (row.lattice != null) parts.push(row.axis ?? "", row.lattice);
+        return parts.join(":");
     }
 
     private _displayTemp(temp: number): string {
@@ -1188,11 +1196,19 @@ export class IrSavePerfectDialog extends LitElement {
             ? matched.filter((r) => !r.comb_suspect)
             : matched;
 
+        // Grouped by lattice only when the plan carries an extras row
+        // (extras-fitting-plan.md 6). Without one ``peerGroups`` is null
+        // and this is the same flat list it always was -- no headings,
+        // no wrappers, nothing.
+        const peers = peerGroups(mainRows);
+
         return html`
             <div class="fit-list">
-                ${mainRows.map((row) =>
-                    this._renderRow(row, false, readOnly),
-                )}
+                ${peers
+                    ? this._renderPeerGroups(peers, readOnly)
+                    : mainRows.map((row) =>
+                          this._renderRow(row, false, readOnly),
+                      )}
                 ${combRows.length
                     ? html`
                           <div class="changes-divider">
@@ -1230,6 +1246,50 @@ export class IrSavePerfectDialog extends LitElement {
                             </div>`
                           : ""}
                   </div>`}
+        `;
+    }
+
+    /** The checklist grouped by lattice: the main lattice under its
+     * heading, then each extra under the file's own word for it.
+     *
+     * NOTHING MOVES. The checklist already emits every extras sample
+     * after the main lattice's and before ``off``, so this only wraps
+     * consecutive samples in blocks and heads them; the order a fitter
+     * walks, TEST by TEST, is exactly the checklist's.
+     *
+     * ``on`` and ``off`` stay OUTSIDE every block, above and below.
+     * They belong to the matrix, never to a lattice -- a preset has no
+     * power code of its own -- and ``off`` is last so the session
+     * leaves the unit off, which a block that swallowed it would hide.
+     * The flat buttons riding along on the device follow ``off`` as
+     * they always have.
+     *
+     * The ``peer`` stem, not ``lattice``: this dialog already uses
+     * ``lattice`` for the WHOLE matrix as a repair unit
+     * (``.lattice-block``, ``wigs.save.lattice_*``), and "extras" for
+     * those flat buttons. The design documents call these lattices
+     * peers, so that is the word. */
+    private _renderPeerGroups(
+        peers: NonNullable<ReturnType<typeof peerGroups>>,
+        readOnly: boolean,
+    ) {
+        return html`
+            ${peers.before.map((row) => this._renderRow(row, false, readOnly))}
+            ${peers.groups.map(
+                (g) => html`
+                    <div class="peer-group">
+                        <div class="peer-head">
+                            ${g.key === null
+                                ? t("wigs.save.peer_main")
+                                : g.key}
+                        </div>
+                        ${g.rows.map((row) =>
+                            this._renderRow(row, false, readOnly),
+                        )}
+                    </div>
+                `,
+            )}
+            ${peers.after.map((row) => this._renderRow(row, false, readOnly))}
         `;
     }
 
@@ -1812,6 +1872,22 @@ export class IrSavePerfectDialog extends LitElement {
             }
             .comb-mark ha-svg-icon {
                 --mdc-icon-size: 11.7px;
+            }
+            /* One block per lattice, only when the wig carries extras.
+               The head copies the changes divider's look but NOT its
+               uppercase: an extra is headed by the file's own word,
+               verbatim, exactly as the card shows it. */
+            .peer-group {
+                margin: 4px 0;
+            }
+            .peer-head {
+                margin: 10px 2px 6px;
+                padding-top: 8px;
+                border-top: 1px solid var(--divider-color);
+                font-size: 10.5px;
+                font-weight: 600;
+                letter-spacing: 0.03em;
+                color: var(--secondary-text-color);
             }
             .changes-divider {
                 display: flex;

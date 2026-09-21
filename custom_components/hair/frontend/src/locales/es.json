@@ -583,6 +583,7 @@
     "wigs.save.reason.wont_work": "No consegui que funcionara",
     "wigs.save.reason_hint": "Deja ambos sin elegir para no afirmar nada sobre esta fila.",
     "wigs.save.comb_group_title": "Marcado por el peine",
+    "wigs.save.peer_main": "Principal",
     "wigs.save.comb_flagged": "Un peinado mostro que esta senal es defectuosa y candidata a reemplazo o eliminacion. Pruebela y actualice.",
     "wigs.save.rename_line": "El wig lo llama {theirs}; tu lo llamas {yours}.",
     "wigs.save.rename_propose": "Sugerir el cambio de nombre",
