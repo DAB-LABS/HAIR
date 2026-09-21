@@ -1385,6 +1385,8 @@ export class IrDeviceList extends LitElement {
             swing: string | null;
             temp: number | null;
             power: "on" | "off" | null;
+            axis?: string | null;
+            lattice?: string | null;
         },
     ): Promise<void> {
         if (!this.api) return;
@@ -1407,6 +1409,13 @@ export class IrDeviceList extends LitElement {
             swing: heard.swing,
             temp: heard.temp,
             power: heard.power,
+            // The heard state's lattice, which the backend has put on
+            // last_heard since the listener learned extras. Without it
+            // + Trigger on a heard Eco press asked for the MAIN cell
+            // and minted a trigger that fires on the main press and
+            // never on the one it came from (extras card round 2).
+            axis: heard.axis,
+            lattice: heard.lattice,
         });
     }
 
@@ -1427,6 +1436,8 @@ export class IrDeviceList extends LitElement {
             swing: p.swing,
             temp: p.temp,
             power: p.power,
+            axis: p.axis,
+            lattice: p.lattice,
         });
     }
 

@@ -45,3 +45,45 @@ export function latticeView(
     }
     return mc;
 }
+
+/** Anything that may name a lattice: a card pick, a heard state, a
+ * dialog row. Both fields optional and nullable, because each of those
+ * spells "the main lattice" its own way -- absent, undefined or null. */
+export interface LatticeRef {
+    axis?: string | null;
+    lattice?: string | null;
+}
+
+/** The lattice fields for a websocket message: both, or nothing.
+ *
+ * EVERY FORWARDER GOES THROUGH HERE. The card has always put ``axis``
+ * and ``lattice`` on a pick, and the doors have always validated them,
+ * but the code in between rebuilt each message from the coordinates
+ * alone, so an extras cell reached the door as the MAIN lattice's cell
+ * at the same coordinates. The door resolved it, the main code went
+ * out, and the send reported success -- the failure the design named
+ * as the worst available, because every coordinate the lattices share
+ * carries a different code.
+ *
+ * BOTH OR NEITHER. The doors read one field without the other as a
+ * client bug and refuse it, so this never emits a half pair: a ref
+ * carrying only one field is treated as naming no lattice at all. And
+ * for a main-lattice ref the result is an EMPTY object, so spreading
+ * it adds no key whatever and the message is byte for byte what it was
+ * before any of this existed -- not ``axis: null``, which would be a
+ * different message even though the door happens to read it the same.
+ *
+ * Pure and type-only, like ``latticeView`` above, so it runs under
+ * node, and written against ``LatticeRef`` rather than the card's pick
+ * so the next consumer can take it as it stands.
+ */
+export function latticeFields(
+    ref: LatticeRef | null | undefined,
+): { axis: string; lattice: string } | Record<string, never> {
+    const axis = ref?.axis;
+    const lattice = ref?.lattice;
+    if (typeof axis === "string" && typeof lattice === "string") {
+        return { axis, lattice };
+    }
+    return {};
+}

@@ -819,6 +819,13 @@ export interface LastHeard {
     fan: string | null;
     swing: string | null;
     temp: number | null;
+    // Which lattice the heard state belongs to, null for the main one
+    // and for a power code. The backend has sent both since the
+    // listener learned extras; declaring them is what lets door 1's
+    // + Trigger forward them rather than drop them. Optional, because
+    // a row persisted before then carries neither.
+    axis?: string | null;
+    lattice?: string | null;
     at: string;
     sl_pattern: string | null;
     receiver_entity_id: string | null;
