@@ -538,6 +538,23 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             # on a matrix device. It may still be starred, which the
             # caller handles; it moves no dimension.
             return
+        if cell.get("lattice") is not None:
+            # AN EXTRAS CELL MOVES THE READOUT AND NOTHING ELSE
+            # (extras-in-the-matrix-card.md item 5b). Its coordinates
+            # name a cell in an extras lattice, and the thermostat is
+            # driven by the MAIN one: applying them here would move the
+            # dial to a main-lattice state nothing transmitted, and do
+            # it silently, because every coordinate the two lattices
+            # share carries a different code.
+            #
+            # One difference from the branch above, and it is the
+            # point: a plain button's name is not a state, so that one
+            # leaves the readout alone. An extras cell IS a state, so
+            # the readout says "(eco) cool / fan: auto / 22", which is
+            # true, while the dial stays where the main lattice put it,
+            # which is also true.
+            self._matrix_cell = sent.command_name
+            return
         mode = self._hvac_for_file_mode(cell.get("mode"))
         if mode is not None:
             self._hvac_mode = mode
@@ -1102,6 +1119,16 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             return
         state = command.sent_state or {}
         if not state:
+            return
+        if state.get("lattice") is not None:
+            # An extras STATE row can be starred like any other, and
+            # restoring one would claim a preset for a state the
+            # thermostat is not in: the coordinates below resolve
+            # against the MAIN lattice, where the same coordinates are
+            # a different code (item 5b). The docstring above already
+            # rules this by analogy -- a miss leaves the preset None
+            # and touches nothing else. Refusing costs a preset name
+            # after a restart; guessing costs the guarantee.
             return
         starred_cell = resolve_cell(
             self._matrix,

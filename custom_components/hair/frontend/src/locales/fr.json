@@ -63,6 +63,8 @@
     "devices.matrix_never_heard": "Rien entendu pour l'instant",
     "devices.matrix_state_note": "Chaque état entendu déclenche aussi le déclencheur d'état de la télécommande",
     "devices.matrix_title": "Matrice d'états",
+    "devices.matrix_dim_lattice": "Grille",
+    "devices.matrix_lattice_main": "Principale",
     "devices.matrix_dim_power": "Alimentation",
     "devices.matrix_dim_mode": "Mode",
     "devices.matrix_dim_fan": "Ventilation",

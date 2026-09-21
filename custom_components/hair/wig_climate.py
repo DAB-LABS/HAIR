@@ -116,6 +116,7 @@ def cell_display_name(
     unit: str = "C",
     display_unit: str | None = None,
     precision: float = 1.0,
+    lattice: str | None = None,
 ) -> str:
     """THE human name of a cell, on every user surface.
 
@@ -139,6 +140,18 @@ def cell_display_name(
     and the name freezes there -- existing names never rewrite. Live
     surfaces (the Mirror label, the matrix_cell attribute) pass it
     fresh on every send. The zero-arg form stays valid and native.
+
+    ``lattice`` (owner ruling 2026-09-19) is the extras lattice this
+    cell belongs to, and it rides in parentheses BEFORE the grammar
+    above, which is otherwise untouched: "(eco) cool / fan: auto / 22".
+    The word is the file's own, verbatim, as every other value on this
+    surface is. None means the main lattice, and the name is then byte
+    for byte what it has always been.
+
+    Load-bearing rather than decorative: ``add_command`` replaces by
+    name, so without the prefix two lattices saving the same
+    coordinates would mint one command, the second silently eating the
+    first.
     """
     parts = [cell.mode]
     if cell.fan is not None:
@@ -149,7 +162,8 @@ def cell_display_name(
         parts.append(
             display_temp_str(cell.temp, unit, display_unit, precision)
         )
-    return " / ".join(parts)
+    name = " / ".join(parts)
+    return f"({lattice}) {name}" if lattice else name
 
 
 def exact_cell(
@@ -158,6 +172,7 @@ def exact_cell(
     fan: str | None = None,
     swing: str | None = None,
     temp: float | None = None,
+    cells: list[ClimateCell] | None = None,
 ) -> ClimateCell | None:
     """The cell at EXACTLY these coordinates, or None.
 
@@ -166,9 +181,18 @@ def exact_cell(
     coordinates read off the matrix itself (Cold Cuts second half,
     2026-07-29), so a miss means a stale or hand-rolled caller and the
     honest answer is "no such state", never a nearby one.
+
+    ``cells`` searches that list instead of ``matrix.cells``, which is
+    how an extras lattice is reached (extras-in-the-matrix-card.md 3b).
+    The contract above is unchanged and applies to an extra exactly as
+    it does to the main lattice: no snapping there either, and above
+    all no falling back to the main lattice, because every coordinate
+    the two share carries a DIFFERENT code and a fallback would
+    transmit the wrong frame while reporting success. Omitted, the
+    search is byte for byte what it has always been.
     """
     temp = float(temp) if temp is not None else None
-    for cell in matrix.cells:
+    for cell in (matrix.cells if cells is None else cells):
         if (
             cell.mode == mode
             and cell.fan == fan

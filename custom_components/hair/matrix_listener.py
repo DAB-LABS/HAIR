@@ -123,6 +123,13 @@ class CellHit:
     swing: str | None = None
     temp: float | None = None
     sl_pattern: str | None = None
+    # Which lattice this state belongs to, None for the main one
+    # (extras-in-the-matrix-card.md item 5c). The coordinates alone
+    # cannot say: every coordinate the lattices share carries a
+    # different code, which is exactly why matching by identity finds
+    # the right one and why the answer has to travel with the hit.
+    axis: str | None = None
+    lattice: str | None = None
 
 
 @dataclass
@@ -263,6 +270,39 @@ def build_cell_index(
                 sl_pattern=sl,
             ),
         )
+    # EXTRAS ARE HEARD TOO (item 5c). The index is built from
+    # matrix.cells alone before this, so a handset sending an Eco state
+    # raised no state_heard and drew no LAST HEARD row, while the card
+    # could browse that state and mint a trigger on it -- a trigger
+    # that would then never fire. Matching is by identity, and an
+    # extras code never collides with a main-lattice one, so these rows
+    # add reach without taking any away.
+    #
+    # ``cell_key`` stays the bare coordinate form here, unqualified:
+    # it is the fittings-ledger key and it changes in the fitting plan,
+    # not in this one. The lattice travels on its own two fields.
+    for extra in getattr(matrix, "extras", None) or ():
+        for cell in extra.cells:
+            _add(
+                cell.pronto,
+                lambda sl, cell=cell, extra=extra: CellHit(
+                    cell_key=cell_key(cell),
+                    cell_name=cell_display_name(
+                        cell,
+                        unit=matrix.unit,
+                        display_unit=display_unit,
+                        precision=matrix.precision,
+                        lattice=extra.key,
+                    ),
+                    mode=cell.mode,
+                    fan=cell.fan,
+                    swing=cell.swing,
+                    temp=cell.temp,
+                    axis=extra.axis,
+                    lattice=extra.key,
+                    sl_pattern=sl,
+                ),
+            )
     for power, pronto in (("off", matrix.off), ("on", matrix.on)):
         _add(
             pronto,
@@ -627,6 +667,11 @@ class MatrixListener:
             "fan": hit.fan,
             "swing": hit.swing,
             "temp": hit.temp,
+            # Which lattice was heard (item 5c). Null on a main-lattice
+            # state and on a power code, which is every row written
+            # before this, so an old row reads exactly as it did.
+            "axis": hit.axis,
+            "lattice": hit.lattice,
             "sl_pattern": hit.sl_pattern,
             "at": now_iso,
             "receiver_entity_id": receiver_entity_id,
@@ -646,6 +691,8 @@ class MatrixListener:
             "fan": hit.fan,
             "swing": hit.swing,
             "temp": hit.temp,
+            "axis": hit.axis,
+            "lattice": hit.lattice,
             "timestamp": now_iso,
             # The v0.5.7 location trio, resolved the same way and at
             # the same moment a trigger fire resolves it.

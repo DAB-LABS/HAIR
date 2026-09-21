@@ -63,6 +63,8 @@
     "devices.matrix_never_heard": "Jeszcze nic nie usłyszano",
     "devices.matrix_state_note": "Każdy usłyszany stan uruchamia też wyzwalacz stanu pilota",
     "devices.matrix_title": "Macierz stanów",
+    "devices.matrix_dim_lattice": "Siatka",
+    "devices.matrix_lattice_main": "Główna",
     "devices.matrix_dim_power": "Zasilanie",
     "devices.matrix_dim_mode": "Tryb",
     "devices.matrix_dim_fan": "Wentylator",

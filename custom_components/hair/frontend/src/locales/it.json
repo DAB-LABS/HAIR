@@ -63,6 +63,8 @@
     "devices.matrix_never_heard": "Non è stato ancora sentito nulla",
     "devices.matrix_state_note": "Ogni stato sentito attiva anche l'attivatore di stato del telecomando",
     "devices.matrix_title": "Matrice di stati",
+    "devices.matrix_dim_lattice": "Reticolo",
+    "devices.matrix_lattice_main": "Principale",
     "devices.matrix_dim_power": "Alimentazione",
     "devices.matrix_dim_mode": "Modalità",
     "devices.matrix_dim_fan": "Ventola",

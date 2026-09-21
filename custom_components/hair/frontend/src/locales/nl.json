@@ -63,6 +63,8 @@
     "devices.matrix_never_heard": "Nog niets gehoord",
     "devices.matrix_state_note": "Elke gehoorde toestand activeert ook de statustrigger van de afstandsbediening",
     "devices.matrix_title": "Toestandsmatrix",
+    "devices.matrix_dim_lattice": "Raster",
+    "devices.matrix_lattice_main": "Hoofd",
     "devices.matrix_dim_power": "Voeding",
     "devices.matrix_dim_mode": "Modus",
     "devices.matrix_dim_fan": "Ventilator",

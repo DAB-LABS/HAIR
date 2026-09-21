@@ -63,6 +63,8 @@
     "devices.matrix_never_heard": "Пока ничего не услышано",
     "devices.matrix_state_note": "Каждое услышанное состояние также запускает триггер состояния пульта",
     "devices.matrix_title": "Матрица состояний",
+    "devices.matrix_dim_lattice": "Решётка",
+    "devices.matrix_lattice_main": "Основная",
     "devices.matrix_dim_power": "Питание",
     "devices.matrix_dim_mode": "Режим",
     "devices.matrix_dim_fan": "Вентилятор",

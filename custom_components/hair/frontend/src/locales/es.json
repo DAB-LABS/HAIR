@@ -63,6 +63,8 @@
     "devices.matrix_never_heard": "Aún no se ha oído nada",
     "devices.matrix_state_note": "Cada estado oído también activa el disparador de estado del mando",
     "devices.matrix_title": "Matriz de estados",
+    "devices.matrix_dim_lattice": "Retícula",
+    "devices.matrix_lattice_main": "Principal",
     "devices.matrix_dim_power": "Encendido",
     "devices.matrix_dim_mode": "Modo",
     "devices.matrix_dim_fan": "Ventilador",

@@ -5000,3 +5000,146 @@ async def test_matrix_cell_unknown_remote_is_not_found(fake_hass):
     )
     conn.send_error.assert_called_once()
     assert conn.send_error.call_args[0][1] == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# The fourth door learns lattices with the other three
+# (extras-in-the-matrix-card.md item 1: one resolver, four doors).
+# ---------------------------------------------------------------------------
+
+
+def _tiny_matrix_with_extra():
+    """The tiny lattice plus an ``eco`` peer at the SAME coordinates,
+    under a different code, which is what the real corpus does."""
+    from custom_components.hair.wig_format import ClimateCell, ClimateExtra
+
+    matrix = _tiny_matrix()
+    matrix.extras = [
+        ClimateExtra(
+            axis="preset", key="eco",
+            cells=[
+                ClimateCell(
+                    mode="cool", fan="auto", temp=22,
+                    pronto="0000 006D 0001 0000 00F0 00F0",
+                ),
+            ],
+        ),
+    ]
+    return matrix
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_mints_a_trigger_on_the_named_lattice(fake_hass):
+    """A trigger minted on an extras state carries THAT lattice's code,
+    so it fires on the handset's Eco press and not on the main-lattice
+    press at the same coordinates."""
+    _wire_matrix_remote(fake_hass, _tiny_matrix_with_extra())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 921, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "mode": "cool", "fan": "auto",
+            "temp": 22, "axis": "preset", "lattice": "eco",
+        },
+    )
+    conn.send_error.assert_not_called()
+    payload = conn.send_result.call_args[0][1]
+    assert payload["pronto"] == "0000 006D 0001 0000 00F0 00F0"
+    assert payload["name"] == "(eco) cool / fan: auto / 22"
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_with_no_lattice_is_unchanged(fake_hass):
+    """The same matrix, no pair: the main lattice's code and the name
+    it always had."""
+    _wire_matrix_remote(fake_hass, _tiny_matrix_with_extra())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 922, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "mode": "cool", "fan": "auto",
+            "temp": 22,
+        },
+    )
+    payload = conn.send_result.call_args[0][1]
+    assert payload["pronto"] == "0000 006D 0001 0000 00C0 00C0"
+    assert payload["name"] == "cool / fan: auto / 22"
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_refuses_half_a_pair(fake_hass):
+    _wire_matrix_remote(fake_hass, _tiny_matrix_with_extra())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 923, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "mode": "cool", "fan": "auto",
+            "temp": 22, "lattice": "eco",
+        },
+    )
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_refuses_an_unknown_pair(fake_hass):
+    """Never the main lattice. It HAS this coordinate, under a
+    different code."""
+    _wire_matrix_remote(fake_hass, _tiny_matrix_with_extra())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 924, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "mode": "cool", "fan": "auto",
+            "temp": 22, "axis": "preset", "lattice": "turbo",
+        },
+    )
+    assert conn.send_error.call_args[0][1] == "not_found"
+    conn.send_result.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_refuses_power_with_a_lattice(fake_hass):
+    """A _matrix_pick door, so an ambiguous request is reported (4a).
+    matrix-send, which lets power beat stale coordinates, deliberately
+    does not -- pinned in test_matrix_detail."""
+    _wire_matrix_remote(fake_hass, _tiny_matrix_with_extra())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 925, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "power": "off",
+            "axis": "preset", "lattice": "eco",
+        },
+    )
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+
+
+@pytest.mark.asyncio
+async def test_the_remote_browse_payload_carries_the_lattices(fake_hass):
+    """One body, two endpoints: the remote's card is the device's card
+    in hear mode, so it browses extras too. It still cannot send one --
+    there is no remote send door."""
+    from custom_components.hair.websocket_api import (
+        ws_trigger_remote_matrix_cells,
+    )
+
+    _wire_matrix_remote(fake_hass, _tiny_matrix_with_extra())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cells(
+        fake_hass, conn,
+        {
+            "id": 926, "type": "hair/trigger-remote/matrix-cells",
+            "remote_id": "tr-cell",
+        },
+    )
+    payload = conn.send_result.call_args[0][1]
+    assert [lat["key"] for lat in payload["lattices"]] == ["eco"]
+    assert payload["cells"] == [
+        {"m": "cool", "f": "auto", "t": 22.0},
+        {"m": "cool", "f": "auto", "t": 23.0},
+    ]

@@ -38,8 +38,11 @@ import type {
     LastHeard,
     MatrixCellCoord,
     MatrixCells,
+    MatrixLattice,
     MatrixSummary,
 } from "./types.js";
+import { latticeView } from "./matrix-lattice.js";
+import type { LatticeView } from "./matrix-lattice.js";
 import { displayTemp, installUnit } from "./temperature.js";
 
 /** What a card event reports: the resolved coordinates plus the name.
@@ -52,6 +55,12 @@ export interface MatrixCardPick {
     swing: string | null;
     temp: number | null;
     name: string;
+    /** Which lattice the coordinates belong to, both null for the main
+     * one. They travel together or not at all, which is what the four
+     * websocket doors validate. Coordinates alone cannot say: every
+     * coordinate the lattices share carries a DIFFERENT code. */
+    axis?: string | null;
+    lattice?: string | null;
 }
 
 @customElement("ir-matrix-card")
@@ -92,6 +101,11 @@ export class IrMatrixCard extends LitElement {
     // picking a power chip clears the cell dimensions and vice versa,
     // so only one of the two can ever be "the thing Send would send".
     @state() private _selPower: "on" | "off" | null = null;
+    // WHICH LATTICE IS BEING BROWSED, by its key; null is the main one
+    // (extras-in-the-matrix-card.md 6). A device with no extras never
+    // leaves null and never draws the chooser, so its card is what it
+    // always was, chip for chip.
+    @state() private _selLattice: string | null = null;
     // HEAR MODE keeps two facts apart that send mode never had to.
     // BROWSED is what the user clicked; HEARD is what came off the
     // handset. The card always has a display branch (something has to
@@ -133,21 +147,34 @@ export class IrMatrixCard extends LitElement {
         }
     }
 
+    /** The extras lattices this matrix carries, never undefined. */
+    private _lattices(): MatrixLattice[] {
+        return this._cells?.lattices ?? [];
+    }
+
+    /** The lattice being browsed, as cells plus its own vocabulary.
+     *
+     * ONE ACCESSOR, so every browsing helper below reads the selected
+     * lattice rather than the matrix. */
+    private _view(): LatticeView {
+        return latticeView(this._cells!, this._selLattice);
+    }
+
     /** Fan values the mode branch actually holds, in vocabulary order. */
     private _fansFor(mode: string): string[] {
-        const mc = this._cells!;
+        const view = this._view();
         const seen = new Set<string>();
-        for (const c of mc.cells) {
+        for (const c of view.cells) {
             if (c.m === mode && c.f !== undefined) seen.add(c.f);
         }
-        return mc.fan_modes.filter((f) => seen.has(f));
+        return view.fan_modes.filter((f) => seen.has(f));
     }
 
     /** Swing values under (mode, fan), in vocabulary order. */
     private _swingsFor(mode: string, fan: string | null): string[] {
-        const mc = this._cells!;
+        const view = this._view();
         const seen = new Set<string>();
-        for (const c of mc.cells) {
+        for (const c of view.cells) {
             if (
                 c.m === mode &&
                 (c.f ?? null) === fan &&
@@ -156,7 +183,7 @@ export class IrMatrixCard extends LitElement {
                 seen.add(c.s);
             }
         }
-        return mc.swing_modes.filter((s) => seen.has(s));
+        return view.swing_modes.filter((s) => seen.has(s));
     }
 
     /** Every cell of the selected branch (exact dimension match --
@@ -166,7 +193,7 @@ export class IrMatrixCard extends LitElement {
         fan: string | null,
         swing: string | null,
     ): MatrixCellCoord[] {
-        return this._cells!.cells.filter(
+        return this._view().cells.filter(
             (c) =>
                 c.m === mode &&
                 (c.f ?? null) === fan &&
@@ -249,13 +276,35 @@ export class IrMatrixCard extends LitElement {
      * is the one a freshly loaded remote is in. */
     private _seedBranch(): void {
         const mc = this._cells;
-        if (!mc || mc.modes.length === 0) return;
+        if (!mc) return;
+        const view = this._view();
+        if (view.modes.length === 0) return;
         const h = this.mode === "hear" ? this.heard : null;
-        if (h && h.power === null && h.mode) {
+        if (
+            this._selLattice === null &&
+            h &&
+            h.power === null &&
+            h.mode
+        ) {
             this._applyBranch(h.mode, h.fan, h.swing, h.temp);
         } else {
-            this._applyBranch(mc.modes[0], null, null, null);
+            this._applyBranch(view.modes[0], null, null, null);
         }
+    }
+
+    /** Pick a lattice. Re-seeds the branch from THAT lattice's
+     * vocabulary, because the coordinates standing in the old one
+     * usually do not exist in the new: an extra is typically narrower.
+     * Clears the power selection for the same reason the chooser hides
+     * the power row while an extra is up -- off and on belong to the
+     * matrix, never to a lattice. */
+    private _selectLattice(key: string | null): void {
+        if (this._selLattice === key) return;
+        this._selLattice = key;
+        this._selPower = null;
+        this._seedBranch();
+        this._browsed = true;
+        this._browsedBranch = true;
     }
 
     /** Is the browsed branch the heard one? "Not browsed yet" counts
@@ -368,7 +417,16 @@ export class IrMatrixCard extends LitElement {
         if (c.f !== undefined) parts.push(`fan: ${c.f}`);
         if (c.s !== undefined) parts.push(`swing: ${c.s}`);
         if (c.t !== undefined) parts.push(this._displayTemp(c.t));
-        return parts.join(" / ");
+        const name = parts.join(" / ");
+        // The lattice in parentheses FIRST, then the grammar above
+        // unchanged (owner ruling 2026-09-19). Mirrors
+        // wig_climate.cell_display_name, which the Set-state preview
+        // and the saved command's name both come from, and which
+        // add_command keys on: two lattices saving one coordinate must
+        // mint two commands, not one eating the other.
+        return this._selLattice !== null
+            ? `(${this._selLattice}) ${name}`
+            : name;
     }
 
     /** What the action bar is aimed at right now, or null. */
@@ -388,6 +446,12 @@ export class IrMatrixCard extends LitElement {
         }
         const cell = this._selectedCell();
         if (!cell) return null;
+        const extra =
+            this._selLattice === null
+                ? null
+                : (this._lattices().find(
+                      (l) => l.key === this._selLattice,
+                  ) ?? null);
         return {
             power: null,
             mode: cell.m,
@@ -395,6 +459,8 @@ export class IrMatrixCard extends LitElement {
             swing: cell.s ?? null,
             temp: cell.t ?? null,
             name: this._cellName(cell),
+            axis: extra?.axis ?? null,
+            lattice: extra?.key ?? null,
         };
     }
 
@@ -408,6 +474,42 @@ export class IrMatrixCard extends LitElement {
                 composed: true,
             }),
         );
+    }
+
+    /** The lattice chooser, ABOVE the dimension browser
+     * (extras-in-the-matrix-card.md 6).
+     *
+     * ABSENT, NOT EMPTY, when the matrix carries no extras: a device
+     * that has never seen a hair-wig/4 wig renders exactly the card it
+     * rendered before this existed, with no extra row and no gap where
+     * one would be. The main lattice leads under its existing name,
+     * then each extra by its own word, verbatim from the file. */
+    private _renderLatticeRow() {
+        const lattices = this._lattices();
+        if (lattices.length === 0) return nothing;
+        const options: Array<{ value: string | null; label: string }> = [
+            { value: null, label: t("devices.matrix_lattice_main") },
+            ...lattices.map((l) => ({ value: l.key, label: l.key })),
+        ];
+        return html`
+            <div class="mx-dim-row">
+                <span class="mx-dim-label"
+                    >${t("devices.matrix_dim_lattice")}</span
+                >
+                <span class="mx-chips">
+                    ${options.map((o) => {
+                        return html`<button
+                            class="mx-chip ${this._selLattice === o.value
+                                ? "on"
+                                : ""}"
+                            @click=${() => this._selectLattice(o.value)}
+                        >
+                            ${o.label}
+                        </button>`;
+                    })}
+                </span>
+            </div>
+        `;
     }
 
     /** The Power row (matrix-power-row.md item 1): Off always, On only
@@ -674,7 +776,10 @@ export class IrMatrixCard extends LitElement {
                       : nothing}
                 ${mc && this._selMode !== null
                     ? html`
-                          ${this._renderPowerRow(mc)}
+                          ${this._renderLatticeRow()}
+                          ${this._selLattice === null
+                              ? this._renderPowerRow(mc)
+                              : nothing}
                           ${this._renderDimRow(
                               t("devices.matrix_dim_mode"),
                               mc.modes,

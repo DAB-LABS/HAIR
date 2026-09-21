@@ -1400,6 +1400,13 @@ export class IrDeviceDetail extends LitElement {
                           fan: pick.fan,
                           swing: pick.swing,
                           temp: pick.temp,
+                          // WHICH LATTICE. Rebuilt without these, an
+                          // extras cell reached the door as the main
+                          // lattice's cell at the same coordinates,
+                          // and the main code went out reporting
+                          // success (extras card round 2).
+                          axis: pick.axis,
+                          lattice: pick.lattice,
                       },
             );
             // Second Fitting v3 punch list item 14: the cell TEST now
@@ -1441,6 +1448,12 @@ export class IrDeviceDetail extends LitElement {
                           fan: pick.fan,
                           swing: pick.swing,
                           temp: pick.temp,
+                          // Same as _matrixSend: without the lattice
+                          // the saved row would hold the main code
+                          // under the main name, and the (eco) save
+                          // would never have happened.
+                          axis: pick.axis,
+                          lattice: pick.lattice,
                       },
             );
             this._flash(t("devdetail.saved", { name: pick.name }));

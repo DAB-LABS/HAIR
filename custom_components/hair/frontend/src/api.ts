@@ -6,6 +6,11 @@
  * one-shot commands and `hass.connection.subscribeMessage` for
  * streaming capture events.
  */
+// The ONE runtime import this module has, and the rule for adding any
+// other: it must itself import nothing but types. ``matrix-lattice.ts``
+// does, so tsc emits it beside this module and the pair still runs
+// under node, which is what the helper tests below rely on.
+import { latticeFields } from "./matrix-lattice.js";
 import type {
     ActionOption,
     AssignResult,
@@ -333,6 +338,8 @@ export class HairApi {
             swing?: string | null;
             temp?: number | null;
             power?: "on" | "off" | null;
+            axis?: string | null;
+            lattice?: string | null;
         },
     ): Promise<MatrixCellDetail> {
         const msg: Record<string, unknown> = {
@@ -347,6 +354,13 @@ export class HairApi {
             if (pick.swing != null) msg.swing = pick.swing;
             if (pick.temp != null) msg.temp = pick.temp;
         }
+        // WHICH LATTICE, or nothing (extras card round 2). Spread on
+        // both branches rather than only the cell one: this layer is a
+        // transport and makes no policy, so the door answers a power
+        // request carrying a lattice by its own documented rule (this
+        // door reports it as a client bug) instead of having it
+        // quietly stripped here.
+        Object.assign(msg, latticeFields(pick));
         return this.hass.connection.sendMessagePromise<MatrixCellDetail>(msg);
     }
 
@@ -364,8 +378,16 @@ export class HairApi {
             swing?: string | null;
             temp?: number | null;
             power?: "on" | "off";
+            axis?: string | null;
+            lattice?: string | null;
         },
     ): Promise<{ sent: string; heard: boolean; receiver: string | null }> {
+        // The pair comes OFF the spread and goes back on through the
+        // helper: spread raw, a main-lattice pick would put
+        // ``axis: null, lattice: null`` on a message that has never
+        // carried them, and a half pair would reach the door as the
+        // client bug it refuses (extras card round 2).
+        const { axis, lattice, ...coords } = state;
         return this.hass.connection.sendMessagePromise<{
             sent: string;
             heard: boolean;
@@ -373,7 +395,8 @@ export class HairApi {
         }>({
             type: "hair/devices/matrix-send",
             device_id: deviceId,
-            ...state,
+            ...coords,
+            ...latticeFields({ axis, lattice }),
         });
     }
 
@@ -390,12 +413,17 @@ export class HairApi {
             swing?: string | null;
             temp?: number | null;
             power?: "on" | "off";
+            axis?: string | null;
+            lattice?: string | null;
         },
     ): Promise<IRDevice> {
+        // Same shape as matrixSend, for the same reason.
+        const { axis, lattice, ...coords } = state;
         return this.hass.connection.sendMessagePromise<IRDevice>({
             type: "hair/devices/matrix-command",
             device_id: deviceId,
-            ...state,
+            ...coords,
+            ...latticeFields({ axis, lattice }),
         });
     }
 
@@ -1794,11 +1822,12 @@ export class HairApi {
 /** What a drop that filed several remotes at once should say.
  *
  * A PURE FUNCTION RETURNING A KEY AND ITS PARAMS, never a sentence.
- * ``api.ts`` imports nothing but types, which erase, so the emitted
- * module stands alone under node -- that is what lets the test RUN
- * this rule rather than read it, the way the two pluck helpers below
- * are already run. Localizing here would pull in a runtime import and
- * take that away.
+ * ``api.ts`` has one runtime import, ``matrix-lattice.ts``, which
+ * itself imports nothing but types, so tsc emits the two together and
+ * they run under node -- that is what lets the test RUN this rule
+ * rather than read it, the way the two pluck helpers below are
+ * already run. Localizing here would pull in ``localize.ts`` and
+ * everything behind it, and take that away.
  *
  * Names are listed in the order the server filed them and capped, so a
  * forty-block file does not paint a paragraph. The count is always
