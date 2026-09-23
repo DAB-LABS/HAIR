@@ -803,6 +803,7 @@
     "comb.declined.no-lattice": "このウィッグに状態マトリクスはありません",
     "comb.declined.row-too-short": "{count} 件は行が短すぎて判断できません",
     "comb.declined.no-temperature": "{count} 件は温度を持ちません",
+    "comb.declined.power-code": "{count}件の電源コード。機種によっては別のフレームで送信されます",
     "comb.class.field-mismatch": "コード内の設定が不一致",
     "comb.what.field-mismatch": "反応するが、ラベルとは違う設定になる",
     "comb.class.frame-integrity": "フレーム検査エラー",

@@ -870,6 +870,7 @@
     "comb.declined.no-lattice": "в этом парике нет матрицы состояний",
     "comb.declined.row-too-short": "{count} в строках, слишком коротких для оценки",
     "comb.declined.no-temperature": "{count} без температуры",
+    "comb.declined.power-code": "{count} кодов питания, которые семейство может отправлять другим кадром",
     "comb.class.field-mismatch": "Неверная настройка в коде",
     "comb.what.field-mismatch": "отвечает, но переходит к настройке, отличной от подписи",
     "comb.class.frame-integrity": "Проверка кадра не пройдена",

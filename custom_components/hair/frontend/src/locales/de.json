@@ -803,6 +803,7 @@
     "comb.declined.no-lattice": "keine Zustandsmatrix auf dieser Perücke",
     "comb.declined.row-too-short": "{count} in Zeilen, die zu kurz zum Beurteilen sind",
     "comb.declined.no-temperature": "{count} ohne Temperatur",
+    "comb.declined.power-code": "{count} Einschaltcodes, die eine Familie als anderen Frame senden kann",
     "comb.class.field-mismatch": "Falsche Einstellung im Code",
     "comb.what.field-mismatch": "reagiert, landet aber auf einer anderen Einstellung als angegeben",
     "comb.class.frame-integrity": "Frame-Prüfung fehlgeschlagen",

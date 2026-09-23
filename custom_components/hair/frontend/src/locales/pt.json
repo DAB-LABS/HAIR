@@ -803,6 +803,7 @@
     "comb.declined.no-lattice": "sem matriz de estados nesta peruca",
     "comb.declined.row-too-short": "{count} em linhas demasiado curtas para julgar",
     "comb.declined.no-temperature": "{count} sem temperatura",
+    "comb.declined.power-code": "{count} códigos de energia, que uma família pode enviar com outro quadro",
     "comb.class.field-mismatch": "Definição errada no código",
     "comb.what.field-mismatch": "responde, mas fica numa definição diferente da etiqueta",
     "comb.class.frame-integrity": "Verificação de trama falhada",

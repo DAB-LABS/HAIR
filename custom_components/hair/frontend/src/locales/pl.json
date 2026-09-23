@@ -869,6 +869,7 @@
     "comb.declined.no-lattice": "brak macierzy stanów w tej peruce",
     "comb.declined.row-too-short": "{count} w wierszach zbyt krótkich, aby ocenić",
     "comb.declined.no-temperature": "{count} bez temperatury",
+    "comb.declined.power-code": "{count} kodów zasilania, które dana rodzina może wysyłać inną ramką",
     "comb.class.field-mismatch": "Błędne ustawienie w kodzie",
     "comb.what.field-mismatch": "reaguje, ale ustawia wartość inną niż w etykiecie",
     "comb.class.frame-integrity": "Nieudana kontrola ramki",

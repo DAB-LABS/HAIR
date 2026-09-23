@@ -803,6 +803,7 @@
     "comb.declined.no-lattice": "pas de matrice d'états sur cette perruque",
     "comb.declined.row-too-short": "{count} dans des lignes trop courtes pour juger",
     "comb.declined.no-temperature": "{count} sans température",
+    "comb.declined.power-code": "{count} codes d'alimentation, qu'une famille peut envoyer dans une autre trame",
     "comb.class.field-mismatch": "Réglage erroné dans le code",
     "comb.what.field-mismatch": "répond, mais s'arrête sur un réglage différent de l'étiquette",
     "comb.class.frame-integrity": "Contrôle de trame échoué",

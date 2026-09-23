@@ -803,6 +803,7 @@
     "comb.declined.no-lattice": "geen toestandsmatrix op deze pruik",
     "comb.declined.row-too-short": "{count} in rijen die te kort zijn om te beoordelen",
     "comb.declined.no-temperature": "{count} zonder temperatuur",
+    "comb.declined.power-code": "{count} aan/uit-codes, die een familie als een ander frame kan versturen",
     "comb.class.field-mismatch": "Verkeerde instelling in de code",
     "comb.what.field-mismatch": "reageert, maar komt op een andere instelling uit dan het label",
     "comb.class.frame-integrity": "Framecontrole mislukt",
