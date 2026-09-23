@@ -42,6 +42,7 @@ import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import type { SaveRoute } from "./ir-save-route-dialog.js";
 import "./ir-matrix-card.js";
 import type { MatrixCardPick } from "./ir-matrix-card.js";
+import { thinReceipt } from "./matrix-thin.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-popover.js";
@@ -68,6 +69,8 @@ import type {
     IRDevice,
     IRTrigger,
     DeviceTypeId,
+    MatrixThinResult,
+    MatrixThinShape,
     ReceiverInfo,
     SavePlan,
     TriggerRemoteInfo,
@@ -204,6 +207,11 @@ export class IrDeviceDetail extends LitElement {
     // reassigning the array isn't enough to recover. A keyed rebuild
     // gives Lit a clean cache so the new commands order renders correctly.
     @state() private _commandsListVersion = 0;
+    // Bumped by a thin (thinning-plan.md 7), which re-keys the Needs
+    // attention section: its findings were read off a lattice that no
+    // longer exists, and a card offering a repair on a removed cell
+    // would only answer "that cell is gone".
+    @state() private _thinEpoch = 0;
 
     // ---------------------------------------------------------------
     // Helpers
@@ -1431,6 +1439,56 @@ export class IrDeviceDetail extends LitElement {
     }
 
     /** + COMMAND from the card: keep the picked state as a row. */
+    /** The card's ``thinSaver``: send the whole shape, then take the
+     * device the door answered with. Portholes may have gone with
+     * their cells, so the command list rebuilds; the parent list is
+     * told quietly, the way a repair tells it (``device-refreshed``),
+     * because ``device-changed`` would rebuild this element and wipe
+     * the card's "Your wig has been updated." line. */
+    private _matrixThin = async (
+        shape: MatrixThinShape,
+    ): Promise<MatrixThinResult> => {
+        let result: MatrixThinResult;
+        try {
+            result = await this.api.matrixThin(this.device.id, shape);
+        } catch (err) {
+            // TWO DIFFERENT FAILURES, and they must not read alike. A
+            // door REFUSAL carries a code, and nothing was written:
+            // say so. An answer that never came back carries none, and
+            // the write may well have happened -- the owner's bench run
+            // is exactly that case, a successor wig in the Closet and
+            // nothing on screen -- so the page says what it honestly
+            // knows and points at a reload rather than claiming
+            // nothing was saved.
+            const failed = err as { code?: string; message?: string };
+            this._flash(
+                failed?.code
+                    ? `${t("devices.thin_failed")} ${
+                          failed.message ?? ""
+                      }`.trim()
+                    : t("devices.thin_no_answer"),
+            );
+            throw err;
+        }
+        this.device = result.device;
+        this._commandsListVersion++;
+        this._thinEpoch++;
+        // THE RECEIPT, on the page rather than in the card (owner bench
+        // 2026-09-22, item 2): what the trim cost, then the existing
+        // write-through sentence. Same flash a saved state uses.
+        this._flash(
+            thinReceipt(result.device?.matrix?.trimmed, result.wig, t),
+        );
+        this.dispatchEvent(
+            new CustomEvent("device-refreshed", {
+                detail: { device: result.device },
+                bubbles: true,
+                composed: true,
+            }),
+        );
+        return result;
+    };
+
     private async _matrixSaveCommand(
         e: CustomEvent<MatrixCardPick>,
     ): Promise<void> {
@@ -1627,6 +1685,7 @@ export class IrDeviceDetail extends LitElement {
                       .cellsLoader=${() => this.api.matrixCells(this.device.id)}
                       .currentName=${this._matrixCurrentName()}
                       ?busy=${this._busy}
+                      .thinSaver=${this._matrixThin}
                       @matrix-send=${this._matrixSend}
                       @matrix-save-command=${this._matrixSaveCommand}
                   ></ir-matrix-card>`
@@ -1647,13 +1706,18 @@ export class IrDeviceDetail extends LitElement {
                  shows no gap here. -->
             ${keyed(
                 this.device.id,
-                html`<ir-tangle-section
-                    .hass=${this.hass}
-                    .api=${this.api}
-                    .deviceId=${this.device.id}
-                    .matrixUnit=${this.device.matrix?.unit ?? "C"}
-                    @tangle-mutated=${this._onTangleMutated}
-                ></ir-tangle-section>`,
+                // Re-keyed on a thin as well: its findings were read off
+                // a lattice that no longer exists.
+                keyed(
+                    this._thinEpoch,
+                    html`<ir-tangle-section
+                        .hass=${this.hass}
+                        .api=${this.api}
+                        .deviceId=${this.device.id}
+                        .matrixUnit=${this.device.matrix?.unit ?? "C"}
+                        @tangle-mutated=${this._onTangleMutated}
+                    ></ir-tangle-section>`,
+                ),
             )}
 
             <!-- Commands -->

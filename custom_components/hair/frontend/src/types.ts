@@ -178,6 +178,10 @@ export interface MatrixSummary {
     min_temp: number;
     max_temp: number;
     unit: "C" | "F";
+    // What a trim cost, for the summary line's last clause (owner
+    // ruling 2026-09-22). Present only on a trimmed matrix: "from" is
+    // the size before the FIRST trim, "to" what it holds now.
+    trimmed?: { from: number; to: number };
 }
 
 // One cell's coordinates in the cell-browser payload (Cold Cuts second
@@ -1568,6 +1572,30 @@ export interface TangleWriteThrough {
     filename?: string;
     wig_id?: string;
     replaced?: string;
+}
+
+/** The whole desired shape ``hair/devices/matrix-thin`` takes
+ * (thinning-plan.md 2). Built by ``matrix-thin.ts``'s thinPayload. */
+export interface MatrixThinShape {
+    keep_on: boolean;
+    lattices: Array<{
+        axis: string | null;
+        key: string | null;
+        modes: Array<{
+            mode: string;
+            fans: string[] | null;
+            swings: string[] | null;
+            temps: number[] | null;
+        }>;
+    }>;
+}
+
+/** What the thinning door answers: the record it wrote, the repairs'
+ * write-through result, and the full device to reload from. */
+export interface MatrixThinResult {
+    thinned: Record<string, unknown>;
+    wig: TangleWriteThrough;
+    device: IRDevice;
 }
 
 export interface TangleCaptureEvent {

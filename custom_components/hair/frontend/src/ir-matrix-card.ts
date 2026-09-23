@@ -27,22 +27,59 @@
  * one: ``cellsLoader`` is the only backend call the card makes, and the
  * device and remote endpoints differ, so the callback IS the seam. A
  * second door would only invite the card to start fetching on its own.
+ *
+ * THINNING (thinning-plan.md 7) follows the same rule: ``thinSaver`` is
+ * a callback the device page hands in, and the card never learns what
+ * a device is. With it set, send mode grows the house pencil, and the
+ * card becomes the editor in place: the browse rows give way to one
+ * group per lattice and one line per mode, every value a keep / remove
+ * toggle, and the actions row gives way to the save strip. The draft
+ * and its rules live in ``matrix-thin.ts`` so a test can run them.
  */
 import { LitElement, html, css, nothing } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
-import { t } from "./localize.js";
+import { t, tp } from "./localize.js";
 import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
-import { renderExitToEntityBtn, exitToEntityButtonStyles } from "./ir-icons.js";
+import {
+    editButtonStyles,
+    exitToEntityButtonStyles,
+    renderEditBtn,
+    renderExitToEntityBtn,
+} from "./ir-icons.js";
 import type {
     LastHeard,
     MatrixCellCoord,
     MatrixCells,
     MatrixLattice,
     MatrixSummary,
+    MatrixThinResult,
+    MatrixThinShape,
 } from "./types.js";
-import { latticeView } from "./matrix-lattice.js";
-import type { LatticeView } from "./matrix-lattice.js";
+import { heardInLattice, latticeView } from "./matrix-lattice.js";
+import type { LatticeRef, LatticeView } from "./matrix-lattice.js";
+import {
+    defaultOpen,
+    depthOf,
+    latticeKept,
+    latticeTotal,
+    modeKept,
+    removesAnything,
+    startDraft,
+    thinPayload,
+    toggleLattice,
+    toggleMode,
+    toggleOn,
+    toggleValue,
+    totals,
+} from "./matrix-thin.js";
+import type {
+    DraftLattice,
+    DraftMode,
+    OpenState,
+    ThinAxis,
+    ThinDraft,
+} from "./matrix-thin.js";
 import { displayTemp, installUnit } from "./temperature.js";
 
 /** What a card event reports: the resolved coordinates plus the name.
@@ -89,6 +126,23 @@ export class IrMatrixCard extends LitElement {
     /** Hear mode: the remote's HA device page, for the note's glyph. */
     @property() haDeviceId: string | null = null;
     @property({ type: Boolean }) busy = false;
+    /** Send mode: saves a thinned shape (``hair/devices/matrix-thin``)
+     * and resolves with the door's answer. Absent, there is no pencil:
+     * the remote page never passes one, and hear mode never draws one
+     * even if it did. */
+    @property({ attribute: false }) thinSaver:
+        | ((shape: MatrixThinShape) => Promise<MatrixThinResult>)
+        | null = null;
+
+    // THE THINNING EDITOR (thinning-plan.md 7). ``_draft`` is the whole
+    // desired shape, held here and nowhere else until SAVE; Cancel, the
+    // pencil pressed again, and a different device all discard it.
+    @state() private _editing = false;
+    @state() private _draft: ThinDraft | null = null;
+    @state() private _open: OpenState = {};
+    @state() private _offNote = false;
+    private _offNoteTimer: number | undefined;
+    @state() private _thinBusy = false;
 
     @state() private _cells: MatrixCells | null = null;
     private _cellsFor: string | null = null;
@@ -131,6 +185,11 @@ export class IrMatrixCard extends LitElement {
     willUpdate(): void {
         if (this.cellsLoader && this._cellsFor !== this.cellsKey) {
             this._cellsFor = this.cellsKey;
+            // A different device: an open edit is discarded without
+            // asking (brief 8), and the last save's line belongs to the
+            // device it was about.
+            this._editing = false;
+            this._draft = null;
             void this._loadCells();
         }
     }
@@ -140,6 +199,14 @@ export class IrMatrixCard extends LitElement {
         try {
             const cells = await this.cellsLoader!();
             this._cells = cells;
+            // A lattice thinned away under the selection is gone: fall
+            // back to the main one rather than browse a stale key.
+            if (
+                this._selLattice !== null &&
+                !(cells.lattices ?? []).some((l) => l.key === this._selLattice)
+            ) {
+                this._selLattice = null;
+            }
             this._seedBranch();
         } catch {
             // Summary-only card; the backend already logged why.
@@ -158,6 +225,22 @@ export class IrMatrixCard extends LitElement {
      * lattice rather than the matrix. */
     private _view(): LatticeView {
         return latticeView(this._cells!, this._selLattice);
+    }
+
+    /** The lattice on screen as a ref: both fields for an extra,
+     * nothing for the main one. What the heard state is matched
+     * against before anything is ringed. */
+    private _selectedRef(): LatticeRef {
+        if (this._selLattice === null) return {};
+        const extra = this._lattices().find((l) => l.key === this._selLattice);
+        return extra ? { axis: extra.axis, lattice: extra.key } : {};
+    }
+
+    /** Is the heard state in the lattice on screen? LISTENING-MODE
+     * MARKING: without this, an Eco press lit the main lattice's tile
+     * at the same coordinates, which is a different code. */
+    private _heardHere(): boolean {
+        return heardInLattice(this.heard, this._selectedRef());
     }
 
     /** Fan values the mode branch actually holds, in vocabulary order. */
@@ -280,12 +363,7 @@ export class IrMatrixCard extends LitElement {
         const view = this._view();
         if (view.modes.length === 0) return;
         const h = this.mode === "hear" ? this.heard : null;
-        if (
-            this._selLattice === null &&
-            h &&
-            h.power === null &&
-            h.mode
-        ) {
+        if (h && h.power === null && h.mode && this._heardHere()) {
             this._applyBranch(h.mode, h.fan, h.swing, h.temp);
         } else {
             this._applyBranch(view.modes[0], null, null, null);
@@ -315,6 +393,7 @@ export class IrMatrixCard extends LitElement {
     private _onHeardBranch(): boolean {
         const h = this.heard;
         if (!h || h.power !== null) return false;
+        if (!this._heardHere()) return false;
         if (!this._browsedBranch) return true;
         return (
             this._selMode === h.mode &&
@@ -724,6 +803,17 @@ export class IrMatrixCard extends LitElement {
             ),
             unit: viewUnit,
         });
+        // WHAT A TRIM COST, as the summary line's last clause (owner
+        // ruling 2026-09-22): same dot, same font, same grey as the
+        // rest of the line, and absent entirely on a matrix nobody has
+        // trimmed. "from" is the size before the first trim, so a
+        // matrix trimmed twice still reads from its original size.
+        const trimmedText = m.trimmed
+            ? t("devices.matrix_trimmed", {
+                  from: String(m.trimmed.from),
+                  to: String(m.trimmed.to),
+              })
+            : "";
         const hear = this.mode === "hear";
         const h = this.heard;
         const selected = this._selectedCell();
@@ -742,14 +832,53 @@ export class IrMatrixCard extends LitElement {
         const armed = hear
             ? this._browsed && !!(selected || this._selPower)
             : !!(selected || this._selPower);
+        // The heard state rings chips only in its own lattice.
+        const heardHere = !!h && h.power === null && this._heardHere();
+        const editing = this._editing && this._draft !== null;
+        // The pencil: send mode, a readable lattice, and a page that
+        // knows how to save. Never in hear mode (brief 2).
+        const canThin = !hear && !!mc && this.thinSaver !== null;
         return html`
-            <div class="matrix-card">
+            <div class="matrix-card ${editing ? "editing" : ""}">
                 <div class="mx-head">
                     <span class="mx-title">${t("devices.matrix_title")}</span>
                     <span class="mx-summary" title=${rangeTitle}>
-                        ${summaryText}
+                        ${summaryText}${trimmedText}
                     </span>
+                    ${canThin
+                        ? html`<span class="mx-head-spacer"></span>
+                              <span class="thin-pencil ${editing ? "on" : ""}"
+                                  >${renderEditBtn(
+                                      () => this._togglePencil(),
+                                      t("devices.thin_pencil"),
+                                      this.busy || this._thinBusy,
+                                  )}</span
+                              >`
+                        : nothing}
                 </div>
+                ${editing
+                    ? this._renderEditor(mc!)
+                    : this._renderBrowse(mc, hear, h, heardHere, current,
+                          fans, swings, armed)}
+            </div>
+        `;
+    }
+
+    /** The browse card, exactly as it has always been drawn. Lifted
+     * out of render() whole so edit mode can swap it for the editor
+     * without a second copy; the only change inside is that a heard
+     * state rings its chips in its own lattice only. */
+    private _renderBrowse(
+        mc: MatrixCells | null,
+        hear: boolean,
+        h: LastHeard | null,
+        heardHere: boolean,
+        current: string | null,
+        fans: string[],
+        swings: string[],
+        armed: boolean,
+    ) {
+        return html`
                 ${hear
                     ? html`
                           <div class="matrix-current">
@@ -793,7 +922,7 @@ export class IrMatrixCard extends LitElement {
                                       this._selSwing,
                                       this._selTemp,
                                   ),
-                              h && h.power === null ? h.mode : null,
+                              heardHere ? h!.mode : null,
                           )}
                           ${fans.length > 0
                               ? this._renderDimRow(
@@ -809,7 +938,7 @@ export class IrMatrixCard extends LitElement {
                                             this._selSwing,
                                             this._selTemp,
                                         ),
-                                    h && h.power === null ? h.fan : null,
+                                    heardHere ? h!.fan : null,
                                 )
                               : nothing}
                           ${swings.length > 0
@@ -826,7 +955,7 @@ export class IrMatrixCard extends LitElement {
                                             v,
                                             this._selTemp,
                                         ),
-                                    h && h.power === null ? h.swing : null,
+                                    heardHere ? h!.swing : null,
                                 )
                               : nothing}
                           ${this._renderGrid(current)}
@@ -878,6 +1007,357 @@ export class IrMatrixCard extends LitElement {
                           </div>
                       `
                     : nothing}
+        `;
+    }
+
+    // --- The thinning editor (thinning-plan.md 7) ---------------------
+
+    /** Pencil: open the editor on a fresh draft, or discard it. */
+    private _togglePencil(): void {
+        if (this._editing) {
+            this._cancelEdit();
+            return;
+        }
+        if (!this._cells) return;
+        this._draft = startDraft(this._cells);
+        this._open = defaultOpen(this._draft);
+        this._editing = true;
+    }
+
+    private _cancelEdit(): void {
+        this._editing = false;
+        this._draft = null;
+        this._offNote = false;
+    }
+
+    /** Apply one draft rule and re-render when it changed anything. The
+     * draft is mutated in place, so the state property is re-assigned
+     * to tell Lit. */
+    private _change(changed: boolean): void {
+        if (changed && this._draft) this._draft = { ...this._draft };
+    }
+
+    private _flip(key: string): void {
+        this._open = { ...this._open, [key]: !this._open[key] };
+    }
+
+    private _offClicked(): void {
+        this._offNote = true;
+        window.clearTimeout(this._offNoteTimer);
+        this._offNoteTimer = window.setTimeout(() => {
+            this._offNote = false;
+        }, 1800);
+    }
+
+    /** Save the draft, then leave edit mode and reload.
+     *
+     * THE RECEIPT IS THE PAGE'S, NOT THE CARD'S (owner bench
+     * 2026-09-22, item 2). Round one wrote the line into a state
+     * property of this element and it never reached the bench: the
+     * device page around the card is rebuilt for reasons the card
+     * cannot see, and anything held here goes with it. So the page's
+     * own flash says what happened, exactly as it does for a saved
+     * state, and the card reports only by resolving or rejecting.
+     *
+     * A refusal or a failed write leaves the draft open -- nothing
+     * changed on the device, and the person's work should still be
+     * there to fix or cancel. The page has already said why.
+     */
+    private async _saveThin(): Promise<void> {
+        const draft = this._draft;
+        if (!draft || !this.thinSaver || !removesAnything(draft)) return;
+        if (this._thinBusy) return;
+        this._thinBusy = true;
+        try {
+            await this.thinSaver(thinPayload(draft));
+            this._editing = false;
+            this._draft = null;
+            await this._loadCells();
+        } catch {
+            // Reported by the page; the draft stays.
+        } finally {
+            this._thinBusy = false;
+        }
+    }
+
+    /** The house chevron from ir-clips.ts: bare stroked path, 22px
+     * glyph in a 32px button, rotated when open. ``blank`` keeps its
+     * place for a line with nothing to open. */
+    private _chevron(open: boolean, onClick: () => void, blank = false) {
+        return html`<button
+            class="expand-btn ${blank ? "blank" : ""}"
+            title=${open ? t("sniffer.collapse") : t("sniffer.expand")}
+            aria-label=${open ? t("sniffer.collapse") : t("sniffer.expand")}
+            aria-expanded=${open ? "true" : "false"}
+            ?disabled=${blank || this._thinBusy}
+            @click=${(e: Event) => {
+                e.stopPropagation();
+                if (!blank) onClick();
+            }}
+        >
+            <svg
+                class="chevron ${open ? "chevron-open" : ""}"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+            >
+                <path d="M6 9l6 6 6-6"></path>
+            </svg>
+        </button>`;
+    }
+
+    private _renderEditor(mc: MatrixCells) {
+        const d = this._draft!;
+        const sums = totals(d);
+        const nothingYet = !removesAnything(d);
+        return html`
+            <div class="thin-banner">
+                <b>${t("devices.thin_banner_title")}</b>
+                ${t("devices.thin_banner_body")}
+            </div>
+            <div class="mx-dim-row">
+                <span class="mx-dim-label"
+                    >${t("devices.matrix_dim_power")}</span
+                >
+                <span class="mx-chips">
+                    <button
+                        class="mx-chip keep locked"
+                        title=${t("devices.thin_off_tip")}
+                        ?disabled=${this._thinBusy}
+                        @click=${() => this._offClicked()}
+                    >
+                        ${t("fitting.row_off")}
+                    </button>
+                    ${d.hasOn
+                        ? html`<button
+                              class="mx-chip ${d.keepOn ? "keep" : "drop"}"
+                              title=${t("devices.thin_on_tip")}
+                              ?disabled=${this._thinBusy}
+                              @click=${() => this._change(toggleOn(d))}
+                          >
+                              ${t("fitting.row_on")}
+                          </button>`
+                        : nothing}
+                    <span class="thin-off-note ${this._offNote ? "show" : ""}"
+                        >${t("devices.thin_off_note")}</span
+                    >
+                </span>
+            </div>
+            ${d.lattices.map((l, li) => this._renderGroup(mc, l, li))}
+            <div class="thin-save">
+                <div class="thin-cost">
+                    ${t("devices.thin_cost_1")}
+                    <b>${t("devices.thin_cost_new_wig")}</b>${t(
+                        "devices.thin_cost_2",
+                    )}<b>${t("devices.thin_cost_your_own")}</b>${t(
+                        "devices.thin_cost_3",
+                    )}
+                </div>
+                <div class="thin-save-row">
+                    <span class="thin-save-count"
+                        >${nothingYet ? nothing : this._countLine(sums)}</span
+                    >
+                    <button
+                        class="thin-cancel"
+                        ?disabled=${this._thinBusy}
+                        @click=${() => this._cancelEdit()}
+                    >
+                        ${t("common.cancel")}
+                    </button>
+                    <button
+                        class="thin-go ${this._thinBusy ? "working" : ""}"
+                        ?disabled=${nothingYet || this._thinBusy || this.busy}
+                        @click=${() => void this._saveThin()}
+                    >
+                        ${this._thinBusy
+                            ? t("common.saving")
+                            : tp("devices.thin_remove_btn", sums.removed)}
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    /** "322 cells will be removed across 2 modes (dry, heat_cool),
+     * including the whole (boost) lattice. 834 will remain." Built from
+     * pieces so each one can carry its own plural. */
+    private _countLine(sums: ReturnType<typeof totals>) {
+        const modes = sums.modes.length
+            ? tp("devices.thin_count_modes", sums.modes.length, {
+                  names: sums.modes.join(", "),
+              })
+            : "";
+        const lattices = sums.lattices.length
+            ? tp("devices.thin_count_lattices", sums.lattices.length, {
+                  names: sums.lattices.join(", "),
+              })
+            : "";
+        const on = sums.onRemoved ? t("devices.thin_count_on") : "";
+        return html`<b>${tp("devices.thin_count_cells", sums.removed)}</b>${tp(
+                "devices.thin_count_removed",
+                sums.removed,
+            )}${modes}${lattices}${on}${t("devices.thin_count_stop")}
+            ${tp("devices.thin_count_remain", sums.kept)}`;
+    }
+
+    private _renderGroup(mc: MatrixCells, l: DraftLattice, li: number) {
+        const open = l.on && !!this._open[`g:${li}`];
+        const total = latticeTotal(l);
+        const kept = latticeKept(l);
+        const count = !l.on
+            ? html`<span class="cut"
+                  >${tp("devices.thin_group_goes", total)}</span
+              >`
+            : kept < total
+              ? html`${t("devices.thin_keeps", {
+                        kept: String(kept),
+                        total: String(total),
+                    })}<span class="cut"
+                        >${tp("devices.thin_removed", total - kept)}</span
+                    >`
+              : tp("devices.thin_group_all", total);
+        return html`
+            <div class="thin-group ${l.on ? "" : "off"}">
+                <div class="thin-ghead">
+                    ${li === 0
+                        ? html`<span class="thin-gname"
+                              >${t("devices.thin_main")}</span
+                          >`
+                        : html`<button
+                                  class="mx-chip thin-head-chip ${l.on
+                                      ? "keep"
+                                      : "drop"}"
+                                  ?disabled=${this._thinBusy}
+                                  @click=${() =>
+                                      this._change(toggleLattice(this._draft!, li))}
+                              >
+                                  (${l.key})
+                              </button>
+                              <span class="thin-tag">${l.axis}</span>`}
+                    <span class="thin-count">${count}</span>
+                    ${this._chevron(open, () => this._flip(`g:${li}`), !l.on)}
+                </div>
+                ${open
+                    ? l.modes.map((m) => this._renderModeLine(mc, l, li, m))
+                    : nothing}
+            </div>
+        `;
+    }
+
+    private _renderModeLine(
+        mc: MatrixCells,
+        l: DraftLattice,
+        li: number,
+        m: DraftMode,
+    ) {
+        const depth = depthOf(m);
+        const open = m.on && depth > 0 && !!this._open[`m:${li}:${m.mode}`];
+        const total = m.cells.length;
+        const kept = modeKept(l, m);
+        const count = !m.on
+            ? html`<span class="cut"
+                  >${tp("devices.thin_mode_goes", total)}</span
+              >`
+            : kept < total
+              ? html`${t("devices.thin_keeps", {
+                        kept: String(kept),
+                        total: String(total),
+                    })}<span class="cut"
+                        >${tp("devices.thin_removed", total - kept)}</span
+                    >`
+              : tp("devices.thin_mode_all", total);
+        return html`
+            <div class="thin-mode ${m.on ? "" : "off"}">
+                <div class="thin-mhead">
+                    <button
+                        class="mx-chip thin-head-chip ${m.on ? "keep" : "drop"}"
+                        ?disabled=${this._thinBusy}
+                        @click=${() =>
+                            this._change(toggleMode(this._draft!, li, m.mode))}
+                    >
+                        ${m.mode}
+                    </button>
+                    <span class="thin-tag"
+                        >${depth === 0
+                            ? t("devices.thin_depth_single")
+                            : tp("devices.thin_depth", depth)}</span
+                    >
+                    <span class="thin-count">${count}</span>
+                    ${this._chevron(
+                        open,
+                        () => this._flip(`m:${li}:${m.mode}`),
+                        !m.on || depth === 0,
+                    )}
+                </div>
+                ${open
+                    ? html`
+                          ${this._renderAxis(li, m, "fans",
+                              t("devices.matrix_dim_fan"))}
+                          ${this._renderAxis(li, m, "swings",
+                              t("devices.matrix_dim_swing"))}
+                          ${this._renderTemps(mc, li, m)}
+                      `
+                    : nothing}
+            </div>
+        `;
+    }
+
+    private _renderAxis(
+        li: number,
+        m: DraftMode,
+        axis: Exclude<ThinAxis, "temps">,
+        label: string,
+    ) {
+        const values = m.carried[axis];
+        const kept = m.kept[axis];
+        if (!values || !kept) return nothing;
+        return html`
+            <div class="mx-dim-row">
+                <span class="mx-dim-label">${label}</span>
+                <span class="mx-chips">
+                    ${values.map(
+                        (v) => html`<button
+                            class="mx-chip ${kept.has(v) ? "keep" : "drop"}"
+                            ?disabled=${this._thinBusy}
+                            @click=${() =>
+                                this._change(
+                                    toggleValue(this._draft!, li, m.mode, axis, v),
+                                )}
+                        >
+                            ${v}
+                        </button>`,
+                    )}
+                </span>
+            </div>
+        `;
+    }
+
+    /** The temperatures in the grid the card already draws. */
+    private _renderTemps(mc: MatrixCells, li: number, m: DraftMode) {
+        const values = m.carried.temps;
+        const kept = m.kept.temps;
+        if (!values || !kept) return nothing;
+        return html`
+            <div class="mx-dim-row">
+                <span class="mx-dim-label">${t("devices.thin_temp")}</span>
+                <div class="mx-grid">
+                    ${values.map(
+                        (v) => html`<button
+                            class="mx-tile ${kept.has(v) ? "keep" : "drop"}"
+                            ?disabled=${this._thinBusy}
+                            @click=${() =>
+                                this._change(
+                                    toggleValue(this._draft!, li, m.mode, "temps", v),
+                                )}
+                        >
+                            ${displayTemp(
+                                v,
+                                mc.unit,
+                                installUnit(this.hass),
+                                mc.precision,
+                            )}
+                        </button>`,
+                    )}
+                </div>
             </div>
         `;
     }
@@ -885,6 +1365,7 @@ export class IrMatrixCard extends LitElement {
     static styles = [
         actionChipStyles,
         bloomStyles,
+        editButtonStyles,
         exitToEntityButtonStyles,
         css`
             /* The card is a block in its parent's flow, exactly as the
@@ -1066,6 +1547,211 @@ export class IrMatrixCard extends LitElement {
             }
             .action-btn.mx-cmd-btn:hover:not(:disabled) {
                 background: rgba(184, 115, 51, 0.08);
+            }
+
+            /* --- Thinning (thinning-design-brief.md 3 to 7) ---------
+               Ember (#e65100, HAIR's delete colour) does exactly four
+               jobs here: the card border in edit mode, the lit pencil,
+               every removed value, and the Remove button. The banner
+               and the cost paragraph are neutral on purpose. */
+            .mx-head-spacer {
+                flex: 1;
+            }
+            .mx-head .thin-pencil {
+                align-self: center;
+            }
+            .matrix-card.editing {
+                border-color: #e65100;
+            }
+            .thin-pencil.on .edit-btn {
+                color: #e65100;
+                background: rgba(230, 81, 0, 0.2);
+            }
+            .thin-banner,
+            .thin-cost {
+                margin: 10px 0 2px;
+                padding: 8px 11px;
+                border-radius: 5px;
+                background: var(--secondary-background-color, rgba(127, 127, 127, 0.1));
+                font-size: 0.8rem;
+                line-height: 1.6;
+                color: var(--secondary-text-color);
+            }
+            .thin-banner b,
+            .thin-cost b {
+                color: var(--primary-text-color);
+            }
+            .thin-group {
+                margin-top: 14px;
+            }
+            .thin-ghead,
+            .thin-mhead {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+            .thin-ghead {
+                padding: 4px 0 2px;
+                border-bottom: 1px solid var(--divider-color);
+            }
+            .thin-gname {
+                font-size: 0.72rem;
+                font-weight: 600;
+                letter-spacing: 0.05em;
+                text-transform: uppercase;
+                color: var(--secondary-text-color);
+            }
+            .thin-tag {
+                font-size: 0.66rem;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: var(--secondary-text-color);
+                border: 1px solid var(--divider-color);
+                border-radius: 3px;
+                padding: 0 5px;
+            }
+            .thin-count {
+                font-size: 0.76rem;
+                color: var(--secondary-text-color);
+            }
+            .thin-count .cut,
+            .thin-save-count b {
+                color: #e65100;
+                font-weight: 600;
+            }
+            .thin-mode {
+                border: 1px solid var(--divider-color);
+                border-radius: 6px;
+                padding: 4px 10px 8px;
+                margin-top: 10px;
+            }
+            .thin-mode.off,
+            .thin-group.off {
+                opacity: 0.75;
+            }
+            .thin-head-chip {
+                font-weight: 600;
+            }
+            .thin-off-note {
+                font-size: 0.72rem;
+                color: #e65100;
+                opacity: 0;
+                transition: opacity 150ms ease;
+            }
+            .thin-off-note.show {
+                opacity: 1;
+            }
+            .thin-save {
+                margin-top: 14px;
+                padding-top: 12px;
+                border-top: 1px solid var(--divider-color);
+            }
+            .thin-save-row {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                flex-wrap: wrap;
+                margin-top: 10px;
+            }
+            .thin-save-count {
+                flex: 1;
+                min-width: 200px;
+                font-size: 0.82rem;
+            }
+            .thin-cancel,
+            .thin-go {
+                font-family: inherit;
+                font-size: 0.8rem;
+                padding: 6px 14px;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            .thin-cancel {
+                border: 1px solid var(--divider-color);
+                background: none;
+                color: var(--primary-text-color);
+            }
+            .thin-go {
+                border: 1px solid #e65100;
+                background: #e65100;
+                color: #fff;
+                font-weight: 600;
+            }
+            .thin-go:disabled,
+            .thin-cancel:disabled {
+                opacity: 0.4;
+                cursor: default;
+            }
+            /* A save in flight: the whole edit view goes inert, so a
+               chip cannot change the draft under a write already on
+               its way, and the button says what it is doing. */
+            .thin-go.working {
+                opacity: 0.7;
+            }
+            .mx-chip:disabled,
+            .mx-tile:disabled,
+            .expand-btn:disabled {
+                cursor: default;
+            }
+            /* The house chevron, lifted from ir-clips.ts with its three
+               tuning knobs, pushed to the right edge of its line. */
+            .expand-btn {
+                --hair-chevron-size: 32px;
+                --hair-chevron-glyph: 22px;
+                --hair-chevron-weight: 2.5;
+                width: var(--hair-chevron-size);
+                height: var(--hair-chevron-size);
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0;
+                border: 0;
+                background: none;
+                color: var(--secondary-text-color);
+                cursor: pointer;
+                transition: color 150ms ease;
+                margin-left: auto;
+            }
+            .expand-btn .chevron {
+                width: var(--hair-chevron-glyph);
+                height: var(--hair-chevron-glyph);
+                fill: none;
+                stroke: currentColor;
+                stroke-width: var(--hair-chevron-weight);
+                stroke-linecap: round;
+                stroke-linejoin: round;
+                transition: transform 150ms ease;
+            }
+            .expand-btn .chevron-open {
+                transform: rotate(180deg);
+            }
+            .expand-btn:hover {
+                color: var(--primary-text-color);
+            }
+            .expand-btn.blank {
+                visibility: hidden;
+            }
+            /* KEEP and DROP, declared LAST, after .mx-chip and .mx-tile
+               and their .on / .sel, at equal specificity so they win on
+               order. Mockup T3 shipped with the grid cell's own
+               background beating .keep; T4 fixed it this way. */
+            .mx-chip.keep,
+            .mx-tile.keep {
+                background: rgba(67, 160, 71, 0.16);
+                border-color: #43a047;
+                color: var(--primary-text-color);
+            }
+            .mx-chip.drop,
+            .mx-tile.drop {
+                background: rgba(230, 81, 0, 0.2);
+                border-color: #e65100;
+                color: var(--secondary-text-color);
+                text-decoration: line-through;
+            }
+            .mx-chip.locked {
+                cursor: default;
             }
         `,
     ];

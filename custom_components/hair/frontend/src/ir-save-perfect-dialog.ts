@@ -1423,6 +1423,7 @@ export class IrSavePerfectDialog extends LitElement {
                     `,
                 )}
                 <span class="reason-hint">${t("wigs.save.reason_hint")}</span>
+                <span class="reason-thin">${t("wigs.save.reason_thin")}</span>
             </div>
         `;
     }
@@ -1839,6 +1840,15 @@ export class IrSavePerfectDialog extends LitElement {
             }
             .reason-hint {
                 opacity: 0.75;
+            }
+            /* Where "my unit has no Turbo" actually goes (brief 10:
+               thinning is for things that do not exist; exclusion is
+               for things you could not make work). One sentence, on
+               its own line under the two reasons. */
+            .reason-thin {
+                flex-basis: 100%;
+                opacity: 0.75;
+                font-style: italic;
             }
             /* Perfect-or-nothing (owner ruling 2026-08-07): a neutral
                running count, not a warning -- attesting rows is the

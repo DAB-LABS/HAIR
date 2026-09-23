@@ -130,6 +130,20 @@ def build_wig_from_device(
     notes: list[str] = []
     skipped = 0
     for i, command in enumerate(device.commands, start=1):
+        # A PORTHOLE IS NOT A SIGNAL (owner bench 2026-09-22). A row
+        # carrying ``matrix_cell`` is a VIEW of a lattice cell -- the
+        # comb mints one over a flagged cell so it can be tested and
+        # repaired -- and the cell it looks at is already in the
+        # matrix that rides out below. Minting it as a flat signal too
+        # wrote the same code twice into the wig, and the copy arrived
+        # at the next person as a plain command that is no longer a
+        # view of anything: adopting it gave them "Cool 22" beside a
+        # lattice that already has cool / 22, which they can then edit
+        # or delete without the lattice noticing. Not counted as
+        # skipped either: skipped means a code that could not be
+        # exported, and this one is exported, as a cell.
+        if command.matrix_cell:
+            continue
         pronto = _pronto_for(
             command.protocol,
             command.code,
@@ -197,3 +211,30 @@ def build_wig_from_device(
 
     carry_attestations(build.wig, device)
     return build
+
+
+def carry_descriptive(built: Wig, source: Wig) -> list[str]:
+    """Fill a minted successor's empty descriptive fields from the wig
+    it succeeds. Returns the names of the fields carried.
+
+    THE DEVICE HOLDS NONE OF THESE (owner bench 2026-09-22). A HAIR
+    device knows its name, its type and its codes; brand, model, notes
+    and the identity anchors live on the wig alone, so a mint built
+    from the device started blank in all of them and the write-through
+    handed the next person a wig that had lost its own brand and model.
+    Only EMPTY fields are filled, so anything the device or the save
+    dialog does have a newer value for wins: ``kind`` is stamped from
+    the device type when the type is unambiguous, and that stamp stands.
+    """
+    carried: list[str] = []
+    for name in ("brand", "model", "notes", "kind"):
+        if not getattr(built, name, None) and getattr(source, name, None):
+            setattr(built, name, getattr(source, name))
+            carried.append(name)
+    if not built.identifiers and source.identifiers:
+        built.identifiers = {
+            key: list(value) if isinstance(value, list) else value
+            for key, value in source.identifiers.items()
+        }
+        carried.append("identifiers")
+    return carried

@@ -242,6 +242,14 @@ command. An AC Remote shows the same card for listening.
 the top of the card holds the off code and, when the file has one, a separate
 on code.
 
+**Thinning.** Removing the states your unit does not have, from the pencil on
+the STATE MATRIX card. The card calls it trimming, and its summary line says
+what the trim cost ("trimmed from 143 to 77"). You can remove a value on an
+axis, a whole mode, a whole preset lattice, or the separate on code. Saving
+makes a new wig beside the original, which stays in the closet as the undo.
+Thinning is for things that do not exist; exclusion on the fitting checklist
+is for things you could not make work.
+
 **STATE chip.** The small marker on a command or trigger that was saved out
 of the STATE MATRIX card, so you can tell it apart from a learned button.
 
