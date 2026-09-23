@@ -513,7 +513,45 @@ def matrix_summary(matrix: ClimateMatrix) -> dict:
         "min_temp": matrix.min_temp,
         "max_temp": matrix.max_temp,
         "unit": matrix.unit,
+        # WHAT A TRIM COST, for the summary line's last clause (owner
+        # ruling 2026-09-22, replacing the Thinned badge). Present ONLY
+        # on a trimmed matrix, so every other summary, and every payload
+        # built from one, is byte for byte what it was.
+        #
+        # ``from`` is the size before the FIRST trim, so a matrix
+        # trimmed twice still reads from its original size; ``to`` is
+        # what it holds now, counted the way the record counts, across
+        # every lattice.
+        **_trimmed_summary(matrix),
     }
+
+
+def _trimmed_summary(matrix: ClimateMatrix) -> dict:
+    """``{"trimmed": {"from": N, "to": M}}``, or nothing at all.
+
+    Defensive about the record's shape: it rides the file as an unknown
+    key, so a hand-edited or foreign ``hair_thinning`` must not be able
+    to put a broken clause on the card. Anything that is not a list of
+    objects with two whole numbers is ignored.
+    """
+    history = (matrix.extra or {}).get("hair_thinning")
+    if not isinstance(history, list) or not history:
+        return {}
+    first = history[0]
+    if not isinstance(first, dict):
+        return {}
+    kept, removed = first.get("kept_cells"), first.get("removed_cells")
+    if not isinstance(kept, int) or not isinstance(removed, int):
+        return {}
+    if isinstance(kept, bool) or isinstance(removed, bool):
+        return {}
+    before = kept + removed
+    now = len(matrix.cells) + sum(
+        len(extra.cells) for extra in (matrix.extras or ())
+    )
+    if before <= 0:
+        return {}
+    return {"trimmed": {"from": before, "to": now}}
 
 
 def resolve_cell(

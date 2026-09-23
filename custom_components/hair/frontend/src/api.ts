@@ -35,6 +35,8 @@ import type {
     LearnedStoreImport,
     MatrixCellDetail,
     MatrixCells,
+    MatrixThinResult,
+    MatrixThinShape,
     PluckRunResult,
     PluckSource,
     PluckVendor,
@@ -424,6 +426,22 @@ export class HairApi {
             device_id: deviceId,
             ...coords,
             ...latticeFields({ axis, lattice }),
+        });
+    }
+
+    /** Remove the states a device does not have (thinning-plan.md 2).
+     * Sends the WHOLE desired shape, never a diff: a lattice or a mode
+     * absent from ``shape`` is removed. Returns the record, the wig
+     * write-through's own answer, and the full device to reload from. */
+    matrixThin(
+        deviceId: string,
+        shape: MatrixThinShape,
+    ): Promise<MatrixThinResult> {
+        return this.hass.connection.sendMessagePromise<MatrixThinResult>({
+            type: "hair/devices/matrix-thin",
+            device_id: deviceId,
+            keep_on: shape.keep_on,
+            lattices: shape.lattices,
         });
     }
 

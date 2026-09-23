@@ -218,8 +218,11 @@ def test_the_corpus_is_the_one_the_measurement_was_taken_on():
     external side since the ARC486A1 field capture landed (2026-09-12),
     and 924 on the JSON side since the import phase 1 adapter fixtures
     landed: those files carry one code per cell, as a real state matrix
-    does, and every one of them ends in a real trailing gap."""
-    assert len(JSON_CORPUS) == 924
+    does, and every one of them ends in a real trailing gap. 927 since
+    the thinning corpus pin landed (fixtures/thinning, WigShop PR #19's
+    after file): its 834 cells are the Komeco fixture's own codes except
+    four repaired ones, three of them new to the tree."""
+    assert len(JSON_CORPUS) == 927
     assert len(EXT_CORPUS) == 80
 
 
@@ -330,14 +333,16 @@ def test_only_the_tail_class_moves():
         if _legacy_byte_hash(c) == EventParser.pronto_byte_hash(c)
     ]
 
-    assert len(moved) == 841
+    # 841 until the thinning corpus pin's three new codes, all
+    # zero-tailed like the Komeco codes they replaced.
+    assert len(moved) == 844
     # 12 at v0.12.0, plus the 71 gap-tailed codes the phase 1 adapter
     # fixtures added. A gap tail is exactly the class that must not
     # move, so the new codes land on the holding side by construction.
     assert len(still) == 83
     assert {_tail_class(c) for c in still} == {"gap"}
     assert sorted(_tail_class(c) for c in set(moved)) == (
-        sorted(["zero"] * 838 + ["sub"] * 3)
+        sorted(["zero"] * 841 + ["sub"] * 3)
     )
     # Every mover lands on the value canonicalization already computed:
     # the two layers converge, they do not both drift somewhere new.

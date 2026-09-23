@@ -353,7 +353,7 @@ The result is stored on `wig.extra["comb"]`, an optional extra-key convention **
 
 ## Repairs and attestations
 
-Added in HAIR 0.14.0. When a person fixes a comb finding on a device made from a wig, HAIR writes the result back to the closet as a **repaired successor** of the source wig rather than editing the source. The first repair on an adopted device mints beside the contributor's original and leaves it standing; every repair after that supersedes the version before it (through the ordinary `supersedes` list), so the closet settles at two files: theirs, and the repaired one. The successor carries `"hair_repair_successor": true` in its top-level `extra`, and that stamp is the only thing the write-through will ever replace: a file without it is somebody's own and is never overwritten.
+Added in HAIR 0.14.0. When a person fixes a comb finding on a device made from a wig, HAIR writes the result back to the closet as a **repaired successor** of the source wig rather than editing the source. The first repair on an adopted device mints beside the contributor's original and leaves it standing; every repair after that supersedes the version before it (through the ordinary `supersedes` list), so the closet settles at two files: theirs, and the repaired one. The successor carries `"hair_repair_successor": true` in its top-level `extra`, and that stamp is the only thing the write-through will ever replace: a file without it is somebody's own and is never overwritten. It also inherits the source wig's `brand`, `model`, `notes` and `identifiers`, which live on the wig and not on the device; anything the device does hold a value for, such as `kind` from its type, stands.
 
 Three records ride along, all in `extra` maps and all **outside every canonical hash**, so a repaired wig's identity is decided by its bytes and nothing else.
 
@@ -392,6 +392,33 @@ Three records ride along, all in `extra` maps and all **outside every canonical 
 - `key` is what the attestation is **about**, expressed so it can expire itself: the target, the payload digest, and the field-map version (a content digest of the map document, so an edited map is a new version whether or not anybody remembered to bump a number). Change the bytes or change the map and the key stops matching, so the finding comes back on its own. A flat wig's row matches on digest and map version alone, so a rename does not lose the answer.
 - **Attesting never silences the comb.** The receipt still carries the finding; the attestation sits next to it. The comb doubts bytes, a person vouches for hardware, and a row can honestly carry both. A reader that shows findings should show the answers beside them.
 - A version 2 receipt without an `attested` key simply has no answers recorded.
+
+### Thinning
+
+Added after HAIR 0.16.0, not yet released. A person can tell HAIR which states their unit really has, from the STATE MATRIX card, and HAIR removes the rest: values on an axis, whole modes, whole extra lattices, and the separate `on` code. `off` can never be removed. The thinned device writes through to the closet exactly as a repair does, as a successor carrying `hair_repair_successor`, so the original wig stays where it was and re-adopting it is the undo. Nothing is added: every kept value is one the mode already carried, and a mode that had no temperature axis is never given one. One surviving temperature is still an axis, so its cells keep `temp: 25` rather than dropping to no temperature.
+
+The record rides the climate block as `hair_thinning`, a list with one entry per save, newest last, **outside every canonical hash** like the other records here. It carries counts and kept values, never a Pronto:
+
+```json
+"hair_thinning": [
+    {"at": "2026-09-21T23:40:44+00:00", "tier": "accepted",
+     "removed_cells": 322, "kept_cells": 834, "on_removed": false,
+     "lattices_removed": [],
+     "modes_removed": [],
+     "narrowed": [
+        {"axis": null, "key": null, "mode": "heat_cool",
+         "fans": ["auto", "low", "medium", "high"],
+         "swings": ["off", "vertical", "horizontal", "both"],
+         "temps": [25], "cells": 256}],
+     "portholes_removed": []}
+]
+```
+
+- `axis` and `key` are both null for the main lattice and name the extra otherwise.
+- `cells` is the number of cells each entry removed, so the three lists add up to `removed_cells`. `narrowed` records the values that were **kept** on each axis, null for an axis the mode does not have.
+- `portholes_removed` lists any command rows that were views of a removed cell, by command id and cell key. They go with their cells; commands that are not views of a cell are never touched.
+- The cells a thin removes change `cells_hash`, so every fitting on the source reads as no longer current against the thinned lattice, and the successor carries none until somebody fits it.
+- A comb porthole whose cell survives is not written into the successor as a flat signal: it is a view of a cell the lattice already carries, and the wig would otherwise hold that code twice. Only commands with no `matrix_cell` are signals.
 
 ## Superseded versions
 

@@ -169,3 +169,29 @@ export function peerGroups(rows: SavePlanRow[]): {
         after: rows.slice(last + 1),
     };
 }
+
+/** Does a heard state belong to the lattice on screen?
+ *
+ * LISTENING-MODE MARKING (roadmap, folded into thinning). The card
+ * rings the heard state's chips and tile by COORDINATES, and every
+ * coordinate the lattices share carries a different code: an Eco press
+ * at cool / auto / 22 is not the main lattice's cool / auto / 22. So a
+ * ring is drawn only when the heard pair matches the selected lattice,
+ * both null for the main one. A power code carries no pair, which is
+ * the main lattice's spelling, and power belongs to the matrix anyway.
+ *
+ * ``selected`` is the lattice on screen as a ref: both fields null (or
+ * absent) for the main one. A heard row persisted before the listener
+ * learned extras carries neither field, and reads as the main lattice,
+ * which is what it was.
+ */
+export function heardInLattice(
+    heard: LatticeRef | null | undefined,
+    selected: LatticeRef | null | undefined,
+): boolean {
+    if (!heard) return false;
+    const h = latticeFields(heard);
+    const s = latticeFields(selected);
+    return (h.axis ?? null) === (s.axis ?? null) &&
+        (h.lattice ?? null) === (s.lattice ?? null);
+}
