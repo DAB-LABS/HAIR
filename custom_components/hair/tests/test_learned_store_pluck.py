@@ -46,8 +46,11 @@ from custom_components.hair.signal_store import SignalStore
 
 from .test_learned_code_stores import (  # shared fixture builders
     BROADLINK_STORE,
+    OPENIRBLASTER_STORE,
     TUYA_STORE,
     _broadlink_code,
+    _oirb_code,
+    _oirb_data,
     _tuya_code,
     _write_store,
 )
@@ -235,14 +238,23 @@ class TestPluckableMechanism:
 
 
 class TestShippedRegistry:
-    """The three entries HAIR ships, loaded from the real directory."""
+    """The four entries HAIR ships, loaded from the real directory."""
 
-    def test_all_three_load(self):
+    def test_all_four_load(self):
         registry = load_pluckables(PLUCKABLE_DIR)
         pairs = {(e["integration"], e["mechanism"]) for e in registry}
         assert ("tuya_local", "replay") in pairs
         assert ("tuya_local", "storage") in pairs
         assert ("broadlink", "storage") in pairs
+        assert ("openirblaster", "storage") in pairs
+
+    def test_openirblaster_ships_storage_only(self):
+        """One entry, by owner ruling (GH #169). OpenIRBlaster's replay
+        service and its store reach the same flat list of codes, so a
+        replay entry beside this one would list it twice."""
+        registry = load_pluckables(PLUCKABLE_DIR)
+        mine = [e for e in registry if e["integration"] == "openirblaster"]
+        assert [e["mechanism"] for e in mine] == ["storage"]
 
     def test_tuya_local_ships_both_mechanisms_side_by_side(self):
         """The dedupe key is (integration, mechanism), not integration.
@@ -260,6 +272,7 @@ class TestShippedRegistry:
         assert set(pluck.storage_integrations(registry)) == {
             "broadlink",
             "tuya_local",
+            "openirblaster",
         }
 
     def test_list_vendors_ignores_storage_entries(self, fake_hass):
@@ -392,6 +405,92 @@ class TestImportPlacement:
         for signal in store.get_all_devices()[0].signals:
             assert signal.source == "plucked"
             assert signal.frequency == 38000
+
+
+# ---------------------------------------------------------------------
+# Placement: OpenIRBlaster, the flat code list
+# ---------------------------------------------------------------------
+
+
+@pytest.fixture
+def oirb_store_dir(tmp_path: Path) -> Path:
+    """An OpenIRBlaster store as a real install writes it: the device
+    record says "OpenIRBlaster", one code has a measured 36 kHz carrier,
+    and one entry is junk."""
+    _write_store(
+        tmp_path,
+        OPENIRBLASTER_STORE,
+        _oirb_data(
+            [
+                _oirb_code(
+                    "TV Power",
+                    [
+                        t if i % 2 == 0 else -t
+                        for i, t in enumerate(_nec_frame(0x04, 0x08))
+                    ] + [-40000],
+                ),
+                _oirb_code(
+                    "Soundbar Volume Up",
+                    [4500, -4400, 550, -1650, 550, -550, 550, -30000],
+                    carrier=36000,
+                ),
+                _oirb_code("Empty Learn", []),
+            ]
+        ),
+    )
+    return tmp_path
+
+
+class TestOpenIRBlasterImport:
+    async def test_the_library_lands_on_one_remote(
+        self, fake_hass, oirb_store_dir
+    ):
+        monitor, store = _monitor(fake_hass)
+        summary = await _import(
+            monitor, oirb_store_dir, "openirblaster", "Den Blaster"
+        )
+        assert summary["remotes"] == 1
+        assert summary["signals"] == 2
+        assert summary["no_timings"] == 1
+        assert summary["toggle_pairs"] == 0
+        assert summary["rf_receipted"] == 0
+
+        (device,) = store.get_all_devices()
+        # The flat list's one subdevice is the file's device record.
+        assert device.label == "Den Blaster: OpenIRBlaster"
+        assert device.store_integration == "openirblaster"
+        assert device.store_subdevice == "OpenIRBlaster"
+
+    async def test_the_measured_carrier_reaches_the_catalog(
+        self, fake_hass, oirb_store_dir
+    ):
+        """The import keeps the carrier the Pronto preamble encodes, so
+        this is the end-to-end check that a 36 kHz code stays 36 kHz."""
+        monitor, store = _monitor(fake_hass)
+        await _import(monitor, oirb_store_dir, "openirblaster", "Den Blaster")
+        by_name = {
+            s.plucked_command_name: s
+            for s in store.get_all_devices()[0].signals
+        }
+        assert set(by_name) == {"TV Power", "Soundbar Volume Up"}
+        assert by_name["Soundbar Volume Up"].frequency == pytest.approx(
+            36000, abs=100
+        )
+        assert by_name["TV Power"].frequency == pytest.approx(38000, abs=100)
+        for signal in by_name.values():
+            assert signal.alias == signal.plucked_command_name
+
+    async def test_a_second_import_adds_nothing(
+        self, fake_hass, oirb_store_dir
+    ):
+        monitor, store = _monitor(fake_hass)
+        await _import(monitor, oirb_store_dir, "openirblaster", "Den Blaster")
+        second = await _import(
+            monitor, oirb_store_dir, "openirblaster", "Den Blaster"
+        )
+        assert len(store.get_all_devices()) == 1
+        assert len(store.get_all_devices()[0].signals) == 2
+        assert second["already_present"] == 2
 
 
 # ---------------------------------------------------------------------

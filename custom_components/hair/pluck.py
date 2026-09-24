@@ -296,10 +296,15 @@ def resolve_store_names(hass: HomeAssistant, infos: list[StoreInfo]) -> None:
     """Fill in each store's friendly name, in place.
 
     Two sources, cheapest first: the config entry whose unique_id is the
-    store id (true for both integrations -- Broadlink's is the MAC hex,
-    Tuya Local's is the entry unique_id the filename carries), then, for
-    Broadlink, the device registry entry reached through that MAC, which
-    is where a user-assigned name lives.
+    store id (true for both packet-map integrations -- Broadlink's is the
+    MAC hex, Tuya Local's is the entry unique_id the filename carries),
+    then, for Broadlink, the device registry entry reached through that
+    MAC, which is where a user-assigned name lives.
+
+    OpenIRBlaster's filename carries the config ENTRY ID, while its
+    unique_id is the device MAC, so the two never match. Its provider
+    row says ``name_hint="entry_id"`` and the lookup compares entry_id
+    for it instead; every other provider keeps the unique_id match.
 
     Defensive throughout: a store whose integration has since been
     removed still has codes worth plucking, and it simply keeps its id
@@ -313,9 +318,15 @@ def resolve_store_names(hass: HomeAssistant, infos: list[StoreInfo]) -> None:
 
     for info in infos:
         name = ""
+        provider = PROVIDERS_BY_INTEGRATION.get(info.integration)
+        key_attr = (
+            "entry_id"
+            if provider is not None and provider.name_hint == "entry_id"
+            else "unique_id"
+        )
         try:
             for entry in hass.config_entries.async_entries(info.integration):
-                if (getattr(entry, "unique_id", None) or "") == info.store_id:
+                if (getattr(entry, key_attr, None) or "") == info.store_id:
                     name = (getattr(entry, "title", "") or "").strip()
                     break
         except Exception:
