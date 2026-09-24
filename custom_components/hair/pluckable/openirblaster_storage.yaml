@@ -1,0 +1,28 @@
+# Pluckable registry entry: OpenIRBlaster learned codes, read at rest.
+#
+# Storage only, and there is deliberately no replay sibling. Unlike
+# Tuya Local, whose two entries reach different code sets (replay
+# reaches the vendor codebook, storage reaches what the user learned),
+# the OpenIRBlaster service and the OpenIRBlaster store expose the same
+# flat list of learned codes. Two entries would list one integration
+# twice for one set of codes. The integration is also deprecated as of
+# its 1.3.1, and reading the file works after it has been uninstalled,
+# which the replay service cannot do.
+#
+# The store is .storage/openirblaster_<config entry id>, with no
+# extension and no _codes suffix, and it is a SECOND SHAPE, not a third
+# decoder: data["codes"] is a list of objects carrying name, pulses
+# (signed microseconds, positive mark and negative space) and
+# carrier_hz. The carrier is MEASURED here, not assumed, which is the
+# reason this route exists: ESPHome reports no carrier through
+# ir_rf_proxy, so a re-learned code comes back at 38 kHz and a 36 or
+# 40 kHz device may stop responding.
+#
+# READ-ONLY. HAIR never writes to another integration's store.
+schema_version: 2
+name: OpenIRBlaster
+integration: openirblaster
+docs_url: https://github.com/jaycollett/OpenIRBlaster
+
+mechanism: storage
+store_provider: openirblaster

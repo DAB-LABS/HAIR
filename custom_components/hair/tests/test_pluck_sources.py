@@ -55,7 +55,13 @@ STORAGE_BROADLINK = {
     "mechanism": "storage",
     "store_provider": "broadlink",
 }
-REGISTRY = [REPLAY_TUYA, STORAGE_TUYA, STORAGE_BROADLINK]
+STORAGE_OPENIRBLASTER = {
+    "name": "OpenIRBlaster",
+    "integration": "openirblaster",
+    "mechanism": "storage",
+    "store_provider": "openirblaster",
+}
+REGISTRY = [REPLAY_TUYA, STORAGE_TUYA, STORAGE_BROADLINK, STORAGE_OPENIRBLASTER]
 
 
 def _entity(entity_id: str, platform: str, features: int = 1):
@@ -99,7 +105,7 @@ class TestTheShapeOfASource:
         source and Tuya Local is one source with two ways in."""
         hass, _registry = wired
         sources = _by_integration(await pluck.list_sources(hass, REGISTRY))
-        assert len(sources) == 2
+        assert len(sources) == 3
         tuya = sources["tuya_local"]
         assert tuya["mechanisms"] == ["replay", "storage"]
         assert tuya["name"] == "Tuya Local"
@@ -115,6 +121,20 @@ class TestTheShapeOfASource:
         broadlink = sources["broadlink"]
         assert broadlink["mechanisms"] == ["storage"]
         assert set(broadlink["ready"]) == {"storage"}
+
+    @pytest.mark.asyncio
+    async def test_openirblaster_is_storage_only_under_its_own_name(
+            self, wired):
+        """Storage only for the opposite reason to Broadlink: its replay
+        route exists but reaches the same codes, so it is not listed.
+        The registry name matters, since the domain would derive to
+        "Openirblaster"."""
+        hass, _registry = wired
+        sources = _by_integration(await pluck.list_sources(hass, REGISTRY))
+        oirb = sources["openirblaster"]
+        assert oirb["mechanisms"] == ["storage"]
+        assert oirb["name"] == "OpenIRBlaster"
+        assert set(oirb["ready"]) == {"storage"}
 
     @pytest.mark.asyncio
     async def test_sources_are_ordered(self, wired):

@@ -29,6 +29,13 @@ Broadlink packet reaches HAIR through a SmartIR file and through the
 user's own learn history, and those two doors must agree on the code AND
 on its identity, or the same button files as two rows. They agree
 because they run one function, not two implementations of one spec.
+
+The OpenIRBlaster section at the end covers the SECOND STORE SHAPE: a
+flat ``data["codes"]`` list of objects that carry their own name,
+signed-microsecond pulses and measured carrier. Its fixtures follow the
+shape OpenIRBlaster's own storage module writes (HA Store envelope,
+extensionless ``openirblaster_<entry_id>`` filename, ``device`` record
+beside the list), with the junk a hand-edited file can hold mixed in.
 """
 from __future__ import annotations
 
@@ -52,6 +59,7 @@ from custom_components.hair.learned_code_stores import (
     discover_stores,
     read_store,
 )
+from custom_components.hair.pronto_validator import validate_pronto
 from custom_components.hair.wig_adapters import _smartir_code_to_pronto
 
 # One Broadlink tick, the same 2^-15 s the shared decoder uses. Declared
@@ -61,6 +69,9 @@ _TICK_US = 1_000_000 / 32_768
 
 BROADLINK_STORE = "broadlink_remote_a4cf12880e2f_codes"
 TUYA_STORE = "tuya_local_remote_eb6383fed1128526f7zzwf_codes"
+OPENIRBLASTER_ENTRY_ID = "01HZABCDEFGHIJKLMNOPQRSTUV"
+# No extension and no suffix: HA core builds the path as .storage/<key>.
+OPENIRBLASTER_STORE = f"openirblaster_{OPENIRBLASTER_ENTRY_ID}"
 
 
 # ---------------------------------------------------------------------
@@ -515,3 +526,397 @@ class TestReadOnly:
         info = discover_stores(config_dir)[0]
         Path(info.path).unlink()
         assert read_store(info) == []
+
+
+# ---------------------------------------------------------------------
+# OpenIRBlaster: the second store shape
+# ---------------------------------------------------------------------
+
+
+def _oirb_code(
+    name, pulses, *, carrier=38000, code_id=None, **extra
+) -> dict:
+    """One code object the way OpenIRBlaster's storage module writes it."""
+    code = {
+        "id": code_id or str(name).lower().replace(" ", "_"),
+        "name": name,
+        "carrier_hz": carrier,
+        "pulses": pulses,
+        "created_at": "2026-04-01T12:34:56+00:00",
+        "updated_at": "2026-04-01T12:34:56+00:00",
+        "tags": [],
+        "notes": "",
+    }
+    code.update(extra)
+    return code
+
+
+def _oirb_data(codes: list, *, device_name="OpenIRBlaster") -> dict:
+    return {
+        "version": 1,
+        "device": {
+            "config_entry_id": OPENIRBLASTER_ENTRY_ID,
+            "name": device_name,
+            "device_id": "openirblaster-2ca965",
+        },
+        "codes": codes,
+    }
+
+
+def _signed_nec() -> list[int]:
+    """NEC-shaped, marks positive and spaces negative, ending on a gap."""
+    out: list[int] = []
+    for i, t in enumerate(_nec_shaped()):
+        out.append(t if i % 2 == 0 else -t)
+    out.append(-40000)
+    return out
+
+
+# Pronto's second word for a carrier, the way raw_to_pronto computes it.
+def _freq_word(hz: int) -> int:
+    return round(1_000_000 / (hz * 0.241246))
+
+
+@pytest.fixture
+def oirb_dir(tmp_path: Path) -> Path:
+    """One OpenIRBlaster store: good codes, junk, and a corrupt backup.
+
+    Good: a 38 kHz code with tags and notes, a MEASURED 36 kHz code, a
+    code with a null carrier, one with no name (only its id), and one
+    whose capture ended on a mark (odd length).
+
+    Junk: a bare string where an object belongs, an object with neither
+    name nor id, empty pulses, and pulses that are not integers.
+
+    Beside it, HA's own corruption backup of the same store, which the
+    extensionless glob would match if nothing stopped it.
+    """
+    _write_store(
+        tmp_path,
+        OPENIRBLASTER_STORE,
+        _oirb_data(
+            [
+                _oirb_code(
+                    "TV Power",
+                    _signed_nec(),
+                    tags=["living room"],
+                    notes="Samsung TV, front panel",
+                ),
+                _oirb_code(
+                    "Soundbar Volume Up",
+                    [4500, -4400, 550, -1650, 550, -550, 550, -30000],
+                    carrier=36000,
+                ),
+                _oirb_code(
+                    "Fan Speed", [1300, -400, 1300, -400, 450, -8000],
+                    carrier=None,
+                ),
+                _oirb_code(
+                    "", [9000, -4500, 560, -20000], code_id="ac_cool"
+                ),
+                _oirb_code("Odd Capture", [9000, -4500, 560, -560, 560]),
+                "not an object",
+                {"carrier_hz": 38000, "pulses": [9000, -4500]},
+                _oirb_code("Empty Learn", []),
+                _oirb_code("Garbled", [9000, "-4500", 560.5, -560]),
+            ],
+            device_name="Living Room Blaster",
+        ),
+    )
+    _write_store(
+        tmp_path,
+        f"{OPENIRBLASTER_STORE}.corrupt.2026-05-01T10:11:12.000000+00:00",
+        _oirb_data([_oirb_code("Ghost", [9000, -4500])]),
+    )
+    return tmp_path
+
+
+def _oirb_info(root: Path):
+    return next(
+        s for s in discover_stores(root) if s.integration == "openirblaster"
+    )
+
+
+class TestOpenIRBlasterDiscovery:
+    def test_finds_the_store_under_its_bare_entry_id(self, oirb_dir):
+        stores = [
+            s for s in discover_stores(oirb_dir)
+            if s.integration == "openirblaster"
+        ]
+        assert len(stores) == 1
+        info = stores[0]
+        assert info.store_id == OPENIRBLASTER_ENTRY_ID
+        assert Path(info.path).name == OPENIRBLASTER_STORE
+        # A flat list is one remote; every entry counts, junk included,
+        # the same way a packet-map count does not decode first.
+        assert info.subdevices == 1
+        assert info.codes == 9
+        assert info.ir_codes == 9
+        assert info.rf_codes == 0
+        assert info.parse_error is None
+
+    def test_a_corrupt_backup_beside_it_is_not_a_store(self, oirb_dir):
+        """The test that catches a too-loose extensionless glob."""
+        names = [Path(s.path).name for s in discover_stores(oirb_dir)]
+        assert names == [OPENIRBLASTER_STORE]
+        assert not any(".corrupt." in s.store_id for s in discover_stores(oirb_dir))
+
+    def test_an_empty_library_lists_with_zero_and_reads_empty(self, tmp_path):
+        _write_store(tmp_path, OPENIRBLASTER_STORE, _oirb_data([]))
+        info = _oirb_info(tmp_path)
+        assert info.codes == 0
+        assert info.subdevices == 0
+        assert info.parse_error is None
+        assert read_store(info) == []
+
+    def test_a_store_with_no_codes_key_lists_with_zero(self, tmp_path):
+        data = _oirb_data([])
+        del data["codes"]
+        _write_store(tmp_path, OPENIRBLASTER_STORE, data)
+        info = _oirb_info(tmp_path)
+        assert info.codes == 0
+        assert read_store(info) == []
+
+    def test_an_unreadable_store_is_reported_not_raised(self, tmp_path):
+        storage = tmp_path / ".storage"
+        storage.mkdir()
+        (storage / OPENIRBLASTER_STORE).write_text(
+            "{not json", encoding="utf-8"
+        )
+        info = _oirb_info(tmp_path)
+        assert info.parse_error == "Could not read this file"
+
+    def test_it_lists_after_the_packet_map_stores_and_leaves_them_alone(
+        self, config_dir
+    ):
+        """The new shape joins the walk without changing the old counts."""
+        _write_store(
+            config_dir,
+            OPENIRBLASTER_STORE,
+            _oirb_data([_oirb_code("TV Power", _signed_nec())]),
+        )
+        stores = discover_stores(config_dir)
+        assert [s.integration for s in stores] == [
+            "broadlink", "tuya_local", "openirblaster",
+        ]
+        broadlink, tuya, _oirb = stores
+        assert (broadlink.subdevices, broadlink.codes) == (2, 4)
+        assert (broadlink.ir_codes, broadlink.rf_codes) == (3, 1)
+        assert (tuya.subdevices, tuya.codes) == (2, 4)
+
+
+class TestOpenIRBlasterPayloads:
+    def test_a_measured_carrier_survives_into_the_pronto(self, oirb_dir):
+        """The reason this route exists. The import path keeps the
+        carrier the Pronto preamble encodes, so that is what is pinned,
+        not only the dataclass field."""
+        code = _by_name(read_store(_oirb_info(oirb_dir)), "Soundbar Volume Up")
+        assert code.receipt is None
+        assert code.frequency == 36000
+        assert code.carrier_assumed is False
+        words = code.pronto.split()
+        assert int(words[1], 16) == _freq_word(36000)
+        assert int(words[1], 16) != _freq_word(38000)
+        assert ProntoCommand(code.pronto).modulation == pytest.approx(
+            36000, abs=100
+        )
+        result = validate_pronto(code.pronto)
+        assert result.valid
+        assert round(result.frequency_khz) == 36
+
+    def test_a_stored_38k_carrier_is_measured_not_assumed(self, oirb_dir):
+        code = _by_name(read_store(_oirb_info(oirb_dir)), "TV Power")
+        assert code.frequency == 38000
+        assert code.carrier_assumed is False
+
+    def test_a_null_carrier_falls_back_to_38k_as_assumed(self, oirb_dir):
+        code = _by_name(read_store(_oirb_info(oirb_dir)), "Fan Speed")
+        assert code.receipt is None
+        assert code.pronto
+        assert code.frequency == 38000
+        assert code.carrier_assumed is True
+        assert int(code.pronto.split()[1], 16) == _freq_word(38000)
+
+    @pytest.mark.parametrize(
+        "carrier",
+        [None, "36000", 0, -38000, True, 36000.0, [36000]],
+        ids=["null", "string", "zero", "negative", "bool", "float", "list"],
+    )
+    def test_an_unusable_carrier_is_assumed_and_still_converts(
+        self, carrier
+    ):
+        pronto, _timings, frequency, assumed, receipt, kind = (
+            lcs.decode_openirblaster_code(
+                _oirb_code("X", [9000, -4500, 560, -560], carrier=carrier)
+            )
+        )
+        assert receipt is None and kind is None
+        assert pronto
+        assert (frequency, assumed) == (38000, True)
+
+    def test_a_missing_carrier_key_is_assumed(self):
+        entry = _oirb_code("X", [9000, -4500, 560, -560])
+        del entry["carrier_hz"]
+        result = lcs.decode_openirblaster_code(entry)
+        assert result[2:4] == (38000, True)
+        assert result[4] is None
+
+    def test_the_signed_microsecond_convention_survives(self, oirb_dir):
+        code = _by_name(read_store(_oirb_info(oirb_dir)), "TV Power")
+        assert code.timings == _signed_nec()
+        assert code.timings[0] == 9006
+        assert code.timings[1] == -4399
+        # Marks positive and spaces negative, all the way down.
+        assert all(t > 0 for t in code.timings[0::2])
+        assert all(t < 0 for t in code.timings[1::2])
+        # And the Pronto re-reads to the same shape.
+        back = list(ProntoCommand(code.pronto).get_raw_timings())
+        assert back[0] == pytest.approx(9006, abs=30)
+        assert back[1] == pytest.approx(-4399, abs=30)
+
+    def test_an_odd_length_capture_is_repaired_with_a_trailing_gap(
+        self, oirb_dir
+    ):
+        """Matches OpenIRBlaster's own wig exporter, so the exported
+        wig and the plucked store agree on this code's timings."""
+        code = _by_name(read_store(_oirb_info(oirb_dir)), "Odd Capture")
+        assert code.receipt is None
+        assert code.pronto
+        assert code.timings == [9000, -4500, 560, -560, 560, -38000]
+
+    def test_the_name_falls_back_to_the_id(self, oirb_dir):
+        code = _by_name(read_store(_oirb_info(oirb_dir)), "ac_cool")
+        assert code.receipt is None
+        assert code.base_command_name == "ac_cool"
+
+    def test_the_subdevice_is_the_device_record_name(self, oirb_dir):
+        codes = read_store(_oirb_info(oirb_dir))
+        assert {c.subdevice for c in codes} == {"Living Room Blaster"}
+
+    @pytest.mark.parametrize("device", [{"name": ""}, {"name": 7}, None])
+    def test_the_subdevice_falls_back_to_openirblaster(self, tmp_path, device):
+        data = _oirb_data([_oirb_code("TV Power", _signed_nec())])
+        if device is None:
+            del data["device"]
+        else:
+            data["device"] = device
+        _write_store(tmp_path, OPENIRBLASTER_STORE, data)
+        (code,) = read_store(_oirb_info(tmp_path))
+        assert code.subdevice == "OpenIRBlaster"
+
+    def test_names_are_trimmed(self, tmp_path):
+        _write_store(
+            tmp_path,
+            OPENIRBLASTER_STORE,
+            _oirb_data([_oirb_code("  TV Power  ", _signed_nec())]),
+        )
+        (code,) = read_store(_oirb_info(tmp_path))
+        assert code.command_name == code.base_command_name == "TV Power"
+
+    def test_a_flat_list_has_no_toggle_pairs(self, oirb_dir):
+        codes = read_store(_oirb_info(oirb_dir))
+        assert not any(c.is_toggle_alt for c in codes)
+        assert lcs.count_toggle_pairs(codes) == 0
+
+    def test_a_bad_entry_never_costs_the_good_ones(self, oirb_dir):
+        codes = read_store(_oirb_info(oirb_dir))
+        # Every entry comes back: converted, or carrying a receipt.
+        assert len(codes) == 9
+        imported = sorted(c.command_name for c in codes if c.imported)
+        assert imported == sorted(
+            ["TV Power", "Soundbar Volume Up", "Fan Speed", "ac_cool",
+             "Odd Capture"]
+        )
+        receipts = {
+            c.command_name: c.receipt_kind for c in codes if not c.imported
+        }
+        assert receipts == {
+            "entry 5": RECEIPT_UNREADABLE,  # a string, not an object
+            "entry 6": RECEIPT_UNREADABLE,  # neither name nor id
+            "Empty Learn": RECEIPT_NO_TIMINGS,
+            "Garbled": RECEIPT_NO_TIMINGS,
+        }
+        for code in codes:
+            if not code.imported:
+                assert code.pronto is None
+                assert code.timings == []
+                assert code.receipt_kind != RECEIPT_RF
+                assert "\u2014" not in code.receipt
+
+    @pytest.mark.parametrize(
+        "pulses",
+        [[], None, "9000,-4500", [9000, None], [9000, True], [9000.0, -4500]],
+        ids=["empty", "null", "string", "none-item", "bool-item", "float"],
+    )
+    def test_unusable_pulses_are_receipted_as_no_timings(self, pulses):
+        pronto, timings, _f, _a, receipt, kind = lcs.decode_openirblaster_code(
+            _oirb_code("X", pulses)
+        )
+        assert pronto is None
+        assert timings == []
+        assert receipt
+        assert kind == RECEIPT_NO_TIMINGS
+
+    def test_a_carrier_the_encoder_cannot_hold_is_receipted(self):
+        """A hand-edited 1 Hz carrier would need a Pronto word wider
+        than sixteen bits. That is a receipt, not a malformed code."""
+        pronto, _t, frequency, assumed, receipt, kind = (
+            lcs.decode_openirblaster_code(
+                _oirb_code("X", [9000, -4500, 560, -560], carrier=1)
+            )
+        )
+        assert pronto is None
+        assert (frequency, assumed) == (1, False)
+        assert receipt == "no usable timings"
+        assert kind == RECEIPT_NO_TIMINGS
+
+
+class TestOpenIRBlasterNeverMisroutes:
+    """The packet-map decoders are never asked about a code-list store.
+
+    A JSON object cannot reach a base64 decoder by accident the way a
+    Tuya payload can reach the Broadlink one, so this is the cheap form
+    of the anti-misroute pin: tripwires on every entry point either
+    packet-map decoder has, and on the packet-map walk itself.
+    """
+
+    def test_no_packet_map_code_path_is_touched(self, oirb_dir, monkeypatch):
+        calls: list[str] = []
+
+        def _tripwire(label):
+            def _hit(*_args, **_kwargs):
+                calls.append(label)
+                raise AssertionError(f"{label} was reached for an OpenIRBlaster store")
+            return _hit
+
+        for name in (
+            "broadlink_b64_to_pronto",
+            "plain_b64_to_timings",
+            "_b64_bytes",
+            "_iter_commands",
+            "_broadlink_packet_type",
+        ):
+            monkeypatch.setattr(lcs, name, _tripwire(name))
+
+        info = _oirb_info(oirb_dir)
+        codes = read_store(info)
+        assert calls == []
+        assert _by_name(codes, "Soundbar Volume Up").frequency == 36000
+
+
+class TestOpenIRBlasterReadOnly:
+    def test_reading_leaves_every_byte_and_every_mtime_alone(self, oirb_dir):
+        storage = oirb_dir / ".storage"
+        before = {
+            p.name: (p.read_bytes(), p.stat().st_mtime_ns)
+            for p in sorted(storage.iterdir())
+        }
+        for info in discover_stores(oirb_dir):
+            read_store(info)
+        after = {
+            p.name: (p.read_bytes(), p.stat().st_mtime_ns)
+            for p in sorted(storage.iterdir())
+        }
+        assert after == before
+        # The corrupt backup is in the snapshot too, untouched.
+        assert any(".corrupt." in name for name in after)

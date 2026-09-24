@@ -32,8 +32,13 @@ from custom_components.hair.websocket_api import (
 
 from .test_learned_code_stores import (
     BROADLINK_STORE,
+    OPENIRBLASTER_ENTRY_ID,
+    OPENIRBLASTER_STORE,
     TUYA_STORE,
     _broadlink_code,
+    _oirb_code,
+    _oirb_data,
+    _signed_nec,
     _tuya_code,
     _write_store,
 )
@@ -494,8 +499,9 @@ class TestStoresListSources:
         assert sorted(tuya[0]["mechanisms"]) == ["replay", "storage"]
 
     async def test_a_store_on_disk_reads_as_ready(self, fake_hass, config_dir):
-        """This fixture writes both stores, so both report storage
-        ready -- the one case the old gate got right, still right."""
+        """This fixture writes both packet-map stores, so both report
+        storage ready -- the one case the old gate got right, still
+        right. It writes no OpenIRBlaster store, so that one is not."""
         _wire(fake_hass, config_dir)
         conn = _conn()
         await ws_pluck_stores_list(
@@ -505,7 +511,9 @@ class TestStoresListSources:
             s["integration"]: s["ready"].get("storage")
             for s in _result(conn)["sources"]
         }
-        assert ready == {"broadlink": True, "tuya_local": True}
+        assert ready == {
+            "broadlink": True, "tuya_local": True, "openirblaster": False,
+        }
 
     async def test_a_never_installed_provider_still_serializes(
         self, fake_hass, tmp_path
@@ -526,3 +534,162 @@ class TestStoresListSources:
         broadlink = by_integration["broadlink"]
         assert broadlink["loaded"] is False
         assert broadlink["ready"] == {"storage": False}
+
+
+# ---------------------------------------------------------------------
+# OpenIRBlaster: named by entry_id, and an empty library
+# ---------------------------------------------------------------------
+
+
+def _oirb_entry(**overrides):
+    """A config entry the way OpenIRBlaster makes one: its unique_id is
+    the device MAC with the colons stripped, and the filename carries
+    the entry_id instead."""
+    fields = {
+        "entry_id": OPENIRBLASTER_ENTRY_ID,
+        "unique_id": "2ca965aabbcc",
+        "title": "Den Blaster",
+    }
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
+
+
+def _entries_for(domain_entries: dict):
+    return MagicMock(side_effect=lambda domain: domain_entries.get(domain, []))
+
+
+class TestOpenIRBlasterStores:
+    @pytest.fixture
+    def oirb_dir(self, tmp_path: Path) -> Path:
+        _write_store(
+            tmp_path,
+            OPENIRBLASTER_STORE,
+            _oirb_data([_oirb_code("TV Power", _signed_nec())]),
+        )
+        return tmp_path
+
+    async def test_the_entry_title_is_found_through_the_entry_id(
+        self, fake_hass, oirb_dir
+    ):
+        """The filename carries the entry_id and the unique_id is the
+        MAC, so the unique_id match every other provider uses would miss
+        and the card would show a raw ULID."""
+        _wire(fake_hass, oirb_dir)
+        fake_hass.config_entries.async_entries = _entries_for(
+            {"openirblaster": [_oirb_entry()]}
+        )
+        conn = _conn()
+        await ws_pluck_stores_list(
+            fake_hass, conn, {"id": 1, "type": "hair/pluck/stores/list"}
+        )
+        (oirb,) = _result(conn)["stores"]
+        assert oirb["integration"] == "openirblaster"
+        assert oirb["store_id"] == OPENIRBLASTER_ENTRY_ID
+        assert oirb["friendly_name"] == "Den Blaster"
+        assert (oirb["subdevices"], oirb["codes"]) == (1, 1)
+
+    async def test_a_unique_id_match_is_not_used_for_openirblaster(
+        self, fake_hass, oirb_dir
+    ):
+        """name_hint is a switch now: the entry_id branch compares
+        entry_id only, so an entry whose unique_id happens to equal the
+        store id does not name it."""
+        _wire(fake_hass, oirb_dir)
+        fake_hass.config_entries.async_entries = _entries_for(
+            {
+                "openirblaster": [
+                    _oirb_entry(
+                        entry_id="01HZSOMEOTHERENTRY00000000",
+                        unique_id=OPENIRBLASTER_ENTRY_ID,
+                        title="Wrong Blaster",
+                    )
+                ]
+            }
+        )
+        conn = _conn()
+        await ws_pluck_stores_list(
+            fake_hass, conn, {"id": 1, "type": "hair/pluck/stores/list"}
+        )
+        (oirb,) = _result(conn)["stores"]
+        assert oirb["friendly_name"] == OPENIRBLASTER_ENTRY_ID
+
+    async def test_an_uninstalled_integration_falls_back_to_the_id(
+        self, fake_hass, oirb_dir
+    ):
+        """The case this provider exists for: the integration is gone,
+        so there is no entry to name the store, and it keeps its id the
+        same way a removed Broadlink or Tuya Local store does."""
+        _wire(fake_hass, oirb_dir)
+        conn = _conn()
+        await ws_pluck_stores_list(
+            fake_hass, conn, {"id": 1, "type": "hair/pluck/stores/list"}
+        )
+        (oirb,) = _result(conn)["stores"]
+        assert oirb["friendly_name"] == OPENIRBLASTER_ENTRY_ID
+
+    async def test_the_tuya_unique_id_match_still_works_beside_it(
+        self, fake_hass, config_dir
+    ):
+        _write_store(
+            config_dir,
+            OPENIRBLASTER_STORE,
+            _oirb_data([_oirb_code("TV Power", _signed_nec())]),
+        )
+        _wire(fake_hass, config_dir)
+        fake_hass.config_entries.async_entries = _entries_for(
+            {
+                "tuya_local": [
+                    SimpleNamespace(
+                        entry_id="whatever",
+                        unique_id="eb6383fed1128526f7zzwf",
+                        title="IR Remote Garage",
+                    )
+                ],
+                "openirblaster": [_oirb_entry()],
+            }
+        )
+        conn = _conn()
+        await ws_pluck_stores_list(
+            fake_hass, conn, {"id": 1, "type": "hair/pluck/stores/list"}
+        )
+        names = {s["integration"]: s["friendly_name"] for s in _result(conn)["stores"]}
+        assert names["tuya_local"] == "IR Remote Garage"
+        assert names["openirblaster"] == "Den Blaster"
+
+    async def test_the_store_imports_under_its_entry_title(
+        self, fake_hass, oirb_dir
+    ):
+        store = _wire(fake_hass, oirb_dir)
+        fake_hass.config_entries.async_entries = _entries_for(
+            {"openirblaster": [_oirb_entry()]}
+        )
+        conn = _conn()
+        await ws_pluck_stores_import(
+            fake_hass,
+            conn,
+            {
+                "id": 1,
+                "type": "hair/pluck/stores/import",
+                "store_id": OPENIRBLASTER_ENTRY_ID,
+            },
+        )
+        summary = _result(conn)
+        assert summary["remotes"] == 1
+        assert summary["signals"] == 1
+        assert [d.label for d in store.get_all_devices()] == [
+            "Den Blaster: OpenIRBlaster"
+        ]
+
+    async def test_an_empty_library_is_an_empty_store_error(
+        self, fake_hass, tmp_path
+    ):
+        """Lists with zero codes, then refuses to import nothing."""
+        _write_store(tmp_path, OPENIRBLASTER_STORE, _oirb_data([]))
+        _wire(fake_hass, tmp_path)
+        result = await pluck.run_store_pluck(
+            fake_hass,
+            entry_data=fake_hass.data[DOMAIN]["entry"],
+            registry=fake_hass.data[DOMAIN]["entry"]["pluckable_registry"],
+            store_id=OPENIRBLASTER_ENTRY_ID,
+        )
+        assert result["error"] == "empty_store"
