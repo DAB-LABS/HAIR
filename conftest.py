@@ -108,6 +108,12 @@ _stub("homeassistant.const", {
     "UnitOfPower": _UnitOfPower,
     "EVENT_HOMEASSISTANT_STARTED": "homeassistant_started",
     "EVENT_HOMEASSISTANT_STOP": "homeassistant_stop",
+    # Shutdown stage 3, the one HA reserves for persisting what stage 2
+    # left behind. __init__ flushes the Sniffer catalog on it, because a
+    # graceful restart never unloads a config entry and the catalog's
+    # debounce timer dies with the loop. Values verified against core's
+    # own const.py, not guessed.
+    "EVENT_HOMEASSISTANT_FINAL_WRITE": "homeassistant_final_write",
     "STATE_UNAVAILABLE": "unavailable",
     "STATE_UNKNOWN": "unknown",
     "STATE_ON": "on",
