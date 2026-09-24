@@ -572,11 +572,6 @@ def _signed_nec() -> list[int]:
     return out
 
 
-# Pronto's second word for a carrier, the way raw_to_pronto computes it.
-def _freq_word(hz: int) -> int:
-    return round(1_000_000 / (hz * 0.241246))
-
-
 @pytest.fixture
 def oirb_dir(tmp_path: Path) -> Path:
     """One OpenIRBlaster store: good codes, junk, and a corrupt backup.
@@ -661,6 +656,21 @@ class TestOpenIRBlasterDiscovery:
         assert names == [OPENIRBLASTER_STORE]
         assert not any(".corrupt." in s.store_id for s in discover_stores(oirb_dir))
 
+    def test_near_miss_names_and_directories_are_not_stores(self, oirb_dir):
+        """Anything else that starts with the prefix: a ``_codes`` or
+        ``_backup`` copy, an editor's ``~`` file, and a directory."""
+        storage = oirb_dir / ".storage"
+        data = _oirb_data([_oirb_code("Ghost", [9000, -4500])])
+        for name in (
+            f"{OPENIRBLASTER_STORE}_codes",
+            f"{OPENIRBLASTER_STORE}_backup",
+            f"{OPENIRBLASTER_STORE}~",
+        ):
+            _write_store(oirb_dir, name, data)
+        (storage / "openirblaster_01HZDIRECTORY0000000000000").mkdir()
+        names = [Path(s.path).name for s in discover_stores(oirb_dir)]
+        assert names == [OPENIRBLASTER_STORE]
+
     def test_an_empty_library_lists_with_zero_and_reads_empty(self, tmp_path):
         _write_store(tmp_path, OPENIRBLASTER_STORE, _oirb_data([]))
         info = _oirb_info(tmp_path)
@@ -715,8 +725,10 @@ class TestOpenIRBlasterPayloads:
         assert code.frequency == 36000
         assert code.carrier_assumed is False
         words = code.pronto.split()
-        assert int(words[1], 16) == _freq_word(36000)
-        assert int(words[1], 16) != _freq_word(38000)
+        # Pinned as literals rather than recomputed: 0x73 is 36 kHz and
+        # 0x6D is 38 kHz in the Pronto preamble.
+        assert words[1] == "0073"
+        assert words[1] != "006D"
         assert ProntoCommand(code.pronto).modulation == pytest.approx(
             36000, abs=100
         )
@@ -735,7 +747,7 @@ class TestOpenIRBlasterPayloads:
         assert code.pronto
         assert code.frequency == 38000
         assert code.carrier_assumed is True
-        assert int(code.pronto.split()[1], 16) == _freq_word(38000)
+        assert code.pronto.split()[1] == "006D"
 
     @pytest.mark.parametrize(
         "carrier",
@@ -855,6 +867,29 @@ class TestOpenIRBlasterPayloads:
         assert pronto is None
         assert timings == []
         assert receipt
+        assert kind == RECEIPT_NO_TIMINGS
+
+    def test_an_array_past_openirblaster_s_own_limit_still_imports(self):
+        """OpenIRBlaster capped captures at 2000 durations; HAIR has no
+        cap, so a longer (hand-edited) array is a code, not a receipt."""
+        pulses = [560, -560] * 1100
+        pronto, timings, _f, _a, receipt, kind = lcs.decode_openirblaster_code(
+            _oirb_code("Long", pulses)
+        )
+        assert receipt is None and kind is None
+        assert pronto
+        assert len(timings) == 2200
+        assert int(pronto.split()[2], 16) == 1100
+
+    def test_a_space_longer_than_a_pronto_word_is_receipted(self):
+        """Two seconds of space is over 65535 periods at 38 kHz, which
+        no sixteen-bit timing word holds. Receipted, never raised."""
+        pronto, timings, _f, _a, receipt, kind = lcs.decode_openirblaster_code(
+            _oirb_code("Stuck", [9000, -2_000_000, 560, -560])
+        )
+        assert pronto is None
+        assert timings == []
+        assert receipt == "no usable timings"
         assert kind == RECEIPT_NO_TIMINGS
 
     def test_a_carrier_the_encoder_cannot_hold_is_receipted(self):

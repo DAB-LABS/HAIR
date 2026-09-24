@@ -74,7 +74,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeIs, cast
 
 from .ir_command import ProntoCommand, raw_to_pronto
 from .tuya_ir import TUYA_CARRIER_HZ, plain_b64_to_timings
@@ -256,7 +256,7 @@ def decode_tuya_local_code(value: str) -> tuple[str | None, list[int], str | Non
     return pronto, list(timings), None, None
 
 
-def _is_int(value: Any) -> bool:
+def _is_int(value: Any) -> TypeIs[int]:
     """A real JSON integer. ``bool`` is an ``int`` in Python and is not one."""
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -291,11 +291,18 @@ def decode_openirblaster_code(
     own wig exporter, and logged at debug; it is not receipted, because
     the code is sound and only its last idle is missing.
 
+    Signs are not validated. ``raw_to_pronto`` pairs durations by
+    position and takes absolute values, the same way it treats the Tuya
+    plaintext, so an array written all-positive encodes identically.
+    There is no length cap either: OpenIRBlaster's own limit is 2000
+    durations, and HAIR has none, so a longer array imports.
+
     Every failure is a receipt, never a raise and never an invented
     code: an empty or non-list array, a non-integer duration, or an
     array the encoder will not take all come back as ``no_timings``.
     """
     carrier = entry.get("carrier_hz")
+    frequency: int
     if _is_int(carrier) and carrier > 0:
         frequency, assumed = carrier, False
     else:
@@ -314,7 +321,7 @@ def decode_openirblaster_code(
             RECEIPT_NO_TIMINGS,
         )
 
-    timings = list(pulses)
+    timings: list[int] = list(pulses)
     if len(timings) % 2:
         timings.append(_OPENIRBLASTER_TRAILING_GAP_US)
         _LOGGER.debug(
@@ -506,10 +513,12 @@ def discover_stores(config_dir: str | Path) -> list[StoreInfo]:
     OpenIRBlaster, matching the dialog's card order so the UI does not
     have to re-sort.
 
-    An empty suffix needs one more guard. ``openirblaster_*`` also
-    matches Home Assistant's own corruption backups, which it writes as
-    ``<store>.corrupt.<isotime>`` beside the store, so a store id with a
-    dot in it is not a store. A config entry id never has one.
+    An empty suffix needs one more guard. ``openirblaster_*`` matches
+    anything that starts with the prefix: Home Assistant's own
+    corruption backups (``<store>.corrupt.<isotime>``), an editor's
+    ``~`` copy, a hand-made ``_backup``, a directory. A config entry id
+    is plain letters and digits, so for an empty-suffix provider only a
+    regular file whose store id is alphanumeric is a store.
     """
     storage_dir = Path(config_dir) / ".storage"
     out: list[StoreInfo] = []
@@ -527,7 +536,9 @@ def discover_stores(config_dir: str | Path) -> list[StoreInfo]:
             )
             if not store_id:
                 continue
-            if not provider.suffix and "." in store_id:
+            if not provider.suffix and not (
+                store_id.isalnum() and path.is_file()
+            ):
                 continue
             info = StoreInfo(
                 integration=provider.integration,
@@ -614,6 +625,8 @@ def read_store(info: StoreInfo) -> list[PluckedCode]:
     if provider.shape == SHAPE_CODE_LIST:
         return _read_code_list(info, provider, data)
 
+    # The shape check above is what makes this the right signature.
+    packet_decoder = cast(PacketDecoder, provider.decoder)
     out: list[PluckedCode] = []
     for subdevice, command_name, packets in _iter_commands(data):
         if not packets:
@@ -630,7 +643,7 @@ def read_store(info: StoreInfo) -> list[PluckedCode]:
         is_pair = len(packets) > 1
         for index, packet in enumerate(packets):
             name = command_name if index == 0 else f"{command_name} (alt)"
-            pronto, timings, receipt, kind = provider.decoder(packet)
+            pronto, timings, receipt, kind = packet_decoder(packet)
             out.append(
                 PluckedCode(
                     subdevice=subdevice,
@@ -671,7 +684,7 @@ def _read_code_list(
         name = _code_list_name(entry) if isinstance(entry, dict) else ""
         if not name:
             label = f"entry {index}"
-            receipt = (
+            why = (
                 "no name to import this code under"
                 if isinstance(entry, dict)
                 else "could not read this code"
@@ -681,13 +694,13 @@ def _read_code_list(
                     subdevice=subdevice,
                     command_name=label,
                     base_command_name=label,
-                    receipt=receipt,
+                    receipt=why,
                     receipt_kind=RECEIPT_UNREADABLE,
                 )
             )
             _LOGGER.debug(
                 "Learned-code store %s: %s skipped (%s)",
-                info.store_id, label, receipt,
+                info.store_id, label, why,
             )
             continue
         pronto, timings, frequency, assumed, receipt, kind = decoder(entry)
