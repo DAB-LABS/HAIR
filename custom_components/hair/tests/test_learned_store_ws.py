@@ -616,7 +616,8 @@ class TestOpenIRBlasterStores:
     async def test_an_uninstalled_integration_falls_back_to_the_id(
         self, fake_hass, oirb_dir
     ):
-        """The case this provider exists for: the integration is gone,
+        """The case this provider exists for: the integration is gone
+        (from OpenIRBlaster 1.3.2 the store outlives its config entry),
         so there is no entry to name the store, and it keeps its id the
         same way a removed Broadlink or Tuya Local store does."""
         _wire(fake_hass, oirb_dir)

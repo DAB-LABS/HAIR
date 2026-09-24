@@ -6,8 +6,10 @@
 # the OpenIRBlaster service and the OpenIRBlaster store expose the same
 # flat list of learned codes. Two entries would list one integration
 # twice for one set of codes. The integration is also deprecated as of
-# its 1.3.1, and reading the file works after it has been uninstalled,
-# which the replay service cannot do.
+# its 1.3.1. From 1.3.2 it keeps the store when its config entry is
+# deleted, so the file can still be read after the integration is gone,
+# which the replay service cannot do. On 1.3.1 and earlier, deleting the
+# entry deletes the file: pluck first, or update to 1.3.2 before removing.
 #
 # The store is .storage/openirblaster_<config entry id>, with no
 # extension and no _codes suffix, and it is a SECOND SHAPE, not a third
