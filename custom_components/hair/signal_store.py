@@ -709,11 +709,34 @@ class SignalStore:
             self._dismissed.discard(device.fingerprint)
         self.rebuild_signal_index()
 
+    async def async_flush(self) -> bool:
+        """Write a dirty store NOW, and cancel the pending timers.
+
+        THE LAST-CHANCE WRITE (WigFactory bench 2026-09-23). Every
+        capture only calls ``schedule_save``, which arms a
+        ``SIGNAL_SAVE_DEBOUNCE_S`` debounce under a
+        ``SIGNAL_SAVE_MAX_DELAY_S`` ceiling, so at any moment the
+        catalog on disk can be up to thirty seconds behind the
+        catalog in memory. Something has to close that window when
+        the loop is about to go away, and this is that something.
+
+        Returns whether anything was written, so a caller can say so.
+        A clean store writes nothing: the debounce may well have
+        fired a second ago, and a shutdown is no reason to rewrite a
+        file that already matches.
+
+        Both shutdown paths come through here and neither may assume
+        it is the only one. It is idempotent by the dirty flag.
+        """
+        self._cancel_timers()
+        if not self._dirty:
+            return False
+        await self.async_save()
+        return True
+
     async def async_shutdown(self) -> None:
         """Flush pending writes and cancel timers."""
-        self._cancel_timers()
-        if self._dirty:
-            await self.async_save()
+        await self.async_flush()
 
 
 # ---------------------------------------------------------------------------
