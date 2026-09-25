@@ -803,6 +803,7 @@
     "comb.declined.no-lattice": "no state matrix on this wig",
     "comb.declined.row-too-short": "{count} in rows too short to judge",
     "comb.declined.no-temperature": "{count} carry no temperature",
+    "comb.declined.power-code": "{count} power codes, which a family may send as a different frame",
     "comb.class.field-mismatch": "Wrong setting in the code",
     "comb.what.field-mismatch": "responds, and lands on a different setting than the label",
     "comb.class.frame-integrity": "Failed frame check",

@@ -803,6 +803,7 @@
     "comb.declined.no-lattice": "nessuna matrice di stati su questa parrucca",
     "comb.declined.row-too-short": "{count} in righe troppo corte per giudicare",
     "comb.declined.no-temperature": "{count} senza temperatura",
+    "comb.declined.power-code": "{count} codici di accensione, che una famiglia può inviare con un frame diverso",
     "comb.class.field-mismatch": "Impostazione errata nel codice",
     "comb.what.field-mismatch": "risponde, ma si ferma su un'impostazione diversa dall'etichetta",
     "comb.class.frame-integrity": "Controllo del frame non superato",

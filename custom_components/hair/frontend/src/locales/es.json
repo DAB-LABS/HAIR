@@ -803,6 +803,7 @@
     "comb.declined.no-lattice": "esta peluca no tiene matriz de estados",
     "comb.declined.row-too-short": "{count} en filas demasiado cortas para juzgar",
     "comb.declined.no-temperature": "{count} sin temperatura",
+    "comb.declined.power-code": "{count} códigos de encendido, que una familia puede enviar con otra trama",
     "comb.class.field-mismatch": "Ajuste incorrecto en el código",
     "comb.what.field-mismatch": "responde, pero queda en un ajuste distinto al de la etiqueta",
     "comb.class.frame-integrity": "Comprobación de trama fallida",
