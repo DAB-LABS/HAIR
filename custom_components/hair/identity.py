@@ -519,6 +519,124 @@ def norm_fingerprint(timings: list[int] | None) -> str | None:
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
+def _value_levels(values: list[int], ratio: float) -> list[int]:
+    """``_level_labels`` generalized from two levels to as many as the
+    values actually show.
+
+    Sort, then start a new level wherever consecutive sorted values jump
+    by ``ratio`` or more. Every boundary therefore sits inside a real
+    gap in the data rather than at a fixed microsecond, which is what
+    makes the result survive jitter: a value has to cross a genuine
+    cluster gap to change level, not merely drift.
+
+    ``_level_labels`` itself stays two-level and untouched:
+    ``norm_fingerprint`` is a MATCHING identity and its coarseness is
+    deliberate. This is for telling two records apart, which needs to
+    see more than "long or short".
+    """
+    n = len(values)
+    if n == 0:
+        return []
+    order = sorted(range(n), key=lambda i: values[i])
+    labels = [0] * n
+    level = 0
+    for position in range(1, n):
+        previous = values[order[position - 1]]
+        current = values[order[position]]
+        if previous > 0 and current / previous >= ratio:
+            level += 1
+        labels[order[position]] = level
+    return labels
+
+
+def whole_code_discriminator(
+    timings: list[int] | None, frame_identity: str | None = None
+) -> str | None:
+    """"Are these two records the same code?", over EVERY frame.
+
+    THE DISCRIMINATOR AN INDEX REFUSES ON (owner bench 2026-09-25).
+    ``NormFpIndex`` and the cell index's other tiers poison a key that
+    two genuinely different codes claim, and to do that they need a
+    value saying WHICH code a record is. The byte hash cannot be that
+    value for a lattice: ``_pronto_identity_timings`` stops at the first
+    gap, so all 520 cells of a Daikin 216 lattice share one byte hash,
+    one S/L fingerprint and one normalized fingerprint, every one of
+    them computed from the single constant frame 0. An index given only
+    those cannot tell a repeated waveform from a genuinely different
+    state, so it kept whichever came last -- the Off code, which
+    ``build_cell_index`` adds after the cells.
+
+    So this reads the whole code, on the levels its own edges show.
+
+    QUANTIZED, NOT EXACT (owner ruling 2026-09-25). Exact edges would be
+    a sharper test and the wrong one: not every lattice is pristine file
+    text. A lattice built from captures -- a WigFactory pull, a repaired
+    or listened cell -- can hold one waveform twice with microseconds
+    between the two, and exact edges would call those different codes
+    and refuse a pair that is really one press. Measured on the Komeco
+    PR-19 lattices, which are capture-built: seven such pairs, each
+    differing on up to 134 of 197 edges, and every difference a wobble
+    inside its own cluster (short marks 447-579, long spaces
+    1578-1709). Not one position crosses between the short-space and
+    long-space clusters, which is what a different bit would look like.
+
+    WHY LEVELS AND NOT A FIXED TOLERANCE. Bucketing each edge at a fixed
+    ratio was measured first and fails: with ~200 edges, some edge sits
+    near a bucket boundary in almost every code, so jitter flips it and
+    two captures of one press stop matching. Levels put every boundary
+    inside a real gap in that code's own values, which survived all
+    2,560 synthetic jitter cases in the bench sweep.
+
+    WHY NOT ``norm_fingerprint``'s TWO LEVELS OVER EVERY FRAME. Also
+    measured, also fails, in the other direction: two levels are too few
+    to carry a payload, and the Komeco lattices collapsed from 836
+    distinct codes to 15 discriminators. Two levels answer "is this
+    edge long or short"; telling states apart needs "which of this
+    code's several widths is it".
+
+    IT FOLDS IN THE OLD DISCRIMINATOR RATHER THAN REPLACING IT.
+    ``frame_identity`` is the record's existing frame-0 identity -- its
+    byte hash, or its fingerprint when it has no hash -- which is
+    exactly the value callers passed as the whole discriminator before
+    this function existed. It is still needed, because levels are
+    RATIOS and therefore blind to scale: the same code played 15%
+    slower has every ratio unchanged and would otherwise read as the
+    same waveform, when it is a different one (pinned by
+    test_matrix_listener's one-shape-twice test). Frame 0 sees that;
+    the levels see the payload frame 0 is blind to. Together they
+    answer both ways round.
+
+    The pairing is measured, not assumed: on the capture-built Komeco
+    lattices the seven jitter-twin pairs agree on BOTH halves, because
+    the byte hash is quantized and survived all 180 small-jitter cases
+    in the bench sweep.
+
+    WHICH WAY IT FAILS. Equal discriminators MERGE (the key resolves);
+    different ones REFUSE (the key answers nothing). Merging wrongly
+    names a state nobody pressed; refusing wrongly says nothing. Every
+    uncertainty here therefore resolves towards refusing, which is also
+    why the two halves are ANDed: disagree on either and the pair is
+    refused.
+
+    Returns None only for a code with no edges at all, which carries no
+    identity of any kind (GH #108).
+    """
+    edges = canonical_edges(timings)
+    if not edges:
+        return None
+    mark_levels = _value_levels(edges[0::2], NORM_LEVEL_MIN_RATIO)
+    space_levels = _value_levels(edges[1::2], NORM_LEVEL_MIN_RATIO)
+    sequence = [
+        mark_levels[i // 2] if i % 2 == 0 else space_levels[i // 2]
+        for i in range(len(edges))
+    ]
+    payload = (
+        f"{frame_identity or ''}|{len(edges)}|"
+        + ",".join(str(level) for level in sequence)
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
 @lru_cache(maxsize=1024)
 def norm_fingerprint_of_code(code: str | None) -> str | None:
     """:func:`norm_fingerprint` for a stored Pronto code, or None.
