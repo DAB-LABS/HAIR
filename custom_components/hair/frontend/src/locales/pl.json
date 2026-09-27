@@ -530,6 +530,7 @@
     "pluck.empty.source.broadlink_dialog": "HAIR odczytuje kody, których ten nadajnik nauczył się poleceniem remote.learn_command.",
     "pluck.empty.source.tuya_local": "HAIR może pobrać kody, które twój hub Tuya przechwycił z pilotów, albo skopiować je, odtwarzając do cichego odbiornika. Nie skonfigurowano tam jeszcze żadnych urządzeń IR.",
     "pluck.empty.source.tuya_local.not_installed": "Nie zainstalowano tutaj. Po dodaniu HAIR będzie mógł pobrać kody IR, które twój hub Tuya już przechwycił z pilotów.",
+    "pluck.empty.source.openirblaster": "HAIR odczytuje kody zapisane w bibliotece kodów tej integracji.",
     "pluck.empty.not_installed": "Nie skonfigurowano w tym Home Assistant. Jeśli tego używasz, HAIR może pobrać kody, które są tam już znane.",
     "pluck.empty.footer": "Kody przechwycone z prawdziwego pilota znajdziesz w sekcji Sniffer; Plucker służy wyłącznie do kodów zapisanych w innych integracjach lub ich urządzeniach.",
     "pluck.clear_all_title": "Usuwa wszystkie wyciągnięte nadajniki i ich sygnały. Przechwycone i wklejone sygnały pozostają nietknięte.",

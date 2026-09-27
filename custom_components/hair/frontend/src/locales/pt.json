@@ -490,6 +490,7 @@
     "pluck.empty.source.broadlink_dialog": "O HAIR lê os códigos que este emissor aprendeu com remote.learn_command.",
     "pluck.empty.source.tuya_local": "O HAIR pode extrair os códigos que o seu hub Tuya capturou dos seus controles, ou copiá-los reproduzindo-os em um receptor silencioso. Ainda não há dispositivos IR configurados nele.",
     "pluck.empty.source.tuya_local.not_installed": "Não está instalado aqui. Se você adicionar, o HAIR poderá extrair os códigos IR que o seu hub Tuya já capturou dos seus controles.",
+    "pluck.empty.source.openirblaster": "O HAIR lê os códigos salvos na biblioteca de códigos desta integração.",
     "pluck.empty.not_installed": "Não está configurado neste Home Assistant. Se você usa, o HAIR pode extrair os códigos que ele já conhece.",
     "pluck.empty.footer": "Códigos capturados de um controle real ficam no Sniffer; o Plucker é apenas para códigos armazenados dentro de outras integrações ou dos seus dispositivos.",
     "pluck.clear_all_title": "Exclui todos os emissores extraídos e seus sinais. Os sinais farejados e colados não são tocados.",

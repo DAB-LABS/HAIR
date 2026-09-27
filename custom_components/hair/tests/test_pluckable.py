@@ -5,6 +5,7 @@ import textwrap
 
 import pytest
 import voluptuous as vol
+import yaml
 
 from custom_components.hair.pluckable_loader import (
     load_pluckables,
@@ -187,3 +188,29 @@ def test_shipped_tuya_yaml_validates():
     reg = load_pluckables(pluckable_dir)
     integrations = {e["integration"] for e in reg}
     assert "tuya_local" in integrations
+
+
+def test_shipped_openirblaster_yaml_validates():
+    """openirblaster_storage.yaml validates, and is the ONLY OpenIRBlaster
+    entry: its replay service and its store expose the same flat list of
+    codes, so a second entry would list it twice for one library."""
+    from pathlib import Path
+
+    import custom_components.hair as hair_pkg
+
+    pluckable_dir = Path(hair_pkg.__file__).parent / "pluckable"
+    entry = validate_pluckable(
+        yaml.safe_load(
+            (pluckable_dir / "openirblaster_storage.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    assert entry["mechanism"] == "storage"
+    assert entry["store_provider"] == "openirblaster"
+    assert entry["name"] == "OpenIRBlaster"
+    assert "service" not in entry
+
+    reg = load_pluckables(pluckable_dir)
+    mine = [e for e in reg if e["integration"] == "openirblaster"]
+    assert [e["mechanism"] for e in mine] == ["storage"]
