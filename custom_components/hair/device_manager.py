@@ -23,6 +23,7 @@ from .const import (
     CommandSource,
     DeviceType,
 )
+from .device_registry_compat import device_by_identifier
 from .entity_factory import EntityFactory
 from .models import IRCommand, IRDevice
 from .power_monitor import PowerMonitor
@@ -355,8 +356,8 @@ class DeviceManager:
         await self._entity_factory.async_remove_entities(device_id)
 
         registry = dr.async_get(self._hass)
-        ha_device = registry.async_get_device(
-            identifiers={(DOMAIN, device.id)}
+        ha_device = device_by_identifier(
+            registry, (DOMAIN, device.id), self._config_entry_id
         )
         if ha_device is not None:
             registry.async_remove_device(ha_device.id)

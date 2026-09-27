@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- HAIR no longer uses the device registry lookup Home Assistant deprecated. An identifier is unique inside one config entry rather than across a whole install, so 2026.8 replaced that lookup with entry-scoped ones, and 2026.9 logs a warning every time an integration still uses the old one: a test instance collected 46 of them. HAIR now asks for its own devices by its own config entry, and for the Broadlink blaster behind a pluck source by Broadlink's, which is the more precise question in both cases. The old call is kept only for Home Assistant 2026.4 through 2026.7, which do not have the new ones, so the supported range is unchanged. Home Assistant removes the old lookup in 2027.8.0, where it would have broken every device lookup HAIR makes.
 - A wig saved from a device keeps its brand, model, notes and identity anchors. A device holds none of those, so every wig the repair and trim write-through minted arrived without them and the next person adopted an unbranded copy.
 - A comb porthole is no longer written into a saved wig as a flat signal. A porthole is a view of a lattice cell, so the wig carried the same code twice, and adopting it gave the next person a plain command beside a lattice that already had that state.
 - Deleting a comb porthole tells the running climate entity. It removes a lattice cell, and the entity kept offering that state until the next restart.

@@ -19,6 +19,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import PLUCK_TIMEOUT_S
+from .device_registry_compat import device_by_connection
 from .learned_code_stores import (
     PROVIDERS,
     PROVIDERS_BY_INTEGRATION,
@@ -318,6 +319,11 @@ def resolve_store_names(hass: HomeAssistant, infos: list[StoreInfo]) -> None:
 
     for info in infos:
         name = ""
+        # The entry that owns this store, when one is found below. The
+        # registry lookup needs it: a connection is unique inside one
+        # config entry, and this device belongs to the provider
+        # integration's entry, never to HAIR's.
+        store_entry_id: str | None = None
         provider = PROVIDERS_BY_INTEGRATION.get(info.integration)
         key_attr = (
             "entry_id"
@@ -328,14 +334,25 @@ def resolve_store_names(hass: HomeAssistant, infos: list[StoreInfo]) -> None:
             for entry in hass.config_entries.async_entries(info.integration):
                 if (getattr(entry, key_attr, None) or "") == info.store_id:
                     name = (getattr(entry, "title", "") or "").strip()
+                    entry_id = getattr(entry, "entry_id", None)
+                    if isinstance(entry_id, str) and entry_id:
+                        store_entry_id = entry_id
                     break
         except Exception:
             name = ""
         mac = _mac_with_colons(info.store_id)
         if dev_reg is not None and info.integration == "broadlink" and mac:
             try:
-                device = dev_reg.async_get_device(
-                    connections={(dr.CONNECTION_NETWORK_MAC, mac)}
+                # Scoped to the Broadlink entry matched above, because
+                # that is the entry the blaster belongs to and a
+                # connection is unique within one entry. When no entry
+                # matched -- a store file whose integration is gone --
+                # the helper searches every entry instead, which is the
+                # breadth this lookup always had.
+                device = device_by_connection(
+                    dev_reg,
+                    (dr.CONNECTION_NETWORK_MAC, mac),
+                    store_entry_id,
                 )
             except Exception:
                 device = None

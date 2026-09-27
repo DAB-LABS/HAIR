@@ -42,6 +42,7 @@ from .const import (
     DeviceType,
 )
 from .device_manager import DeviceManager, category_for_command_name
+from .device_registry_compat import device_by_identifier, hair_config_entry_id
 from .frequency_standards import IR_CARRIER_STANDARDS_HZ
 from .identity import (
     SignalIdentity,
@@ -218,7 +219,9 @@ def _ha_device_id(hass: HomeAssistant, device: IRDevice) -> str | None:
     under -- (DOMAIN, device.id), see e.g. switch.py's device_info.
     """
     registry = dr.async_get(hass)
-    ha_device = registry.async_get_device(identifiers={(DOMAIN, device.id)})
+    ha_device = device_by_identifier(
+        registry, (DOMAIN, device.id), hair_config_entry_id(hass)
+    )
     return ha_device.id if ha_device is not None else None
 
 
@@ -3667,7 +3670,9 @@ def _trigger_drawer_ha_device_id(hass: HomeAssistant) -> str | None:
     from .event import TRIGGER_DEVICE_ID
 
     registry = dr.async_get(hass)
-    ha_device = registry.async_get_device(identifiers={(DOMAIN, TRIGGER_DEVICE_ID)})
+    ha_device = device_by_identifier(
+        registry, (DOMAIN, TRIGGER_DEVICE_ID), hair_config_entry_id(hass)
+    )
     return ha_device.id if ha_device is not None else None
 
 
@@ -3746,7 +3751,9 @@ async def ws_rename_trigger_drawer(
     resync_drawer_name(hass, entry_id, name)
 
     registry = dr.async_get(hass)
-    ha_device = registry.async_get_device(identifiers={(DOMAIN, TRIGGER_DEVICE_ID)})
+    ha_device = device_by_identifier(
+        registry, (DOMAIN, TRIGGER_DEVICE_ID), entry_id
+    )
     if ha_device is not None:
         registry.async_update_device(ha_device.id, name=name)
 
@@ -3782,7 +3789,9 @@ def _trigger_remote_ha_device_id(hass: HomeAssistant, remote_id: str) -> str | N
     id instead of the drawer's fixed identifier.
     """
     registry = dr.async_get(hass)
-    ha_device = registry.async_get_device(identifiers={(DOMAIN, remote_id)})
+    ha_device = device_by_identifier(
+        registry, (DOMAIN, remote_id), hair_config_entry_id(hass)
+    )
     return ha_device.id if ha_device is not None else None
 
 
@@ -4056,7 +4065,9 @@ async def ws_rename_trigger_remote(
     resync_remote_name(hass, entry_id, remote.id, name)
 
     registry = dr.async_get(hass)
-    ha_device = registry.async_get_device(identifiers={(DOMAIN, remote.id)})
+    ha_device = device_by_identifier(
+        registry, (DOMAIN, remote.id), entry_id
+    )
     if ha_device is not None:
         registry.async_update_device(ha_device.id, name=name)
 
@@ -4109,7 +4120,9 @@ async def ws_set_trigger_remote_receiver_scope(
     await store.async_save()
 
     registry = dr.async_get(hass)
-    ha_device = registry.async_get_device(identifiers={(DOMAIN, remote.id)})
+    ha_device = device_by_identifier(
+        registry, (DOMAIN, remote.id), hair_config_entry_id(hass)
+    )
     connection.send_result(msg["id"], {
         **remote.to_dict(),
         "ha_device_id": ha_device.id if ha_device is not None else None,
@@ -4177,8 +4190,8 @@ async def ws_delete_trigger_remote(
         sync_trigger_entities(hass, entry_id, removed_id=trigger.id)
 
     registry = dr.async_get(hass)
-    ha_device = registry.async_get_device(
-        identifiers={(DOMAIN, msg["remote_id"])}
+    ha_device = device_by_identifier(
+        registry, (DOMAIN, msg["remote_id"]), entry_id
     )
     if ha_device is not None:
         registry.async_remove_device(ha_device.id)
