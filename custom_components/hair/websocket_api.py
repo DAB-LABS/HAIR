@@ -54,7 +54,6 @@ from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
 from .trigger_manager import TriggerManager
 from .wig_format import VERDICTS
-from .wig_format import cell_key as _cell_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -8677,13 +8676,14 @@ async def ws_tangle_apply(
         APPLY_NO_FINDING,
         APPLY_NOT_TESTED,
         build_provenance,
+        holders_for_target,
         list_tangles,
-        portholes_for,
         pre_read,
         project_device,
         read_lattice,
         rederive_comb_stamps,
         sweep_comb_stamps_if_retired,
+        target_is_gone,
         write_repair,
     )
 
@@ -8742,20 +8742,25 @@ async def ws_tangle_apply(
 
     manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
     if row.target.kind == "cell":
-        cell = next(
-            (c for c in matrix.cells if _cell_key(c) == row.target.key), None
+        # ONE RESOLVER FOR EVERY TARGET (owner bench 2026-09-23): a
+        # cell, or the matrix's own Off / On through a PowerHolder.
+        # This door used to search ``matrix.cells`` for the key "off",
+        # find nothing, and answer "That cell is gone" -- which is what
+        # a person capturing a Fujitsu's power code was told.
+        holders = holders_for_target(
+            device, matrix, row.target.kind, row.target.key,
+            row.target.coordinates,
         )
-        if cell is None:
+        if not holders:
             connection.send_error(
-                msg["id"], APPLY_NO_FINDING, "That cell is gone")
+                msg["id"], APPLY_NO_FINDING,
+                target_is_gone(row.target.kind, row.target.key))
             return
-        write_repair(cell, msg["pronto"], provenance)
-        # The porthole is a copy of the cell taken at adopt, and it is
-        # what TEST sends. Leaving it behind would hand somebody a
-        # button that still transmits the code they just repaired.
-        portholes = portholes_for(device, row.target.coordinates)
-        for porthole in portholes:
-            write_repair(porthole, msg["pronto"], provenance)
+        for holder in holders:
+            write_repair(holder, msg["pronto"], provenance)
+        # A cell's portholes are copies taken at adopt, and they are
+        # what TEST sends, so they move with it; a power code has none.
+        portholes = holders[1:]
         failure = await _write_matrix_and_signal(hass, device, matrix)
         if failure is not None:
             connection.send_error(msg["id"], "write_failed", failure)
@@ -8777,7 +8782,8 @@ async def ws_tangle_apply(
         command = device.get_command(row.target.command_id or "")
         if command is None:
             connection.send_error(
-                msg["id"], APPLY_NO_FINDING, "That command is gone")
+                msg["id"], APPLY_NO_FINDING,
+                target_is_gone(row.target.kind, row.target.key))
             return
         write_repair(command, msg["pronto"], provenance)
         attested = await _keep_the_override(
@@ -8822,9 +8828,11 @@ async def ws_tangle_revert(
     from .tangles import (
         APPLY_NOTHING_TO_REVERT,
         TARGET_CELL,
+        is_power_key,
         portholes_for,
         read_repair,
         rederive_comb_stamps,
+        resolve_holder,
         revert_repair,
     )
 
@@ -8832,22 +8840,20 @@ async def ws_tangle_revert(
     manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
 
     if kind == TARGET_CELL:
-        cell = next(
-            (c for c in (matrix.cells if matrix else []) if _cell_key(c) == key),
-            None,
-        )
-        if cell is None or read_repair(cell) is None:
+        # The same resolver the apply door uses, so an Off that could be
+        # repaired can also be undone (owner bench 2026-09-23).
+        holder = resolve_holder(device, matrix, kind, key)
+        if holder is None or read_repair(holder) is None:
             connection.send_error(
                 msg["id"], APPLY_NOTHING_TO_REVERT,
                 "Nothing was repaired here",
             )
             return
-        coordinates = {
-            "mode": cell.mode, "fan": cell.fan,
-            "swing": cell.swing, "temp": cell.temp,
-        }
-        record = revert_repair(cell)
-        portholes = portholes_for(device, coordinates)
+        portholes = [] if is_power_key(key) else portholes_for(device, {
+            "mode": holder.mode, "fan": holder.fan,
+            "swing": holder.swing, "temp": holder.temp,
+        })
+        record = revert_repair(holder)
         for porthole in portholes:
             revert_repair(porthole)
         # The mark goes back with the bytes: an undo that left the
@@ -8977,9 +8983,9 @@ async def ws_tangle_apply_batch(
         TIER_AIR_TESTED,
         TIER_RULE_DERIVED,
         build_provenance,
+        holders_for_target,
         list_tangles,
         plan_batch,
-        portholes_for,
         project_device,
         read_lattice,
         rederive_comb_stamps,
@@ -8988,6 +8994,7 @@ async def ws_tangle_apply_batch(
         restore_holder,
         sample_covers_modes,
         sweep_comb_stamps_if_retired,
+        target_is_gone,
         write_repair,
     )
 
@@ -9044,7 +9051,6 @@ async def ws_tangle_apply_batch(
         key: max(0, int(value or 0))
         for key, value in (msg.get("sends_fired") or {}).items()
     }
-    cells = {_cell_key(c): c for c in (matrix.cells if matrix else [])}
     snapshot: list[tuple[Any, str, dict[str, Any]]] = []
     writes: list[tuple[Any, str, dict[str, Any]]] = []
     for member in members:
@@ -9070,20 +9076,22 @@ async def ws_tangle_apply_batch(
             disagreed=(candidate["verdict"] if declared
                        and member in disagreeing else None),
         )
-        if row.target.kind == TARGET_CELL:
-            holder = cells.get(row.target.key)
-            if holder is None:
-                connection.send_error(
-                    msg["id"], BATCH_EMPTY, "A cell in this run is gone")
-                return
-            holders = [holder, *portholes_for(device, row.target.coordinates)]
-        else:
-            holder = device.get_command(row.target.command_id or "")
-            if holder is None:
-                connection.send_error(
-                    msg["id"], BATCH_EMPTY, "A command in this run is gone")
-                return
-            holders = [holder]
+        # THE SHARED RESOLVER, so a run that includes a power row
+        # writes the matrix's Off or On rather than hunting for a cell
+        # by that name (owner bench 2026-09-23).
+        key = (
+            row.target.key if row.target.kind == TARGET_CELL
+            else (row.target.command_id or "")
+        )
+        holders = holders_for_target(
+            device, matrix, row.target.kind, key, row.target.coordinates,
+        )
+        if not holders:
+            connection.send_error(
+                msg["id"], BATCH_EMPTY,
+                f"{target_is_gone(row.target.kind, key)}, so this run "
+                "cannot be applied")
+            return
         for each in holders:
             snapshot.append(
                 (each, repair_bytes(each), dict(repair_extras(each))))
@@ -9139,13 +9147,16 @@ async def ws_tangle_revert_run(
     from .tangles import (
         APPLY_NOTHING_TO_REVERT,
         read_repair,
+        record_holders,
         rederive_comb_stamps,
         revert_repair,
     )
 
+    # Cells, commands AND the two power codes: a power repair's record
+    # lives on the matrix, so a run that touched one was invisible to
+    # this undo before (owner bench 2026-09-23).
     holders = [
-        holder for holder in
-        [*(matrix.cells if matrix else []), *device.commands]
+        holder for holder in record_holders(device, matrix)
         if (read_repair(holder) or {}).get("run") == msg["run"]
     ]
     if not holders:

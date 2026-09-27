@@ -213,8 +213,9 @@ class TestFrameShapeMatrix:
     def test_missing_repeat_frame_is_malformed(self):
         shapes = {float(t): [10, 10] for t in range(16, 22)}
         shapes[18.0] = [10]
-        # The off code joins the shape population, so it has to be the
-        # same two-frame shape or it is (correctly) reported as well.
+        # The off code is shaped like the cells here, which since
+        # 2026-09-23 no longer matters either way: it is not in the
+        # shape population. The cell is the one finding.
         wig = _matrix_wig(self._cells(shapes), off=_code([10, 10], seed=90))
         bad = [f for f in comb_wig(wig).findings
                if f.check == CHECK_MALFORMED]
@@ -222,11 +223,33 @@ class TestFrameShapeMatrix:
         assert bad[0].keys == ["cool/auto/18"]
         assert bad[0].params == {"missing": "1"}
 
-    def test_power_codes_join_the_shape_check(self):
+    def test_power_codes_are_not_judged_against_the_state_frames(self):
+        """RULED 2026-09-23, from the owner's Fujitsu AR-RBE1E.
+
+        This used to assert the opposite, and the opposite was wrong.
+        Several families send state as one frame width and power as
+        another BY DESIGN: the Fujitsu's Off is a correct 7-byte frame
+        beside 16-byte state frames, and the lattice's modal shape
+        reported that correct code as malformed, which put the device's
+        own Off in Needs attention and blocked the wig from being
+        fitted at all. A power code is not a state frame, so it neither
+        votes on the modal shape nor is judged against it.
+        """
         cells = self._cells({float(t): [10] for t in range(16, 22)})
         wig = _matrix_wig(cells, off=_code([4], seed=77))
         keys = [f.keys[0] for f in comb_wig(wig).findings]
-        assert "off" in keys
+        assert "off" not in keys
+
+    def test_a_short_power_code_does_not_move_the_modal_shape(self):
+        """The other half of the rule: not a voter either. Six cells at
+        ten pairs and one four-pair Off, with one genuinely short cell.
+        If Off voted, the modal shape could move under the cells."""
+        shapes = {float(t): [10] for t in range(16, 22)}
+        shapes[19.0] = [9]
+        wig = _matrix_wig(self._cells(shapes), off=_code([4], seed=77))
+        bad = [f for f in comb_wig(wig).findings
+               if f.check == CHECK_MALFORMED]
+        assert [f.keys for f in bad] == [["cool/auto/19"]]
 
 
 # ---------------------------------------------------------------------------

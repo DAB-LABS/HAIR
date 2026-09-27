@@ -8,8 +8,8 @@ from pathlib import Path
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE, Platform
+from homeassistant.core import Event, HomeAssistant
 
 from .capture_orchestrator import CaptureOrchestrator
 from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL, PLUCKABLE_DIRNAME
@@ -149,6 +149,42 @@ async def async_setup_entry(
 
     entry.async_on_unload(register_platform_cache_invalidation(hass))
 
+    # THE SNIFFER CATALOG HAS TO REACH DISK WHEN HOME ASSISTANT STOPS
+    # (WigFactory bench 2026-09-23: four sends made in the seconds
+    # before a graceful restart were gone afterwards; the two after it
+    # were there).
+    #
+    # Captures are written on a debounce with a ceiling, so the file is
+    # routinely up to SIGNAL_SAVE_DEBOUNCE_S behind memory, and a
+    # ``loop.call_later`` handle is worth nothing once the loop stops.
+    # The unload path already closes its own half: async_unload_entry
+    # stops the monitor, whose async_stop flushes the store. But A
+    # GRACEFUL SHUTDOWN DOES NOT UNLOAD CONFIG ENTRIES, so on a restart
+    # none of that runs. The two hooks cover disjoint cases -- unload
+    # for reload and removal, this one for stop and restart -- and
+    # neither is redundant.
+    #
+    # FINAL_WRITE, not STOP: STOP is the stage where integrations are
+    # still being torn down and may still write, and FINAL_WRITE is the
+    # one core reserves for persisting what they leave behind. Core
+    # fires it and then blocks on the pending tasks, so an async
+    # listener is awaited rather than raced. It is the same event
+    # core's own ``Store.async_delay_save`` registers for.
+    #
+    # Registered under ``async_on_unload`` so a reload cannot leave a
+    # listener pointing at the previous entry's store.
+
+    async def _flush_signal_store(_event: Event) -> None:
+        """Write the catalog if the debounce has not yet caught up."""
+        if await signal_store.async_flush():
+            _LOGGER.debug("Sniffer catalog flushed at final write")
+
+    entry.async_on_unload(
+        hass.bus.async_listen(
+            EVENT_HOMEASSISTANT_FINAL_WRITE, _flush_signal_store
+        )
+    )
+
     async_register_websocket_commands(hass)
 
     await _async_register_panel(hass, entry)
@@ -277,6 +313,19 @@ async def async_unload_entry(
         tm: TriggerManager | None = data.get("trigger_manager")
         if tm is not None:
             tm.shutdown()
+
+        # Belt and braces on the unload half. ``monitor.async_stop``
+        # above already flushes the catalog (it ends in the store's own
+        # ``async_shutdown``), and that is the path a normal unload
+        # takes. This covers the one case that path does not: an entry
+        # torn down without a monitor in its data, which a setup that
+        # failed part way through leaves behind. Ordered AFTER the
+        # monitor stop so nothing can schedule a save into the gap, and
+        # a no-op on a clean store, so the usual unload pays nothing
+        # for it.
+        sig_store: SignalStore | None = data.get("signal_store")
+        if sig_store is not None:
+            await sig_store.async_flush()
 
 
     if not any(

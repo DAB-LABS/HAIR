@@ -1065,6 +1065,168 @@ def build_provenance(
     return record
 
 
+#: The two power codes a matrix carries, by the key the listing and
+#: every door name them with.
+POWER_KEYS = ("off", "on")
+
+#: Where a power code's repair record lives: on the MATRIX, under an
+#: unknown key, because ``off`` and ``on`` are plain strings on the
+#: block and have no extras bag of their own. Rides the matrix file and
+#: the exported wig by the same contract a cell's record does.
+POWER_RECORD_KEY = "hair_power_repair"
+
+
+class PowerHolder:
+    """A matrix power code, dressed as a holder (owner bench 2026-09-23).
+
+    A repair reads and writes its target through three things: the bytes
+    (``pronto``), the record beside them (``extra``), and nothing else.
+    A cell has both; a command has both under different names; ``off``
+    and ``on`` are bare strings on the climate block, so before this
+    every door that resolved a target went looking for them among
+    ``matrix.cells``, found nothing, and answered "That cell is gone" --
+    which is what the owner hit trying to capture a Fujitsu's Off.
+
+    Rather than nine special cases, the power code gets the same shape
+    the other two have. Reading ``pronto`` reads the matrix; writing it
+    writes the matrix; the record lands in ``matrix.extra`` under
+    ``hair_power_repair``, keyed by ``off`` / ``on``. Every repair
+    helper in this module then works on it unchanged, and so does every
+    door, because they all go through ``resolve_holder`` below.
+
+    It is deliberately NOT a dataclass with a copy of the bytes: a
+    snapshot would drift the moment anything else wrote the matrix, and
+    the whole point is that this IS the matrix.
+    """
+
+    __slots__ = ("key", "matrix")
+
+    def __init__(self, matrix: ClimateMatrix, key: str) -> None:
+        self.matrix = matrix
+        self.key = key
+
+    @property
+    def pronto(self) -> str:
+        code = self.matrix.off if self.key == "off" else self.matrix.on
+        return code or ""
+
+    @pronto.setter
+    def pronto(self, value: str) -> None:
+        if self.key == "off":
+            self.matrix.off = value
+        else:
+            self.matrix.on = value
+
+    @property
+    def extra(self) -> dict[str, Any]:
+        records = self.matrix.extra.setdefault(POWER_RECORD_KEY, {})
+        if not isinstance(records, dict):
+            records = {}
+            self.matrix.extra[POWER_RECORD_KEY] = records
+        bag = records.setdefault(self.key, {})
+        if not isinstance(bag, dict):
+            bag = {}
+            records[self.key] = bag
+        return bag
+
+    def tidy(self) -> None:
+        """Drop an emptied record so a reverted matrix serializes as it
+        did before anything was ever repaired."""
+        records = self.matrix.extra.get(POWER_RECORD_KEY)
+        if not isinstance(records, dict):
+            return
+        if not records.get(self.key):
+            records.pop(self.key, None)
+        if not records:
+            self.matrix.extra.pop(POWER_RECORD_KEY, None)
+
+    def __eq__(self, other: Any) -> bool:
+        return (
+            isinstance(other, PowerHolder)
+            and other.matrix is self.matrix
+            and other.key == self.key
+        )
+
+    def __hash__(self) -> int:
+        return hash((id(self.matrix), self.key))
+
+
+def is_power_key(key: Any) -> bool:
+    """Is this target key one of the matrix's power codes?"""
+    return key in POWER_KEYS
+
+
+def power_word(key: str) -> str:
+    """What a person must read about a power code: "Off", never "cell"."""
+    return "On" if key == "on" else "Off"
+
+
+def resolve_holder(
+    device: IRDevice, matrix: ClimateMatrix | None, kind: str, key: str
+) -> Any | None:
+    """The one thing that carries a target's bytes, or None if it is gone.
+
+    THE SINGLE ANSWER every door asks for (owner bench 2026-09-23). A
+    cell row resolves to its cell, a power row to a ``PowerHolder`` over
+    the matrix, a flat row to its command. Before this each door open-
+    coded the cell lookup and none of them knew about power, so half the
+    fix flow was unreachable for ``off`` and ``on``.
+    """
+    if kind != TARGET_CELL:
+        return device.get_command(key)
+    if matrix is None:
+        return None
+    if is_power_key(key):
+        holder = PowerHolder(matrix, key)
+        return holder if holder.pronto else None
+    return next(
+        (c for c in matrix.cells if cell_key(c) == key), None
+    )
+
+
+def holders_for_target(
+    device: IRDevice,
+    matrix: ClimateMatrix | None,
+    kind: str,
+    key: str,
+    coordinates: dict[str, Any] | None = None,
+) -> list:
+    """Everything a write to this target has to reach: the holder, plus
+    the portholes standing for it. A power code has no portholes -- the
+    comb only mints them over lattice cells -- so it is always alone."""
+    holder = resolve_holder(device, matrix, kind, key)
+    if holder is None:
+        return []
+    if kind != TARGET_CELL or is_power_key(key):
+        return [holder]
+    return [holder, *portholes_for(device, coordinates or {})]
+
+
+def record_holders(device: IRDevice, matrix: ClimateMatrix | None) -> list:
+    """Every holder on this device that can be carrying a repair record:
+    the lattice cells, the two power codes, and the commands. What a
+    run-wide undo has to look through."""
+    holders: list = list(matrix.cells if matrix else [])
+    if matrix is not None:
+        holders += [
+            holder for holder in
+            (PowerHolder(matrix, key) for key in POWER_KEYS)
+            if holder.pronto
+        ]
+    return holders + list(device.commands)
+
+
+def target_is_gone(kind: str, key: str) -> str:
+    """The refusal for a target that is not there any more, in the words
+    of the thing it names. A person must never read "cell" about a power
+    code (owner bench 2026-09-23)."""
+    if kind == TARGET_CELL and is_power_key(key):
+        return f"The {power_word(key)} code is gone"
+    if kind == TARGET_CELL:
+        return "That cell is gone"
+    return "That command is gone"
+
+
 def repair_extras(holder: Any) -> dict[str, Any]:
     """The unknown-keys bag a repair record lives in.
 
@@ -1093,6 +1255,9 @@ def restore_holder(
     bag = repair_extras(holder)
     bag.clear()
     bag.update(extras)
+    tidy = getattr(holder, "tidy", None)
+    if tidy is not None:
+        tidy()
 
 
 _extras_of = repair_extras
@@ -1139,6 +1304,12 @@ def revert_repair(holder: Any) -> dict[str, Any] | None:
     else:
         holder.pronto = prior
     _extras_of(holder).pop(PROVENANCE_KEY, None)
+    # A power code's record lives on the matrix, so an emptied one has
+    # to be swept up: the block would otherwise serialize with a stray
+    # ``hair_power_repair: {"off": {}}`` after an undo.
+    tidy = getattr(holder, "tidy", None)
+    if tidy is not None:
+        tidy()
     return record
 
 
@@ -1154,6 +1325,11 @@ def holders_for_rows(device: IRDevice, rows: list) -> list:
     wanted_cells: set = set()
     wanted_ids: set = set()
     for row in rows:
+        if row.target.kind == TARGET_CELL and is_power_key(row.target.key):
+            # No porthole is ever minted over a power code, and its
+            # coordinates carry no mode, so a coordinate lookup here
+            # would collide with any porthole that has none either.
+            continue
         if row.target.kind == TARGET_CELL:
             wanted_cells.add(_coord_key(row.target.coordinates))
         elif row.target.command_id:
@@ -1371,15 +1547,8 @@ def written_digest(
     which is the only way the two can be relied on to agree.
     """
     if row.target.kind == TARGET_CELL:
-        if matrix is None:
-            return None
-        if row.target.key in ("off", "on"):
-            pronto = matrix.off if row.target.key == "off" else matrix.on
-            return None if not pronto else _cell_digest(pronto)
-        cell = next(
-            (c for c in matrix.cells if cell_key(c) == row.target.key), None
-        )
-        return None if cell is None else _cell_digest(cell.pronto)
+        holder = resolve_holder(device, matrix, TARGET_CELL, row.target.key)
+        return None if holder is None else _cell_digest(repair_bytes(holder))
     wig, _sources = project_device(device, matrix)
     if wig is None:
         return None
