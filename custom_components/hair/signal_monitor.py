@@ -1802,6 +1802,10 @@ class SignalMonitor:
             await self._matrix_listener.on_signal_captured(
                 sig_fp, byte_hash, decoded_fingerprint, receiver_entity_id,
                 n.norm_fp,
+                # A decode explaining only part of this capture is not
+                # its identity, and the lattice has to know that before
+                # it trusts the decoded tier (owner bench 2026-09-25).
+                n.decode_covers,
             )
 
         # The v0.4.0 known-command suppression is GONE (v0.6.6, "heard

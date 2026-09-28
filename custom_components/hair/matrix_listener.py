@@ -94,12 +94,22 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # One capture's identity, in ``CellIndex.match`` order: decoded
-# fingerprint, S/L fingerprint, byte hash, normalized fingerprint.
-# Carried past the hearing so a pinned Device can be asked "which of
-# YOUR cells is this frame?" when its lattice spells the same state
-# with different words -- and so it can be asked with the same
-# tolerance the hearing itself had.
-_Identity = tuple[str | None, str | None, str | None, str | None]
+# fingerprint, S/L fingerprint, byte hash, normalized fingerprint, and
+# the decode's coverage. Carried past the hearing so a pinned Device
+# can be asked "which of YOUR cells is this frame?" when its lattice
+# spells the same state with different words -- and so it can be asked
+# with the same tolerance, and the same scepticism, the hearing had.
+#: One capture's identity as ``CellIndex.match`` takes it: the four
+#: tier values, then whether the decode explained the whole capture.
+#: The last field joined the tuple on 2026-09-25; a decode that covers
+#: only part of a capture is not that capture's identity.
+_Identity = tuple[
+    str | None, str | None, str | None, str | None, bool | None
+]
+
+#: "No cell has claimed this key yet", distinct from a cell that
+#: claimed it with a discriminator of None.
+_UNCLAIMED = object()
 
 
 @dataclass(frozen=True)
@@ -162,6 +172,7 @@ class CellIndex:
         signal_fingerprint: str | None,
         byte_hash: str | None,
         norm_fp: str | None = None,
+        decode_covers: bool | None = None,
     ) -> tuple[CellHit, int] | None:
         """The cell this capture is and the tier that said so, or None.
 
@@ -176,8 +187,23 @@ class CellIndex:
         answered by tier 1 -- if its decoded identity is not in this
         lattice, the honest answer is that this lattice does not hold
         it, not that something of a similar shape does.
+
+        A NON-COVERING DECODE IS NOT AN IDENTITY (owner bench
+        2026-09-25). ``decode_covers is False`` means the decoder
+        explained a fraction of the capture and nothing about the rest:
+        every DAIKIN216 code reads as the same
+        ``KASEIKYO64:0xda11:0x20f000000002`` because the decoder only
+        ever reads the constant frame 0. Tier 1 is skipped for such a
+        capture, and -- because the decode told us nothing -- the
+        normalized tier is allowed to answer, which the old "only if
+        nothing decoded" wording would have blocked.
         """
-        if decoded_fingerprint and decoded_fingerprint in self.decoded:
+        skipped_decode = decode_covers is False
+        if (
+            decoded_fingerprint
+            and not skipped_decode
+            and decoded_fingerprint in self.decoded
+        ):
             return (self.decoded[decoded_fingerprint], TIER_DECODED)
         if signal_fingerprint or byte_hash:
             hit = self.fp_bytehash.get((signal_fingerprint, byte_hash))
@@ -187,7 +213,7 @@ class CellIndex:
             hit = self.bytehash.get(byte_hash)
             if hit is not None:
                 return (hit, TIER_BYTE_HASH)
-        if norm_fp and not decoded_fingerprint:
+        if norm_fp and (not decoded_fingerprint or skipped_decode):
             hit = self.norm_fp.get(norm_fp)
             if hit is not None:
                 return (hit, TIER_NORM_FP)
@@ -201,9 +227,30 @@ def build_cell_index(
 
     Pure and blocking: callers run it in the executor. A cell whose
     Pronto does not validate is skipped -- it could never be heard
-    anyway. Last write wins on a collision, matching the store's own
-    index: two cells sharing a waveform ARE the same press, and the
-    file's later row is the one a send would use.
+    anyway.
+
+    NO TIER ANSWERS FOR TWO DIFFERENT CODES (owner bench 2026-09-25).
+    Last write used to win on every tier, on the reasoning that two
+    cells sharing a waveform ARE the same press and the file's later
+    row is the one a send would use. The first half of that is still
+    true and still honoured. The second half assumed a shared key meant
+    a shared waveform, and on a Daikin lattice it does not: identity
+    below is computed from frame 0 alone, so all 520 states of an
+    FTXS50KVM share one decoded fingerprint, one S/L fingerprint and
+    one byte hash, and "the file's later row" was the Off code, added
+    after the cells. Every press of that handset reported Off, and a
+    remote pinned to a Daikin device sent Off for every button.
+
+    So every tier now applies the rule ``NormFpIndex`` already applied
+    to its own: a key claimed by two cells whose WHOLE codes differ is
+    poisoned and answers nothing, while a key two cells claim with the
+    SAME code still resolves. ``whole_code_discriminator`` is what
+    "same code" means here, and it is quantized, so a capture-built
+    lattice holding one waveform twice still counts it once.
+
+    The result for a Daikin is that nothing matches at all, which is
+    the honest answer until payload-frame identity lands: better to
+    hear nothing than to name a state nobody pressed.
 
     ONE IDENTITY FORM, and it is not the file's. ``wig_signal_identity``
     hashes the canonical (wire) Pronto -- see identity.py's
@@ -220,12 +267,40 @@ def build_cell_index(
     state.
     """
     from .event_parser import EventParser
-    from .identity import canonical_pronto, norm_fingerprint
+    from .identity import (
+        canonical_pronto,
+        norm_fingerprint,
+        whole_code_discriminator,
+    )
     from .wig_climate import cell_display_name, state_display_name
     from .wig_format import cell_key
     from .wig_identity import wig_signal_identity
 
     index = CellIndex()
+    # Which code claimed each tier key, and the keys two different codes
+    # claimed. ``NormFpIndex`` keeps its own pair of these internally;
+    # these are the same bookkeeping for the three plain dicts.
+    claims: dict[str, dict[Any, str | None]] = {
+        "decoded": {}, "fp_bytehash": {}, "bytehash": {},
+    }
+    poisoned: dict[str, set] = {
+        "decoded": set(), "fp_bytehash": set(), "bytehash": set(),
+    }
+
+    def _claim(
+        tier: str, store: dict, key: Any, code: str | None, hit: CellHit
+    ) -> None:
+        """Put ``hit`` under ``key``, unless two codes want that key."""
+        if key in poisoned[tier]:
+            return
+        claimed = claims[tier].get(key, _UNCLAIMED)
+        if claimed is not _UNCLAIMED and claimed != code:
+            poisoned[tier].add(key)
+            claims[tier].pop(key, None)
+            store.pop(key, None)
+            return
+        claims[tier][key] = code
+        store[key] = hit
 
     def _add(pronto: str | None, hit_factory: Any) -> None:
         if not pronto:
@@ -240,16 +315,27 @@ def build_cell_index(
                 canonical_pronto(identity.pronto) or identity.pronto
             )
         )
-        if identity.decoded_fingerprint:
-            index.decoded[identity.decoded_fingerprint] = hit
-        if identity.fingerprint:
-            index.fp_bytehash[(identity.fingerprint, identity.byte_hash)] = hit
-        if identity.byte_hash is not None:
-            index.bytehash[identity.byte_hash] = hit
-        index.norm_fp.add(
-            norm_fingerprint(identity.raw_timings),
+        code = whole_code_discriminator(
+            identity.raw_timings,
             identity.byte_hash or identity.fingerprint,
-            hit,
+        )
+        # A DECODE THAT EXPLAINS PART OF THE CAPTURE IS NOT AN IDENTITY.
+        # Indexing it would claim this cell IS that fingerprint, and on
+        # a Daikin every cell would claim the same one.
+        if identity.decoded_fingerprint and identity.decode_covers is not False:
+            _claim(
+                "decoded", index.decoded,
+                identity.decoded_fingerprint, code, hit,
+            )
+        if identity.fingerprint:
+            _claim(
+                "fp_bytehash", index.fp_bytehash,
+                (identity.fingerprint, identity.byte_hash), code, hit,
+            )
+        if identity.byte_hash is not None:
+            _claim("bytehash", index.bytehash, identity.byte_hash, code, hit)
+        index.norm_fp.add(
+            norm_fingerprint(identity.raw_timings), code, hit,
         )
 
     for cell in matrix.cells:
@@ -518,6 +604,7 @@ class MatrixListener:
         decoded_fingerprint: str | None,
         receiver_entity_id: str | None = None,
         norm_fp: str | None = None,
+        decode_covers: bool | None = None,
     ) -> list[str]:
         """Match one capture against every matrix remote's lattice.
 
@@ -530,6 +617,13 @@ class MatrixListener:
         computed once per capture beside the byte hash and passed down
         the same way. Absent (the default) simply means the lowest tier
         is not consulted.
+
+        ``decode_covers`` is that capture's decode coverage, threaded
+        for the same reason: False means the decoded fingerprint
+        explains only part of what was heard, so it is not this
+        capture's identity and the decoded tier is skipped. None is
+        trusted, matching ``protocol_decode``'s own rule that an
+        unverifiable census is unknown rather than false.
         """
         heard: list[str] = []
         for remote in self._store.get_all_trigger_remotes():
@@ -545,7 +639,8 @@ class MatrixListener:
                 self._schedule_index_build(remote.id)
                 continue
             matched = index.match(
-                decoded_fingerprint, signal_fingerprint, byte_hash, norm_fp
+                decoded_fingerprint, signal_fingerprint, byte_hash, norm_fp,
+                decode_covers,
             )
             if matched is None:
                 continue
@@ -577,7 +672,8 @@ class MatrixListener:
                 remote,
                 hit,
                 receiver_entity_id,
-                (decoded_fingerprint, signal_fingerprint, byte_hash, norm_fp),
+                (decoded_fingerprint, signal_fingerprint, byte_hash,
+                 norm_fp, decode_covers),
             )
             heard.append(remote.id)
         return heard
@@ -641,7 +737,7 @@ class MatrixListener:
         remote: TriggerRemote,
         hit: CellHit,
         receiver_entity_id: str | None,
-        identity: _Identity = (None, None, None, None),
+        identity: _Identity = (None, None, None, None, None),
     ) -> None:
         """Stamp the heard state, fire the event, push, and dispatch.
 
@@ -916,8 +1012,11 @@ class MatrixListener:
 # module level, beside the builder they wrap, so the on-disk shape and
 # the in-memory one cannot drift apart in a refactor.
 
-# Bumped to /2 for the receiver-tolerant tier (2026-08-18) and to /3 for
-# the unified strip (GH #125). A stored index of an older format is
+# Bumped to /2 for the receiver-tolerant tier (2026-08-18), to /3 for
+# the unified strip (GH #125), and to /4 for the shared-key refusal and
+# the coverage gate (owner bench 2026-09-25): a /3 index was built by
+# rules that let one Daikin key answer for 520 states, and it has to be
+# thrown away rather than trusted. A stored index of an older format is
 # simply not read, so every lattice rebuilds once and gains the new map;
 # the rebuild is the same seconds-of-work the first build was.
 #
@@ -929,7 +1028,7 @@ class MatrixListener:
 # pre-migration hashes while captures arrived carrying post-migration
 # ones. Every climate lattice would silently stop recognizing its own
 # cells, with nothing in any log to say so.
-INDEX_FORMAT = "hair-cell-index/3"
+INDEX_FORMAT = "hair-cell-index/4"
 
 
 def _hit_to_row(hit: CellHit) -> list:

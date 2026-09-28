@@ -1372,7 +1372,10 @@ def test_a_stale_cell_index_is_refused(tmp_path):
 
     write_matrix(tmp_path, "r1", _matrix())
     _build_and_store_index(str(tmp_path), "r1", _matrix(), "C")
-    assert INDEX_FORMAT == "hair-cell-index/3"
+    # /4 since the shared-key refusal and the coverage gate (owner
+    # bench 2026-09-25): a /3 index was built by rules that let one
+    # Daikin key answer for every state in the lattice.
+    assert INDEX_FORMAT == "hair-cell-index/4"
     assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
     path = index_path(tmp_path, "r1")
@@ -1380,7 +1383,7 @@ def test_a_stale_cell_index_is_refused(tmp_path):
     # The other two freshness keys are intact: only the format is old.
     assert payload["unit"] == "C"
     assert payload["matrix"]
-    payload["format"] = "hair-cell-index/2"
+    payload["format"] = "hair-cell-index/3"
     path.write_text(_json.dumps(payload))
 
     assert _load_stored_index(str(tmp_path), "r1", "C") is None
