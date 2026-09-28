@@ -71,6 +71,8 @@ ruff check .
 
 The admin panel is built with LitElement and TypeScript. The compiled bundle lives at `frontend/dist/ha-panel-ir-devices.js`. Source files are in `frontend/src/`.
 
+Please do not commit `frontend/dist/`. Change the TypeScript in `frontend/src/` and leave the bundle out of your pull request, even if your editor or a local build rewrites it. The bundle is one long generated file, so two people building it produce diffs that conflict on every line and git will merge them into something no build ever produced. A maintainer rebuilds it at merge time from the merged source, which is the only version anyone can reproduce. If you want to see your change in Home Assistant while you work on it, run `npm run build` locally and keep that file out of the commit.
+
 ## Pull Requests
 
 - Create a feature branch from `main` (e.g., `feature/my-change`)

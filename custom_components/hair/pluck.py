@@ -539,4 +539,7 @@ async def run_store_pluck(
         friendly_name=info.friendly_name,
         kind=provider.kind,
         codes=codes,
+        # The provider's own shape, which decides what a new remote is
+        # called: a flat code list is one remote named after the store.
+        shape=provider.shape,
     )

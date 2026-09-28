@@ -76,6 +76,7 @@ from .identity import (
     norm_fingerprint,
 )
 from .ir_command import carrier_or_default, raw_to_pronto
+from .learned_code_stores import SHAPE_CODE_LIST, SHAPE_PACKET_MAP
 from .models import CaptureResult, UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
 from .protocol_decode import try_decode_identity
@@ -358,6 +359,34 @@ def _imported_decode_covers(code: str, entry: dict) -> bool | None:
     if claimed and identity.fingerprint != claimed:
         return False
     return identity.covers_capture
+
+
+def _plucked_remote_label(
+    friendly_name: str, subdevice: str, shape: str
+) -> str:
+    """What a new plucked remote is called.
+
+    A packet-map store keeps the shape it always had, "<store>:
+    <subdevice>", because the subdevice is a real level in that file and
+    a store can hold several of them.
+
+    A flat code list holds ONE remote and has no subdevice level. The
+    value it carries in ``store_subdevice`` is a device record inside the
+    file, and on every install that record reads "OpenIRBlaster" (the
+    integration never writes its own device name there), so pinning it
+    to the label produced remotes called "Den Blaster: OpenIRBlaster" --
+    the store's name plus the integration's, which tells a person
+    nothing they were not already looking at. Those are named after the
+    store alone.
+
+    With no friendly name to use, both shapes fall back to the
+    subdevice, which is the only thing left that names anything.
+    """
+    if not friendly_name:
+        return subdevice
+    if shape == SHAPE_CODE_LIST:
+        return friendly_name
+    return f"{friendly_name}: {subdevice}"
 
 
 def _mint_plucked_signal(
@@ -3005,6 +3034,7 @@ class SignalMonitor:
         friendly_name: str,
         kind: str,
         codes: list[Any],
+        shape: str = SHAPE_PACKET_MAP,
     ) -> dict[str, int]:
         """Place one whole learned-code store onto plucked remotes.
 
@@ -3013,6 +3043,19 @@ class SignalMonitor:
         tab can show where these came from. It all happens under one lock
         and ends in one save: a store with hundreds of codes is one write,
         not hundreds.
+
+        ``shape`` is the store's own shape, from the provider row, and
+        it decides one thing: what a new remote is CALLED. A packet-map
+        store has a real subdevice level, so its remotes are named
+        "<store>: <subdevice>". A flat code list has no subdevice level
+        at all -- the whole library is one remote, and the value in
+        ``store_subdevice`` is a record inside the file that reads
+        "OpenIRBlaster" on every install, so pinning it to the label
+        produced remotes called "Den Blaster: OpenIRBlaster". Those are
+        named after the store alone. The KEY is untouched by this: a
+        remote is still found by (integration, store id, subdevice), so
+        a store plucked under the old name is still the same remote on a
+        re-pluck and no duplicate appears.
 
         RE-PLUCK IS THE SAME CALL, and that is the whole design. Remotes
         are found by (integration, store id, subdevice) rather than minted
@@ -3077,10 +3120,8 @@ class SignalMonitor:
 
                 device = by_subdevice.get(code.subdevice)
                 if device is None:
-                    label = (
-                        f"{friendly_name}: {code.subdevice}"
-                        if friendly_name
-                        else code.subdevice
+                    label = _plucked_remote_label(
+                        friendly_name, code.subdevice, shape
                     )
                     device = UnknownDevice(
                         label=label,

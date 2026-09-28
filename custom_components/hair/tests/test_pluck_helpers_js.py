@@ -47,6 +47,7 @@ const TABLE = {
     "pluck.empty.source.broadlink_dialog": "BROADLINK DIALOG",
     "pluck.empty.source.tuya_local": "TUYA LOADED",
     "pluck.empty.source.tuya_local.not_installed": "TUYA NOT INSTALLED",
+    "pluck.empty.source.openirblaster": "OIRB LOADED",
 };
 const t = (key, subs) => {
     let s = TABLE[key] ?? key;
@@ -74,6 +75,12 @@ const tuya = (over) => source({
 const stranger = (over) => source({
     integration: "zigbee_ir",
     name: "Zigbee IR",
+    ...over,
+});
+// The deprecated source: read when present, never advertised.
+const oirb = (over) => source({
+    integration: "openirblaster",
+    name: "Den Blaster",
     ...over,
 });
 
@@ -105,6 +112,17 @@ console.log(JSON.stringify({
     order: pluckEmptyBlocks(
         [source({ loaded: true }), tuya({ loaded: true })], t, "tab"),
     nullish: pluckEmptyBlocks(null, t, "tab"),
+
+    // The deprecated source, all four states, tab and dialog.
+    oirb_absent: pluckEmptyBlocks([oirb()], t, "tab"),
+    oirb_absent_dialog: pluckEmptyBlocks([oirb()], t, "dialog"),
+    oirb_loaded: pluckEmptyBlocks([oirb({ loaded: true })], t, "tab"),
+    oirb_store_only: pluckEmptyBlocks(
+        [oirb({ ready: { storage: true } })], t, "tab"),
+    oirb_loaded_with_store: pluckEmptyBlocks(
+        [oirb({ loaded: true, ready: { storage: true } })], t, "tab"),
+    // And it does not take its neighbours' lines with it.
+    oirb_beside_broadlink: pluckEmptyBlocks([oirb(), source()], t, "tab"),
 }));
 """
 
@@ -223,3 +241,46 @@ class TestPluckEmptyBlocks:
 
     def test_no_sources_is_no_blocks_not_a_crash(self, helpers):
         assert helpers["nullish"] == []
+
+
+class TestTheDeprecatedSourceIsNotAdvertised:
+    """OpenIRBlaster: read where it exists, never recommended.
+
+    #175 taught the Plucker to read OpenIRBlaster's code library, and the
+    empty card gained a block for it on every install -- including the
+    ones with no OpenIRBlaster at all, where it read as the generic
+    "not set up" line and amounted to HAIR suggesting an integration that
+    is deprecated upstream. The block now appears only where it applies.
+    """
+
+    def test_no_integration_and_no_store_is_no_block(self, helpers):
+        assert helpers["oirb_absent"] == []
+
+    def test_the_dialog_is_silent_about_it_too(self, helpers):
+        """Same helper, same rule: the dialog was showing it as well."""
+        assert helpers["oirb_absent_dialog"] == []
+
+    def test_a_loaded_integration_gets_its_own_body(self, helpers):
+        (block,) = helpers["oirb_loaded"]
+        assert block["name"] == "Den Blaster"
+        assert block["body"] == "OIRB LOADED"
+
+    def test_a_store_on_disk_is_pluckable_so_the_card_says_nothing(
+        self, helpers
+    ):
+        """The other half of "loaded OR a store exists".
+
+        A store on disk makes the source ready, and a ready source has
+        something to pluck, so the empty card is not where it is
+        discussed -- the same rule every source follows. What matters
+        here is that the block's absence is not the deprecation skip
+        refusing an install that HAS the codes.
+        """
+        assert helpers["oirb_store_only"] == []
+        assert helpers["oirb_loaded_with_store"] == []
+
+    def test_the_skip_takes_nothing_else_with_it(self, helpers):
+        """Broadlink still gets its line beside the silent source."""
+        blocks = helpers["oirb_beside_broadlink"]
+        assert [b["name"] for b in blocks] == ["Broadlink"]
+        assert blocks[0]["body"] == "GENERIC NOT INSTALLED"

@@ -677,9 +677,9 @@ class TestOpenIRBlasterStores:
         summary = _result(conn)
         assert summary["remotes"] == 1
         assert summary["signals"] == 1
-        assert [d.label for d in store.get_all_devices()] == [
-            "Den Blaster: OpenIRBlaster"
-        ]
+        # The store's own name, with no ": OpenIRBlaster" tail: this is
+        # the WS door, so it also proves pluck.py passes the shape.
+        assert [d.label for d in store.get_all_devices()] == ["Den Blaster"]
 
     async def test_an_empty_library_is_an_empty_store_error(
         self, fake_hass, tmp_path
