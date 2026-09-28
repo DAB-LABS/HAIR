@@ -1,5 +1,5 @@
 {
- "protocol": "DAIKIN152",
+ "protocol": "FUJITSU128",
  "how_to_read": "Each entry names one coordinate of the .defects.json lattice that was deliberately corrupted. Every other coordinate is byte-identical to the clean pack.",
  "defects": [
   {
@@ -9,16 +9,7 @@
    "fan": "auto",
    "swing": null,
    "temp": 18.0,
-   "note": "mode field forced to 0x04 (map says 0x03); integrity recomputed so only the field check can catch it"
-  },
-  {
-   "defect": "fan_speed_wrong_value",
-   "field": "fan_speed",
-   "mode": "cool",
-   "fan": "auto",
-   "swing": null,
-   "temp": 22.0,
-   "note": "fan_speed field forced to 0x0b (map says 0x0a); integrity recomputed so only the field check can catch it"
+   "note": "mode field forced to 0x02 (map says 0x01); integrity recomputed so only the field check can catch it"
   },
   {
    "defect": "checksum_broken",
@@ -26,7 +17,7 @@
    "mode": "cool",
    "fan": "auto",
    "swing": null,
-   "temp": 25.0,
+   "temp": 20.0,
    "note": "checksum byte incremented; only the integrity check sees it"
   }
  ]

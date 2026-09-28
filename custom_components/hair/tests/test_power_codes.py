@@ -118,12 +118,29 @@ def _fujitsu(data: bytes) -> str:
 
 
 def _state(mode: str, temp: float) -> str:
-    """A distinct 16-byte state frame per coordinate."""
-    tail = bytes([
+    """A distinct 16-byte state frame per coordinate, VALID for its family.
+
+    These frames carry the FUJITSU128 address, so once that map existed
+    the comb started reading them rather than treating them as opaque
+    blobs, and an invented check byte became eleven frame-integrity
+    findings in a module that is about power codes and not about
+    checksums. So the byte is computed the way the family computes it.
+
+    Byte 9 already held the mode where the map reads it, bits 0 to 2, and
+    is left alone. Byte 15 is the family's check byte: a constant 0xD0
+    MINUS the sum of bytes 8 to 14, so it falls as the payload rises.
+    Frames stay distinct per coordinate through bytes 8 and 9.
+
+    The seven-byte Off code is deliberately untouched. It is not a state
+    frame, it is what this module is about, and the whole point of the
+    tests below is that the comb no longer judges it as one.
+    """
+    tail = bytearray([
         int(temp) & 0xFF, 0x01 if mode == "cool" else 0x04, 0x00, 0x00,
-        0x00, 0x00, 0x20, (int(temp) * 7 + len(mode)) & 0xFF,
+        0x00, 0x00, 0x20, 0x00,
     ])
-    return _fujitsu(FUJITSU_STATE_HEAD + tail)
+    tail[7] = (0xD0 - sum(tail[:7])) & 0xFF
+    return _fujitsu(FUJITSU_STATE_HEAD + bytes(tail))
 
 
 MODES = ("cool", "heat")

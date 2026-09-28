@@ -77,14 +77,17 @@ BASELINE_PATH = (
 #: is a statement that the pack is meant to claim this file, and every
 #: entry needs a reason a reader can check.
 EXPECTED_CLAIMS: dict[str, set[str]] = {
-    # The eight parsed lines of the repo's Apple remote fixture. They
-    # read as NEC before the pack for a reason that was a bug: the
-    # Flipper NECext builder threw the file's fourth byte away and wrote
-    # the complement of the third in its place, so what HAIR stored was
-    # a frame the remote never sends. With the byte kept, the rows are
-    # what the file always said they were. Their address is 0x87EE and
-    # their parity rule holds, which is what APPLE requires.
-    "adapters:flipper_parsed_Apple_TV_Gen3_v2.ir": {"APPLE"},
+    # Empty, and that is the correct state rather than an oversight.
+    #
+    # The one entry this list has ever held licensed the Apple remote
+    # fixture's eight rows to move from NEC to APPLE when the protocol
+    # pack landed. That move is now history: it is in the baseline, so
+    # the rows no longer change and the entry had nothing behind it.
+    # `test_every_allowlisted_fixture_actually_changed` is what noticed,
+    # which is the whole reason it exists -- an allowlist nobody prunes
+    # widens into a blanket permission. Add an entry here only with a
+    # reason a reader can check, and delete it once its move is baked
+    # into the baseline.
 }
 
 #: Baseline keys that are allowed to be absent from the walk, each with

@@ -24,10 +24,22 @@ frame:
     space_one_us:    {nominal: 1300, min: 816, max: 1850}
     header_mark_us:  {nominal: 3423, min: 2230, max: 5350}
     header_space_us: {nominal: 1751, min: 1115, max: 2780}
-    frame_gap_us:    {min: 2000}
-  # DAIKIN152 carries the same three identity bytes on ITS frame 2, so
-  # these alone do not separate the two families. The frame layout does:
-  # a DAIKIN216 code has two frames, a DAIKIN152 code has three.
+    # 11,000 rather than 2,000, and the figure is measured. Panasonic's
+    # 64+152 family declares the same frame layout as this map, and its
+    # pulse alphabet is indistinguishable from Daikin's, so a 2,000 us
+    # floor let 4,468 Panasonic codes and 60 Mitsubishi Heavy codes pass
+    # _matches_layout before identity refused them. The two families do
+    # separate cleanly on the inter-frame gap: Panasonic's runs 9,861 to
+    # 10,439 us and Daikin's 24,324 to 29,767. At 11,000 a Panasonic
+    # code no longer splits here at all, so it fails the layout rather
+    # than the identity, and this map's own files lose 5 codes of 1,914.
+    frame_gap_us:    {min: 11000}
+  # DAIKIN152 carries the same three identity bytes on ITS payload frame,
+  # so these alone do not separate the two families. The frame layout
+  # does: a DAIKIN216 code has two frames and a DAIKIN152 code has four,
+  # counting the leader block DAIKIN152 gained when it was corrected.
+  # PANASONIC216 declares this same two-frame layout, and what separates
+  # THAT family is the frame gap above, not these bytes.
   identity_bytes: [[1, 0, 0x11], [1, 1, 0xDA], [1, 2, 0x27]]
 
 integrity:
