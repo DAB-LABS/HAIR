@@ -207,7 +207,7 @@ Key components:
   coordinate-named row (v0.9.8 through v0.12.1); since v0.14.0 flagged
   cells stay in the matrix and are resolved in the device's Needs
   attention block (see Detangle below), and a fitting refuses to sign
-  while any finding on the device is open. The read-only ledger (via the
+  while any finding on the device is open, except the Unusual ones. The read-only ledger (via the
   fittings-count door on the save dialog) shows fitters, per-row verdicts,
   signature states, and orphaned claims. Pre-claims fittings are dropped
   on import with a receipt notice; they cannot become claims (a whole-file
@@ -323,7 +323,7 @@ Key components:
   tangles/* websocket door. list_tangles turns a device's comb receipt into
   rows, one per flagged code, each carrying a plain reason line (fourteen
   reason keys; field-mismatch findings get the map's labels stamped on).
-  Rows cluster into three roads. FIX: the correct bytes already exist in
+  Rows cluster into three roads, plus an Unusual card (below). FIX: the correct bytes already exist in
   the file (a donor cell that reads as the needed value, or a frame
   synthesized under a ratified field rule and pre-read back before it is
   offered); the user accepts one or all. LISTEN: a press from the real
@@ -336,7 +336,22 @@ Key components:
   accepted, and the repeat-disagreement check stands down when a
   repeat-voting decoder (SYMPHONY class) accepted the whole capture,
   with the receipt recording decode-resolved. DECIDE: two members carry one name or one code; rename,
-  delete, or Keep Both. Attestations key on target, payload digest, and
+  delete, or Keep Both. UNUSUAL (GH Discussion #177): a finding that
+  means "looks unusual" rather than "is wrong". A row lands here when
+  every class on it is in tangles.UNUSUAL_CLASSES (frame-shape,
+  stray-burst, and the two ditto advisories, which are not rows today)
+  and HAIR has no candidate for it; a row HAIR can repair, such as a
+  trimmable stray burst on a lattice, stays under FIX. The listing
+  serves the class list as unusual_classes and flags each row unusual,
+  so the panel never keeps a copy. Each row offers Send, Fix (the same
+  popup LISTEN opens) and It Works, Keep It, which records a keep
+  attestation through the existing keep door and opens only after that
+  row's current code was sent from the same window. Unusual rows do not
+  block a Perfect Fit (tangles.blocking_rows on the server gate, the
+  same count in the save dialog). Before this card, a frame-shape row on
+  a flat remote had no donor, landed in LISTEN, and could never clear,
+  because a fresh press of a button that really sends that shape comes
+  back the same shape. Attestations key on target, payload digest, and
   field-map version (flat rows on digest and version alone, so answers
   survive renames); an attested row reads clean on the surface and the
   record is kept, on the rule that a mark is an unanswered doubt. Every
@@ -346,8 +361,8 @@ Key components:
   commands (the v0.9.8 porthole path is retired); flat-wig findings sit on
   the individual commands. A flat wig never gets synthesized bytes in
   this release: reconstruction by frame vote is next-cycle work. The
-  fitting dialog refuses to open the checklist while findings are
-  open and says how many codes need attention.
+  fitting dialog refuses to open the checklist while findings outside
+  Unusual are open and says how many codes need attention.
 - Adopt Device (v0.8.1): every code set becomes a HAIR device in one step,
   from wherever you meet it. Closet wigs, library rows, Sniffer remotes,
   Clipper remotes, and Plucker blasters all carry one ADOPT button

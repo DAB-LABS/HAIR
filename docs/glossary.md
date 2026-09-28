@@ -369,6 +369,12 @@ comb found in its wig, one row per code with a plain reason. Every card has one
 **Fix** button. Some fixes are ready to accept, some need a press from your
 remote, and some ask you to choose between two buttons that share a name.
 
+**Unusual.** The Needs attention card for codes that look odd rather than
+wrong, such as a code whose frames are shaped differently from the rest of
+the remote. Send the code, and if your device responds, **It Works, Keep It**
+records that answer. The button stays off until you have sent that code.
+Unusual codes do not hold up a Perfect Fit.
+
 **Repaired.** The chip on a command whose code was fixed from Needs attention.
 The fix is saved to your Closet as a repaired copy of the wig; the original
 file is never changed.
@@ -388,7 +394,8 @@ it leaves, which travels with the file from then on. You run one from **Save
 to Closet**, **Fit This Wig**, and hit **TEST** on each row of the checklist.
 A fitting of any size is saved: check the rows you proved and the save reads
 **Save Fitting**, check none and it is a plain **Save**. A fitting waits until
-the Device's Needs attention block is empty.
+the Device's Needs attention block is empty, apart from codes on the Unusual
+card.
 
 **Perfect Fit.** A fitting that covers every row: every row of a flat wig
 checked, or every dimension of a state-matrix wig, across every lattice it
