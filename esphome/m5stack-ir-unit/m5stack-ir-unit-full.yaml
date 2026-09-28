@@ -29,6 +29,8 @@
 #     the transmitter very well. Therefore the device always reads back what it
 #     sends out, even when fully covered. This can be confusing when adjusting
 #     the RGB LED pattern.
+#   - Needs ESPHome 2026.8.0 or later. The LED is set with `channel_colors`,
+#     which replaced `rgb_order` in that release, and `min_version` enforces it.
 # ============================================================================
 
 substitutions:
