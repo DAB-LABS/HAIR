@@ -1,11 +1,10 @@
 /**
  * DECIDE -- "Requires your answer" (design brief v6 section 4, signed)
- * -- the duplicate-name portion only. See ir-tangle-section.ts's
- * bucketDecide doc comment for why: the brief's "keep or fix, this
- * code looks unusual" item type has no backend-provided data source
- * in the merged PR #129 today (advisories are explicitly informational
- * only, and every row already resolves to a FIX/LISTEN mechanic with
- * no ambiguous fourth case). Flagged for the owner; not guessed at.
+ * -- the duplicate-name portion only. The brief's "keep or fix, this
+ * code looks unusual" item type is not here: it became its own card,
+ * UNUSUAL (ir-tangle-unusual.ts, owner ruled 2026-09-27, GH #177),
+ * superseding the 2026-08-27 ruling that left it out. See
+ * ir-tangle-buckets.ts's bucketDecide doc comment.
  *
  * A duplicate pair renders as its two rows stacked adjacently. Each
  * row keeps its own SEND (the real ir-test-button, same as FIX),

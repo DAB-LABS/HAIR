@@ -1530,6 +1530,10 @@ export interface TangleRow {
     /** Present only on rows already answered by KEEP -- these live in
      * ``TangleListing.attested``, not ``TangleListing.rows``. */
     attested?: TangleAttestation | null;
+    /** The server's tangles.is_unusual for this open row (GH #177):
+     * every class is in ``TangleListing.unusual_classes`` and HAIR has
+     * no candidate for it. Set on ``rows`` only. */
+    unusual?: boolean;
 }
 
 export interface TangleCluster {
@@ -1560,6 +1564,10 @@ export interface TangleListing {
     protocol: string | null;
     field_tier: "read" | "protocol-unmapped" | "no-lattice";
     candidate_sources: ("donor" | "capture" | "paste")[];
+    /** tangles.UNUSUAL_CLASSES, served so the list lives in one place.
+     * Bucketing reads each row's ``unusual`` flag; this is the list
+     * behind it, for anything that needs to name the classes. */
+    unusual_classes?: string[];
 }
 
 /** What every mutating tangle command reports under ``wig``: whether
