@@ -63,6 +63,8 @@ These integrations have adopted the `infrared` platform:
 
 Pluck reads codes an integration has already stored in Home Assistant. For Broadlink that means codes learned with `remote.learn_command`: a blaster you have only ever transmitted through has nothing to pluck yet, and codes learned in the Broadlink phone app stay in Broadlink's cloud and never reach Home Assistant. This applies to every RM model Home Assistant supports, not only the newer ones.
 
+Coming from [OpenIRBlaster](https://github.com/jaycollett/OpenIRBlaster)? The Plucker reads the code library it learned, with the carrier it measured for each code, so you do not have to learn your remotes again. From OpenIRBlaster 1.3.2 the library stays in Home Assistant after the integration is removed. On 1.3.1 and earlier, removing it deletes the library, so pluck first.
+
 As more integrations adopt the `infrared` platform, HAIR picks them up automatically.
 
 ## Quick start
