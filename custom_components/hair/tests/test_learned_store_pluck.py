@@ -139,12 +139,17 @@ def _info(store_dir: Path, integration: str):
 
 async def _import(monitor, store_dir: Path, integration: str, name: str):
     info = _info(store_dir, integration)
+    provider = PROVIDERS_BY_INTEGRATION[integration]
     return await monitor.import_learned_store(
         integration=integration,
         store_id=info.store_id,
         friendly_name=name,
-        kind=PROVIDERS_BY_INTEGRATION[integration].kind,
+        kind=provider.kind,
         codes=read_store(info),
+        # Passed exactly as ``pluck.import_store`` passes it: without
+        # this the code-list tests below would exercise the packet-map
+        # default and say nothing about the shape that names them.
+        shape=provider.shape,
     )
 
 
@@ -456,8 +461,13 @@ class TestOpenIRBlasterImport:
         assert summary["rf_receipted"] == 0
 
         (device,) = store.get_all_devices()
-        # The flat list's one subdevice is the file's device record.
-        assert device.label == "Den Blaster: OpenIRBlaster"
+        # NAMED AFTER THE STORE ALONE. A flat code list has no subdevice
+        # level, and the value in ``store_subdevice`` is a record inside
+        # the file that reads "OpenIRBlaster" on every install, so the
+        # old "<store>: <subdevice>" shape produced "Den Blaster:
+        # OpenIRBlaster". The subdevice is still what the remote is
+        # KEYED by, which is what keeps a re-pluck on the same remote.
+        assert device.label == "Den Blaster"
         assert device.store_integration == "openirblaster"
         assert device.store_subdevice == "OpenIRBlaster"
 
@@ -491,6 +501,99 @@ class TestOpenIRBlasterImport:
         assert len(store.get_all_devices()) == 1
         assert len(store.get_all_devices()[0].signals) == 2
         assert second["already_present"] == 2
+
+
+class TestTheOldNameIsStillTheSameRemote:
+    """The upgrade case, which is the whole risk in renaming a label.
+
+    Anyone who plucked an OpenIRBlaster library before this change has a
+    remote called "<store>: OpenIRBlaster". The remote is found by
+    (integration, store id, subdevice), and the subdevice is untouched,
+    so a re-pluck has to land on that same remote and add nothing. If
+    the key had moved with the label, every one of those installs would
+    have grown a second copy of the library on the next pluck.
+    """
+
+    async def test_a_re_pluck_finds_the_remote_plucked_under_the_old_name(
+        self, fake_hass, oirb_store_dir
+    ):
+        monitor, store = _monitor(fake_hass)
+        await _import(monitor, oirb_store_dir, "openirblaster", "Den Blaster")
+
+        # Exactly what an install from before this change looks like.
+        device = store.get_all_devices()[0]
+        device.label = "Den Blaster: OpenIRBlaster"
+        signals_before = len(device.signals)
+
+        summary = await _import(
+            monitor, oirb_store_dir, "openirblaster", "Den Blaster"
+        )
+
+        assert len(store.get_all_devices()) == 1
+        again = store.get_all_devices()[0]
+        assert again.id == device.id
+        assert len(again.signals) == signals_before
+        assert summary["already_present"] == signals_before
+        # AND THE OLD NAME STAYS. A label may have been edited by hand,
+        # and this call cannot tell an old auto-name from a chosen one,
+        # so a re-pluck renames nothing -- the rule this method has
+        # always followed.
+        assert again.label == "Den Blaster: OpenIRBlaster"
+
+    async def test_the_key_is_the_subdevice_not_the_label(
+        self, fake_hass, oirb_store_dir
+    ):
+        """Stated directly, because the naming change leans on it."""
+        monitor, store = _monitor(fake_hass)
+        await _import(monitor, oirb_store_dir, "openirblaster", "Den Blaster")
+        device = store.get_all_devices()[0]
+        assert device.store_subdevice == "OpenIRBlaster"
+        assert device.store_id
+        assert device.store_integration == "openirblaster"
+
+
+class TestPacketMapNamingIsUnchanged:
+    """The other shape, pinned so the rename cannot leak into it."""
+
+    async def test_broadlink_remotes_keep_the_store_and_subdevice(
+        self, fake_hass, store_dir
+    ):
+        monitor, store = _monitor(fake_hass)
+        await _import(monitor, store_dir, "broadlink", "Living Room RM4")
+        # "gate" holds an RF code only, so it is receipted and never
+        # becomes a remote; "tv" is the one that lands.
+        labels = sorted(d.label for d in store.get_all_devices())
+        assert labels == ["Living Room RM4: tv"]
+
+    async def test_tuya_local_remotes_keep_the_store_and_subdevice(
+        self, fake_hass, store_dir
+    ):
+        monitor, store = _monitor(fake_hass)
+        await _import(monitor, store_dir, "tuya_local", "IR Remote Garage")
+        labels = sorted(d.label for d in store.get_all_devices())
+        assert "IR Remote Garage: test_remote" in labels
+
+    async def test_the_label_helper_splits_on_shape_alone(self):
+        """The rule as a unit, including the no-name fallback."""
+        from custom_components.hair.learned_code_stores import (
+            SHAPE_CODE_LIST,
+            SHAPE_PACKET_MAP,
+        )
+        from custom_components.hair.signal_monitor import (
+            _plucked_remote_label,
+        )
+
+        assert _plucked_remote_label(
+            "Den Blaster", "OpenIRBlaster", SHAPE_CODE_LIST
+        ) == "Den Blaster"
+        assert _plucked_remote_label(
+            "Living Room RM4", "tv", SHAPE_PACKET_MAP
+        ) == "Living Room RM4: tv"
+        # No store name to use: the subdevice is all that is left.
+        assert _plucked_remote_label("", "tv", SHAPE_PACKET_MAP) == "tv"
+        assert _plucked_remote_label(
+            "", "OpenIRBlaster", SHAPE_CODE_LIST
+        ) == "OpenIRBlaster"
 
 
 # ---------------------------------------------------------------------

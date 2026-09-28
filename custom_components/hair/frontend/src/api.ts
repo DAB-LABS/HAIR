@@ -1919,12 +1919,28 @@ export interface PluckEmptyBlock {
  *   not loaded  pluck.empty.source.<id>.not_installed
  *               pluck.empty.not_installed
  *
+ * One source is exempt from the not-loaded line entirely. HAIR reads
+ * OpenIRBlaster's code library, but the integration is deprecated
+ * upstream, so telling somebody who does not have it that they could
+ * install it is advice HAIR should not be giving. Its block appears only
+ * where it applies: the integration is loaded, or a store of its codes
+ * is sitting in .storage. See UNADVERTISED_SOURCES below.
+ *
  * A source that resolves to nothing contributes no block rather than
  * printing its own key at the user: `t()` falls back to en and then to
  * the key itself, and a raw `pluck.empty.source.foo` on screen is
  * worse than silence. A provider added later needs its own key added
  * with it, or it inherits the generic not-installed line.
  */
+/**
+ * Sources HAIR can read but does not recommend.
+ *
+ * A source in here gets a block only when this install actually has it.
+ * Everything else still gets its not-installed line, which is what makes
+ * the empty tab a shop window for the routes worth taking.
+ */
+const UNADVERTISED_SOURCES = new Set(["openirblaster"]);
+
 export function pluckEmptyBlocks(
     sources: PluckSource[] | null | undefined,
     translate: (key: string, subs?: Record<string, string | number>) => string,
@@ -1940,6 +1956,12 @@ export function pluckEmptyBlocks(
     const blocks: PluckEmptyBlock[] = [];
     for (const source of sources ?? []) {
         if (Object.values(source.ready).includes(true)) continue;
+        // Loaded, or a store of its codes on disk. Written as the rule
+        // reads rather than leaning on the line above: a source with a
+        // store is ready, and a reader should not have to notice that to
+        // see that this block only appears where it applies.
+        const present = source.loaded || source.ready.storage === true;
+        if (UNADVERTISED_SOURCES.has(source.integration) && !present) continue;
         const base = `pluck.empty.source.${source.integration}`;
         const body = source.loaded
             ? resolve(
