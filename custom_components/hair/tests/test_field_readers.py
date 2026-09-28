@@ -105,6 +105,7 @@ class TestTheVendoredMaps:
         loaded = {m.protocol_id for m in fr.load_maps()}
         assert loaded == {
             "AUX104", "CHIGO96B", "DAIKIN152", "DAIKIN216", "GREE", "MHI152",
+            "PANASONIC216", "FUJITSU128",
             "MHI160", "MHI48", "MIDEA_COOLIX", "MITSUBISHI144", "OEM112",
             "TCL112", "ZHLT01",
         }
@@ -172,7 +173,7 @@ class TestTheVendoredMaps:
             walk(yaml.safe_load(path.read_text(encoding="utf-8")),
                  path.stem)
             seen += 1
-        assert seen == 13, f"{seen} maps walked, expected thirteen"
+        assert seen == 15, f"{seen} maps walked, expected fifteen"
 
     def test_every_named_encoding_is_implemented(self):
         for field_map in fr.load_maps():

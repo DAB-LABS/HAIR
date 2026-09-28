@@ -925,7 +925,16 @@ def check_integrity(reading: Reading, rule: IntegrityRule) -> bool | None:
             return None
         modulus = int(params.get("mod", 256) or 256)
         offset = int(params.get("offset", 0) or 0)
-        total = (sum(frame[first:last + 1]) + offset) % modulus
+        # ``scale`` is +1 unless a map says otherwise, so every map
+        # written before this parameter existed computes exactly what it
+        # always did. It exists for the families whose check byte is a
+        # constant MINUS the sum rather than the sum itself: Fujitsu's
+        # 128-bit frame closes with 0xD0 - sum(bytes 8..14), which the
+        # additive form cannot express at any offset. Still no
+        # expression to evaluate, which is the property the closed rule
+        # set exists to keep.
+        scale = int(params.get("scale", 1) or 1)
+        total = (scale * sum(frame[first:last + 1]) + offset) % modulus
         return _masked(frame[target], params) == total % 256
     if rule.type == RULE_NIBBLE_SUM:
         nibbles = params.get("nibbles")

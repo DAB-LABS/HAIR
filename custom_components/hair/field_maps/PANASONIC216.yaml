@@ -1,0 +1,243 @@
+schema_version: "0.3"
+protocol_id: PANASONIC216
+aliases:
+  - "Panasonic CS-series remotes, two frames 64+152, vendor prefix 02 20 E0 04 00"
+  - "the frame Mitsubishi Heavy DXK24ZRA also sends, despite its badge"
+status: draft
+
+frame:
+  total_bits: 152
+  frames_per_command: 2
+  frame_layout: [64, 152]
+  payload_frame: 1
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [3471, 1736]
+  bit0_us: {mark: 421, space: 447}
+  bit1_us: {mark: 421, space: 1315}
+  # Every source is a Broadlink capture, and a Broadlink packet carries
+  # no carrier at all; the importer stamps 38 kHz on one. Stating null
+  # is the honest record of what the corpus knows.
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured over 135,404 pulse pairs, 11 files
+    classify: space
+    unit_mark_us:    {nominal: 421, min: 184, max: 700}
+    # The windows meet rather than leaving a dead zone: measured zeros
+    # top out at 631 and measured ones start at 1,131, so the split sits
+    # at 880/881, roughly midway, and no space can fall between them.
+    space_zero_us:   {nominal: 447, min: 210, max: 880}
+    space_one_us:    {nominal: 1315, min: 881, max: 1600}
+    header_mark_us:  {nominal: 3471, min: 2800, max: 4200}
+    header_space_us: {nominal: 1736, min: 1400, max: 2200}
+    # Measured gaps run 9,861 to 10,439 us and the longest bit space is
+    # 1,499, so 6,000 separates them with room either side. It also
+    # keeps this map off the Daikin families, whose gap is 24,000 and
+    # up: a Daikin code splits into four frames here, not two, and
+    # fails the layout before identity is ever consulted.
+    frame_gap_us:    {min: 6000}
+  # The vendor prefix, constant on every one of the 4,410 codes read.
+  # DAIKIN216 declares the same frame layout, so the layout alone does
+  # not separate the two families; these five bytes do.
+  identity_bytes: [[1, 0, 0x02], [1, 1, 0x20], [1, 2, 0xE0], [1, 3, 0x04], [1, 4, 0x00]]
+
+integrity:
+  - type: checksum_sum
+    description: "Frame 1's last byte (18) is the sum of bytes 0..17, mod 256."
+    params: {frame: 1, range: [0, 17], target_byte: 18, mod: 256, offset: 0}
+    verified_on: "4408/4410 codes across 11 files (99.95%); both failures are
+      one file's two shifted captures, which read a bit-rotated frame 0"
+    confidence: ratified
+  - type: checksum_sum
+    description: "The same rule holds on frame 0: byte 7 is the sum of bytes 0..6."
+    params: {frame: 0, range: [0, 6], target_byte: 7, mod: 256, offset: 0}
+    verified_on: "4410/4410 codes across 11 files (100.00%)"
+    confidence: ratified
+
+fields:
+  - name: temperature
+    frame: 1
+    byte: 6
+    bits: "[0,5]"
+    encoding: "Half-degree steps from 16 C: (T - 16) * 2, so 16.0 reads 0,
+      16.5 reads 1 and 30.0 reads 28."
+    encoding_ref:
+      name: offset_linear
+      params: {scale: 2, offset: -32, round: nearest}
+    confidence: ratified
+    domain: "T in 16..30 C. Files offering half degrees use every step;
+      whole-degree files use the even values only."
+    vocabulary: {}
+    agreement:
+      pass: 3634
+      checked: 3645
+      rate: "99.70% (fan_only and one file's dry excluded as invariant)"
+      files_at_100: "10/11"
+      disagreeing_files:
+        - "smartHomeHub/1030.json: 11 cells, all in the two shifted captures"
+
+  - name: mode
+    frame: 1
+    byte: 5
+    bits: "[4,3]"
+    encoding: "Three bits naming the operating mode."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, heat_cool: 0x0, dry: 0x2, cool: 0x3,
+                     heat: 0x4, fan_only: 0x6}
+    confidence: ratified
+    domain: "0x0, 0x2, 0x3, 0x4, 0x6"
+    vocabulary: {auto: 0x0, heat_cool: 0x0, dry: 0x2, cool: 0x3,
+                 heat: 0x4, fan_only: 0x6}
+    vocabulary_notes:
+      - "auto and heat_cool are two SmartIR spellings of one value, 0x0.
+         Both appear in the corpus and neither file uses both."
+      - "0x1, 0x5 and 0x7 are unused across the whole corpus."
+    mode_traits:
+      fan_only:
+        temp: invariant
+        fan: free
+        sentinel: 22
+      dry:
+        temp: file_dependent
+        fan: free
+    agreement:
+      pass: 4392
+      checked: 4410
+      rate: "99.59%"
+      files_at_100: "9/11"
+      disagreeing_files:
+        - "smartHomeHub/1025.json: writes 0x0 for heat and cool alike, 16 cells"
+        - "smartHomeHub/1030.json: 2 cells, the shifted captures"
+
+  - name: fan_speed
+    frame: 1
+    byte: 8
+    bits: "[4,3]"
+    encoding: "Three bits naming the fan step."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x2, low: 0x3, mediumLow: 0x4, medium: 0x5,
+                     mid: 0x5, mediumHigh: 0x6, high: 0x7}
+    confidence: provisional
+    domain: "0x2 through 0x7"
+    vocabulary: {auto: 0x2, low: 0x3, mediumLow: 0x4, medium: 0x5,
+                 mid: 0x5, mediumHigh: 0x6, high: 0x7}
+    vocabulary_notes:
+      - "medium and mid are two SmartIR spellings of 0x5."
+      - "Provisional because three files write 0x2, the auto value, for
+         every fan label they offer, on part of their lattice. That is a
+         disagreement about the column rather than about the mapping, and
+         ratifying it would raise a finding on every one of those cells."
+    agreement:
+      pass: 2488
+      checked: 2602
+      rate: "95.62%"
+      files_at_100: "8/11"
+      disagreeing_files:
+        - "smartHomeHub/1025.json: 24 cells write auto's value throughout"
+        - "smartHomeHub/1026.json: 45 cells, 15 of 45 lattice groups flat"
+        - "smartHomeHub/1032.json: 45 cells, 15 of 60 lattice groups flat"
+
+  - name: power
+    frame: 1
+    byte: 5
+    bits: "bit:0"
+    encoding: "Set on a state frame that turns the unit on."
+    encoding_ref:
+      name: bitflag
+      params: {true_values: []}
+    confidence: provisional
+    domain: "0 or 1"
+    vocabulary: {}
+    vocabulary_notes:
+      - "Provisional because the corpus cannot vary it: every cell in a
+         SmartIR climate lattice is an on-state, so the field is 1 on
+         4,403 of 4,410 codes and the seven zeros are unexplained. Three
+         files write 0 at their lowest temperature, which looks like an
+         off code filed under a temperature, and two more are the shifted
+         captures. A file that states its off code separately would
+         settle it."
+    agreement:
+      pass: 4403
+      checked: 4410
+      rate: "99.84%"
+      files_at_100: "7/11"
+      disagreeing_files:
+        - "smartHomeHub/1023.json: 2 cells at 16 C and 17 C"
+        - "smartHomeHub/1024.json: 1 cell at 16 C"
+        - "smartHomeHub/1028.json: 2 cells at 16 C and 17 C"
+        - "smartHomeHub/1030.json: 2 cells, the shifted captures"
+
+synthesis:
+  template:
+    - [0x02, 0x20, 0xE0, 0x04, 0x00, 0x00, 0x00, 0x06]
+    - [0x02, 0x20, 0xE0, 0x04, 0x00, 0x39, 0x24, 0x80,
+       0xAF, 0x00, 0x00, 0x0E, 0xE0, 0x00, 0x00, 0x81,
+       0x00, 0x00, 0x00]
+  tail_bits: {}
+  fixture_coordinates:
+    mode: [cool, heat, dry, fan_only, auto]
+    fan: [auto, low, medium, high]
+    temp: [16, 18, 20, 22, 24, 26, 28, 30]
+
+derivation:
+  files_used:
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1020.json,
+       manufacturer: Panasonic, models: [CS-CE7HKEW]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1021.json,
+       manufacturer: Panasonic, models: [CS-RE9GKE]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1022.json,
+       manufacturer: Panasonic, models: [CS-Z25TK]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1023.json,
+       manufacturer: Panasonic, models: [CS-HE9JKE]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1024.json,
+       manufacturer: Panasonic, models: [CS-MRE7MKE]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1025.json,
+       manufacturer: Panasonic, models: [CS-E18FKR]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1026.json,
+       manufacturer: Panasonic, models: [CS-PC12QKT]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1028.json,
+       manufacturer: Panasonic, models: [CS-U9RKR]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1029.json,
+       manufacturer: Panasonic, models: ["CS-LJ22~LJ90BA2(YA2)"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1030.json,
+       manufacturer: Panasonic, models: [CS-E12JKDW]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1032.json,
+       manufacturer: Panasonic, models: [CS-CU-HU18YKYF]}
+  external_sources: []
+  open_questions:
+    - "Swing is not mapped. Only one file in the family (1030) carries a
+       swing axis at all, and no bit range in it separates its six swing
+       labels cleanly, so there is nothing to ratify and nothing honest to
+       mark provisional. A second file with a swing axis would settle it."
+    - "Power cannot be varied by this corpus. See the field's note."
+    - "Byte 5's low nibble takes fourteen values across the family and
+       tracks neither mode, fan, swing nor temperature. It is constant
+       within a file, so it reads as a model or option byte rather than a
+       coordinate."
+    - "Bytes 9, 11, 12, 13, 15, 16 and 17 vary between files and are
+       constant within one. None of them answers a wig dimension."
+  notes:
+    - "smartHomeHub/1684.json is TWO protocols in one file and votes in
+       neither map. Badged Mitsubishi Heavy Industries DXK24ZRA, its 60
+       `heat` cells send this family's frame, vendor prefix and all, and
+       its 60 `cool` cells send MHI's single 152-bit frame. MHI152's own
+       derivation had already seen the split from the other side and
+       described the half it could not read as carrying `a 64-bit
+       preamble frame`; that half is this protocol. The file is
+       deliberately absent from files_used here: a source that changes
+       protocol halfway through its own lattice cannot show family
+       agreement, and its 120 codes were read for the identity check
+       only. Whether the unit really sends both, or the file was
+       assembled from two remotes, needs the hardware to answer."
+    - "The nine Daikin files that share this cluster's frame shape are a
+       different family: their payload frame opens 11 DA 27 and their
+       codes carry a leading marker burst. They are DAIKIN152's."
+    - "Two captures in 1030.json read a bit-rotated frame 0 (01 10 70 02
+       rather than 02 20 E0 04). They are the only cells that fail the
+       frame 1 checksum, and they account for every disagreement this map
+       records in 1030."

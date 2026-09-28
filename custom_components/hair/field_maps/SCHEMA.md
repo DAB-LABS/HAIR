@@ -1,7 +1,10 @@
-# Field-map schema v0.3
+# Field-map schema v0.4
 
 Proposed v0 by the first derivation pass (2026-08-22). Extended to v0.1 by round two
-and to v0.2 by round three, same date, and to v0.3 by the DAIKIN216 map (2026-09-14).
+and to v0.2 by round three, same date, and to v0.3 by the DAIKIN216 map (2026-09-14), and to v0.4 by the AC
+derivation pass (2026-09-23), which added one optional rule parameter:
+`integrity[].params.scale` on `checksum_sum`. It defaults to 1, so every
+map written against v0.3 computes exactly what it did before.
 **Every change in every round is additive**: a reader written against v0 still reads
 every map in this directory correctly, with one conformance point (round two,
 `vocabulary`) called out at the end.
@@ -212,7 +215,7 @@ MIDEA_COOLIX's Gray-coded temperature table is expressed without adding a
 | type | params | meaning |
 |---|---|---|
 | `complement_pairs` | `frame`, `pairs` or `start`/`count` | `byte[hi] == ~byte[lo] & 0xFF` |
-| `checksum_sum` | `frame`, `range`, `target_byte`, `mod`, `offset`, `bits` | sum of a byte range |
+| `checksum_sum` | `frame`, `range`, `target_byte`, `mod`, `offset`, `scale`, `bits` | `scale * sum(range) + offset`, mod `mod`; `scale` defaults to 1 |
 | `nibble_sum` | `frame`, `nibbles`, `target_byte`, `bits`, `offset` | sum of selected nibbles |
 | `frame_repeat` | `frame`, `equals` | frame N is byte-identical to frame M |
 

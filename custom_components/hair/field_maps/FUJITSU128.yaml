@@ -1,0 +1,235 @@
+schema_version: "0.4"
+protocol_id: FUJITSU128
+aliases:
+  - "Fujitsu AR-series remotes, one 128-bit frame, vendor prefix 14 63 00 10 10 FE 09"
+  - "General Electric and Hisense rebadges of the same frame"
+status: draft
+
+frame:
+  total_bits: 128
+  frames_per_command: 1
+  frame_layout: [128]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [3261, 1604]
+  bit0_us: {mark: 421, space: 394}
+  bit1_us: {mark: 421, space: 1183}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured over 1,860,531 pulse pairs, 17 files
+    classify: space
+    unit_mark_us:    {nominal: 421, min: 180, max: 800}
+    space_zero_us:   {nominal: 394, min: 180, max: 860}
+    space_one_us:    {nominal: 1183, min: 861, max: 1600}
+    header_mark_us:  {nominal: 3261, min: 2600, max: 4000}
+    header_space_us: {nominal: 1604, min: 1300, max: 2000}
+    # One frame per command, so this only has to sit above the longest
+    # bit space (1,600) and below the shortest inter-frame silence
+    # measured, 13,832.
+    frame_gap_us:    {min: 6000}
+  # Seven constant bytes, on every one of the 14,535 codes read. This is
+  # the longest identity in the directory and it is what lets a
+  # single-frame 128-bit map sit safely beside the other AC families.
+  identity_bytes: [[0, 0, 0x14], [0, 1, 0x63], [0, 2, 0x00], [0, 3, 0x10],
+                   [0, 4, 0x10], [0, 5, 0xFE], [0, 6, 0x09]]
+
+integrity:
+  - type: checksum_sum
+    description: "The last byte is 0xD0 minus the sum of bytes 8 to 14,
+      mod 256. Note the sign: this frame's check byte falls as its
+      payload rises, which is why the rule needs `scale: -1`."
+    params: {frame: 0, range: [8, 14], target_byte: 15, mod: 256,
+             scale: -1, offset: 0xD0}
+    verified_on: "14340/14535 codes across 17 files (98.66%), every file
+      but 1289.json at 100%"
+    confidence: ratified
+
+fields:
+  - name: mode
+    frame: 0
+    byte: 9
+    bits: "[0,3]"
+    encoding: "Three bits naming the operating mode."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, heat_cool: 0x0, cool: 0x1, dry: 0x2,
+                     fan_only: 0x3, heat: 0x4}
+    confidence: ratified
+    domain: "0x0 through 0x4"
+    vocabulary: {auto: 0x0, heat_cool: 0x0, cool: 0x1, dry: 0x2,
+                 fan_only: 0x3, heat: 0x4}
+    vocabulary_notes:
+      - "auto and heat_cool are two SmartIR spellings of 0x0."
+    agreement:
+      pass: 14535
+      checked: 14535
+      rate: "100.00%"
+      files_at_100: "17/17"
+      disagreeing_files: []
+
+  - name: swing
+    frame: 0
+    byte: 10
+    bits: "[3,3]"
+    encoding: "Three bits naming which louvre sweeps."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {"off": 0x0, static: 0x0, swing: 0x2, vertical: 0x2,
+                     horizontal: 0x4, both: 0x6}
+    confidence: ratified
+    domain: "0x0, 0x2, 0x4, 0x6"
+    vocabulary: {"off": 0x0, static: 0x0, swing: 0x2, vertical: 0x2,
+                 horizontal: 0x4, both: 0x6}
+    vocabulary_notes:
+      - "Only seven of the seventeen files carry a swing axis at all."
+      - "The odd values are unused: the field is two independent bits at
+         positions 4 and 5, read here as one range because no file in the
+         corpus sets bit 3."
+    agreement:
+      pass: 8378
+      checked: 8402
+      rate: "99.71%"
+      files_at_100: "6/7"
+      disagreeing_files:
+        - "smartHomeHub/1294.json: 24 cells"
+
+  - name: fan_speed
+    frame: 0
+    byte: 10
+    bits: "[0,3]"
+    encoding: "A five-step ordinal scale, 0 for auto then quiet to
+      highest. The STEPS are stable across the family; the names files
+      give them are not."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, highest: 0x1, high: 0x1, med: 0x2,
+                     mid: 0x2, medium: 0x2, low: 0x3, quiet: 0x4}
+    confidence: provisional
+    domain: "0x0 through 0x4"
+    vocabulary: {auto: 0x0, highest: 0x1, high: 0x1, med: 0x2,
+                 mid: 0x2, medium: 0x2, low: 0x3, quiet: 0x4}
+    vocabulary_notes:
+      - "Provisional, and the disagreement is about NAMES rather than
+         about the field. Some files call the four non-auto steps high,
+         med, low, quiet and others highest, high, medium, low, so one
+         file's `high` is another's `highest` and the same wire value
+         answers to both. Ratifying either reading files findings against
+         the other."
+      - "A second pattern sits on top of it: several files write 0, the
+         auto value, for every fan label they offer, the same flat-column
+         shape PANASONIC216 records."
+    agreement:
+      pass: 12267
+      checked: 14535
+      rate: "84.40%"
+      files_at_100: "4/17"
+      disagreeing_files:
+        - "thirteen of the seventeen, listed in the derivation report"
+
+synthesis:
+  template:
+    - [0x14, 0x63, 0x00, 0x10, 0x10, 0xFE, 0x09, 0x30,
+       0x21, 0x01, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00]
+  tail_bits: {}
+  fixture_coordinates:
+    mode: [cool, heat, dry, fan_only, auto]
+    fan: [auto, high, med, low]
+    temp: [18, 20, 22, 24, 26, 28]
+
+derivation:
+  files_used:
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1042.json,
+       manufacturer: "Ggeneral Electric", models: ["ASHA09LCC"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1043.json,
+       manufacturer: "General Electric", models: ["ASWX09LECA"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1280.json,
+       manufacturer: "Fujitsu", models: ["AR-RBE1E"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1281.json,
+       manufacturer: "Fujitsu", models: ["Unknown"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1282.json,
+       manufacturer: "Fujitsu", models: ["AR-JW11"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1284.json,
+       manufacturer: "Fujitsu", models: ["AR-REG1U"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1285.json,
+       manufacturer: "Fujitsu", models: ["AR-RCE1E"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1287.json,
+       manufacturer: "Fujitsu", models: ["ASYG-LMCE", "AR-REB1E", "AR-REM7E", "AR-REW2E"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1289.json,
+       manufacturer: "Fujitsu", models: ["ASYG18LF", "AR-RY12", "AR-REW1E", "AR-REW1U"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1291.json,
+       manufacturer: "Fujitsu", models: ["AR-REF1E"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1292.json,
+       manufacturer: "Fujitsu", models: ["ASYG18LF", "AR-RY12"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1293.json,
+       manufacturer: "Fujitsu", models: ["ASYG07LM", "ASYG09LM", "AR-REB1E"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/1520.json,
+       manufacturer: "Hisense", models: ["Unknown"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/6667.json,
+       manufacturer: "Fujitsu", models: ["AR-REG1U", "ASMG18CMCA"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/6687.json,
+       manufacturer: "Fujitsu", models: ["ASYG18LF", "AR-RY12"]}
+    - {repo: litinoveweedle/SmartIR, file: codes/climate/7285.json,
+       manufacturer: "Fujitsu", models: ["AR-RCE1E"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1042.json,
+       manufacturer: "Ggeneral Electric", models: ["ASHA09LCC"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1043.json,
+       manufacturer: "General Electric", models: ["ASWX09LECA"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1280.json,
+       manufacturer: "Fujitsu", models: ["AR-RBE1E"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1281.json,
+       manufacturer: "Fujitsu", models: ["Unknown"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1282.json,
+       manufacturer: "Fujitsu", models: ["AR-JW11"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1284.json,
+       manufacturer: "Fujitsu", models: ["AR-REG1U"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1285.json,
+       manufacturer: "Fujitsu", models: ["AR-RCE1E", "AR-PZ2"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1287.json,
+       manufacturer: "Fujitsu", models: ["ASYG-LMCE", "AR-REB1E", "AR-REM7E", "AR-REW2E"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1289.json,
+       manufacturer: "Fujitsu", models: ["AR-REW1E"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1291.json,
+       manufacturer: "Fujitsu", models: ["AR-REF1E"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1292.json,
+       manufacturer: "Fujitsu", models: ["ASYG18LF", "AR-RY12"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1293.json,
+       manufacturer: "Fujitsu", models: ["ASYG07LM", "ASYG09LM", "AR-REB1E"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1294.json,
+       manufacturer: "Fujitsu", models: ["AR-RY4"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/1520.json,
+       manufacturer: "Hisense", models: ["Unknown"]}
+    - {repo: smartHomeHub/SmartIR, file: codes/climate/7285.json,
+       manufacturer: "Fujitsu", models: ["AR-RCE1E"]}
+  external_sources: []
+  open_questions:
+    - "TEMPERATURE IS NOT MAPPED, and the reason is a real property of
+       the frame rather than a gap in the reading. The setpoint lives in
+       byte 8's high nibble, which is settled: it steps by one per degree
+       in every file. What is not settled is where it starts. The nibble
+       counts from the REMOTE'S OWN minimum, not from a fixed
+       temperature, so a file whose range opens at 16 C and one whose
+       range opens at 18 C both put 0x2 in the nibble for their lowest
+       setting. Measured across the family the offset takes at least five
+       values, 8,418 cells at +2 and 3,691 at 0. No encoding in the
+       closed set can express `T minus this file's minimum`, and guessing
+       one offset would file a finding on every cell of every file using
+       the other. This wants either a new encoding keyed to the wig's own
+       temperature range or a decision that the field stays unchecked."
+    - "Power is not mapped. Byte 9 bit 3 is zero on all 14,535 codes, so
+       the corpus cannot show it varying, exactly as with PANASONIC216."
+    - "Two files render 120 bits rather than 128 and two more render a
+       leading empty frame. All four carry the same seven identity bytes
+       and are the same family; whether the 120-bit form drops a byte or
+       the capture lost one is not answerable from the corpus."
+  notes:
+    - "Both bench units are in this family, in the single-frame 128-bit
+       group carrying the seven-byte prefix. AR-RY4 is
+       smartHomeHub/1294.json and AR-RBE1E is 1280.json, present in both
+       repositories. 1294.json is also the ONE file whose swing column
+       disagrees with the rest of the family, 24 cells of it, so the
+       AR-RY4 unit is the one that can settle that field on hardware."

@@ -7,9 +7,22 @@ status: draft
 
 frame:
   total_bits: 152
-  frames_per_command: 3      # plus a 5-bit leader block that carries no bytes
-  frame_layout: [64, 64, 152]
-  payload_frame: 2
+  # FOUR frames, not three, and the leader block is one of them.
+  #
+  # The note this line used to carry ("plus a 5-bit leader block that
+  # carries no bytes") was right about the data and wrong about the
+  # reader. The schema's decision procedure treats a pair as a header
+  # only when its mark AND space fall inside header_mark_us and
+  # header_space_us; the leader block's pair is about 421/421, which is
+  # in neither, so the reader classifies it as bits and its 25 ms gap
+  # closes a frame. Four frames then met a three-frame layout and
+  # identification failed on every code in this family, including the
+  # files named in derivation.files_used below. The census measured it
+  # at 0 of 2,955. Declaring the block is the fix, and bits_tolerance 1
+  # covers the codes that render it as four pairs rather than five.
+  frames_per_command: 4
+  frame_layout: [5, 64, 64, 152]
+  payload_frame: 3
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [3448, 1740]
@@ -26,28 +39,28 @@ frame:
     header_mark_us:  {nominal: 3448, min: 2244, max: 5390}
     header_space_us: {nominal: 1740, min: 1111, max: 2766}
     frame_gap_us:    {min: 2000}
-  identity_bytes: [[2, 0, 0x11], [2, 1, 0xDA], [2, 2, 0x27]]
+  identity_bytes: [[3, 0, 0x11], [3, 1, 0xDA], [3, 2, 0x27]]
 
 integrity:
   - type: checksum_sum
     description: "Frame 2's last byte (18) is the sum of bytes 0..17, mod 256."
-    params: {frame: 2, range: [0, 17], target_byte: 18, mod: 256, offset: 0}
+    params: {frame: 3, range: [0, 17], target_byte: 18, mod: 256, offset: 0}
     verified_on: "9153/9153 checks across 8 files, all three rules together (every file 100%)"
     confidence: ratified
   - type: checksum_sum
     description: "The same rule holds on frame 0 (byte 7 = sum of bytes 0..6)."
-    params: {frame: 0, range: [0, 6], target_byte: 7, mod: 256, offset: 0}
+    params: {frame: 1, range: [0, 6], target_byte: 7, mod: 256, offset: 0}
     verified_on: "3051/3051 cells across 8 files"
     confidence: ratified
   - type: checksum_sum
     description: "And on frame 1 (byte 7 = sum of bytes 0..6)."
-    params: {frame: 1, range: [0, 6], target_byte: 7, mod: 256, offset: 0}
+    params: {frame: 2, range: [0, 6], target_byte: 7, mod: 256, offset: 0}
     verified_on: "3051/3051 cells across 8 files"
     confidence: ratified
 
 fields:
   - name: temperature
-    frame: 2
+    frame: 3
     byte: 6
     bits: full_byte
     encoding: "T * 2, so the field carries half-degree resolution even where labels do not."
@@ -75,7 +88,7 @@ fields:
         - "1114.json: 9 cells spread across heat and heat_cool"
 
   - name: mode
-    frame: 2
+    frame: 3
     byte: 5
     bits: "mask:0x70"
     encoding: "3-bit enum at frame 2 byte 5 bits 4-6."
@@ -101,7 +114,7 @@ fields:
         - "1108.json: 15 heat cells read 0x3 (cool)"
 
   - name: fan_speed
-    frame: 2
+    frame: 3
     byte: 8
     bits: high_nibble
     encoding: "4-bit enum at frame 2 byte 8 bits 4-7."
@@ -133,7 +146,7 @@ fields:
         - "1114.json: 39 'powerful' cells read 0x7 (high) instead of 0xA"
 
   - name: power
-    frame: 2
+    frame: 3
     byte: 5
     bits: "bit:0"
     encoding: "1 = on. The off command clears it."
@@ -154,10 +167,15 @@ fields:
         - "1104.json (210 state cells), 1106.json (4), 1108.json (1)"
 
 synthesis:
-  template: [[0x11, 0xDA, 0x27, 0x00, 0xC5, 0x00, 0x00, 0x00],
+  # Four frames now, the first being the leader block. It is five zero
+  # bits in every code of the family, and tail_bits says so because five
+  # is not a whole byte.
+  template: [[0x00],
+             [0x11, 0xDA, 0x27, 0x00, 0xC5, 0x00, 0x00, 0x00],
              [0x11, 0xDA, 0x27, 0x00, 0x42, 0x00, 0x10, 0x00],
              [0x11, 0xDA, 0x27, 0x00, 0x00, 0x01, 0x32, 0x00, 0xA0, 0x00, 0x00, 0x06,
               0x60, 0x00, 0x00, 0xC1, 0x00, 0x00, 0x00]]
+  tail_bits: {0: "00000"}
   fixture_coordinates:
     mode: [cool, heat, heat_cool]
     fan: [auto, low, medium, high]
