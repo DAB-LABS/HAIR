@@ -5664,11 +5664,15 @@ async def ws_wigs_save(
     # open, so nobody should reach this. It stands behind that for
     # anything calling the endpoint directly, which is exactly why a
     # ruled UI shape does not make a server-side check redundant.
+    #
+    # UNUSUAL ROWS DO NOT COUNT (owner ruled 2026-09-27, GH #177). A
+    # code that only looks unusual is not a claim that it is wrong, so
+    # it stays open and marked but does not hold the signing up.
     if _claiming(attestation) and matrix is not None:
-        from .tangles import FIT_HAS_TANGLES, list_tangles
+        from .tangles import FIT_HAS_TANGLES, blocking_rows, list_tangles
 
         open_rows = await hass.async_add_executor_job(
-            lambda: list_tangles(device, matrix).rows
+            lambda: blocking_rows(list_tangles(device, matrix))
         )
         if open_rows:
             connection.send_error(

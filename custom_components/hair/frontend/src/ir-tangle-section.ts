@@ -6,21 +6,32 @@
  * click-annotated flows this file builds from.
  *
  * Mounted under Commands in ir-device-detail.ts, rendered only when
- * there is something to show. One calm header line, then up to three
+ * there is something to show. One calm header line, then up to four
  * cards -- "Fixes ready" [FIX], "Requires your remote" [LISTEN],
- * "Requires your answer" [DECIDE] -- each a plain sentence, a count,
- * one button opening its flow. No imposed order. One card open at a
- * time; opening a second closes the first (the brief's flows are each
- * "open it" full-width work, not simultaneous).
+ * "Requires your answer" [DECIDE], "Unusual" [UNUSUAL] -- each a
+ * plain sentence, a count, one button opening its flow. No imposed
+ * order. One card open at a time; opening a second closes the first
+ * (the brief's flows are each "open it" full-width work, not
+ * simultaneous).
  *
- * BUCKETING (tangles-backend.md P6, verified against the merged
- * websocket_api.py/tangles.py source, corrected 2026-08-27): a
+ * BUCKETING lives in ir-tangle-buckets.ts (pure, run under node by
+ * the JS harness) and is re-exported from here. Verified against the
+ * merged websocket_api.py/tangles.py source, corrected 2026-08-27: a
  * TangleListing has no bucket field of its own, and a cluster's own
  * `mechanic` is the STRONGEST road any of its members can take
  * (_best_mechanic in tangles.py), not a per-row fact -- a "donor"
  * cluster can hold a member with no donor of its own. Bucketing keys
- * on each ROW's own `has_donor` instead, which is what guarantees
+ * on each ROW's own facts instead, which is what guarantees
  * `row.donor.pronto` (the candidate FIX actually sends/writes) exists:
+ *   - DECIDE: any 2-member "identical-bytes" cluster (the duplicate-
+ *             name shape P6 already clusters). Tested first.
+ *   - UNUSUAL: rows the server marks `unusual` (tangles.is_unusual:
+ *             every class in UNUSUAL_CLASSES and no candidate of its
+ *             own). Findings that mean "this looks unusual" rather
+ *             than "this is wrong". Each row offers Send, Fix (the
+ *             same popup LISTEN opens) and It Works, Keep It, which is
+ *             enabled only once that row's code was sent from this
+ *             window. These rows do not hold up a Perfect Fit.
  *   - FIX:    rows with `has_donor: true` (a donor candidate already
  *             exists -- nothing to capture).
  *   - LISTEN: rows with `has_donor: false`. Within LISTEN, the row's
@@ -31,18 +42,15 @@
  *             planned` event and is held in `_witnessPlans` until its
  *             cluster's members either get written (ACCEPT, in FIX) or
  *             the listing moves on without them.
- *   - DECIDE: any 2-member "identical-bytes" cluster (the duplicate-
- *             name shape P6 already clusters). The brief's other
- *             DECIDE item type ("keep or fix, this code looks
- *             unusual") has no backend data source in the merged PR
- *             #129 payload: `listing.advisories` are explicitly
- *             informational-only (tangles.py's own docstring: "not
- *             suspects", "never become rows or cards"), and every row
- *             already resolves to has_donor or one of the two LISTEN
- *             mechanics, with no ambiguous fourth case. Owner-ruled
- *             2026-08-27: omit it entirely rather than ship a dormant
- *             item type; it lands with the alias-collision ticket that
- *             designs DECIDE's full population.
+ *
+ * SUPERSEDED (owner ruled 2026-09-27, GH Discussion #177). The
+ * 2026-08-27 ruling left the brief's single-row "keep or fix, this
+ * code looks unusual" item out of DECIDE because nothing could
+ * populate it. It is now its own card, UNUSUAL, rather than a DECIDE
+ * item type: a frame-shape row on a flat remote has no donor, so it
+ * used to land in LISTEN, and a fresh press of a button that really
+ * sends that shape came back the same shape every time and could
+ * never clear the row.
  *
  * The wig write-through result each mutating command returns under
  * `wig` is tracked here (the most recent one); "Your wig has been
@@ -52,7 +60,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HairApi } from "./api.js";
-import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from "./types.js";
+import type { TangleListing, TangleRow, TangleBatchPlan } from "./types.js";
 import { t, tp } from "./localize.js";
 import type { MatrixUnit } from "./temperature.js";
 import {
@@ -65,84 +73,30 @@ import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-tangle-fix.js";
 import "./ir-tangle-listen.js";
 import "./ir-tangle-decide.js";
+import "./ir-tangle-unusual.js";
+import {
+    bucketDecide,
+    bucketFixRows,
+    bucketListenRows,
+    bucketUnusualRows,
+    sentKey,
+} from "./ir-tangle-buckets.js";
+
+export {
+    bucketDecide,
+    bucketFixRows,
+    bucketListenRows,
+    bucketUnusualRows,
+    clusterByRowId,
+} from "./ir-tangle-buckets.js";
+export type { DecidePair } from "./ir-tangle-buckets.js";
 
 interface HassLike {
     language?: string;
     [key: string]: unknown;
 }
 
-type CardKey = "fix" | "listen" | "decide";
-
-/** Which cluster (if any) a row belongs to -- built once per listing
- * fetch since clusters carry members by row id, not the reverse. */
-function clusterByRowId(listing: TangleListing): Map<string, TangleCluster> {
-    const map = new Map<string, TangleCluster>();
-    for (const cluster of listing.clusters) {
-        for (const memberId of cluster.members) {
-            map.set(memberId, cluster);
-        }
-    }
-    return map;
-}
-
-export function bucketFixRows(listing: TangleListing): TangleRow[] {
-    const byId = clusterByRowId(listing);
-    return listing.rows.filter((row) => {
-        const cluster = byId.get(row.id);
-        if (cluster?.rule === "identical-bytes") return false;
-        return row.has_donor === true;
-    });
-}
-
-/** LISTEN's rows: everything with no donor of its own, MINUS anything
- * a held witness plan has already built a candidate for.
- *
- * That subtraction is the whole of issue 7. One good witness capture
- * settles the row it was aimed at and stages its cluster siblings as
- * FIX rows immediately, but they kept counting here too, so after a
- * sixteen-row capture the section read "15 more fixes ready" AND "15
- * presses from your remote will finish these" -- the second claim no
- * longer true. A row belongs to one card at a time; the press is what
- * moves it. */
-export function bucketListenRows(
-    listing: TangleListing,
-    plannedIds: ReadonlySet<string> = new Set(),
-): TangleRow[] {
-    const byId = clusterByRowId(listing);
-    return listing.rows.filter((row) => {
-        const cluster = byId.get(row.id);
-        if (cluster?.rule === "identical-bytes") return false;
-        if (plannedIds.has(row.id)) return false;
-        return row.has_donor !== true;
-    });
-}
-
-export interface DecidePair {
-    cluster: TangleCluster;
-    rows: TangleRow[];
-}
-
-/**
- * DECIDE, as this build can actually populate it (2026-08-27 finding,
- * owner-ruled: ship the duplicate pairing only, the keep-or-fix item
- * type has no data source today and lands with the alias-collision
- * ticket). See this file's header doc comment for the full reasoning.
- */
-export function bucketDecide(listing: TangleListing): {
-    pairs: DecidePair[];
-} {
-    const byId = new Map(listing.rows.map((r) => [r.id, r]));
-    const pairs: DecidePair[] = [];
-    for (const cluster of listing.clusters) {
-        if (cluster.rule === "identical-bytes" && cluster.members.length === 2) {
-            const rows = cluster.members
-                .map((id) => byId.get(id))
-                .filter((r): r is TangleRow => !!r);
-            if (rows.length === 2) pairs.push({ cluster, rows });
-        }
-    }
-    return { pairs };
-}
+type CardKey = "fix" | "listen" | "decide" | "unusual";
 
 /** One witness capture's pure plan for its cluster, held client-side
  * until ACCEPT writes it (tangle/apply-batch) or it stops applying.
@@ -197,6 +151,13 @@ export class IrTangleSection extends LitElement {
      * It HOLDS. There is no timer and no dismiss: the person may have
      * been across the room with the remote when the press landed. */
     @state() private _cascade: { count: number; gained: number } | null = null;
+    /** Which Unusual rows had their current code sent from this window
+     * (GH #177), keyed by row and digest (ir-tangle-buckets sentKey).
+     * Held here rather than on the card so closing and reopening the
+     * card does not forget a send, and cleared with everything else on
+     * a device change. It is the only thing that opens It Works, Keep
+     * It: the server takes `tested` on faith. */
+    @state() private _sent: ReadonlySet<string> = new Set();
     @state() private _witnessPlans = new Map<
         string,
         { witness: string; witnessTarget: string; plan: TangleBatchPlan }
@@ -229,6 +190,7 @@ export class IrTangleSection extends LitElement {
         this._listing = null;
         this._open = null;
         this._witnessPlans = new Map();
+        this._sent = new Set();
         this._justRetired = false;
         this._pressReplaced = 0;
         this._cascade = null;
@@ -298,7 +260,7 @@ export class IrTangleSection extends LitElement {
         const before = this._listing;
         await this._refresh();
         // Advisories are informational only (never suspects, never
-        // actionable -- see bucketDecide's own doc comment) and are
+        // rows -- see TangleListing.advisories in tangles.py) and are
         // deliberately excluded here: a device that still has
         // advisories but zero open rows is a fully retired section.
         const nowEmpty =
@@ -328,6 +290,15 @@ export class IrTangleSection extends LitElement {
         const next = new Map(this._witnessPlans);
         next.set(clusterId, { witness, witnessTarget, plan });
         this._witnessPlans = next;
+    };
+
+    /** An Unusual row's code went out on the air (a call answered
+     * sent: true, heard or not -- a send nothing hears is still a
+     * send, owner ruling 2026-08-28). */
+    private _handleUnusualSent = (ev: CustomEvent<{ row: TangleRow }>): void => {
+        const next = new Set(this._sent);
+        next.add(sentKey(ev.detail.row));
+        this._sent = next;
     };
 
     private _toggle(card: CardKey): void {
@@ -387,8 +358,14 @@ export class IrTangleSection extends LitElement {
             batchEntries.flatMap((entry) => entry.pendingMembers),
         );
         const listenRows = bucketListenRows(this._listing, plannedIds);
+        const unusualRows = bucketUnusualRows(this._listing);
 
-        if (fixCount === 0 && listenRows.length === 0 && decideCount === 0) {
+        if (
+            fixCount === 0 &&
+            listenRows.length === 0 &&
+            decideCount === 0 &&
+            unusualRows.length === 0
+        ) {
             return nothing;
         }
 
@@ -421,6 +398,18 @@ export class IrTangleSection extends LitElement {
                     .listing=${this._listing}
                 ></ir-tangle-listen>`;
             }
+            if (card === "unusual") {
+                return html`<ir-tangle-unusual
+                    .hass=${this.hass}
+                    .api=${this.api}
+                    .deviceId=${this.deviceId}
+                    .matrixUnit=${this.matrixUnit}
+                    .rows=${unusualRows}
+                    .listing=${this._listing}
+                    .sent=${this._sent}
+                    @tangle-unusual-sent=${this._handleUnusualSent}
+                ></ir-tangle-unusual>`;
+            }
             return html`<ir-tangle-decide
                 .hass=${this.hass}
                 .api=${this.api}
@@ -452,6 +441,12 @@ export class IrTangleSection extends LitElement {
                 sentence: t("tangles.card_decide", { count: decideCount }),
             });
         }
+        if (unusualRows.length > 0) {
+            cards.push({
+                card: "unusual",
+                sentence: tp("tangles.card_unusual", unusualRows.length),
+            });
+        }
 
         return html`
             <div
@@ -467,10 +462,11 @@ export class IrTangleSection extends LitElement {
                           })}
                       </div>`
                     : nothing}
-                <!-- At most three detangle rows, at the top (ruling
-                     2026-08-29). There are only ever three cards, so
-                     this is the shape rather than a limit that bites,
-                     but it is stated here rather than left implicit. -->
+                <!-- At most four detangle rows, at the top (ruling
+                     2026-08-29, a fourth card added 2026-09-27 for
+                     GH #177). There are only ever four cards, so this
+                     is the shape rather than a limit that bites, but
+                     it is stated here rather than left implicit. -->
                 <div class="tangle-cards">
                     ${cards.map(
                         (entry) => html`
@@ -653,6 +649,12 @@ export class IrTangleSection extends LitElement {
             .comb-glyph.decide svg {
                 fill: var(--tangle-copper, #b5651d);
             }
+            /* UNUSUAL wears the theme's quiet text color rather than a
+               new hue: these rows are a doubt about shape, not a
+               claim that something is wrong. */
+            .comb-glyph.unusual svg {
+                fill: var(--tangle-quiet, var(--secondary-text-color));
+            }
             /* THE HINGE (owner ruled 2026-09-03). The card's open
                and close is a chevron now, so it is no longer a chip at
                all: no border, no fill, no label, just the card's own
@@ -694,6 +696,9 @@ export class IrTangleSection extends LitElement {
             }
             .tcard-chevron.decide {
                 color: var(--tangle-copper, #b5651d);
+            }
+            .tcard-chevron.unusual {
+                color: var(--tangle-quiet, var(--secondary-text-color));
             }
             /* The same green the settled row wears, and the same
                centred line the retirement receipt uses: both are the

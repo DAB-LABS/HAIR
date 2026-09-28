@@ -40,9 +40,12 @@ from . import field_readers
 from .models import IRCommand, IRDevice
 from .wig_comb import (
     ADVISORY_CHECKS,
+    CHECK_BYPASS_WITH_DITTOS,
     CHECK_DUPLICATE_LABELS,
     CHECK_DUPLICATED_NEIGHBOUR,
     CHECK_FIELD_MISMATCH,
+    CHECK_FRAME_SHAPE,
+    CHECK_RAMP_DITTOS,
     CHECK_STRAY_BURST,
     FIELD_COORDINATE,
     POWER_FIELD,
@@ -71,6 +74,26 @@ TARGET_COMMAND = "command"
 FIELD_TIER_UNMAPPED = "protocol-unmapped"
 FIELD_TIER_NO_LATTICE = "no-lattice"
 FIELD_TIER_READ = "read"
+
+#: Findings that mean "this looks unusual" rather than "this is wrong"
+#: (owner ruled 2026-09-27, GH Discussion #177). A code a person has
+#: sent to their own device and watched work can be kept as it is, and
+#: a row made only of these does not hold up a Perfect Fit.
+#:
+#: THE ONE LIST. The listing serves it as ``unusual_classes`` and marks
+#: each row with ``unusual``, so the panel never carries a copy that
+#: could drift from this one.
+#:
+#: The two ditto classes are advisory in the comb and never become rows
+#: today; they sit here so the list is already right on the day an
+#: advisory is promoted. ``stray-cell`` is deliberately absent this
+#: round.
+UNUSUAL_CLASSES: tuple[str, ...] = (
+    CHECK_FRAME_SHAPE,
+    CHECK_STRAY_BURST,
+    CHECK_BYPASS_WITH_DITTOS,
+    CHECK_RAMP_DITTOS,
+)
 
 
 @dataclass(frozen=True)
@@ -170,7 +193,11 @@ class TangleListing:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "rows": [row.as_dict() for row in self.rows],
+            "rows": [
+                {**row.as_dict(), "unusual": is_unusual(row)}
+                for row in self.rows
+            ],
+            "unusual_classes": list(UNUSUAL_CLASSES),
             "clusters": [c.as_dict() for c in self.clusters],
             "advisories": [dict(a) for a in self.advisories],
             "attested": [dict(a) for a in self.attested],
@@ -180,6 +207,37 @@ class TangleListing:
             "field_tier": self.field_tier,
             "candidate_sources": list(self.candidate_sources),
         }
+
+
+def is_unusual(row: TangleRow) -> bool:
+    """Whether a row belongs on the Unusual card.
+
+    Two conditions, both required (owner ruled 2026-09-28):
+
+    - EVERY class on it is in ``UNUSUAL_CLASSES``. One class from
+      anywhere else and the row stays where it lands today, because
+      the stricter bucket wins: a frame that is both an odd shape and
+      malformed is malformed.
+    - It has NO candidate of its own. A row HAIR can already repair
+      (a trimmable stray burst on a lattice) stays under Fixes ready,
+      so Accept All keeps covering it. Unusual is for the rows where
+      the only honest answers are "it works, keep it" or a fresh
+      press.
+    """
+    if not row.classes or row.has_donor:
+        return False
+    return all(check in UNUSUAL_CLASSES for check in row.classes)
+
+
+def blocking_rows(listing: TangleListing) -> list[TangleRow]:
+    """The open rows that hold up a Perfect Fit.
+
+    Everything open except Unusual. An unusual row is a doubt about
+    shape, not a claim that the bytes are wrong, so it does not stand
+    between a person and signing a fit (owner ruled 2026-09-27). It
+    still stays open, marked and listed, until somebody keeps it.
+    """
+    return [row for row in listing.rows if not is_unusual(row)]
 
 
 def row_id(kind: str, key: str) -> str:
