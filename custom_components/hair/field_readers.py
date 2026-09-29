@@ -584,6 +584,26 @@ def reset_library() -> None:
     _LIBRARY = None
 
 
+def prime_field_maps() -> None:
+    """Fill the library cache. Blocking file I/O, so never on the loop.
+
+    Called once from ``async_setup_entry`` through the executor, BEFORE
+    either store loads. Since setting-frame identity (#187) every
+    identity computed reads this library, and the first read globs the
+    directory and opens each YAML in it. ``_backfill_canonical_identity``
+    runs inside ``store.async_load`` on every start, so without this warm
+    the first stored command HA touches costs three blocking calls on
+    the event loop, and HA says so: scandir, read_text and open, logged
+    as "Detected blocking call" (VM999 bench 2026-09-29).
+
+    One warm covers the process. The capture path and trigger matching
+    reach the same cache and are wired later in the same function, so
+    they find it filled; ``field_map_digest`` does its own reading but
+    is only ever called from the executor.
+    """
+    library()
+
+
 # ---------------------------------------------------------------------------
 # Pronto to pulses, without the transmit side
 # ---------------------------------------------------------------------------

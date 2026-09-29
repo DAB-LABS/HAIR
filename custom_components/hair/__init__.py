@@ -15,6 +15,7 @@ from .capture_orchestrator import CaptureOrchestrator
 from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL, PLUCKABLE_DIRNAME
 from .device_manager import DeviceManager, prime_localized_auto_map
 from .entity_factory import EntityFactory
+from .field_readers import prime_field_maps
 from .matrix_listener import MatrixListener
 from .pluckable_loader import load_pluckables
 from .power_monitor import PowerMonitor
@@ -69,6 +70,11 @@ async def async_setup_entry(
     # One-time migration: fix legacy entry title.
     if entry.title != "HAIR":
         hass.config_entries.async_update_entry(entry, title="HAIR")
+
+    # The field-map library, off the loop and before anything can want
+    # it. Identity reads the maps now, and loading a store backfills
+    # identities, so this has to come first (VM999 bench 2026-09-29).
+    await hass.async_add_executor_job(prime_field_maps)
 
     store = HAIRStore(hass)
     await store.async_load()

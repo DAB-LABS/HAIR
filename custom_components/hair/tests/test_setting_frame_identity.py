@@ -608,3 +608,47 @@ class TestEveryOtherFamily:
             raw = ProntoCommand(cell.pronto).get_raw_timings()
             assert setting_identity_edges(raw) is None
             assert norm_fingerprint(raw) is None
+
+
+# ---------------------------------------------------------------------------
+# The library is read once (VM999 bench 2026-09-29)
+# ---------------------------------------------------------------------------
+
+
+class TestOneWarmCoversTheProcess:
+    """Identity reads the field maps, so HA warms them off the loop
+    before either store loads (``field_readers.prime_field_maps``, wired
+    in ``async_setup_entry``). That is only enough if every later
+    identity answers from the cache, so this asks for the answers the
+    capture path and trigger matching want with loading made impossible.
+    """
+
+    def test_identity_answers_with_loading_broken(self):
+        from unittest.mock import patch
+
+        from custom_components.hair import field_readers
+        from custom_components.hair.identity import canonical_byte_hash
+
+        matrix = _pack_matrix("DAIKIN216.json")
+        codes = [c.pronto for c in matrix.cells[:5]]
+        codes.append("0000 006D 0006 0000 0157 00AC 0016 0016 0016 0041"
+                     " 0016 0016 0016 0041 0016 06FB")
+
+        field_readers.reset_library()
+        try:
+            field_readers.prime_field_maps()
+
+            def _refuse(*_args, **_kwargs):
+                raise AssertionError("the library was read a second time")
+
+            with patch.object(field_readers, "load_maps", _refuse):
+                for code in codes:
+                    raw = ProntoCommand(code).get_raw_timings()
+                    assert canonical_byte_hash(code) is not None
+                    assert norm_fingerprint(raw) is not None
+                    assert identity_frame(raw)
+                    assert lone_frame_families()
+                    setting_frame_spans(raw)
+                    identify_lone_frame(raw)
+        finally:
+            field_readers.reset_library()
