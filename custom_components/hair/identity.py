@@ -597,7 +597,7 @@ def _verified_reading(train: list[int]):
     """
     from .field_readers import (
         _matches_identity,
-        _matches_layout,
+        aligned_positioned,
         bits_to_bytes,
         library,
         read_frames_positioned,
@@ -611,8 +611,16 @@ def _verified_reading(train: list[int]):
         frames, places, failed = read_frames_positioned(
             field_map.timing, train
         )
-        if failed or not _matches_layout(field_map, frames):
+        if failed:
             continue
+        # Laid on the map's layout, so a code that left out an optional
+        # leader (schema v0.6) still names its setting frames by the
+        # map's own indices. The stand-in leader has no positions and is
+        # never a setting frame, so it contributes nothing to a span.
+        laid = aligned_positioned(field_map, frames, places)
+        if laid is None:
+            continue
+        frames, places = laid
         decoded = [
             bits_to_bytes(frame, field_map.bit_order) for frame in frames
         ]

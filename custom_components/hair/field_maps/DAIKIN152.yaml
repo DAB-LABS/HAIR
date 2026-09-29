@@ -1,4 +1,4 @@
-schema_version: "0.5"
+schema_version: "0.6"
 protocol_id: DAIKIN152
 aliases:
   - "Daikin ARC-series, 5-bit leader plus two 64-bit frames plus a 152-bit frame"
@@ -24,6 +24,14 @@ frame:
   frame_layout: [5, 64, 64, 152]
   payload_frame: 3
   setting_frames: [3]
+  # Schema v0.6. The leader block may be absent. Handset captures carry
+  # it (every decodable code in the eight derivation files does), but
+  # an encoder may send the three frames alone, and a lattice rendered
+  # that way (GH #183) read as nothing at all. When it is missing the
+  # reader lays the other three frames on indices 1..3, so every index
+  # in this file names the same frame either way. The leader carries no
+  # byte and nothing here reads it, which is what lets it be optional.
+  optional_leader: true
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [3448, 1740]

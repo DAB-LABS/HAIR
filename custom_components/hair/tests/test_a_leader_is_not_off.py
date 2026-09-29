@@ -189,13 +189,15 @@ def lattice():
 class TestTheShapeIsTheReportedOne:
     """If these drift, the tests below stop meaning what they say."""
 
-    def test_off_and_presses_read_as_daikin152_and_states_do_not(
+    def test_off_presses_and_states_all_read_as_daikin152(
         self, lattice,
     ):
+        # The leaderless state read as nothing until the DAIKIN152
+        # leader became optional; now all three forms read.
         matrix, settings, _ = lattice
         assert read_code(matrix.off).protocol_id == "DAIKIN152"
         state = matrix.cells[0]
-        assert read_code(state.pronto).protocol_id is None
+        assert read_code(state.pronto).protocol_id == "DAIKIN152"
         press = _handset(settings[cell_key(state)])
         assert read_code(press).protocol_id == "DAIKIN152"
 

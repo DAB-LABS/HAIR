@@ -1225,11 +1225,24 @@ def _shape_findings(
     bi-phase encoding makes exact matching produce false positives on
     perfectly good buttons (see ``_outlier_findings``).
     """
+    # A leader the family's field map says a code may leave out (schema
+    # v0.6) is not part of the shape every code shares, but only a
+    # population that MIXES the two forms needs telling so. Left in there,
+    # every cell carrying the leader reads as a longer frame 0 (at the
+    # carriers measured its gap is short of the threshold, so it lands
+    # inside frame 0 rather than as a frame of its own). A population that
+    # does not mix is compared exactly as before, so a lattice whose codes
+    # all carry the leader keeps every finding it had, including those on
+    # codes no map can read.
+    leads = {key: field_readers.optional_leader_pairs(pronto)
+             for key, pronto in rows}
+    mixed = 0 in leads.values() and any(leads.values())
     shapes: dict[str, tuple[int, ...]] = {}
     for key, pronto in rows:
         pairs = _pairs(pronto)
         if pairs:
-            shapes[key] = _frame_lengths(pairs)
+            lead = leads[key] if mixed else None
+            shapes[key] = _frame_lengths(pairs[lead:] if lead else pairs)
         elif coverage is not None:
             coverage.declined(CHECK_FRAME_SHAPE, DECLINE_UNPARSEABLE)
     if len(shapes) < 3:
