@@ -144,8 +144,11 @@ def _lone_frame_0(pronto: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-class TestADaikinPressNamesNothing:
-    """Nothing, rather than Off. Step 2 makes it name the right cell."""
+class TestADaikinPressNamesItsOwnCell:
+    """Step 1 made these name nothing rather than Off. Step 2 makes
+    them name the right cell, which is what these now pin. The shared
+    decode and the coverage gate are unchanged and still tested: they
+    are why the decoded tier stays out of the way."""
 
     def test_the_shared_decode_is_really_shared(self):
         """The premise, pinned so the test below cannot pass for the
@@ -162,14 +165,21 @@ class TestADaikinPressNamesNothing:
         assert len(matrix.cells) == 200
         assert decoded == {"KASEIKYO64:0xda11:0x20f000000002"}
         assert covers == {False}
-        assert len(hashes) == 1
+        # The byte hash was 1 too until setting-frame identity landed
+        # (step 2). The DECODE is still the shared one -- the decoder
+        # still reads only the constant frame 0 -- which is why the
+        # coverage gate this file exists for still matters.
+        assert len(hashes) == 200
 
-    def test_no_daikin_216_cell_matches_anything(self):
+    def test_every_daikin_216_cell_matches_its_own_cell(self):
         matrix = _pack_matrix("DAIKIN216.json")
         index = build_cell_index(matrix)
-        assert [c for c in matrix.cells if _match(index, c.pronto)] == []
+        for cell in matrix.cells:
+            assert _match(index, cell.pronto) == (
+                cell_key(cell), None, TIER_BYTE_HASH
+            ), cell_key(cell)
 
-    def test_no_daikin_216_lone_frame_0_matches_anything(self):
+    def test_a_lone_frame_0_still_matches_nothing(self):
         matrix = _pack_matrix("DAIKIN216.json")
         index = build_cell_index(matrix)
         assert [
@@ -177,13 +187,14 @@ class TestADaikinPressNamesNothing:
             if _match(index, _lone_frame_0(c.pronto))
         ] == []
 
-    def test_the_daikin_off_code_is_refused_too(self):
-        """Off shares frame 0 with all 200 states, so the index cannot
-        tell it from them either, and says so."""
+    def test_the_daikin_off_code_matches_off(self):
+        """Off shared frame 0 with all 200 states, so step 1 had to
+        refuse it along with them. Its SETTING frame is its own, so it
+        comes back now."""
         matrix = _pack_matrix("DAIKIN216.json")
         index = build_cell_index(matrix)
         assert matrix.off
-        assert _match(index, matrix.off) is None
+        assert _match(index, matrix.off) == ("off", "off", TIER_BYTE_HASH)
 
     def test_daikin_152_cells_find_their_own_cell(self):
         """Not what the bug report predicted, and better.
@@ -309,8 +320,11 @@ class TestTheRule:
         assert _match(index, _OFF) == ("off", "off", TIER_BYTE_HASH)
         assert _match(index, _A) == ("cool/auto/22", None, TIER_BYTE_HASH)
 
-    def test_the_discriminator_reads_the_whole_code_not_frame_0(self):
-        """Why the byte hash could not be the discriminator."""
+    def test_the_discriminator_separates_every_state(self):
+        """It reads the whole code, so it separated all 200 states even
+        when the byte hash could not. Since step 2 the byte hash does
+        too, but the discriminator is what a shared key is refused on
+        and it still has to hold on its own."""
         matrix = _pack_matrix("DAIKIN216.json")
         codes = {
             whole_code_discriminator(
@@ -318,11 +332,7 @@ class TestTheRule:
             )
             for c in matrix.cells
         }
-        hashes = {
-            wig_signal_identity(c.pronto).byte_hash for c in matrix.cells
-        }
         assert len(codes) == 200
-        assert len(hashes) == 1
 
 
 class TestTheCoverageGate:
@@ -354,7 +364,7 @@ class TestTheCoverageGate:
 
 class TestTheStoredIndex:
 
-    def test_the_format_is_4_and_a_3_is_rejected(self, tmp_path):
+    def test_the_format_is_5_and_a_4_is_rejected(self, tmp_path):
         from custom_components.hair.matrix_listener import (
             _build_and_store_index,
             _load_stored_index,
@@ -367,14 +377,14 @@ class TestTheStoredIndex:
         )
         write_matrix(tmp_path, "r1", matrix)
         _build_and_store_index(str(tmp_path), "r1", matrix, "C")
-        assert INDEX_FORMAT == "hair-cell-index/4"
+        assert INDEX_FORMAT == "hair-cell-index/5"
         assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
         path = index_path(tmp_path, "r1")
         payload = _json.loads(path.read_text())
         assert payload["unit"] == "C"
         assert payload["matrix"]
-        payload["format"] = "hair-cell-index/3"
+        payload["format"] = "hair-cell-index/4"
         path.write_text(_json.dumps(payload))
         assert _load_stored_index(str(tmp_path), "r1", "C") is None
 
@@ -384,10 +394,11 @@ class TestTheStoredIndex:
 # ---------------------------------------------------------------------------
 
 
-class TestAPinnedDaikinDeviceIsSentNothing:
-    """``_async_dispatch_pinned_cell`` sends ``matrix.off`` for a hit
-    whose power is "off". That is how every button on the handset came
-    out of the blaster as Off. No hit, no send."""
+class TestAPinnedDaikinDeviceIsSentTheRightState:
+    """``_async_dispatch_pinned_cell`` sent ``matrix.off`` for a hit
+    whose power is "off", which is how every button on the handset came
+    out of the blaster as Off. Step 1 made it send nothing; step 2
+    makes it send the state that was actually pressed."""
 
     @staticmethod
     def _listener(matrix):
@@ -432,7 +443,7 @@ class TestAPinnedDaikinDeviceIsSentNothing:
         return listener, manager, tasks
 
     @pytest.mark.asyncio
-    async def test_a_daikin_press_dispatches_no_send(self):
+    async def test_a_daikin_press_dispatches_that_state(self):
         matrix = _pack_matrix("DAIKIN216.json")
         listener, manager, tasks = self._listener(matrix)
         pressed = matrix.cells[7]
@@ -448,8 +459,11 @@ class TestAPinnedDaikinDeviceIsSentNothing:
             for coro in batch:
                 await coro
 
-        assert heard == []
-        manager.dispatch_cell_retransmit.assert_not_called()
+        assert heard == ["r1"]
+        manager.dispatch_cell_retransmit.assert_called_once()
+        assert manager.dispatch_cell_retransmit.call_args.args[2] == (
+            cell_key(pressed)
+        )
 
     @pytest.mark.asyncio
     async def test_a_press_on_a_lattice_that_resolves_still_dispatches(self):

@@ -323,7 +323,9 @@ class EventParser:
         # remotes using different carrier frequencies.
         if protocol and protocol.upper() == "PRONTO" and code:
             words = EventParser._parse_pronto_words(code)
-            sl = EventParser._pronto_sl_pattern(code)
+            # The PREAMBLE walk, not the identity one: see
+            # _pronto_first_frame_timings.
+            sl = EventParser._pronto_preamble_sl_pattern(code)
             if words is not None and sl is not None:
                 freq_word = words[1]
                 timings = words[4:]
@@ -385,6 +387,60 @@ class EventParser:
         return words
 
     @staticmethod
+    def _pronto_first_frame_timings(code: str | None) -> list[int] | None:
+        """The FIRST frame's timing words, whatever the field maps say.
+
+        THE GROUPING WALK, kept apart from the identity one on purpose
+        (2026-09-29). ``device_fingerprint`` groups a remote's buttons
+        by the preamble they SHARE, and setting-frame identity exists
+        to step past exactly that shared block and read what differs.
+        The two want opposite halves of the same code, so they get
+        their own walks: point grouping at the identity walk and an
+        allowlisted family's grouping key moves, which splits every
+        catalog remote in that family in two -- and the key is
+        persisted and never recomputed, so the split would be
+        permanent. Pinned by test_identity_tail_strip's A6.
+        """
+        words = EventParser._parse_pronto_words(code)
+        if words is None:
+            return None
+        timings: list[int] = []
+        for value in words[4:]:
+            if value >= PRONTO_GAP_THRESHOLD:
+                break
+            timings.append(value)
+        while timings and timings[-1] == 0:
+            timings.pop()
+        if timings and len(timings) % 2 == 0:
+            timings.pop()
+        return timings or None
+
+    @staticmethod
+    def _pronto_preamble_sl_pattern(code: str | None) -> str | None:
+        """``_pronto_sl_pattern`` on the grouping walk above."""
+        timings = EventParser._pronto_first_frame_timings(code)
+        if timings is None:
+            return None
+        return "".join(
+            "S" if t < PRONTO_SL_THRESHOLD else "L" for t in timings
+        )
+
+    @staticmethod
+    def _pronto_us(words: list[int]) -> list[int]:
+        """The pulse train in microseconds, for the field-map windows.
+
+        The maps state their timings in microseconds and a Pronto word
+        is carrier periods, so the two only meet after this conversion.
+        Unsigned: the reader takes absolute values anyway.
+        """
+        from .field_readers import _PRONTO_TICK_US
+
+        if len(words) < 6 or words[1] <= 0:
+            return []
+        unit = words[1] * _PRONTO_TICK_US
+        return [round(word * unit) for word in words[4:]]
+
+    @staticmethod
     def _pronto_identity_timings(code: str | None) -> list[int] | None:
         """The timing words identity hashes: everything up to the last pulse.
 
@@ -411,6 +467,30 @@ class EventParser:
         words = EventParser._parse_pronto_words(code)
         if words is None:
             return None
+
+        # THE SETTING FRAMES, WHEN THE FAMILY IS VERIFIED FOR THEM
+        # (2026-09-29). An AC handset spreads one press over several
+        # frames and only some carry the settings, so stopping at the
+        # first gap below reads the same bytes for every state it can
+        # be in. ``identity`` owns which families this is sound for and
+        # where each frame starts and ends; the spans come back as
+        # indices into the same pulse train these words carry, so the
+        # two layers cannot disagree about a boundary. Everything else
+        # falls through to the walk that has always been here.
+        from .identity import setting_frame_spans
+
+        body = words[4:]
+        spans = setting_frame_spans(EventParser._pronto_us(words))
+        if spans is not None:
+            joined: list[int] = []
+            for start, end in spans:
+                joined.extend(body[start:end])
+            while joined and joined[-1] == 0:
+                joined.pop()
+            if joined and len(joined) % 2 == 0:
+                joined.pop()
+            if joined:
+                return joined
 
         # Skip the 4-word header; stop at the first end-of-signal gap.
         timings: list[int] = []

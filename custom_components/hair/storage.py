@@ -1111,6 +1111,7 @@ class HAIRStore:
         byte_hash: str | None = None,
         decoded_fingerprint: str | None = None,
         norm_fp: str | None = None,
+        decode_covers: bool | None = None,
     ) -> list[IRTrigger]:
         """Find all enabled triggers matching a signal.
 
@@ -1162,7 +1163,9 @@ class HAIRStore:
                 if t.matches_byte_hash(byte_hash):
                     matches.append(t)
                 continue
-            if t.matches_signal(fingerprint, byte_hash, decoded_fingerprint):
+            if t.matches_signal(
+                fingerprint, byte_hash, decoded_fingerprint, decode_covers
+            ):
                 matches.append(t)
                 continue
             if (

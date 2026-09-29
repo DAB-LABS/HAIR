@@ -1013,10 +1013,11 @@ class MatrixListener:
 # the in-memory one cannot drift apart in a refactor.
 
 # Bumped to /2 for the receiver-tolerant tier (2026-08-18), to /3 for
-# the unified strip (GH #125), and to /4 for the shared-key refusal and
-# the coverage gate (owner bench 2026-09-25): a /3 index was built by
-# rules that let one Daikin key answer for 520 states, and it has to be
-# thrown away rather than trusted. A stored index of an older format is
+# the unified strip (GH #125), to /4 for the shared-key refusal and the
+# coverage gate (owner bench 2026-09-25) -- a /3 index was built by
+# rules that let one Daikin key answer for 520 states -- and to /5 for
+# setting-frame identity (2026-09-29), which moves WHERE an allowlisted
+# family's identity is computed from. A stored index of an older format is
 # simply not read, so every lattice rebuilds once and gains the new map;
 # the rebuild is the same seconds-of-work the first build was.
 #
@@ -1028,7 +1029,7 @@ class MatrixListener:
 # pre-migration hashes while captures arrived carrying post-migration
 # ones. Every climate lattice would silently stop recognizing its own
 # cells, with nothing in any log to say so.
-INDEX_FORMAT = "hair-cell-index/4"
+INDEX_FORMAT = "hair-cell-index/5"
 
 
 def _hit_to_row(hit: CellHit) -> list:
@@ -1065,8 +1066,16 @@ def _index_to_payload(
             hits.append(_hit_to_row(hit))
         return seen[key]
 
+    from .identity import field_map_digest
+
     return {
         "format": INDEX_FORMAT,
+        # The field maps and the allowlist decide which frames an
+        # allowlisted family's identity is sliced from, so a change to
+        # either makes this index answer with boundaries the current
+        # library would not choose. Nothing else in the freshness check
+        # moves when a map is edited (review finding 2).
+        "maps": field_map_digest(),
         # What this index was built FROM. A rewritten matrix gets a new
         # hash and this file is ignored (and normally already deleted).
         "matrix": content_hash,
@@ -1112,7 +1121,11 @@ def _payload_to_index(payload: dict) -> CellIndex | None:
 def _load_stored_index(
     config_dir: str, remote_id: str, display_unit: str | None
 ) -> CellIndex | None:
-    """The index from disk, or None when absent, stale or unreadable."""
+    """The index from disk, or None when absent, stale or unreadable.
+
+    Four freshness keys now: the format string, the matrix content
+    hash, the display unit, and the field-map digest.
+    """
     from .matrix_store import load_cell_index, matrix_content_hash
 
     payload = load_cell_index(config_dir, remote_id)
@@ -1121,6 +1134,10 @@ def _load_stored_index(
     if payload.get("unit") != display_unit:
         return None
     if payload.get("matrix") != matrix_content_hash(config_dir, remote_id):
+        return None
+    from .identity import field_map_digest
+
+    if payload.get("maps") != field_map_digest():
         return None
     return _payload_to_index(payload)
 

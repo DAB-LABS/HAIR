@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every air-conditioner frame description now states which of its frames carry settings, not just which one carries the main block. Two families keep a setting outside that block -- TCL carries a quiet flag in its first frame, and Gree carries the vane position in its second -- and nothing reading the descriptions could tell, which meant two different presses could be treated as the same one.
 - An answered comb finding on an air-conditioner remote now stays answered until the description that raised it changes the way it reads that code. Keep, Keep Both and Keep on the Unusual card were tied to the whole description file, so editing a note or a measurement figure in it brought every answered finding for that family back. They are now tied only to the parts that decide what the description reads and judges. Working that out differently moves every description once, so on the first start after upgrading, findings you had already answered come back one last time to be answered again. From then on, edits to a description's notes leave your answers alone.
 
+### Fixed
+
+- A Daikin handset press is recognized as the button you pressed. 0.17.0 stopped Daikin presses being heard as Off by having them match nothing, because every Daikin 216 code opens with the same preamble. HAIR now builds a press's identity from the frames that carry the settings, as the air conditioner's field map names them, so a press finds its own state whether the receiver hands over the whole press or only the frame that carries the settings. The same applies to Panasonic 216, TCL 112 and Daikin 152, the families whose setting frames have been measured against their maps' own source files. Every other family is identified exactly as before. Stored state indexes rebuild once on upgrade, and existing commands and triggers keep matching without being re-learned.
+- A trigger learned from one Daikin state no longer fires on every Daikin press. The trigger matcher trusted a decode of that shared preamble before anything else; it now sets aside a decode that does not cover the whole press, so the comparison reaches the part that differs. Triggers in other families match as they did.
+
 ## [0.17.0] - 2026-09-28 -- Layers
 
 ### Added
