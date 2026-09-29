@@ -1920,11 +1920,10 @@ export interface PluckEmptyBlock {
  *               pluck.empty.not_installed
  *
  * One source is exempt from the not-loaded line entirely. HAIR reads
- * OpenIRBlaster's code library, but the integration is deprecated
- * upstream, so telling somebody who does not have it that they could
- * install it is advice HAIR should not be giving. Its block appears only
- * where it applies: the integration is loaded, or a store of its codes
- * is sitting in .storage. See UNADVERTISED_SOURCES below.
+ * OpenIRBlaster's code library for people who already have one; it is
+ * not a route HAIR suggests setting up. Its block appears only where it
+ * applies: the integration is loaded, or a store of its codes is
+ * sitting in .storage. See UNADVERTISED_SOURCES below.
  *
  * A source that resolves to nothing contributes no block rather than
  * printing its own key at the user: `t()` falls back to en and then to
