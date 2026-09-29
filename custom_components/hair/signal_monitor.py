@@ -1838,9 +1838,6 @@ class SignalMonitor:
                 # its identity, and the lattice has to know that before
                 # it trusts the decoded tier (owner bench 2026-09-25).
                 n.decode_covers,
-                # Never matched on. A pinned power re-send checks it:
-                # the press has to BE the power code (GH #183).
-                exact_hash=EventParser.pronto_exact_hash(parsed.code),
             )
 
         # The v0.4.0 known-command suppression is GONE (v0.6.6, "heard

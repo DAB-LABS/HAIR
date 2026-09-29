@@ -567,65 +567,6 @@ class EventParser:
         payload = ",".join(str(round(t / n) * n) for t in timings)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
-    @staticmethod
-    def pronto_exact_hash(code: str | None) -> str | None:
-        """A byte hash that vouches for EVERYTHING the code says, or None.
-
-        ``pronto_byte_hash`` is identity, and identity is allowed to be
-        a part of the code: for a multi-frame code it reads the first
-        frame, which is the whole point of a tolerant matcher and the
-        whole problem when a match is about to move a real air
-        conditioner. GH #183 is that problem: a handset leader shared
-        by every press hashed like the Off code that happened to start
-        with it, and a pinned remote re-sent Off on every press.
-
-        So this is the stricter question, asked only where a match is
-        about to be acted on (``MatrixListener``'s pinned power send):
-
-        - For a family verified for setting-frame identity, the hash of
-          its setting frames, which is ``pronto_byte_hash`` exactly. The
-          other frames are a preamble and a clock; the unit acts on the
-          settings.
-        - Otherwise every frame, split where a receiver splits
-          (``PRONTO_GAP_THRESHOLD``) and quantized exactly as
-          ``pronto_byte_hash`` quantizes. A frame that merely repeats
-          the one before it is dropped, because it says nothing new and
-          a receiver that splits at the gap hands over one copy. For a
-          code whose only long space is its tail this IS
-          ``pronto_byte_hash``, character for character (measured on
-          20,818 single-frame SmartIR codes, no exception).
-
-        None for a code that cannot be read or carries no pulse.
-        """
-        words = EventParser._parse_pronto_words(code)
-        if words is None:
-            return None
-        from .identity import setting_frame_spans
-
-        if setting_frame_spans(EventParser._pronto_us(words)) is not None:
-            return EventParser.pronto_byte_hash(code)
-
-        n = PRONTO_BYTE_HASH_BIN
-        frames: list[list[int]] = []
-        current: list[int] = []
-        for value in [*words[4:], PRONTO_GAP_THRESHOLD]:
-            if value < PRONTO_GAP_THRESHOLD:
-                current.append(value)
-                continue
-            while current and current[-1] == 0:
-                current.pop()
-            if current and len(current) % 2 == 0:
-                current.pop()
-            if current:
-                quantized = [round(t / n) * n for t in current]
-                if not frames or quantized != frames[-1]:
-                    frames.append(quantized)
-            current = []
-        if not frames:
-            return None
-        payload = "|".join(",".join(str(t) for t in f) for f in frames)
-        return hashlib.sha256(payload.encode()).hexdigest()[:16]
-
     # -----------------------------------------------------------------
     # Internal helpers
     # -----------------------------------------------------------------

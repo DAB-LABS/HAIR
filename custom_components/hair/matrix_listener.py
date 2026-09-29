@@ -80,7 +80,6 @@ from .identity import (
     TIER_DECODED,
     TIER_NORM_FP,
     NormFpIndex,
-    canonical_exact_hash,
     tier_name,
 )
 
@@ -606,7 +605,6 @@ class MatrixListener:
         receiver_entity_id: str | None = None,
         norm_fp: str | None = None,
         decode_covers: bool | None = None,
-        exact_hash: str | None = None,
     ) -> list[str]:
         """Match one capture against every matrix remote's lattice.
 
@@ -626,12 +624,6 @@ class MatrixListener:
         capture's identity and the decoded tier is skipped. None is
         trusted, matching ``protocol_decode``'s own rule that an
         unverifiable census is unknown rather than false.
-
-        ``exact_hash`` is ``EventParser.pronto_exact_hash`` of the
-        capture. Matching never reads it; it is carried to the pinned
-        dispatch, which re-sends a power code only when the press IS
-        that code byte for byte (GH #183). Absent means no press is
-        ever exact enough to re-send power.
         """
         heard: list[str] = []
         for remote in self._store.get_all_trigger_remotes():
@@ -682,8 +674,6 @@ class MatrixListener:
                 receiver_entity_id,
                 (decoded_fingerprint, signal_fingerprint, byte_hash,
                  norm_fp, decode_covers),
-                tier=tier,
-                exact_hash=exact_hash,
             )
             heard.append(remote.id)
         return heard
@@ -748,9 +738,6 @@ class MatrixListener:
         hit: CellHit,
         receiver_entity_id: str | None,
         identity: _Identity = (None, None, None, None, None),
-        *,
-        tier: int | None = None,
-        exact_hash: str | None = None,
     ) -> None:
         """Stamp the heard state, fire the event, push, and dispatch.
 
@@ -819,9 +806,7 @@ class MatrixListener:
                 "kind": "state_heard", **event_data,
             })
 
-        self._dispatch_pinned_cell(
-            remote, hit, identity, tier=tier, exact_hash=exact_hash,
-        )
+        self._dispatch_pinned_cell(remote, hit, identity)
 
     # --- Driving pinned matrix Devices (Track 4) ------------------------
     #
@@ -842,13 +827,7 @@ class MatrixListener:
     # a real air conditioner, which is worse than silence.
 
     def _dispatch_pinned_cell(
-        self,
-        remote: TriggerRemote,
-        hit: CellHit,
-        identity: _Identity,
-        *,
-        tier: int | None = None,
-        exact_hash: str | None = None,
+        self, remote: TriggerRemote, hit: CellHit, identity: _Identity
     ) -> None:
         """Drive the same state on every pinned matrix Device.
 
@@ -858,65 +837,14 @@ class MatrixListener:
         """
         if self._trigger_manager is None or not remote.pinned_device_ids:
             return
+        self._heard_frames[hit.cell_key] = (hit, identity)
         self._hass.async_create_task(
-            self._async_dispatch_pinned_cell(
-                remote, hit, identity, tier=tier, exact_hash=exact_hash,
-            )
+            self._async_dispatch_pinned_cell(remote, hit, identity)
         )
 
-    # POWER IS RE-SENT ONLY ON AN EXACT MATCH (GH #183). Matching is
-    # tolerant on purpose: a tier can answer from a decode, a shape or a
-    # part of the code, and that is right for showing what was heard.
-    # It is wrong for turning a real air conditioner off. On 0.17.0 a
-    # Daikin handset's leader, shared by every press, hashed like an Off
-    # code that happened to start with it, and a pinned remote re-sent
-    # Off on every button. A cell re-send can at worst set the wrong
-    # state; a power re-send switches the unit, and Off is the one the
-    # user notices from across the room.
-    #
-    # So a power hit crosses to the device only when the press matches
-    # the remote's own power code by exact bytes -- the whole capture,
-    # or the setting frames of a verified family -- which is
-    # ``pronto_exact_hash`` on both sides. Anything weaker (the decoded
-    # tier, the normalized tier, a byte hash of one frame of several)
-    # still records what was heard, and sends nothing.
-
-    async def _async_power_press_is_exact(
-        self, remote: TriggerRemote, hit: CellHit, exact_hash: str | None,
-    ) -> bool:
-        if exact_hash is None:
-            return False
-        matrix = await self.async_get_matrix(remote.id)
-        if matrix is None:
-            return False
-        code = matrix.off if hit.power == "off" else matrix.on
-        return bool(code) and canonical_exact_hash(code) == exact_hash
-
     async def _async_dispatch_pinned_cell(
-        self,
-        remote: TriggerRemote,
-        hit: CellHit,
-        identity: _Identity,
-        *,
-        tier: int | None = None,
-        exact_hash: str | None = None,
+        self, remote: TriggerRemote, hit: CellHit, identity: _Identity
     ) -> None:
-        if hit.power is not None and not await self._async_power_press_is_exact(
-            remote, hit, exact_hash,
-        ):
-            _LOGGER.debug(
-                "Remote '%s' heard %s on the %s tier, but the press is not "
-                "the stored %s code byte for byte; the pinned %s is not "
-                "re-sent",
-                remote.name, hit.cell_key, tier_name(tier), hit.power,
-                hit.power,
-            )
-            return
-        # Kept for the send only once the gate has passed, so a refused
-        # power hit leaves nothing for ``async_send_pinned_cell`` to
-        # pick up, and cannot overwrite the frame of an exact press
-        # whose send is still queued.
-        self._heard_frames[hit.cell_key] = (hit, identity)
         for device_id in remote.pinned_device_ids:
             device = self._store.get_device(device_id)
             # A pinned FLAT device is out of scope (Track 4.2): a state
