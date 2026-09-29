@@ -1,4 +1,4 @@
-schema_version: "0.1"
+schema_version: "0.5"
 protocol_id: TCL112
 aliases:
   - "TCL Split AC family (GH #16)"
@@ -11,6 +11,7 @@ frame:
   frames_per_command: 2
   frame_layout: [112, 112]
   payload_frame: 1
+  setting_frames: [1, 0]        # NEW v0.5: frame 0 carries the quiet flag
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [3022, 1582]
@@ -38,6 +39,17 @@ integrity:
     params: {frame: 1, range: [0, 12], target_byte: 13, mod: 256, offset: 0}
     verified_on: "4847/4849 cells across 15 files (99.96%); both failures are in the
                   recovered Tuya file 1902.json"
+    confidence: ratified
+
+  - type: checksum_sum
+    description: >
+      Frame 0 byte 13 is the sum of frame 0 bytes 0..12 plus 15, mod 256. An
+      earlier pass recorded that frame 0 does NOT satisfy frame 1's rule and left
+      it there; the reason is the constant, not the shape. At offset 0 the form
+      lands at 49.90%, which is what a rule looks like when it holds on exactly
+      one of two frames. At offset 15 it holds on every cell of every file.
+    params: {frame: 0, range: [0, 12], target_byte: 13, mod: 256, offset: 15}
+    verified_on: "8029/8029 cells across 26 files (every file 100%)"
     confidence: ratified
 
 fields:
@@ -163,12 +175,53 @@ fields:
       disagreeing_files:
         - "2661.json (Hyundai HY6INV): 18 state cells have the bit clear"
 
+  - name: quiet
+    frame: 0
+    byte: 5
+    bits: "bit:5"
+    coordinate: fan
+    encoding: "1 = the quiet/silent fan label, 0 = any other labelled speed."
+    encoding_ref:
+      name: bitflag
+      params: {true_values: [quiet, silent]}
+    applies_when:
+      not_in: {mode: [dry]}
+    confidence: provisional
+    vocabulary: {quiet: 0x1, silent: 0x1}
+    domain: "frame 0 byte 5 takes exactly three values across the family: 0x00, 0x40
+             and 0x60. 0x40 is a normal speed, 0x60 is quiet, 0x00 is the 3020.json
+             dialect described below."
+    agreement:
+      pass: 6208
+      checked: 6272
+      rate: "98.98% (dry excluded as forced)"
+      files_at_100: "24/26"
+      disagreeing_files:
+        - "3020.json (Klasse), both repo copies, 128/160 each: this file carries 0x00
+           at frame 0 byte 5 for every cell and 0x12 rather than 0x02 at frame 0
+           byte 3. It is a different frame-0 dialect, not a scattered disagreement,
+           and it is the ENTIRE residual: on the other 24 files the field is
+           5952/5952."
+    vocabulary_notes:
+      - "This is a flag, not a fan rung. frame 0 byte 5 does not vary with any other
+         fan label: auto, low, mid, high, turbo and level1 to level5 all read 0x40.
+         Only quiet and silent read 0x60, and the field stands alongside fan_speed in
+         frame 1 rather than replacing any part of it."
+      - "fan_speed collapses quiet, silent, low and level1 onto rung 0x2, which is why
+         no false finding was ever produced here: the map read both labels the same and
+         expected them to be the same. What it could not do was TELL them apart, and
+         payload identity reading only the payload frame would have hashed
+         cool/silent/61 and cool/level1/61 to one identity."
+      - "dry pins the flag clear regardless of the labelled speed, the same way it pins
+         fan_speed to 0x2. Every disagreement in 1661, 2041, 2661 and 7741 was a dry
+         cell, which is why applies_when carries the same not_in as fan_speed."
+
 synthesis:
   template: [[0x23, 0xCB, 0x26, 0x02, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
              [0x23, 0xCB, 0x26, 0x01, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00]]
   fixture_coordinates:
     mode: [cool, heat, dry, fan_only]
-    fan: [auto, low, mid, high]
+    fan: [auto, low, mid, high, silent]    # silent is here to exercise the quiet flag
     swing: [static, swing]
     temp: [16, 20, 24, 28, 31]
 
@@ -183,12 +236,29 @@ derivation:
        tie-breaker and was not available to either pass."
     - "2041.json (Pioneer) declares no temperature dimension at all, which is why the
        first pass saw zero checkable cells there. It is not a decode failure."
-    - "Frame 0 is a preamble that varies across up to 14 distinct values within a single
-       file (2041.json). It does NOT satisfy frame 1's checksum rule -- an earlier draft
-       of this map asserted that it did and the validator caught it at 49.90%, which is
-       the give-away shape of a rule that holds on exactly half the frames. What frame 0
-       carries beyond the 23 CB 26 signature is not derived."
+    - "Frame 0 is no longer undescribed. It carries the 23 CB 26 signature, the quiet
+       flag at byte 5 bit 5, and its own checksum at byte 13, which is frame 1's rule
+       with an offset of 15 rather than 0. The earlier draft's 49.90% was the right
+       reading of the wrong constant. What is still not derived is frame 0 bytes 6, 7
+       and 8: byte 6 takes 7 values, byte 7 takes 3 and byte 8 takes 5, and none of them
+       is a function of mode, fan, swing or temperature on its own. Byte 6 is
+       independent of frame 1's mode field, so frame 0 carries no mode echo."
+    - "3020.json (Klasse) may be a separate protocol rather than a TCL112 file. It meets
+       every declared identification test -- layout, timing and the 23 CB 26 identity
+       bytes -- but carries 0x12 at frame 0 byte 3 where all 24 other files carry 0x02,
+       and 0x00 at frame 0 byte 5 where the rest carry 0x40 or 0x60. It satisfies both
+       checksum rules, so it is not a corrupt capture. Either the schema needs a way to
+       say 'this field applies to the 0x02 dialect only' or the dialect needs its own
+       map. Until one of those happens the quiet field stays provisional and 3020.json
+       is its whole residual."
   notes:
     - "The checksum result is the most useful thing in this map for release two: a
        protocol-identified TCL112 wig can be integrity-checked cell by cell even where
-       no field is readable."
+       no field is readable. Both frames now carry a rule, so the check is on the whole
+       transmission rather than on half of it."
+    - "This is the family that earned schema v0.5's setting_frames. fan_speed in frame 1
+       collapses quiet, silent, low and level1 onto one rung, so the map read
+       cool/silent/61 and cool/level1/61 identically and produced no finding either way.
+       The two cells differ in frame 0 only, at byte 5 and at byte 13, which is byte 5's
+       checksum. A consumer reading payload_frame alone rather than setting_frames sees
+       one press where there are two."

@@ -1,4 +1,4 @@
-schema_version: "0.3"
+schema_version: "0.5"
 protocol_id: PANASONIC216
 aliases:
   - "Panasonic CS-series remotes, two frames 64+152, vendor prefix 02 20 E0 04 00"
@@ -10,6 +10,7 @@ frame:
   frames_per_command: 2
   frame_layout: [64, 152]
   payload_frame: 1
+  setting_frames: [1]
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [3471, 1736]

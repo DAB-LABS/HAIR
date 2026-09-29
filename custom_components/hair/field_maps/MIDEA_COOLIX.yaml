@@ -1,4 +1,4 @@
-schema_version: "0.1"
+schema_version: "0.5"
 protocol_id: MIDEA_COOLIX
 aliases:
   - "Coolix (Midea/Comfee OEM chipset shared across many brands)"
@@ -10,6 +10,7 @@ frame:
   frames_per_command: 2      # CORRECTED from the first pass's 3, see notes
   frame_layout: [48, 48]
   payload_frame: 0
+  setting_frames: [0]
   modulation: pulse_distance
   bit_order: msb_first       # CORRECTED from the first pass's lsb_first, see notes
   header_us: [4350, 4380]

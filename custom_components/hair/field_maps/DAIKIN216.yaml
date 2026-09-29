@@ -1,4 +1,4 @@
-schema_version: "0.3"
+schema_version: "0.5"
 protocol_id: DAIKIN216
 aliases:
   - "Daikin ARC433B69/B70 remotes, two frames 64+152, no leader"
@@ -9,6 +9,7 @@ frame:
   frames_per_command: 2
   frame_layout: [64, 152]
   payload_frame: 1
+  setting_frames: [1]
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [3423, 1751]

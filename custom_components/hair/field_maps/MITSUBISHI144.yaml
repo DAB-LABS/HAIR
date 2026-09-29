@@ -1,4 +1,4 @@
-schema_version: "0.1"
+schema_version: "0.5"
 protocol_id: MITSUBISHI144
 aliases:
   - "Mitsubishi Electric 144-bit / 18-byte frame, sent twice"
@@ -11,6 +11,7 @@ frame:
   frames_per_command: 2
   frame_layout: [144, 144]
   payload_frame: 0
+  setting_frames: [0]
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [3387, 1678]
