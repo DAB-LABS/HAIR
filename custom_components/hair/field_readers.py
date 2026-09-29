@@ -42,7 +42,7 @@ SCHEMA.md` (v0.2) and the three derivation reports beside it.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -184,14 +184,25 @@ class FieldMap:
     """One protocol family: how to read its frames and what they mean."""
 
     protocol_id: str
-    #: A content tag for the map itself, so anything that recorded
-    #: "this map justified that write" can tell later whether the map
-    #: it trusted is still the map on disk. Derived from the document
-    #: rather than declared in it, because a hand-maintained version
-    #: number is exactly the field that does not get bumped.
+    #: A content tag for what the map READS AND JUDGES, so anything that
+    #: recorded "this map justified that write" can tell later whether
+    #: the map it trusted still reads the same way. Derived rather than
+    #: declared, because a hand-maintained version number is exactly the
+    #: field that does not get bumped. Derived from the parsed map, not
+    #: the document: an edit to a note, an agreement figure or the
+    #: schema_version line changes nothing a reading depends on, and a
+    #: version that moved on those edits would send every answered comb
+    #: finding for the family back to its owner. See ``_map_version``.
     version: str
     frame_layout: list[int]
     payload_frame: int
+    #: Every frame that carries a setting, ``payload_frame`` first. A map
+    #: that says nothing gets ``[payload_frame]``, which is what every
+    #: consumer assumed before the key existed. Read THIS rather than
+    #: ``payload_frame`` when the question is "which bytes decide what
+    #: this press does": ``payload_frame`` is the primary block only, and
+    #: TCL112 keeps a quiet flag outside it.
+    setting_frames: list[int]
     bit_order: str
     bits_tolerance: int
     identity_bytes: list[tuple[int, int, int]]
@@ -224,6 +235,12 @@ class FieldMap:
         frame carries everything the family transmits.
         """
         if len(self.frame_layout) < 2 or len(set(self.frame_layout)) != 1:
+            return False
+        if len(self.setting_frames) > 1:
+            # Settings in two frames and "one payload, repeated" are
+            # contradictory claims. A map making both is wrong somewhere,
+            # and the safe reading of a contradiction is the one that
+            # does not licence dropping a frame.
             return False
         others = set(range(len(self.frame_layout))) - {self.payload_frame}
         declared = {
@@ -340,17 +357,124 @@ def _rule(raw: dict[str, Any]) -> IntegrityRule | None:
     )
 
 
-def _map_version(raw: dict[str, Any]) -> str:
-    """A short content digest of one map document."""
+#: The parts of a parsed map that the version deliberately does NOT
+#: cover, named so the drift test can tell a deliberate omission from a
+#: forgotten one. An integrity rule's description is carried for people
+#: and never consulted by a check.
+_VERSION_EXCLUDED = {
+    "FieldMap": frozenset({"version"}),
+    "IntegrityRule": frozenset({"description"}),
+}
+
+
+def _canonical(value: Any) -> Any:
+    """``value`` as a structure whose JSON text depends only on content.
+
+    Dict keys are sorted, so the order a map author happened to write
+    them in does not move the version. They are sorted on (type name,
+    text) rather than on the key itself, because a map's vocabulary
+    legitimately mixes key types -- YAML reads ``on:`` as the boolean
+    True beside ``"cool"`` -- and comparing those directly raises. The
+    type name also keeps True and "True" apart. Lists keep their order,
+    since in a map order can carry meaning (``setting_frames`` puts the
+    payload frame first). A converted dict becomes a one-key object, and
+    lists never do, so the two cannot collide.
+    """
+    if is_dataclass(value) and not isinstance(value, type):
+        value = asdict(value)
+    if isinstance(value, dict):
+        pairs = [
+            [[type(key).__name__, str(key)], _canonical(item)]
+            for key, item in value.items()
+        ]
+        pairs.sort(key=lambda pair: pair[0])
+        return {"d": pairs}
+    if isinstance(value, list | tuple):
+        return [_canonical(item) for item in value]
+    return value
+
+
+def _map_version(
+    *,
+    protocol_id: str,
+    frame_layout: list[int],
+    payload_frame: int,
+    setting_frames: list[int],
+    bit_order: str,
+    bits_tolerance: int,
+    identity: list[tuple[int, int, int]],
+    timing: FrameTiming,
+    fields: list[FieldSpec],
+    rules: list[IntegrityRule],
+) -> str:
+    """A short digest of what this map reads and judges, and nothing else.
+
+    Taken over the PARSED map, so it covers exactly what the reader
+    holds: the frame shape and timing alphabet, the identity bytes, each
+    field's location, encoding, parameters (the operative vocabulary
+    lives there), applicability, mode traits, coordinate and confidence,
+    and each rule's type, parameters and confidence. Everything the
+    parser never keeps is out by construction: ``schema_version``,
+    aliases, ``status``, derivation, agreement blocks, notes, open
+    questions, vocabulary notes, prose, ``verified_on``, synthesis, the
+    human copy of each field's vocabulary beside ``encoding_ref``, and
+    the pre-v0.2 frame keys (``header_us``, ``bit0_us`` and so on) that
+    the timing block superseded.
+
+    Stored answers to comb findings are keyed on this value
+    (``tangles.attestation_key``), so it has one job: move when a
+    reading could have changed and at no other time.
+    """
     import hashlib
     import json
 
-    # Document order, not sorted keys: a map's vocabulary legitimately
-    # mixes key types (YAML reads `on:` as the boolean True beside
-    # `"cool"`), and sorting those against each other raises. Order is
-    # stable for a given file, which is all a content tag needs.
-    canonical = json.dumps(raw, default=str)
+    projection = {
+        "protocol_id": protocol_id,
+        "frame_layout": list(frame_layout),
+        "payload_frame": payload_frame,
+        "setting_frames": list(setting_frames),
+        "bit_order": bit_order,
+        "bits_tolerance": bits_tolerance,
+        "identity_bytes": [list(entry) for entry in identity],
+        "timing": timing,
+        "fields": list(fields),
+        "integrity": [
+            {
+                key: item for key, item in asdict(rule).items()
+                if key not in _VERSION_EXCLUDED["IntegrityRule"]
+            }
+            for rule in rules
+        ],
+    }
+    canonical = json.dumps(
+        _canonical(projection), default=str, separators=(",", ":")
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def _setting_frames(
+    declared: Any, payload_frame: int, frame_count: int
+) -> list[int]:
+    """The declared setting frames, normalized so consumers can trust them.
+
+    The invariants a consumer relies on are established HERE rather than
+    assumed: the payload frame is present and first, every index names a
+    real frame, and nothing repeats. A map that declares the key badly is
+    normalized rather than rejected, because the loader's contract is that
+    a bad map is skipped or salvaged and never raises mid-comb. Keeping
+    the DOCUMENTS honest is a separate job, done by the schema test, which
+    reads the YAML rather than the parsed object for exactly that reason.
+    """
+    out = [payload_frame]
+    if isinstance(declared, list | tuple):
+        for entry in declared:
+            try:
+                index = int(entry)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= index < frame_count and index not in out:
+                out.append(index)
+    return out
 
 
 def parse_map(raw: dict[str, Any]) -> FieldMap | None:
@@ -383,13 +507,32 @@ def parse_map(raw: dict[str, Any]) -> FieldMap | None:
         rule for rule in (_rule(r) for r in raw.get("integrity") or [])
         if rule is not None
     ]
+    frame_layout = [int(bits) for bits in layout]
+    payload_frame = int(frame.get("payload_frame", 0) or 0)
+    setting_frames = _setting_frames(
+        frame.get("setting_frames"), payload_frame, len(frame_layout)
+    )
+    bit_order = str(frame.get("bit_order", "msb_first"))
+    bits_tolerance = int(frame.get("bits_tolerance", 1) or 0)
     return FieldMap(
         protocol_id=protocol_id,
-        version=_map_version(raw),
-        frame_layout=[int(bits) for bits in layout],
-        payload_frame=int(frame.get("payload_frame", 0) or 0),
-        bit_order=str(frame.get("bit_order", "msb_first")),
-        bits_tolerance=int(frame.get("bits_tolerance", 1) or 0),
+        version=_map_version(
+            protocol_id=protocol_id,
+            frame_layout=frame_layout,
+            payload_frame=payload_frame,
+            setting_frames=setting_frames,
+            bit_order=bit_order,
+            bits_tolerance=bits_tolerance,
+            identity=identity,
+            timing=timing,
+            fields=fields,
+            rules=rules,
+        ),
+        frame_layout=frame_layout,
+        payload_frame=payload_frame,
+        setting_frames=setting_frames,
+        bit_order=bit_order,
+        bits_tolerance=bits_tolerance,
         identity_bytes=identity,
         timing=timing,
         fields=fields,
@@ -606,16 +749,19 @@ def _matches_repeat(field_map: FieldMap, frames: list[list[int]]) -> bool:
     """A capture carrying fewer frames than the map declares.
 
     Only for a map that declares identical repeats, and only when the
-    frames present are the declared width and the payload index is one
+    frames present are the declared width and EVERY setting frame is one
     of them. Every other short capture stays unidentified: losing a
-    frame that carries something of its own loses the code.
+    frame that carries something of its own loses the code. The test is
+    on ``setting_frames`` rather than on ``payload_frame`` because a
+    family can keep a setting outside its primary block, and a capture
+    missing that frame is missing part of the press.
     """
     declared = len(field_map.frame_layout)
     if not field_map.repeats_identically:
         return False
     if not frames or len(frames) >= declared:
         return False
-    if field_map.payload_frame >= len(frames):
+    if max(field_map.setting_frames) >= len(frames):
         return False
     width = field_map.frame_layout[0]
     return all(

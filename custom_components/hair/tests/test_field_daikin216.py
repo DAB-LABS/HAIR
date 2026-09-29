@@ -27,6 +27,7 @@ import os
 from pathlib import Path
 
 import pytest
+import yaml
 
 from custom_components.hair import field_readers as fr
 from custom_components.hair.wig_adapters import _broadlink_b64_to_pronto
@@ -141,7 +142,7 @@ class TestItIsNotTheOtherDaikin:
 
 
 class TestTheCoordinateKey:
-    """Schema v0.3, and the only map in the directory that uses it."""
+    """Schema v0.3, and the map it was added for."""
 
     def test_the_reader_parses_it_onto_the_field(self):
         specs = {f.name: f for f in _map().fields}
@@ -149,15 +150,50 @@ class TestTheCoordinateKey:
         assert specs["swing_horizontal"].coordinate == "swing"
 
     def test_a_field_without_it_still_answers_none(self):
-        """Every other map relies on the name table, so the default has
-        to stay None rather than becoming a guess at the name."""
+        """Nearly every field relies on the name table, so the default has
+        to stay None rather than becoming a guess at the name.
+
+        Driven off the YAML rather than off a list of maps: this used to
+        assert that DAIKIN216 was the only map using the key, which made
+        it a registry of who happened to use it rather than a test of the
+        default. TCL112's `quiet` field is the second user and there will
+        be more. What has to hold is narrower and permanent -- a field
+        that does not declare `coordinate` parses to None, in every map.
+        """
         specs = {f.name: f for f in _map().fields}
         assert specs["temperature"].coordinate is None
-        for field_map in fr.load_maps():
-            if field_map.protocol_id == "DAIKIN216":
+
+        maps_dir = Path(fr.__file__).parent / "field_maps"
+        checked = 0
+        for path in sorted(maps_dir.glob("*.yaml")):
+            raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+            parsed = fr.parse_map(raw)
+            if parsed is None:
                 continue
-            for spec in field_map.fields:
-                assert spec.coordinate is None, field_map.protocol_id
+            declared = {
+                field.get("name"): field.get("coordinate")
+                for field in (raw.get("fields") or [])
+            }
+            for spec in parsed.fields:
+                if declared.get(spec.name) is None:
+                    assert spec.coordinate is None, \
+                        f"{parsed.protocol_id}.{spec.name}"
+                    checked += 1
+        assert checked > 50, checked
+
+    def test_the_maps_that_declare_a_coordinate(self):
+        """Pinned so that adding one is a deliberate act."""
+        declaring = {
+            (field_map.protocol_id, spec.name): spec.coordinate
+            for field_map in fr.load_maps()
+            for spec in field_map.fields
+            if spec.coordinate is not None
+        }
+        assert declaring == {
+            ("DAIKIN216", "swing_vertical"): "swing",
+            ("DAIKIN216", "swing_horizontal"): "swing",
+            ("TCL112", "quiet"): "fan",
+        }
 
     def test_both_swing_fields_are_checked_not_declined(self):
         """The receipt a missing coordinate would leave is silent, so

@@ -1,4 +1,4 @@
-schema_version: "0.4"
+schema_version: "0.5"
 protocol_id: FUJITSU128
 aliases:
   - "Fujitsu AR-series remotes, one 128-bit frame, vendor prefix 14 63 00 10 10 FE 09"
@@ -10,6 +10,7 @@ frame:
   frames_per_command: 1
   frame_layout: [128]
   payload_frame: 0
+  setting_frames: [0]
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [3261, 1604]

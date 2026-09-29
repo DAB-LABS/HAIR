@@ -1,10 +1,13 @@
-# Field-map schema v0.4
+# Field-map schema v0.5
 
 Proposed v0 by the first derivation pass (2026-08-22). Extended to v0.1 by round two
 and to v0.2 by round three, same date, and to v0.3 by the DAIKIN216 map (2026-09-14), and to v0.4 by the AC
 derivation pass (2026-09-23), which added one optional rule parameter:
 `integrity[].params.scale` on `checksum_sum`. It defaults to 1, so every
-map written against v0.3 computes exactly what it did before.
+map written against v0.3 computes exactly what it did before. v0.5 (2026-09-28)
+added one optional frame key, `frame.setting_frames`, which defaults to
+`[payload_frame]`, so every map written against v0.4 describes exactly the same
+frames it did before.
 **Every change in every round is additive**: a reader written against v0 still reads
 every map in this directory correctly, with one conformance point (round two,
 `vocabulary`) called out at the end.
@@ -21,7 +24,13 @@ frame:
   total_bits: <int>                  # payload bits of the frame that carries the fields
   frames_per_command: <int>          # how many frames one button press transmits
   frame_layout: [<int>, ...]         # NEW v0.1: bits per frame, in transmission order
-  payload_frame: <int>               # NEW v0.1: which frame carries the fields (0-based)
+  payload_frame: <int>               # NEW v0.1: which frame carries the PRIMARY state
+                                     # block (0-based). Advisory for consumers that
+                                     # need every setting-bearing byte; see
+                                     # setting_frames.
+  setting_frames: [<int>, ...]       # NEW v0.5: EVERY frame that carries a setting,
+                                     # payload_frame first, in reading order.
+                                     # Defaults to [payload_frame].
   modulation: pulse_distance | pulse_width | other
   bit_order: msb_first | lsb_first
   header_us: [<mark>, <space>]
@@ -195,6 +204,82 @@ The same key covers the general case as well as the two-vanes one: a family whos
 mode lives in a field nobody would name `mode` can say `coordinate: mode` rather
 than being renamed to suit a lookup table.
 
+## Changes in v0.5: setting_frames
+
+One addition, `frame.setting_frames`, and it exists because `payload_frame` is
+singular and at least one family is not.
+
+`fields[].frame` has been per-field since v0.1, so a map has always been able to
+put a field in any frame it likes, and TCL112 has set it on every field from the
+start. What no map could say is which frames, taken together, hold the settings.
+A consumer that wants the setting-bearing bytes -- payload identity above all,
+which hashes them to decide whether two codes are the same press -- has only
+`payload_frame` to read. Reading it alone on a family whose settings span two
+frames means hashing one of them and collapsing two different presses into one
+identity. That is not a hypothetical: TCL112 carries a quiet flag in frame 0 bit
+5 of byte 5, and `silent` and `level1` differ in nothing else, so a
+`payload_frame`-only identity cannot tell them apart.
+
+The key states the set:
+
+```yaml
+frame:
+  payload_frame: 1
+  setting_frames: [1, 0]
+```
+
+Rules a map must keep, and the test `test_field_map_schema.py` enforces each one
+against the YAML documents themselves:
+
+- `setting_frames[0] == payload_frame`. The primary block stays first, so a
+  consumer that only wants one frame still gets the right one.
+- Every index is a valid frame of `frame_layout`.
+- No repeats.
+- `setting_frames` is a superset of `{f.frame for f in fields}`. A field in a
+  frame the map has not declared as setting-bearing is a map bug, and it is the
+  exact bug this key exists to make visible.
+
+A reader that has not been updated keeps working: absent the key, a map's setting
+frames are `[payload_frame]`, which is what every consumer already assumed.
+Within HAIR the two places that read `payload_frame` to decide what a capture
+needs now read `setting_frames` instead, and on every map in this directory the
+two answers are identical, because no map other than TCL112 declares a field
+outside its payload frame and TCL112 declares no `frame_repeat` rule, so the
+short-capture path it guards was already closed for it.
+
+Unlike v0.1 through v0.4, this round touches every map: each one gains the key
+explicitly rather than relying on the default, so that the superset test has
+something to check, and each one's `schema_version` moves to `"0.5"` to say so.
+Declaring the key rather than defaulting it is the point -- a map that has
+thought about the question and a map that has not should not look the same.
+
+## What moves a map's version
+
+HAIR derives a version for every map and keys people's answers to comb
+findings on it (Keep, Keep Both, Keep on the Unusual card): change the
+version and every answered finding for that family comes back to be
+answered again. So the version is a digest of what the map READS AND
+JUDGES, taken over the parsed map rather than the document:
+
+- **Moves it:** `protocol_id`; the frame layout, `payload_frame`,
+  `setting_frames`, `bit_order`, `bits_tolerance`, `identity_bytes` and
+  the `timing` block; each field's `name`, `frame`, `byte`, `bits`,
+  `encoding_ref` (name and every param, including the vocabulary),
+  `applies_when`, `mode_traits`, `coordinate` and `confidence`; each
+  integrity rule's `type`, `params` and `confidence`.
+- **Does not:** `schema_version`, aliases, `status`, `derivation`,
+  `agreement` blocks, `vocabulary_notes`, open questions, prose
+  (`encoding`, `domain`, rule `description`), `verified_on`, `synthesis`,
+  the human copy of a field's `vocabulary` beside `encoding_ref`, and the
+  pre-v0.2 frame keys the timing block superseded (`header_us`,
+  `bit0_us`, `bit1_us`, `modulation`, `carrier_hz`, `frames_per_command`,
+  `header_tolerance_us`).
+
+Key order in the document does not matter, and neither does writing a
+default out or leaving it off. Update agreement figures and notes
+freely; treat an edit in the first list as one that asks every user of
+that family to look again, because it does.
+
 ## Encodings, the closed set
 
 | name | value = | params |
@@ -281,3 +366,10 @@ notice, so it is called out rather than buried.
 - Half-degree temperatures: AUX104 labels 16.0 and 16.5 read the same integer
   field, so a half-degree bit exists somewhere this pass did not locate. No schema
   support is proposed until it is found.
+- There is no way to say "this field applies only to the files of this family that
+  share a given constant byte". TCL112 wants one: 3020.json carries `0x12` where
+  every other file in the family carries `0x02` at frame 0 byte 3, and that one
+  difference accounts for every residual disagreement on the `quiet` field. The
+  field stays `provisional` rather than a predicate being invented for it, because
+  the honest alternatives are a real dialect predicate or splitting the dialect
+  into its own map, and neither is a one-line schema change.

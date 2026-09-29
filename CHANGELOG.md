@@ -5,6 +5,13 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Every air-conditioner frame description now states which of its frames carry settings, not just which one carries the main block. Two families keep a setting outside that block -- TCL carries a quiet flag in its first frame, and Gree carries the vane position in its second -- and nothing reading the descriptions could tell, which meant two different presses could be treated as the same one.
+- An answered comb finding on an air-conditioner remote now stays answered until the description that raised it changes the way it reads that code. Keep, Keep Both and Keep on the Unusual card were tied to the whole description file, so editing a note or a measurement figure in it brought every answered finding for that family back. They are now tied only to the parts that decide what the description reads and judges. Working that out differently moves every description once, so on the first start after upgrading, findings you had already answered come back one last time to be answered again. From then on, edits to a description's notes leave your answers alone.
+
 ## [0.17.0] - 2026-09-28 -- Layers
 
 ### Added

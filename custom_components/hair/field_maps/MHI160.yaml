@@ -1,4 +1,4 @@
-schema_version: "0.2"
+schema_version: "0.5"
 protocol_id: MHI160
 aliases:
   - "Mitsubishi Heavy Industries 160-bit / 20-byte single frame"
@@ -11,6 +11,7 @@ frame:
   frames_per_command: 1
   frame_layout: [160]
   payload_frame: 0
+  setting_frames: [0]
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [5951, 7538]

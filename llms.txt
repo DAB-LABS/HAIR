@@ -353,8 +353,14 @@ Key components:
   because a fresh press of a button that really sends that shape comes
   back the same shape. Attestations key on target, payload digest, and
   field-map version (flat rows on digest and version alone, so answers
-  survive renames); an attested row reads clean on the surface and the
-  record is kept, on the rule that a mark is an unanswered doubt. Every
+  survive renames). The field-map version is a digest of what the map
+  reads and judges, taken over the parsed map (frame shape, timing,
+  identity bytes, each field's location, encoding, parameters,
+  applicability, traits and confidence, each rule's type, parameters and
+  confidence), so an edit to a map's notes, agreement figures or
+  schema_version line never reopens an answered finding. An attested
+  row reads clean on the surface and the record is kept, on the rule
+  that a mark is an unanswered doubt. Every
   repair writes through to the closet as a repaired successor wig beside
   the original; the original is never edited. Comb stamps rederive at the
   moment a device comes clean. Matrix cells are never extracted as

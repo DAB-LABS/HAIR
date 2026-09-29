@@ -1,4 +1,4 @@
-schema_version: "0.1"
+schema_version: "0.5"
 protocol_id: GREE
 aliases:
   - "Gree Y512/YAA/YAN/YAW-remote family"
@@ -10,6 +10,7 @@ frame:
   frames_per_command: 2
   frame_layout: [35, 32]
   payload_frame: 0
+  setting_frames: [0, 1]     # NEW v0.5: swing lives in frame 1
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [8974, 4487]
@@ -189,6 +190,10 @@ derivation:
     - "None consulted before deriving. The mode values landing on the widely published
        Gree enumeration was noticed afterwards as a sanity check."
   open_questions:
+    - "Frame 1 carries the vane position and nothing else this pass located. It is
+       declared in setting_frames for that reason: the schema v0.5 conformance test
+       found this family's cross-frame field, which had been sitting in the map since
+       round two with no way for a consumer to know it was there."
     - "The checksum rule reproduces 97.14% of cells and is exact in 12 of 25 files.
        Either it is very slightly wrong or those 13 files carry genuinely bad codes.
        A physical Gree remote would settle it."

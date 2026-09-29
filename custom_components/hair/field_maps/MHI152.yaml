@@ -1,4 +1,4 @@
-schema_version: "0.2"
+schema_version: "0.5"
 protocol_id: MHI152
 aliases:
   - "Mitsubishi Heavy Industries 152-bit / 19-byte single frame, prefix 52 AE C3 1A E5"
@@ -11,6 +11,7 @@ frame:
   frames_per_command: 1
   frame_layout: [152]
   payload_frame: 0
+  setting_frames: [0]
   modulation: pulse_distance
   bit_order: lsb_first
   header_us: [3143, 1556]
