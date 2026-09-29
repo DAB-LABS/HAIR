@@ -14,7 +14,7 @@ from homeassistant.core import Event, HomeAssistant
 from .capture_orchestrator import CaptureOrchestrator
 from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL, PLUCKABLE_DIRNAME
 from .device_manager import DeviceManager, prime_localized_auto_map
-from .entity_factory import EntityFactory
+from .entity_factory import EntityFactory, reconcile_orphan_entities
 from .matrix_listener import MatrixListener
 from .pluckable_loader import load_pluckables
 from .power_monitor import PowerMonitor
@@ -188,6 +188,26 @@ async def async_setup_entry(
     async_register_websocket_commands(hass)
 
     await _async_register_panel(hass, entry)
+
+    # ORPHANED ENTITY ROWS, CLEARED BEFORE THE PLATFORMS COME UP
+    # (GH #186, reported by @kilrah). Until 0.17.1 a deleted command,
+    # trigger or device left its entity's registry row behind, so HA
+    # went on offering the entity in pickers, attached to a device it no
+    # longer belonged to. This clears what earlier versions left, and it
+    # runs here for two reasons: the store is loaded, so it knows what
+    # is still alive, and no platform has registered an entity yet, so
+    # nothing live can be mistaken for an orphan. It declines to act on
+    # a store that did not load normally -- see its own docstring.
+    orphans = reconcile_orphan_entities(hass, entry.entry_id, store)
+    if orphans.skipped:
+        _LOGGER.warning(
+            "Skipped the entity cleanup: %s", orphans.skipped
+        )
+    elif orphans.removed:
+        _LOGGER.info(
+            "Removed %d entity registry row(s) left by deleted commands, "
+            "triggers or devices", orphans.removed,
+        )
 
     await hass.config_entries.async_forward_entry_setups(
         entry, PLATFORMS_LIST
