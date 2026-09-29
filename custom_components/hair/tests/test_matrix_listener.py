@@ -519,10 +519,15 @@ def _pinned(device_matrix=None, *, climate_matrix=True, device_index=None):
 
 
 async def _hear(listener, tasks, pronto=PRONTO_COOL_22):
+    from custom_components.hair.identity import canonical_exact_hash
+
     identity = _identity(pronto)
     await listener.on_signal_captured(
         identity.fingerprint, identity.byte_hash,
         identity.decoded_fingerprint, None,
+        # What the capture path passes since GH #183: without it no
+        # press is exact enough to re-send power.
+        exact_hash=canonical_exact_hash(pronto),
     )
     # The record path saves and dispatches as tasks; run them.
     while tasks:

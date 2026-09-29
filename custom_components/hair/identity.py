@@ -340,6 +340,22 @@ def canonical_byte_hash(code: str | None) -> str | None:
     return EventParser.pronto_byte_hash(wire if wire is not None else code)
 
 
+def canonical_exact_hash(code: str | None) -> str | None:
+    """``EventParser.pronto_exact_hash`` on the canonical form.
+
+    The file side of the exact comparison, prepared exactly as
+    ``canonical_byte_hash`` prepares the file side of the byte hash, so
+    a stored code and the same code off the air are asked the same
+    question. See ``pronto_exact_hash`` for what "exact" means.
+    """
+    from .event_parser import EventParser
+
+    if degenerate_pronto(code):
+        return None
+    wire = canonical_pronto(code)
+    return EventParser.pronto_exact_hash(wire if wire is not None else code)
+
+
 # ---------------------------------------------------------------------------
 # THE RECEIVER-TOLERANT TIER: a normalized fingerprint for file-sourced,
 # undecoded codes (2026-08-18, from the air-path characterization run)
