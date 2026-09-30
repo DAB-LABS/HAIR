@@ -2097,7 +2097,18 @@ def rewrite_field(
     frames, positions, unreadable = field_readers.read_frames_positioned(
         field_map.timing, timings
     )
-    if unreadable or spec.frame >= len(frames):
+    if unreadable:
+        return None
+    # Laid on the map's layout, the way the reader lays them. A capture
+    # that left out an optional leader (schema v0.6) gets an empty frame
+    # 0 with no positions, so ``spec.frame`` names the same frame in both
+    # forms and nothing in the stand-in is ever rewritten. A capture the
+    # layout does not fit is walked exactly as it was before alignment
+    # existed, so no other family's behaviour moves.
+    laid = field_readers.aligned_positioned(field_map, frames, positions)
+    if laid is not None:
+        frames, positions = laid
+    if spec.frame >= len(frames):
         return None
     try:
         mask, shift = field_readers.bit_selector(spec.bits)

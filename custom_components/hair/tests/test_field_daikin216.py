@@ -190,6 +190,11 @@ class TestTheCoordinateKey:
             if spec.coordinate is not None
         }
         assert declaring == {
+            ("DAIKIN152", "powerful"): "fan",
+            ("DAIKIN152", "economy"): "fan",
+            ("DAIKIN152", "sleep"): "fan",
+            ("DAIKIN152", "swing_vertical"): "swing",
+            ("DAIKIN152", "swing_horizontal"): "swing",
             ("DAIKIN216", "swing_vertical"): "swing",
             ("DAIKIN216", "swing_horizontal"): "swing",
             ("TCL112", "quiet"): "fan",
