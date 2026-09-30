@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
+from .entity_factory import forget_entity_row, trigger_unique_id
 from .models import IRTrigger
 from .trigger_manager import TriggerManager
 
@@ -111,9 +112,14 @@ def sync_trigger_entities(
     )
     async_add_entities = data.get("_trigger_add_entities")
 
-    if removed_id and removed_id in entities:
-        entity = entities.pop(removed_id)
-        hass.async_create_task(entity.async_remove())
+    if removed_id:
+        # The row goes whether or not this run holds the entity object
+        # (GH #186). It does not after a restart, since the dict is
+        # rebuilt per setup, and the row outlives the object either way.
+        entity = entities.pop(removed_id, None)
+        if entity is not None:
+            hass.async_create_task(entity.async_remove())
+        forget_entity_row(hass, "event", trigger_unique_id(removed_id))
 
     if trigger and trigger.id not in entities:
         store = data["store"]

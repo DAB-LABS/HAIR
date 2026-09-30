@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
+from .entity_factory import button_unique_id, forget_entity_row
 from .models import IRDevice
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,11 +40,20 @@ async def async_setup_entry(
         current_cmd_ids = {cmd.id for cmd in device.commands}
         existing_cmd_ids = set(existing.keys())
 
-        # Remove buttons for deleted commands.
+        # Remove buttons for deleted commands. The registry row goes
+        # with the entity (GH #186): async_remove alone leaves the row
+        # behind, still attached to the HA device, so the deleted
+        # command kept showing up in entity pickers as an unavailable
+        # button of a device it no longer belonged to. Same order the
+        # factory's own platform retirement uses -- schedule the
+        # entity's removal, then forget the row.
         removed_ids = existing_cmd_ids - current_cmd_ids
         for cmd_id in removed_ids:
             entity = existing.pop(cmd_id)
             hass.async_create_task(entity.async_remove())
+            forget_entity_row(
+                hass, "button", button_unique_id(device.id, cmd_id)
+            )
 
         # Add buttons for new commands.
         new_entities: list[HAIRButtonEntity] = []

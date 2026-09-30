@@ -507,6 +507,9 @@ _mock_entity_registry = MagicMock()
 _stub("homeassistant.helpers.entity_registry", {
     "async_get": MagicMock(return_value=_mock_entity_registry),
     "async_entries_for_device": MagicMock(return_value=[]),
+    # The setup-time orphan sweep (GH #186) walks this entry's rows.
+    # Empty by default: a test that cares supplies its own registry.
+    "async_entries_for_config_entry": MagicMock(return_value=[]),
     "RegistryEntry": MagicMock,
 })
 
