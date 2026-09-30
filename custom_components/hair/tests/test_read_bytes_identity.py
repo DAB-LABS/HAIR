@@ -16,9 +16,10 @@ table, not from a symmetric few percent. That is the test the v4 gate
 lacked: file codes injected as they are reproduce file identity exactly,
 and prove nothing about a receiver.
 
-DAIKIN216 is the only family listed this round (owner ruling
-2026-09-30). The DAIKIN152 tests below patch it onto the list to prove
-the half of the contract that family will need, and say so.
+DAIKIN216 was listed first; DAIKIN152 joined once its map read swing
+and the fan flags (2026-09-30). The two share their settings frame byte
+for byte, so for them the key belongs to that frame rather than to
+either family: ``test_daikin152_joins`` pins that half.
 """
 from __future__ import annotations
 
@@ -102,10 +103,11 @@ _FRAME0 = [0x11, 0xDA, 0x27, 0xF0, 0x00, 0x00, 0x00, 0x02]
 
 
 def _settings(temp_byte=0x24, mode_power=0x31, fan_swing=0x30,
-              swing_h=0x00, byte13=0x00, byte15=0xC0) -> list[int]:
+              swing_h=0x00, byte11=0x00, byte13=0x00, byte15=0xC0,
+              byte16=0x00) -> list[int]:
     body = [0x11, 0xDA, 0x27, 0x00, 0x00, mode_power, temp_byte, 0x00,
-            fan_swing, swing_h, 0x00, 0x00, 0x00, byte13, 0x00, byte15,
-            0x00, 0x00]
+            fan_swing, swing_h, 0x00, byte11, 0x00, byte13, 0x00, byte15,
+            byte16, 0x00]
     return _checksummed(body)
 
 
@@ -174,8 +176,8 @@ def _air(code: str, press: int, transmitter: str) -> tuple[str, bool]:
 
 class TestTheList:
 
-    def test_daikin216_alone_this_round(self):
-        assert frozenset({"DAIKIN216"}) == READ_BYTES_VERIFIED
+    def test_the_two_daikin_families(self):
+        assert frozenset({"DAIKIN216", "DAIKIN152"}) == READ_BYTES_VERIFIED
 
     def test_it_is_inside_the_setting_frame_list(self):
         assert READ_BYTES_VERIFIED <= SETTING_IDENTITY_VERIFIED
@@ -184,7 +186,7 @@ class TestTheList:
         before = field_map_digest()
         original = idm.READ_BYTES_VERIFIED
         try:
-            idm.READ_BYTES_VERIFIED = frozenset({"DAIKIN216", "DAIKIN152"})
+            idm.READ_BYTES_VERIFIED = frozenset({"DAIKIN216"})
             assert field_map_digest() != before
         finally:
             idm.READ_BYTES_VERIFIED = original
@@ -234,11 +236,13 @@ class TestTheDistinctnessSweep:
 class TestTheKey:
 
     def test_a_pack_code_hashes_as_its_read_key(self):
+        """For DAIKIN216 that is the shared settings-frame key."""
+        (signature, members), = idm.shared_settings_frames().items()
         matrix = _pack_matrix("DAIKIN216.json")
         for cell in matrix.cells:
             reading = read_code(cell.pronto)
             assert EventParser.pronto_byte_hash(cell.pronto) == (
-                read_bytes_key(D216, reading.frames)
+                idm.shared_frame_key(signature, members, reading.frames[1])
             ), cell_key(cell)
 
     def test_the_encoder_reproduces_a_pack_cells_key(self):
@@ -250,11 +254,12 @@ class TestTheKey:
                 == EventParser.pronto_read_key(cell.pronto))
 
     def test_bits_no_field_names_do_not_take_part(self):
-        """Byte 13 and byte 15 are read by no field: a handset that
-        writes them differently is the same state. The checksum moves
-        with them and is recomputed, never copied into the key."""
+        """Byte 11 and byte 15 are read by no field of either Daikin
+        map: a handset that writes them differently is the same state.
+        The checksum moves with them and is recomputed, never copied
+        into the key."""
         base = _code(_settings())
-        for other in (_settings(byte13=0x01), _settings(byte15=0xC5)):
+        for other in (_settings(byte11=0x06), _settings(byte15=0xC5)):
             assert EventParser.pronto_read_key(_code(other)) == (
                 EventParser.pronto_read_key(base)
             )
@@ -263,6 +268,8 @@ class TestTheKey:
     @pytest.mark.parametrize("change", [
         {"temp_byte": 0x26}, {"mode_power": 0x41}, {"mode_power": 0x30},
         {"fan_swing": 0x3F}, {"fan_swing": 0x50}, {"swing_h": 0x0F},
+        # DAIKIN152's flags: part of the shared frame, so DAIKIN216's too
+        {"byte13": 0x01}, {"byte13": 0x04}, {"byte16": 0x04},
     ])
     def test_every_field_the_map_reads_takes_part(self, change):
         assert EventParser.pronto_read_key(_code(_settings(**change))) != (
@@ -289,7 +296,10 @@ class TestTheKey:
         assert read_bytes_key(demoted, frames) == read_bytes_key(D216, frames)
         assert read_bytes_key(demoted, swung) != read_bytes_key(demoted, frames)
 
-    def test_the_payload_is_protocol_identity_bytes_and_fields(self):
+    def test_a_family_key_is_protocol_identity_bytes_and_fields(self):
+        """The key of a listed family whose settings frame no other
+        listed family shares. DAIKIN216 is shared today, so this pins
+        the function on its own map rather than the live byte hash."""
         import hashlib
 
         frames = read_code(_code(_settings())).frames
@@ -340,13 +350,11 @@ class TestTheSameKeyOnBothSides:
             wig_signal_identity(cell.pronto).byte_hash
         )
 
-    def test_with_or_without_the_daikin152_leader(self, monkeypatch):
-        """The half of the contract DAIKIN152 will need, proved now with
-        it patched onto the list, on the #183 shape: a handset press with
-        the leader, a different clock frame and different timer bytes
-        (11 and 12, which the map does not read), against a wig state
-        with none of those. Same settings, same key; the timing hash
-        cannot agree."""
+    def test_with_or_without_the_daikin152_leader(self):
+        """On the #183 shape: a handset press with the leader, a
+        different clock frame and different timer bytes (11 and 12,
+        which the map does not read), against a wig state with none of
+        those. Same settings, same key; the timing hash cannot agree."""
         from .test_a_leader_is_not_off import (
             _HANDSET_CLOCK,
             _handset,
@@ -356,10 +364,6 @@ class TestTheSameKeyOnBothSides:
             _settings as _d152_settings,
         )
 
-        monkeypatch.setattr(
-            idm, "READ_BYTES_VERIFIED",
-            frozenset({"DAIKIN216", "DAIKIN152"}),
-        )
         body = _d152_settings(1, 3, 24, 0xA)
         timer = list(body[:18])
         timer[11], timer[12] = 0x0E, 0xE0
@@ -444,7 +448,7 @@ class TestTheIndexComparesStates:
 
     def test_two_states_the_map_cannot_tell_apart_are_refused(self):
         """Different coordinates, same read fields (they differ only in
-        byte 13). The byte-hash key they share is refused, so a press
+        byte 11). The byte-hash key they share is refused, so a press
         that is neither code exactly -- a handset writing byte 15 its
         own way -- is named as neither state. Each file code still
         finds its own cell through the (fingerprint, byte hash) pair,
@@ -452,7 +456,7 @@ class TestTheIndexComparesStates:
         a = ClimateCell(mode="cool", fan="low", temp=18.0,
                         pronto=_code(_settings()))
         b = ClimateCell(mode="cool", fan="low", temp=19.0,
-                        pronto=_code(_settings(byte13=0x01)))
+                        pronto=_code(_settings(byte11=0x06)))
         index = build_cell_index(self._lattice([a, b]))
         key = EventParser.pronto_byte_hash(a.pronto)
         assert key == EventParser.pronto_byte_hash(b.pronto)
@@ -460,6 +464,18 @@ class TestTheIndexComparesStates:
         assert _match(index, a.pronto)[0] == "cool/low/18"
         assert _match(index, b.pronto)[0] == "cool/low/19"
         assert _match(index, _code(_settings(byte15=0xC5))) is None
+
+    def test_one_code_under_two_labels_merges(self):
+        """A file that stores one code under several labels (dry and
+        fan_only, where the unit ignores temperature; 1,344 cells of the
+        #183 wig) is heard as one of them rather than refused (owner
+        ruling 2026-09-30). The labels share their bytes, so a pinned
+        device is sent the same code whichever one wins."""
+        code = _code(_settings(mode_power=0x21))
+        a = ClimateCell(mode="dry", fan="auto", temp=18.0, pronto=code)
+        b = ClimateCell(mode="dry", fan="auto", temp=19.0, pronto=code)
+        index = build_cell_index(self._lattice([a, b]))
+        assert _match(index, code)[0] in ("dry/auto/18", "dry/auto/19")
 
     def test_distinct_states_each_keep_their_key(self):
         a = ClimateCell(mode="cool", fan="low", temp=18.0,
@@ -476,7 +492,7 @@ class TestTheIndexComparesStates:
         cell = ClimateCell(mode="cool", fan="low", temp=18.0,
                            pronto=_code(_settings()))
         index = build_cell_index(self._lattice([cell]))
-        handset = _code(_settings(byte13=0x01, byte15=0xC5))
+        handset = _code(_settings(byte11=0x06, byte15=0xC5))
         assert _match(index, handset) == ("cool/low/18", None, TIER_BYTE_HASH)
 
 
@@ -544,15 +560,26 @@ class TestRowsStoredBeforeTheUpgrade:
     """
 
     @staticmethod
-    def _stale(pronto, *, step2: bool) -> str | None:
+    def _stale(pronto, *, step2: bool, read_bytes: bool = False) -> str | None:
+        """The byte hash a row was written with: 0.17.0 (neither list),
+        a #187 test-box build (setting frames), or the read-bytes round
+        (DAIKIN216 alone, on its family key)."""
         original = (idm.SETTING_IDENTITY_VERIFIED, idm.READ_BYTES_VERIFIED)
         try:
-            if not step2:
+            if not step2 and not read_bytes:
                 idm.SETTING_IDENTITY_VERIFIED = frozenset()
-            idm.READ_BYTES_VERIFIED = frozenset()
+            idm.READ_BYTES_VERIFIED = (
+                frozenset({"DAIKIN216"}) if read_bytes else frozenset()
+            )
             return canonical_byte_hash(pronto)
         finally:
             idm.SETTING_IDENTITY_VERIFIED, idm.READ_BYTES_VERIFIED = original
+
+    _VINTAGES = pytest.mark.parametrize(
+        "step2,read_bytes",
+        [(False, False), (True, False), (True, True)],
+        ids=["0.17.0", "step2", "read-bytes"],
+    )
 
     @staticmethod
     def _store(device=None, triggers=None):
@@ -565,8 +592,10 @@ class TestRowsStoredBeforeTheUpgrade:
         store._triggers = triggers or {}
         return store
 
-    @pytest.mark.parametrize("step2", [False, True], ids=["0.17.0", "step2"])
-    def test_a_stored_command_is_repointed_to_the_read_key(self, step2):
+    @_VINTAGES
+    def test_a_stored_command_is_repointed_to_the_read_key(
+        self, step2, read_bytes,
+    ):
         from custom_components.hair.models import (
             CommandCategory,
             IRCommand,
@@ -574,7 +603,7 @@ class TestRowsStoredBeforeTheUpgrade:
         )
 
         cell = _pack_matrix("DAIKIN216.json").cells[3]
-        stale = self._stale(cell.pronto, step2=step2)
+        stale = self._stale(cell.pronto, step2=step2, read_bytes=read_bytes)
         key = EventParser.pronto_read_key(cell.pronto)
         assert stale != key                       # the move is real
 
@@ -587,14 +616,16 @@ class TestRowsStoredBeforeTheUpgrade:
         assert self._store(device=device)._backfill_canonical_identity()
         assert device.commands[0].byte_hash == key
 
-    @pytest.mark.parametrize("step2", [False, True], ids=["0.17.0", "step2"])
-    def test_a_stored_trigger_fires_on_a_heard_press(self, step2):
+    @_VINTAGES
+    def test_a_stored_trigger_fires_on_a_heard_press(self, step2, read_bytes):
         from custom_components.hair.models import IRTrigger
 
         cell = _pack_matrix("DAIKIN216.json").cells[3]
         trigger = IRTrigger(
             id="t1", name="learned before the upgrade", code=cell.pronto,
-            protocol="PRONTO", byte_hash=self._stale(cell.pronto, step2=step2),
+            protocol="PRONTO",
+            byte_hash=self._stale(cell.pronto, step2=step2,
+                                  read_bytes=read_bytes),
             signal_fingerprint=wig_signal_identity(cell.pronto).fingerprint,
         )
         heard, _ = _air(cell.pronto, 2, "esphome")

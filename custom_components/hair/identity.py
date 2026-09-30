@@ -614,20 +614,23 @@ def setting_identity_families() -> tuple[str, ...]:
 # files, not something a map can say about itself, so a family joins
 # only when the distinctness sweep over its own derivation sources is
 # clean, and ``test_read_bytes_identity``'s sweep over its field pack
-# keeps it honest. Measured 2026-09-30 on f9f76fb's maps:
+# keeps it honest. Measured on each family's own sources:
 #
 #   DAIKIN216     FTXS50KVM wig        520 states, 520 keys      clean
+#   DAIKIN152     8 files + the #183   no two labels share a key but
+#                 wig (2026-09-30, on  where the file itself stores
+#                 e867038's map)       one code under several labels
+#                                      (dry and fan_only ignore the
+#                                      temperature), and 1108's known
+#                                      cool/heat mislabel         in
 #   PANASONIC216  11 files             swing unmapped (1030), quiet
 #                                      beside fan (1032)         out
 #   TCL112        14 files             turbo beside fan, Fahrenheit
 #                                      and half-degree labels    out
-#   DAIKIN152     8 files              powerful beside fan; swing
-#                                      unmapped (the #183 wig)   out
 #
-# DAIKIN152 joins in a one-line follow-up once its map reads swing and
-# the fan flags (owner ruling 2026-09-30). The others keep setting-frame
-# identity until their maps grow.
-READ_BYTES_VERIFIED = frozenset({"DAIKIN216"})
+# PANASONIC216 and TCL112 keep setting-frame identity until their maps
+# grow.
+READ_BYTES_VERIFIED = frozenset({"DAIKIN216", "DAIKIN152"})
 
 
 def read_bytes_families() -> tuple[str, ...]:
@@ -727,6 +730,134 @@ def read_bytes_key(field_map, frames) -> str | None:
     return hashlib.sha256(("read:" + payload).encode()).hexdigest()[:16]
 
 
+# ---------------------------------------------------------------------------
+# ONE KEY FOR A SETTINGS FRAME TWO FAMILIES SHARE (owner ruling 2026-09-30)
+# ---------------------------------------------------------------------------
+#
+# DAIKIN216 frame 1 and DAIKIN152 frame 3 are the same frame byte for
+# byte: 19 bytes, the same 11 DA 27 header, the same sum(0..17) check in
+# byte 18, and the same field positions where both maps read. A receiver
+# that splits a press at its gaps hands that frame over on its own, and
+# alone it names neither family. So for families whose setting frame is
+# shared, the key belongs to the FRAME, not the family: whole press and
+# lone frame alike, attributed to neither.
+#
+# WHICH FRAMES ARE SHARED is derived, never listed: two families on
+# ``READ_BYTES_VERIFIED``, each with one setting frame that holds every
+# field it reads, share it when the frame's width, its header bytes
+# within the frame and its ratified integrity rules all match. Today
+# that is exactly DAIKIN216 frame 1 and DAIKIN152 frame 3, and a test
+# pins it, so a future map that matches by accident shows up in CI.
+#
+# WHAT THE KEY HOLDS, in this order: the frame signature (width, header
+# bytes, integrity rules), then every distinct (byte, mask) that ANY of
+# the sharing maps reads in that frame, sorted by byte and then mask,
+# each with its raw value. Field names stay out, so two maps naming the
+# same bits differently still agree. The checksum is recomputed and must
+# hold before any key forms, exactly as for a family key.
+#
+# WHAT A USER COULD NOTICE. A DAIKIN216 press and a DAIKIN152 press with
+# identical settings now share a key. With two Daikin units of different
+# generations in one house and one receiver that sees both handsets, a
+# press on one could be heard as a state of the other's remote. Receiver
+# scope on the remote is the existing mitigation; the units themselves
+# do not answer each other's codes.
+
+
+def _frame_signature(field_map, index: int) -> tuple | None:
+    """What makes a setting frame the frame it is, frame-relative."""
+    from .field_readers import RULE_FRAME_REPEAT
+
+    if index >= len(field_map.frame_layout):
+        return None
+    header = tuple(sorted(
+        (byte, value) for frame, byte, value in field_map.identity_bytes
+        if frame == index
+    ))
+    rules = []
+    for rule in field_map.integrity:
+        if not rule.ratified or rule.type == RULE_FRAME_REPEAT:
+            continue
+        if int(rule.params.get("frame", 0) or 0) != index:
+            continue
+        params = {k: v for k, v in rule.params.items() if k != "frame"}
+        rules.append((rule.type, _canonical_json(params)))
+    return (field_map.frame_layout[index], header, tuple(sorted(rules)))
+
+
+def _canonical_json(value) -> str:
+    import json
+
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def shared_settings_frames() -> dict[tuple, tuple[tuple[str, int], ...]]:
+    """``{signature: ((family, frame), ...)}`` for every setting frame two
+    or more listed families share. Derived from the maps on each call;
+    the library is cached, so this is cheap."""
+    from .field_readers import library
+
+    groups: dict[tuple, list[tuple[str, int]]] = {}
+    for field_map in library():
+        if field_map.protocol_id not in READ_BYTES_VERIFIED:
+            continue
+        if len(field_map.setting_frames) != 1:
+            continue
+        index = field_map.setting_frames[0]
+        if any(spec.frame != index for spec in field_map.fields):
+            continue
+        signature = _frame_signature(field_map, index)
+        if signature is None or not signature[1]:
+            continue
+        groups.setdefault(signature, []).append(
+            (field_map.protocol_id, index)
+        )
+    return {
+        signature: tuple(sorted(members))
+        for signature, members in groups.items() if len(members) > 1
+    }
+
+
+def _shared_group_of(protocol_id: str):
+    """``(signature, members)`` of the shared frame this family's setting
+    frame belongs to, or None."""
+    for signature, members in shared_settings_frames().items():
+        if any(family == protocol_id for family, _ in members):
+            return signature, members
+    return None
+
+
+def shared_frame_positions(members) -> tuple[tuple[int, int], ...]:
+    """Every distinct (byte, mask) any sharing map reads, sorted."""
+    from .field_readers import bit_selector, library
+
+    maps = {m.protocol_id: m for m in library()}
+    positions: set[tuple[int, int]] = set()
+    for family, _index in members:
+        for spec in maps[family].fields:
+            mask, _shift = bit_selector(spec.bits)
+            positions.add((spec.byte, mask))
+    return tuple(sorted(positions))
+
+
+def shared_frame_key(signature, members, frame) -> str | None:
+    """The key of one shared settings frame's bytes, or None."""
+    import json
+
+    values: list[list[int]] = []
+    for byte, mask in shared_frame_positions(members):
+        if byte >= len(frame):
+            return None
+        shift = (mask & -mask).bit_length() - 1 if mask else 0
+        values.append([byte, mask, (frame[byte] & mask) >> shift])
+    width, header, rules = signature
+    payload = json.dumps(
+        [width, [list(h) for h in header], [list(r) for r in rules], values],
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(("frame:" + payload).encode()).hexdigest()[:16]
+
+
 def _setting_rules_hold(field_map, frames) -> bool:
     """Every ratified integrity rule on a setting frame evaluates True.
 
@@ -750,21 +881,19 @@ def _setting_rules_hold(field_map, frames) -> bool:
 
 
 def read_bytes_hash(timings: list[int] | None) -> str | None:
-    """The read-bytes identity of a WHOLE capture, or None.
+    """The read-bytes identity of a capture, or None.
 
-    The whole capture has to read as a family on ``READ_BYTES_VERIFIED``;
-    the key is then that family's fields read from its setting frames.
+    1. The whole capture reads as a family on ``READ_BYTES_VERIFIED``:
+       the key of its setting frame's fields -- the SHARED frame key when
+       that setting frame is one two listed families share, the family
+       key otherwise.
+    2. It is a lone frame that every family claiming it claims as the
+       same shared settings frame (the judged candidates of
+       ``lone_frame_candidates``, all members of one shared group): the
+       shared frame key, which is the value answer 1 gives for the whole
+       press, so a lone frame from either family finds its cell.
+
     Otherwise None, and the caller keeps today's identity exactly.
-
-    A LONE setting frame gets no key, on purpose (owner ruling
-    2026-09-30). The 19-byte Daikin settings frame is the same frame in
-    DAIKIN216 and DAIKIN152 -- same width, same 11 DA 27 header, same
-    checksum -- so alone it names neither family (measured on 200 of 200
-    DAIKIN216 pack frames and every synthetic DAIKIN152 one), and with
-    only one of the two families listed, any key chosen for it would
-    stop the other family's lone frames matching their cells. It keeps
-    its setting-frame timing identity until the DAIKIN152 follow-up,
-    where the lone frame takes one shared key over both maps' fields.
     """
     if not READ_BYTES_VERIFIED:
         return None
@@ -772,12 +901,61 @@ def read_bytes_hash(timings: list[int] | None) -> str | None:
     if not train:
         return None
     got = _verified_decoding(train, READ_BYTES_VERIFIED)
-    if got is None:
+    if got is not None:
+        field_map, _places, decoded = got
+        if not _setting_rules_hold(field_map, decoded):
+            return None
+        shared = _shared_group_of(field_map.protocol_id)
+        if shared is not None:
+            signature, members = shared
+            return shared_frame_key(
+                signature, members, decoded[field_map.setting_frames[0]]
+            )
+        return read_bytes_key(field_map, decoded)
+    return _lone_shared_frame_key(train, timings)
+
+
+def _lone_shared_frame_key(train, timings) -> str | None:
+    """Answer 2 of ``read_bytes_hash``."""
+    from .field_readers import bits_to_bytes, library, read_frames
+
+    groups = shared_settings_frames()
+    if not groups:
         return None
-    field_map, _places, decoded = got
-    if not _setting_rules_hold(field_map, decoded):
-        return None
-    return read_bytes_key(field_map, decoded)
+    maps = {m.protocol_id: m for m in library()}
+    for signature, members in groups.items():
+        width = signature[0]
+        # Cheap first: one frame of the shared width, read by a member's
+        # own timing. The judged verdict walks every map in the library
+        # and this runs for every code HAIR hashes.
+        first = maps[members[0][0]]
+        frames, failed = read_frames(first.timing, train)
+        if failed or len(frames) != 1:
+            continue
+        if abs(len(frames[0]) - width) > first.bits_tolerance:
+            continue
+        claimants = {
+            (c.protocol_id, c.frame_index)
+            for c in lone_frame_candidates(timings)
+        }
+        if not claimants or not claimants <= set(members):
+            continue
+        decoded = None
+        for family, index in members:
+            field_map = maps[family]
+            got, bad = read_frames(field_map.timing, train)
+            if bad or len(got) != 1:
+                return None
+            as_bytes = bits_to_bytes(got[0], field_map.bit_order)
+            if decoded is not None and as_bytes != decoded:
+                return None
+            decoded = as_bytes
+            laid: list[tuple[int, ...]] = [()] * len(field_map.frame_layout)
+            laid[index] = as_bytes
+            if not _setting_rules_hold(field_map, laid):
+                return None
+        return shared_frame_key(signature, members, decoded)
+    return None
 
 
 def setting_frame_spans(
