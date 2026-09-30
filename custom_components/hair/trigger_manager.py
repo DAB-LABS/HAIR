@@ -186,6 +186,7 @@ class TriggerManager:
         byte_hash: str | None = None,
         decoded_fingerprint: str | None = None,
         norm_fp: str | None = None,
+        decode_covers: bool | None = None,
     ) -> list[str]:
         """Process an incoming signal against all enabled triggers.
 
@@ -231,7 +232,7 @@ class TriggerManager:
 
         triggers = self._store.get_triggers_for_signal(
             protocol, code, fingerprint, byte_hash, decoded_fingerprint,
-            norm_fp,
+            norm_fp, decode_covers,
         )
         if not triggers:
             return []

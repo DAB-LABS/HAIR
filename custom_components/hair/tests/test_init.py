@@ -1,6 +1,7 @@
 """Tests for the HAIR integration __init__.py setup/teardown."""
 from __future__ import annotations
 
+import asyncio as _asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -449,3 +450,136 @@ class TestReloadRehashesPanel:
             "?v=" + _hashlib.md5(b"bundle-edition-B").hexdigest()[:8]
         )
         assert url_a != url_b
+
+
+# ===========================================================================
+# The field-map library is never first loaded on the event loop
+# ===========================================================================
+
+
+class TestTheMapLibraryIsWarmedOffTheLoop:
+    """VM999 bench 2026-09-29, on #187.
+
+    HA logged three "Detected blocking call" warnings at startup:
+    scandir, read_text and open on ``field_maps/``. The chain was
+    ``async_setup_entry`` -> ``store.async_load`` ->
+    ``_backfill_canonical_identity`` -> ``canonical_byte_hash`` ->
+    setting-frame identity -> ``field_readers.library()`` on first use,
+    all of it inside the event loop.
+
+    Setting-frame identity is what put the map library on that path, so
+    the library has to be warm before the first store loads. These
+    tests reproduce the chain rather than assert on call order, so they
+    keep meaning if the warm ever moves somewhere else that is still
+    early enough.
+    """
+
+    @staticmethod
+    def _hass_with_a_real_executor():
+        """``_fake_hass`` runs executor jobs inline, which is exactly the
+        distinction under test here, so this one uses a real thread."""
+        hass = _fake_hass()
+
+        async def _exec_job(func, *args):
+            loop = _asyncio.get_running_loop()
+            return await loop.run_in_executor(None, func, *args)
+
+        hass.async_add_executor_job = _exec_job
+        return hass
+
+    @staticmethod
+    def _refuse_on_the_loop(real):
+        """``load_maps``, but it raises if called where HA would warn."""
+
+        def guarded(*args, **kwargs):
+            try:
+                _asyncio.get_running_loop()
+            except RuntimeError:
+                return real(*args, **kwargs)
+            raise AssertionError(
+                "the field map library was first loaded on the event loop"
+            )
+
+        return guarded
+
+    @pytest.mark.asyncio
+    async def test_a_store_load_that_hashes_a_code_does_no_file_io(self):
+        """The reported chain, end to end: the store's load asks for a
+        code's canonical byte hash, which is what reached the maps."""
+        from custom_components.hair import field_readers
+        from custom_components.hair.identity import canonical_byte_hash
+
+        hass = self._hass_with_a_real_executor()
+        entry = _fake_entry()
+        nec = ("0000 006D 0006 0000 0157 00AC 0016 0016 0016 0041 0016 0016"
+               " 0016 0041 0016 06FB")
+
+        field_readers.reset_library()
+        try:
+            with patch("custom_components.hair.HAIRStore") as mock_store_cls, \
+                 patch("custom_components.hair.async_register_websocket_commands"), \
+                 patch("custom_components.hair._async_register_panel",
+                       new_callable=AsyncMock), \
+                 patch.object(field_readers, "load_maps",
+                              self._refuse_on_the_loop(field_readers.load_maps)):
+                mock_store = MagicMock()
+                mock_store.async_load = AsyncMock(
+                    side_effect=lambda: canonical_byte_hash(nec)
+                )
+                mock_store.backfill_catalog_trigger_origins.return_value = False
+                mock_store_cls.return_value = mock_store
+
+                assert await async_setup_entry(hass, entry) is True
+
+            assert field_readers.library()
+        finally:
+            field_readers.reset_library()
+
+    @pytest.mark.asyncio
+    async def test_the_warm_happens_before_the_store_is_even_built(self):
+        """Ordering, stated once as an ordering so a future edit that
+        keeps the warm but moves it after the store still fails."""
+        from custom_components.hair import field_readers
+
+        hass = self._hass_with_a_real_executor()
+        entry = _fake_entry()
+        order: list[str] = []
+
+        def _warm():
+            order.append("warm")
+            field_readers.library()
+
+        field_readers.reset_library()
+        try:
+            with patch("custom_components.hair.HAIRStore") as mock_store_cls, \
+                 patch("custom_components.hair.async_register_websocket_commands"), \
+                 patch("custom_components.hair._async_register_panel",
+                       new_callable=AsyncMock), \
+                 patch("custom_components.hair.prime_field_maps", _warm):
+                mock_store = MagicMock()
+                mock_store.async_load = AsyncMock(
+                    side_effect=lambda: order.append("store")
+                )
+                mock_store.backfill_catalog_trigger_origins.return_value = False
+                mock_store_cls.side_effect = lambda *a: (
+                    order.append("store built") or mock_store
+                )
+
+                await async_setup_entry(hass, entry)
+        finally:
+            field_readers.reset_library()
+
+        assert order[:3] == ["warm", "store built", "store"]
+
+    def test_the_warm_fills_the_cache(self):
+        """It is the cache that makes one warm enough for the process."""
+        from custom_components.hair import field_readers
+
+        field_readers.reset_library()
+        try:
+            assert field_readers._LIBRARY is None
+            field_readers.prime_field_maps()
+            assert field_readers._LIBRARY is not None
+            assert field_readers.library() is field_readers._LIBRARY
+        finally:
+            field_readers.reset_library()

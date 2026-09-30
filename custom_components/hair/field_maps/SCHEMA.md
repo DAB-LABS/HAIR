@@ -1,4 +1,4 @@
-# Field-map schema v0.5
+# Field-map schema v0.6
 
 Proposed v0 by the first derivation pass (2026-08-22). Extended to v0.1 by round two
 and to v0.2 by round three, same date, and to v0.3 by the DAIKIN216 map (2026-09-14), and to v0.4 by the AC
@@ -7,7 +7,9 @@ derivation pass (2026-09-23), which added one optional rule parameter:
 map written against v0.3 computes exactly what it did before. v0.5 (2026-09-28)
 added one optional frame key, `frame.setting_frames`, which defaults to
 `[payload_frame]`, so every map written against v0.4 describes exactly the same
-frames it did before.
+frames it did before. v0.6 (2026-09-29) added one optional frame key,
+`frame.optional_leader`, which defaults to false, so every map that does not
+declare it reads exactly the codes it read before.
 **Every change in every round is additive**: a reader written against v0 still reads
 every map in this directory correctly, with one conformance point (round two,
 `vocabulary`) called out at the end.
@@ -31,6 +33,8 @@ frame:
   setting_frames: [<int>, ...]       # NEW v0.5: EVERY frame that carries a setting,
                                      # payload_frame first, in reading order.
                                      # Defaults to [payload_frame].
+  optional_leader: <bool>            # NEW v0.6: frame 0 is a leader a code may
+                                     # leave out. Default false. See below.
   modulation: pulse_distance | pulse_width | other
   bit_order: msb_first | lsb_first
   header_us: [<mark>, <space>]
@@ -253,6 +257,61 @@ something to check, and each one's `schema_version` moves to `"0.5"` to say so.
 Declaring the key rather than defaulting it is the point -- a map that has
 thought about the question and a map that has not should not look the same.
 
+## Changes in v0.6: optional_leader
+
+One addition, `frame.optional_leader`, and it exists because a leader block is
+something one sender transmits and another does not.
+
+DAIKIN152 describes four frames: a five-bit leader block, the 8-byte constant
+frame, the 8-byte clock frame and the 19-byte settings frame. Every handset
+capture in its derivation files carries the leader. A lattice rendered by an
+encoder that sends the three frames alone (GH #183) met a four-frame layout and
+read as nothing, while that same remote's Off, captured from a handset, read
+fine. One remote was split across "read" and "unread" by a block that carries
+no byte.
+
+```yaml
+frame:
+  frame_layout: [5, 64, 64, 152]
+  payload_frame: 3
+  setting_frames: [3]
+  optional_leader: true
+```
+
+**Numbering does not change.** A code that carries the leader is read exactly as
+before. A code whose frames fit the layout from frame 1 onward, and do not fit
+it whole, is read with an EMPTY frame 0 standing in for the leader, so frame 3
+is the settings frame either way and every index the map states -- fields,
+identity bytes, rules, `payload_frame`, `setting_frames` -- keeps its meaning.
+The whole layout is always tried first, so the short form is only ever a second
+chance.
+
+Rules a map must keep, enforced by `test_field_map_schema.py` against the
+documents:
+
+- The value is the boolean `true`. Anything else is not a declaration.
+- The layout has at least two frames, and frame 0 is shorter than a byte.
+- Nothing reads frame 0: it is not `payload_frame`, not in `setting_frames`,
+  and no identity byte, field or integrity rule names it. On the codes that
+  leave it out there would be nothing there to read.
+
+The loader salvages a document that breaks the last rule by ignoring the key,
+as it salvages a badly declared `setting_frames`; the document itself fails the
+test.
+
+Within HAIR the leader-aware reading is used for identification (`read_code`,
+and through it every comb check that reads fields and rules), for setting-frame
+identity (the spans a press's identity is computed from), and in the comb's
+frame-shape check, which sets a present optional leader aside when a lattice
+mixes the two forms, so the cells that carry it are not reported for it. A
+lattice whose codes all carry the leader is compared exactly as before. One
+place does not use it yet: rewriting a field inside a real capture to build a
+repair candidate still needs a capture that carries the leader, and declines a
+leaderless one as unreadable.
+
+Only DAIKIN152 declares the key. It moves that map's version (see below) and no
+other.
+
 ## What moves a map's version
 
 HAIR derives a version for every map and keys people's answers to comb
@@ -262,8 +321,9 @@ answered again. So the version is a digest of what the map READS AND
 JUDGES, taken over the parsed map rather than the document:
 
 - **Moves it:** `protocol_id`; the frame layout, `payload_frame`,
-  `setting_frames`, `bit_order`, `bits_tolerance`, `identity_bytes` and
-  the `timing` block; each field's `name`, `frame`, `byte`, `bits`,
+  `setting_frames`, `optional_leader` (when true; a map that leaves it
+  off or writes `false` has the version it had before v0.6),
+  `bit_order`, `bits_tolerance`, `identity_bytes` and the `timing` block; each field's `name`, `frame`, `byte`, `bits`,
   `encoding_ref` (name and every param, including the vocabulary),
   `applies_when`, `mode_traits`, `coordinate` and `confidence`; each
   integrity rule's `type`, `params` and `confidence`.

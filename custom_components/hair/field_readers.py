@@ -209,6 +209,13 @@ class FieldMap:
     timing: FrameTiming
     fields: list[FieldSpec]
     integrity: list[IntegrityRule]
+    #: Schema v0.6. Frame 0 is a leader that a code may leave out. When it
+    #: is missing the frames that did arrive are laid on the layout from
+    #: frame 1, so every index a map states -- fields, identity bytes,
+    #: rules, ``payload_frame``, ``setting_frames`` -- names the same frame
+    #: whether or not the leader was sent. See ``aligned_frames``. The
+    #: parser only sets it on a map whose frame 0 carries nothing it reads.
+    optional_leader: bool = False
 
     def field_named(self, name: str) -> FieldSpec | None:
         for spec in self.fields:
@@ -406,6 +413,7 @@ def _map_version(
     timing: FrameTiming,
     fields: list[FieldSpec],
     rules: list[IntegrityRule],
+    optional_leader: bool = False,
 ) -> str:
     """A short digest of what this map reads and judges, and nothing else.
 
@@ -424,6 +432,11 @@ def _map_version(
     Stored answers to comb findings are keyed on this value
     (``tangles.attestation_key``), so it has one job: move when a
     reading could have changed and at no other time.
+
+    ``optional_leader`` enters the digest only when it is set. A map that
+    does not declare it reads exactly as it did before the key existed,
+    so its version must not move for a key it does not use; a map that
+    declares it reads codes it used to refuse, so its version must.
     """
     import hashlib
     import json
@@ -446,6 +459,8 @@ def _map_version(
             for rule in rules
         ],
     }
+    if optional_leader:
+        projection["optional_leader"] = True
     canonical = json.dumps(
         _canonical(projection), default=str, separators=(",", ":")
     )
@@ -475,6 +490,46 @@ def _setting_frames(
             if 0 <= index < frame_count and index not in out:
                 out.append(index)
     return out
+
+
+def _optional_leader(
+    declared: Any,
+    frame_layout: list[int],
+    payload_frame: int,
+    setting_frames: list[int],
+    identity: list[tuple[int, int, int]],
+    fields: list[FieldSpec],
+    rules: list[IntegrityRule],
+) -> bool:
+    """Is frame 0 a leader this map lets a code leave out?
+
+    Only ``true`` declares it, and only a frame 0 that is shorter than a
+    byte and that nothing reads can be one. A leader that is sometimes
+    absent cannot carry the payload, a setting, an identity byte, a field
+    or a rule's input: on the codes that leave it out, whatever the map
+    read there would be read from nothing. A document that declares the
+    key on any other frame 0 is not rejected -- the loader salvages
+    rather than raises -- it simply does not get the key, and the schema
+    test fails the document itself.
+    """
+    if declared is not True or len(frame_layout) < 2:
+        return False
+    if frame_layout[0] >= 8:
+        return False
+    if payload_frame == 0 or 0 in setting_frames:
+        return False
+    if any(frame_index == 0 for frame_index, _byte, _value in identity):
+        return False
+    if any(spec.frame == 0 for spec in fields):
+        return False
+    for rule in rules:
+        params = rule.params or {}
+        if int(params.get("frame", 0) or 0) == 0:
+            return False
+        if rule.type == RULE_FRAME_REPEAT \
+                and int(params.get("equals", 0) or 0) == 0:
+            return False
+    return True
 
 
 def parse_map(raw: dict[str, Any]) -> FieldMap | None:
@@ -514,6 +569,10 @@ def parse_map(raw: dict[str, Any]) -> FieldMap | None:
     )
     bit_order = str(frame.get("bit_order", "msb_first"))
     bits_tolerance = int(frame.get("bits_tolerance", 1) or 0)
+    optional_leader = _optional_leader(
+        frame.get("optional_leader"), frame_layout, payload_frame,
+        setting_frames, identity, fields, rules,
+    )
     return FieldMap(
         protocol_id=protocol_id,
         version=_map_version(
@@ -527,6 +586,7 @@ def parse_map(raw: dict[str, Any]) -> FieldMap | None:
             timing=timing,
             fields=fields,
             rules=rules,
+            optional_leader=optional_leader,
         ),
         frame_layout=frame_layout,
         payload_frame=payload_frame,
@@ -537,6 +597,7 @@ def parse_map(raw: dict[str, Any]) -> FieldMap | None:
         timing=timing,
         fields=fields,
         integrity=rules,
+        optional_leader=optional_leader,
     )
 
 
@@ -582,6 +643,26 @@ def reset_library() -> None:
     """Drop the cache. Tests only."""
     global _LIBRARY
     _LIBRARY = None
+
+
+def prime_field_maps() -> None:
+    """Fill the library cache. Blocking file I/O, so never on the loop.
+
+    Called once from ``async_setup_entry`` through the executor, BEFORE
+    either store loads. Since setting-frame identity (#187) every
+    identity computed reads this library, and the first read globs the
+    directory and opens each YAML in it. ``_backfill_canonical_identity``
+    runs inside ``store.async_load`` on every start, so without this warm
+    the first stored command HA touches costs three blocking calls on
+    the event loop, and HA says so: scandir, read_text and open, logged
+    as "Detected blocking call" (VM999 bench 2026-09-29).
+
+    One warm covers the process. The capture path and trigger matching
+    reach the same cache and are wired later in the same function, so
+    they find it filled; ``field_map_digest`` does its own reading but
+    is only ever called from the executor.
+    """
+    library()
 
 
 # ---------------------------------------------------------------------------
@@ -717,14 +798,140 @@ def bits_to_bytes(bits: list[int], bit_order: str) -> tuple[int, ...]:
 # ---------------------------------------------------------------------------
 
 
-def _matches_layout(field_map: FieldMap, frames: list[list[int]]) -> bool:
-    if len(frames) != len(field_map.frame_layout):
+def _widths_fit(
+    frames: list[list[int]], layout: list[int], tolerance: int
+) -> bool:
+    if len(frames) != len(layout):
         return False
-    tolerance = field_map.bits_tolerance
     return all(
         abs(len(frame) - expected) <= tolerance
-        for frame, expected in zip(frames, field_map.frame_layout, strict=True)
+        for frame, expected in zip(frames, layout, strict=True)
     )
+
+
+def _leader_missing(
+    field_map: FieldMap, frames: list[list[int]]
+) -> bool | None:
+    """False: the frames fit the layout as they are. True: they fit it
+    with the optional leader left out. None: they do not fit it.
+
+    The whole layout is tried first, so a code that carries its leader
+    is always read with it; the short form is only ever a second chance,
+    and only for a map that declared it.
+    """
+    layout = field_map.frame_layout
+    tolerance = field_map.bits_tolerance
+    if _widths_fit(frames, layout, tolerance):
+        return False
+    if field_map.optional_leader and _widths_fit(frames, layout[1:], tolerance):
+        return True
+    return None
+
+
+def aligned_frames(
+    field_map: FieldMap, frames: list[list[int]]
+) -> list[list[int]] | None:
+    """The frames laid on the map's layout, or None when they do not fit.
+
+    For every map but one that declares ``optional_leader`` this is the
+    frames unchanged or None, exactly the old layout test. For a code
+    that left its optional leader out, an EMPTY frame 0 stands in for it,
+    so frame ``n`` of the map is element ``n`` of the result whether or
+    not the leader was sent, and nothing downstream renumbers. The empty
+    frame carries no bytes, so any read of it is None, never a value.
+    """
+    missing = _leader_missing(field_map, frames)
+    if missing is None:
+        return None
+    return [[], *frames] if missing else list(frames)
+
+
+def aligned_positioned(
+    field_map: FieldMap,
+    frames: list[list[int]],
+    places: list[list[int]],
+) -> tuple[list[list[int]], list[list[int]]] | None:
+    """``aligned_frames`` for a caller that also holds the pulse positions
+    ``read_frames_positioned`` reported. The stand-in leader has none."""
+    missing = _leader_missing(field_map, frames)
+    if missing is None:
+        return None
+    if missing:
+        return [[], *frames], [[], *places]
+    return list(frames), list(places)
+
+
+def _matches_layout(field_map: FieldMap, frames: list[list[int]]) -> bool:
+    return _leader_missing(field_map, frames) is not None
+
+
+def optional_leader_pairs(pronto: str) -> int | None:
+    """Where this code stands on an optional leader.
+
+    None when no map that declares ``optional_leader`` reads the code.
+    Otherwise the number of leading pulse pairs that ARE the leader: 0
+    when the code left it out, and when it is there, its bits plus the
+    pair whose mark closes it and whose space is the gap after it.
+
+    A caller comparing the SHAPES of codes (the comb's frame-shape check)
+    uses both answers: whether its population mixes the two forms, and
+    how many pairs to set aside on the codes that carry the leader.
+
+    Reading only. Nothing here builds or changes a code.
+    """
+    optional = [m for m in library() if m.optional_leader]
+    if not optional:
+        return None
+    timings = pronto_microseconds(pronto)
+    if not timings:
+        return None
+    for field_map in optional:
+        frames, places, failed = read_frames_positioned(
+            field_map.timing, timings
+        )
+        if failed:
+            continue
+        laid = aligned_positioned(field_map, frames, places)
+        if laid is None:
+            continue
+        frames, places = laid
+        decoded = [bits_to_bytes(f, field_map.bit_order) for f in frames]
+        if not _matches_identity(field_map, decoded):
+            continue
+        leader = places[0]
+        if not leader:
+            return 0
+        if leader[0] == 1:
+            # Some renderings open the leader with a header pair. It
+            # belongs to the leader, and it is the only thing that may
+            # stand in front of it.
+            mark, space = abs(timings[0]), abs(timings[1])
+            if not (field_map.timing.header_mark.holds(mark)
+                    and field_map.timing.header_space.holds(space)):
+                return None
+        elif leader[0] != 0:
+            # Something else precedes the leader. Not a shape this can
+            # account for, so it says nothing rather than guess.
+            return None
+        return leader[-1] + 2
+    return None
+    timings = pronto_microseconds(pronto)
+    if not timings:
+        return 0
+    for field_map in optional:
+        frames, places, failed = read_frames_positioned(
+            field_map.timing, timings
+        )
+        if failed or _leader_missing(field_map, frames) is not False:
+            continue
+        decoded = [bits_to_bytes(f, field_map.bit_order) for f in frames]
+        if not _matches_identity(field_map, decoded):
+            continue
+        leader = places[0]
+        if not leader or leader[0] != 0:
+            continue
+        return leader[-1] + 2
+    return 0
 
 
 def _matches_identity(
@@ -830,10 +1037,11 @@ def read_code(
             unreadable = True
             continue
         split.append((field_map, frames))
-        if not _matches_layout(field_map, frames):
+        laid = aligned_frames(field_map, frames)
+        if laid is None:
             continue
         decoded = [
-            bits_to_bytes(frame, field_map.bit_order) for frame in frames
+            bits_to_bytes(frame, field_map.bit_order) for frame in laid
         ]
         if not _matches_identity(field_map, decoded):
             continue

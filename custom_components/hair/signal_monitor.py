@@ -1819,6 +1819,9 @@ class SignalMonitor:
                 sig_fp, parsed.protocol, parsed.code, dev_fp,
                 receiver_entity_id, byte_hash, decoded_fingerprint,
                 n.norm_fp,
+                # A decode explaining only part of this capture is not
+                # its identity (owner ruling 2026-09-29).
+                n.decode_covers,
             )
 
         # Step 3b: the lattice (signpost 4, Track M). A matrix Remote

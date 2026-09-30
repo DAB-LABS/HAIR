@@ -112,6 +112,36 @@ _Identity = tuple[
 _UNCLAIMED = object()
 
 
+class _StateOrCode:
+    """The refusal discriminator for a READ-BYTES cell.
+
+    Two claimants of one key are the same thing when they are the same
+    STATE -- two copies that differ only in a clock or timer byte (owner
+    ruling 2026-09-30) -- or when they carry the same CODE: a file that
+    stores one code under several labels, as dry and fan_only do when
+    the unit ignores temperature (owner ruling 2026-09-30, measured on
+    the #183 wig: 1,344 of 2,016 cells in 64 such groups). Either one
+    merges; only a pair that differs in both is refused. Deliberately
+    not an equivalence relation, so it is never hashed.
+    """
+
+    __slots__ = ("code", "state")
+    __hash__ = None  # type: ignore[assignment]
+
+    def __init__(self, state: tuple, code: object) -> None:
+        self.state = state
+        self.code = code
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _StateOrCode):
+            return NotImplemented
+        return self.state == other.state or self.code == other.code
+
+    def __ne__(self, other: object) -> bool:
+        equal = self.__eq__(other)
+        return equal if equal is NotImplemented else not equal
+
+
 @dataclass(frozen=True)
 class CellHit:
     """One heard state, resolved to the lattice.
@@ -280,7 +310,7 @@ def build_cell_index(
     # Which code claimed each tier key, and the keys two different codes
     # claimed. ``NormFpIndex`` keeps its own pair of these internally;
     # these are the same bookkeeping for the three plain dicts.
-    claims: dict[str, dict[Any, str | None]] = {
+    claims: dict[str, dict[Any, Any]] = {
         "decoded": {}, "fp_bytehash": {}, "bytehash": {},
     }
     poisoned: dict[str, set] = {
@@ -288,7 +318,7 @@ def build_cell_index(
     }
 
     def _claim(
-        tier: str, store: dict, key: Any, code: str | None, hit: CellHit
+        tier: str, store: dict, key: Any, code: Any, hit: CellHit
     ) -> None:
         """Put ``hit`` under ``key``, unless two codes want that key."""
         if key in poisoned[tier]:
@@ -315,10 +345,22 @@ def build_cell_index(
                 canonical_pronto(identity.pronto) or identity.pronto
             )
         )
-        code = whole_code_discriminator(
+        code: Any = whole_code_discriminator(
             identity.raw_timings,
             identity.byte_hash or identity.fingerprint,
         )
+        # A READ-BYTES family names its state by what the map reads, so
+        # the refusal asks "same state, or same code?" rather than "same
+        # code?" alone: see ``_StateOrCode``. Asked of the whole code
+        # only, two copies of one state that differ in a clock byte would
+        # refuse each other and neither would ever be heard.
+        read_key = EventParser.pronto_read_key(
+            canonical_pronto(identity.pronto) or identity.pronto
+        )
+        if read_key is not None and read_key == identity.byte_hash:
+            code = _StateOrCode(
+                ("state", hit.lattice, hit.cell_key, hit.power), code,
+            )
         # A DECODE THAT EXPLAINS PART OF THE CAPTURE IS NOT AN IDENTITY.
         # Indexing it would claim this cell IS that fingerprint, and on
         # a Daikin every cell would claim the same one.
@@ -1013,10 +1055,16 @@ class MatrixListener:
 # the in-memory one cannot drift apart in a refactor.
 
 # Bumped to /2 for the receiver-tolerant tier (2026-08-18), to /3 for
-# the unified strip (GH #125), and to /4 for the shared-key refusal and
-# the coverage gate (owner bench 2026-09-25): a /3 index was built by
-# rules that let one Daikin key answer for 520 states, and it has to be
-# thrown away rather than trusted. A stored index of an older format is
+# the unified strip (GH #125), to /4 for the shared-key refusal and the
+# coverage gate (owner bench 2026-09-25) -- a /3 index was built by
+# rules that let one Daikin key answer for 520 states -- and to /5 for
+# setting-frame identity (2026-09-29), which moves WHERE an allowlisted
+# family's identity is computed from, to /6 for read-bytes identity
+# (GH #183, 2026-09-30), which moves WHAT a listed family's byte hash is
+# computed from, and to /7 when DAIKIN152 joined and the Daikin settings
+# frame both families share took one key of its own (and the refusal
+# learned to merge a code a file stores under several labels). A stored
+# index of an older format is
 # simply not read, so every lattice rebuilds once and gains the new map;
 # the rebuild is the same seconds-of-work the first build was.
 #
@@ -1028,7 +1076,7 @@ class MatrixListener:
 # pre-migration hashes while captures arrived carrying post-migration
 # ones. Every climate lattice would silently stop recognizing its own
 # cells, with nothing in any log to say so.
-INDEX_FORMAT = "hair-cell-index/4"
+INDEX_FORMAT = "hair-cell-index/7"
 
 
 def _hit_to_row(hit: CellHit) -> list:
@@ -1065,8 +1113,16 @@ def _index_to_payload(
             hits.append(_hit_to_row(hit))
         return seen[key]
 
+    from .identity import field_map_digest
+
     return {
         "format": INDEX_FORMAT,
+        # The field maps and the allowlist decide which frames an
+        # allowlisted family's identity is sliced from, so a change to
+        # either makes this index answer with boundaries the current
+        # library would not choose. Nothing else in the freshness check
+        # moves when a map is edited (review finding 2).
+        "maps": field_map_digest(),
         # What this index was built FROM. A rewritten matrix gets a new
         # hash and this file is ignored (and normally already deleted).
         "matrix": content_hash,
@@ -1112,7 +1168,11 @@ def _payload_to_index(payload: dict) -> CellIndex | None:
 def _load_stored_index(
     config_dir: str, remote_id: str, display_unit: str | None
 ) -> CellIndex | None:
-    """The index from disk, or None when absent, stale or unreadable."""
+    """The index from disk, or None when absent, stale or unreadable.
+
+    Four freshness keys now: the format string, the matrix content
+    hash, the display unit, and the field-map digest.
+    """
     from .matrix_store import load_cell_index, matrix_content_hash
 
     payload = load_cell_index(config_dir, remote_id)
@@ -1121,6 +1181,10 @@ def _load_stored_index(
     if payload.get("unit") != display_unit:
         return None
     if payload.get("matrix") != matrix_content_hash(config_dir, remote_id):
+        return None
+    from .identity import field_map_digest
+
+    if payload.get("maps") != field_map_digest():
         return None
     return _payload_to_index(payload)
 
