@@ -558,7 +558,18 @@ class EventParser:
         ``_pronto_sl_pattern``, so the two layers of the composite key see
         exactly the same pulses. Returns ``None`` if the code is malformed
         or carries no pulse.
+
+        EXCEPT FOR A FAMILY ON ``identity.READ_BYTES_VERIFIED`` (GH #183).
+        There the hash is ``pronto_read_key``: what the field map reads,
+        not how long each edge was. The air moves every edge of a long
+        AC frame and a handset writes bytes the file did not, and
+        neither changes what the map reads. The S/L pattern stays on the
+        timings, so this is the only layer that moves.
         """
+        read_key = EventParser.pronto_read_key(code)
+        if read_key is not None:
+            return read_key
+
         timings = EventParser._pronto_identity_timings(code)
         if timings is None:
             return None
@@ -566,6 +577,21 @@ class EventParser:
         n = PRONTO_BYTE_HASH_BIN
         payload = ",".join(str(round(t / n) * n) for t in timings)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def pronto_read_key(code: str | None) -> str | None:
+        """``identity.read_bytes_hash`` of a Pronto code, or None.
+
+        None for a code no family on ``READ_BYTES_VERIFIED`` reads,
+        which is every code outside that list and leaves its byte hash
+        exactly as it was.
+        """
+        words = EventParser._parse_pronto_words(code)
+        if words is None:
+            return None
+        from .identity import read_bytes_hash
+
+        return read_bytes_hash(EventParser._pronto_us(words))
 
     # -----------------------------------------------------------------
     # Internal helpers

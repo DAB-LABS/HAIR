@@ -280,7 +280,7 @@ def build_cell_index(
     # Which code claimed each tier key, and the keys two different codes
     # claimed. ``NormFpIndex`` keeps its own pair of these internally;
     # these are the same bookkeeping for the three plain dicts.
-    claims: dict[str, dict[Any, str | None]] = {
+    claims: dict[str, dict[Any, Any]] = {
         "decoded": {}, "fp_bytehash": {}, "bytehash": {},
     }
     poisoned: dict[str, set] = {
@@ -288,7 +288,7 @@ def build_cell_index(
     }
 
     def _claim(
-        tier: str, store: dict, key: Any, code: str | None, hit: CellHit
+        tier: str, store: dict, key: Any, code: Any, hit: CellHit
     ) -> None:
         """Put ``hit`` under ``key``, unless two codes want that key."""
         if key in poisoned[tier]:
@@ -315,10 +315,21 @@ def build_cell_index(
                 canonical_pronto(identity.pronto) or identity.pronto
             )
         )
-        code = whole_code_discriminator(
+        code: Any = whole_code_discriminator(
             identity.raw_timings,
             identity.byte_hash or identity.fingerprint,
         )
+        # A READ-BYTES family names its state by what the map reads, so
+        # two copies of one state that differ in a clock or timer byte
+        # are one state, and the question the refusal asks becomes "do
+        # these cells hold different states" (owner ruling 2026-09-30).
+        # Asked of the whole code instead, the two copies would refuse
+        # each other and neither would ever be heard.
+        read_key = EventParser.pronto_read_key(
+            canonical_pronto(identity.pronto) or identity.pronto
+        )
+        if read_key is not None and read_key == identity.byte_hash:
+            code = ("state", hit.lattice, hit.cell_key, hit.power)
         # A DECODE THAT EXPLAINS PART OF THE CAPTURE IS NOT AN IDENTITY.
         # Indexing it would claim this cell IS that fingerprint, and on
         # a Daikin every cell would claim the same one.
@@ -1017,7 +1028,10 @@ class MatrixListener:
 # coverage gate (owner bench 2026-09-25) -- a /3 index was built by
 # rules that let one Daikin key answer for 520 states -- and to /5 for
 # setting-frame identity (2026-09-29), which moves WHERE an allowlisted
-# family's identity is computed from. A stored index of an older format is
+# family's identity is computed from, and to /6 for read-bytes identity
+# (GH #183, 2026-09-30), which moves WHAT a listed family's byte hash is
+# computed from, and makes the index's refusal compare states rather
+# than codes for those cells. A stored index of an older format is
 # simply not read, so every lattice rebuilds once and gains the new map;
 # the rebuild is the same seconds-of-work the first build was.
 #
@@ -1029,7 +1043,7 @@ class MatrixListener:
 # pre-migration hashes while captures arrived carrying post-migration
 # ones. Every climate lattice would silently stop recognizing its own
 # cells, with nothing in any log to say so.
-INDEX_FORMAT = "hair-cell-index/5"
+INDEX_FORMAT = "hair-cell-index/6"
 
 
 def _hit_to_row(hit: CellHit) -> list:

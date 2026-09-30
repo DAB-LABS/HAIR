@@ -581,6 +581,60 @@ def setting_identity_families() -> tuple[str, ...]:
     return tuple(sorted(SETTING_IDENTITY_VERIFIED))
 
 
+# ---------------------------------------------------------------------------
+# IDENTITY FROM THE BYTES THE MAP READS (GH #183, 2026-09-30)
+# ---------------------------------------------------------------------------
+#
+# Setting-frame identity hashes the settings frame's TIMINGS. Two things
+# a real handset does defeat that, and both were measured:
+#
+# - The air moves every edge. Research doc 22: twenty presses of one AC
+#   state through a microsecond-accurate transmitter gave twenty byte
+#   hashes, none the file's, because a receiver brings marks back short
+#   and spaces long (marks 0.83-0.95, spaces 1.00-1.12, single edges
+#   0.71-1.27) and a 300-edge frame always has some edge on a bin line.
+# - The handset writes bytes the file did not. The #183 reporter's
+#   capture reads as the state his wig holds, and its settings frame
+#   still differs from that cell in bytes 5, 11, 12 and 15: timer and
+#   clock bits nothing reads.
+#
+# So for a family on the list below, the byte hash is instead a hash of
+# what the map READS: the protocol id, its declared identity bytes, and
+# every field's raw bits in map order. Provisional fields take part
+# exactly like ratified ones (owner ruling 2026-09-30: confidence gates
+# comb findings, never identity). Bits no field names do not take part,
+# and the frame's own checksum never does -- it is recomputed and must
+# hold before any key is formed, so a bit the air flipped is refused
+# rather than heard as a different state.
+#
+# WHY A SECOND LIST. The key is only as distinct as the map: a family
+# whose file varies a setting the map does not read (a swing the map
+# has no field for, a turbo flag beside the fan nibble) would collapse
+# two states onto one key. Completeness is a fact about a family's
+# files, not something a map can say about itself, so a family joins
+# only when the distinctness sweep over its own derivation sources is
+# clean, and ``test_read_bytes_identity``'s sweep over its field pack
+# keeps it honest. Measured 2026-09-30 on f9f76fb's maps:
+#
+#   DAIKIN216     FTXS50KVM wig        520 states, 520 keys      clean
+#   PANASONIC216  11 files             swing unmapped (1030), quiet
+#                                      beside fan (1032)         out
+#   TCL112        14 files             turbo beside fan, Fahrenheit
+#                                      and half-degree labels    out
+#   DAIKIN152     8 files              powerful beside fan; swing
+#                                      unmapped (the #183 wig)   out
+#
+# DAIKIN152 joins in a one-line follow-up once its map reads swing and
+# the fan flags (owner ruling 2026-09-30). The others keep setting-frame
+# identity until their maps grow.
+READ_BYTES_VERIFIED = frozenset({"DAIKIN216"})
+
+
+def read_bytes_families() -> tuple[str, ...]:
+    """The read-bytes list, sorted, for the stored index's digest."""
+    return tuple(sorted(READ_BYTES_VERIFIED))
+
+
 def _stripped(timings: list[int] | None) -> list[int]:
     """The train ``field_readers`` walks: trailing Pronto zeros removed."""
     train = [int(v) for v in (timings or [])]
@@ -595,6 +649,18 @@ def _verified_reading(train: list[int]):
     One place decides both whether the setting-frame path applies and
     where its frames sit, so the two can never disagree.
     """
+    got = _verified_decoding(train, SETTING_IDENTITY_VERIFIED)
+    return None if got is None else (got[0], got[1])
+
+
+def _verified_decoding(train: list[int], families: frozenset[str]):
+    """``(map, places, decoded)`` for the first family in ``families``
+    that reads and identifies this train, or None.
+
+    ``decoded`` holds each frame's bytes laid on the map's layout, so a
+    frame index means the same thing whether or not an optional leader
+    was sent.
+    """
     from .field_readers import (
         _matches_identity,
         aligned_positioned,
@@ -606,7 +672,7 @@ def _verified_reading(train: list[int]):
     if not train:
         return None
     for field_map in library():
-        if field_map.protocol_id not in SETTING_IDENTITY_VERIFIED:
+        if field_map.protocol_id not in families:
             continue
         frames, places, failed = read_frames_positioned(
             field_map.timing, train
@@ -626,8 +692,92 @@ def _verified_reading(train: list[int]):
         ]
         if not _matches_identity(field_map, decoded):
             continue
-        return field_map, places
+        return field_map, places, decoded
     return None
+
+
+def read_bytes_key(field_map, frames) -> str | None:
+    """The read-bytes identity of these decoded frames, or None.
+
+    ``frames`` is laid on the map's layout (a frame the caller does not
+    have is an empty tuple). None when any field cannot be read, so a
+    key is never formed from part of what the map says identity is.
+    """
+    import json
+
+    from .field_readers import Reading, read_field
+
+    reading = Reading(
+        field_map.protocol_id, tuple(tuple(frame) for frame in frames)
+    )
+    values: list[list[object]] = []
+    for spec in field_map.fields:
+        value = read_field(reading, spec)
+        if value is None:
+            return None
+        values.append([spec.name, value])
+    payload = json.dumps(
+        [
+            field_map.protocol_id,
+            [list(entry) for entry in field_map.identity_bytes],
+            values,
+        ],
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(("read:" + payload).encode()).hexdigest()[:16]
+
+
+def _setting_rules_hold(field_map, frames) -> bool:
+    """Every ratified integrity rule on a setting frame evaluates True.
+
+    The key vouches for the bytes it hashes, so a rule that cannot be
+    evaluated counts as failing here.
+    """
+    from .field_readers import RULE_FRAME_REPEAT, Reading, check_integrity
+
+    wanted = set(field_map.setting_frames)
+    reading = Reading(
+        field_map.protocol_id, tuple(tuple(frame) for frame in frames)
+    )
+    for rule in field_map.integrity:
+        if not rule.ratified or rule.type == RULE_FRAME_REPEAT:
+            continue
+        if int(rule.params.get("frame", 0) or 0) not in wanted:
+            continue
+        if check_integrity(reading, rule) is not True:
+            return False
+    return True
+
+
+def read_bytes_hash(timings: list[int] | None) -> str | None:
+    """The read-bytes identity of a WHOLE capture, or None.
+
+    The whole capture has to read as a family on ``READ_BYTES_VERIFIED``;
+    the key is then that family's fields read from its setting frames.
+    Otherwise None, and the caller keeps today's identity exactly.
+
+    A LONE setting frame gets no key, on purpose (owner ruling
+    2026-09-30). The 19-byte Daikin settings frame is the same frame in
+    DAIKIN216 and DAIKIN152 -- same width, same 11 DA 27 header, same
+    checksum -- so alone it names neither family (measured on 200 of 200
+    DAIKIN216 pack frames and every synthetic DAIKIN152 one), and with
+    only one of the two families listed, any key chosen for it would
+    stop the other family's lone frames matching their cells. It keeps
+    its setting-frame timing identity until the DAIKIN152 follow-up,
+    where the lone frame takes one shared key over both maps' fields.
+    """
+    if not READ_BYTES_VERIFIED:
+        return None
+    train = _stripped(timings)
+    if not train:
+        return None
+    got = _verified_decoding(train, READ_BYTES_VERIFIED)
+    if got is None:
+        return None
+    field_map, _places, decoded = got
+    if not _setting_rules_hold(field_map, decoded):
+        return None
+    return read_bytes_key(field_map, decoded)
 
 
 def setting_frame_spans(
@@ -729,6 +879,10 @@ def field_map_digest() -> str:
 
     hasher = hashlib.sha256()
     hasher.update(("|".join(setting_identity_families())).encode())
+    # The read-bytes list decides what a listed family's byte hash IS,
+    # so a family joining it rebuilds every stored index, the same way
+    # a map edit does.
+    hasher.update(("|read:" + "|".join(read_bytes_families())).encode())
     try:
         paths = sorted(maps_dir().glob("*.yaml"))
     except OSError:  # pragma: no cover - a missing directory is not a crash

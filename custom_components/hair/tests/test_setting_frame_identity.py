@@ -25,6 +25,7 @@ from custom_components.hair.field_readers import library
 from custom_components.hair.identity import (
     SETTING_IDENTITY_VERIFIED,
     TIER_BYTE_HASH,
+    TIER_NORM_FP,
     SignalIdentity,
     canonical_edges,
     field_map_digest,
@@ -92,16 +93,32 @@ class TestADaikin216PressFindsItsOwnCell:
                 cell_key(cell), None, TIER_BYTE_HASH
             ), cell_key(cell)
 
-    def test_the_lone_setting_frame_matches_the_same_cell(self):
-        """What a receiver actually hands over: one frame, ending on
-        its stop mark. This is the half step 1 could not reach."""
+    def test_the_lone_setting_frame_finds_its_cell_on_the_normalized_tier(
+        self,
+    ):
+        """What a splitting receiver hands over: the settings frame on
+        its own. It still finds its cell, one tier lower than it did.
+
+        Step 2 pinned it at the BYTE-HASH tier, and there it only ever
+        worked through the timing fallback: the frame's own timings
+        equalled the cell's setting-frame timings because both came
+        from the same file, which the air never reproduces (research
+        doc 22). Since read-bytes identity a DAIKIN216 cell's byte hash
+        is what the map reads, and the lone frame names neither
+        DAIKIN216 nor DAIKIN152 (the two share the settings frame byte
+        for byte), so it keeps its timing identity and misses that tier
+        (owner ruling 2026-09-30). The normalized fingerprint is
+        unchanged on both sides and still agrees, which is the tier doc
+        22 found survives a receiver. The DAIKIN152 follow-up gives the
+        lone frame one shared read key and lifts it back to tier 2.
+        """
         matrix = _pack_matrix("DAIKIN216.json")
         index = build_cell_index(matrix)
         for cell in matrix.cells:
             frames = _frames(cell.pronto)
             assert len(frames) == 2, cell_key(cell)
             assert _match(index, frames[1]) == (
-                cell_key(cell), None, TIER_BYTE_HASH
+                cell_key(cell), None, TIER_NORM_FP
             ), cell_key(cell)
 
     def test_a_lone_frame_0_matches_nothing(self):
@@ -369,7 +386,7 @@ class TestTheGroupingKeyHoldsStill:
 
 class TestTheStoredIndex:
 
-    def test_the_format_is_5_and_a_4_is_rejected(self, tmp_path):
+    def test_the_format_is_6_and_a_5_is_rejected(self, tmp_path):
         from custom_components.hair.matrix_listener import (
             _build_and_store_index,
             _load_stored_index,
@@ -379,12 +396,12 @@ class TestTheStoredIndex:
         matrix = _pack_matrix("DAIKIN216.json")
         write_matrix(tmp_path, "r1", matrix)
         _build_and_store_index(str(tmp_path), "r1", matrix, "C")
-        assert INDEX_FORMAT == "hair-cell-index/5"
+        assert INDEX_FORMAT == "hair-cell-index/6"
         assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
         path = index_path(tmp_path, "r1")
         payload = _json.loads(path.read_text())
-        payload["format"] = "hair-cell-index/4"
+        payload["format"] = "hair-cell-index/5"
         path.write_text(_json.dumps(payload))
         assert _load_stored_index(str(tmp_path), "r1", "C") is None
 
@@ -508,13 +525,16 @@ class TestRowsStoredBeforeTheUpgrade:
             canonical_fingerprint,
         )
 
-        original = idm.SETTING_IDENTITY_VERIFIED
+        # Before #187 as a whole: neither the setting-frame list nor the
+        # read-bytes list existed.
+        original = (idm.SETTING_IDENTITY_VERIFIED, idm.READ_BYTES_VERIFIED)
         try:
             idm.SETTING_IDENTITY_VERIFIED = frozenset()
+            idm.READ_BYTES_VERIFIED = frozenset()
             return (canonical_byte_hash(pronto),
                     canonical_fingerprint("PRONTO", pronto, None))
         finally:
-            idm.SETTING_IDENTITY_VERIFIED = original
+            idm.SETTING_IDENTITY_VERIFIED, idm.READ_BYTES_VERIFIED = original
 
     def _store_with(self, device=None, triggers=None):
         from unittest.mock import MagicMock
