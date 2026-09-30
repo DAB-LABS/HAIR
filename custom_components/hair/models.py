@@ -1078,6 +1078,7 @@ class IRTrigger:
         fingerprint: str,
         byte_hash: str | None = None,
         decoded_fingerprint: str | None = None,
+        decode_covers: bool | None = None,
     ) -> bool:
         """Tiered identity match against an incoming signal (v0.5.8).
 
@@ -1089,13 +1090,26 @@ class IRTrigger:
         bench-verified failure the unified-identity work exists to fix.
         Legacy triggers (no hash, no decoded identity) still match on
         fingerprint alone, exactly as before.
+
+        ``decode_covers`` is the INCOMING capture's decode coverage
+        (owner ruling 2026-09-29). False means its decoded fingerprint
+        explains only part of what was heard, so it is not that
+        capture's identity and the comparison falls to the byte hash.
+        That is what stops one Daikin press firing every Daikin
+        trigger: all of them carry the same frame-0
+        ``KASEIKYO64:0xda11:0x20f000000002``, and until the decoded
+        tier stands aside the byte hash separating the states is never
+        reached. None is trusted, so an unverifiable census (the
+        upstream strict NEC path) changes nothing.
         """
         from .identity import SignalIdentity
 
         return SignalIdentity(
             self.decoded_fingerprint, self.byte_hash, self.signal_fingerprint
         ).same_as(
-            SignalIdentity(decoded_fingerprint, byte_hash, fingerprint)
+            SignalIdentity(
+                decoded_fingerprint, byte_hash, fingerprint, decode_covers
+            )
         )
 
     def matches_receiver(self, receiver_entity_id: str | None) -> bool:

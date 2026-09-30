@@ -226,3 +226,60 @@ class TestWhatTheKeyChangesForIdentification:
         assert plain is not None
         assert plain.repeats_identically
         assert fr._matches_repeat(plain, [[0] * 16])
+
+
+# ---------------------------------------------------------------------------
+# Schema v0.6: an optional leader
+# ---------------------------------------------------------------------------
+
+DECLARING = [
+    (name, raw) for name, raw in DOCUMENTS
+    if "optional_leader" in _frame(raw)
+]
+
+
+class TestAnOptionalLeaderIsAFrameNothingReads:
+    """`frame.optional_leader: true` says frame 0 may be absent. On the
+    codes that leave it out, whatever the map read there would be read
+    from nothing, so a document may declare it only on a frame 0 that no
+    field, identity byte, rule, payload or setting frame names, and that
+    is too short to carry a whole byte. The parser salvages a document
+    that breaks this by ignoring the key; this is where the document
+    itself fails."""
+
+    def test_someone_declares_it(self):
+        """Otherwise every test below passes on an empty list."""
+        assert [name for name, _ in DECLARING] == ["DAIKIN152.yaml"]
+
+    @pytest.mark.parametrize(
+        "name,raw", DECLARING, ids=[name for name, _ in DECLARING])
+    def test_it_is_the_boolean_true(self, name, raw):
+        assert _frame(raw)["optional_leader"] is True, name
+
+    @pytest.mark.parametrize(
+        "name,raw", DECLARING, ids=[name for name, _ in DECLARING])
+    def test_frame_0_carries_no_whole_byte(self, name, raw):
+        layout = _frame(raw)["frame_layout"]
+        assert len(layout) >= 2, name
+        assert layout[0] < 8, name
+
+    @pytest.mark.parametrize(
+        "name,raw", DECLARING, ids=[name for name, _ in DECLARING])
+    def test_nothing_reads_frame_0(self, name, raw):
+        frame = _frame(raw)
+        assert int(frame.get("payload_frame", 0) or 0) != 0, name
+        assert 0 not in frame["setting_frames"], name
+        assert all(entry[0] != 0 for entry in frame.get("identity_bytes") or []), name
+        assert all(
+            int(field.get("frame", 0) or 0) != 0
+            for field in raw.get("fields") or []
+        ), name
+        for rule in raw.get("integrity") or []:
+            params = rule.get("params") or {}
+            assert int(params.get("frame", 0) or 0) != 0, name
+
+    @pytest.mark.parametrize(
+        "name,raw", DECLARING, ids=[name for name, _ in DECLARING])
+    def test_the_parser_keeps_it(self, name, raw):
+        parsed = fr.parse_map(raw)
+        assert parsed is not None and parsed.optional_leader, name
