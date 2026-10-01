@@ -29,6 +29,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -161,6 +162,94 @@ def wire(tmp_path_factory):
     (out / "wire.mjs").write_text(WIRE_DRIVER, encoding="utf-8")
     result = subprocess.run(
         ["node", str(out / "wire.mjs")],
+        check=True, capture_output=True, text=True, timeout=60,
+    )
+    return json.loads(result.stdout)
+
+
+# THE HEARD RINGS, run. A plain press rings as it always has; a press
+# whose code the file stores under several settings rings no chip on a
+# dimension it does not pin down, and a tile only where the whole
+# coordinate is one of the cells carrying that code.
+RINGS_DRIVER = """
+import { heardRings } from "./matrix-lattice.js";
+
+const plain = {
+    cell_key: "cool/auto/22", cell_name: "cool / fan: auto / 22",
+    power: null, mode: "cool", fan: "auto", swing: null, temp: 22,
+    at: "t", sl_pattern: null, receiver_entity_id: null,
+    receiver_area_name: null,
+};
+const bare = { ...plain, mode: "dry", temp: null, cell_key: "dry/auto" };
+const dryTemps = [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
+const dry = {
+    ...plain, mode: "dry", fan: "auto", swing: "off", temp: 30,
+    cell_key: "dry/auto/off/30",
+    cell_name: "dry / fan: auto / swing: off / 18-30",
+    spanned: { temp: dryTemps },
+    members: dryTemps.map((t) => ["dry", "auto", "off", t]),
+};
+// The 1294 shape: not every combination of its values.
+const shape1294 = {
+    ...plain, mode: "cool", fan: "quiet", swing: "off", temp: 18,
+    spanned: { fan: ["low", "quiet"], swing: ["off", "vertical"] },
+    members: [["cool", "low", "vertical", 18], ["cool", "quiet", "off", 18]],
+};
+const bareGroup = {
+    ...plain, mode: "fan_only", fan: "high", swing: null, temp: null,
+    spanned: { fan: ["auto", "high"] },
+    members: [["fan_only", "auto", null, null], ["fan_only", "high", null, null]],
+};
+const MAIN = {};
+const branch = (mode, fan, swing) => ({ mode, fan, swing });
+
+console.log(JSON.stringify({
+    plain_fresh: heardRings(plain, MAIN, branch("cool", "auto", null), false),
+    plain_on_branch: heardRings(plain, MAIN, branch("cool", "auto", null), true),
+    plain_off_branch: heardRings(plain, MAIN, branch("cool", "quiet", null), true),
+    plain_bare: heardRings(bare, MAIN, branch("dry", "auto", null), false),
+    plain_old_row: heardRings(
+        { ...plain, spanned: undefined, members: undefined },
+        MAIN, branch("cool", "auto", null), false),
+    plain_empty_spanned: heardRings(
+        { ...plain, spanned: {} }, MAIN, branch("cool", "auto", null), false),
+    dry_fresh: heardRings(dry, MAIN, branch("dry", "auto", "off"), false),
+    dry_other_fan: heardRings(dry, MAIN, branch("dry", "high", "off"), true),
+    g1294_low_off: heardRings(shape1294, MAIN, branch("cool", "low", "off"), true),
+    g1294_low_vertical: heardRings(
+        shape1294, MAIN, branch("cool", "low", "vertical"), true),
+    g1294_quiet_off_fresh: heardRings(
+        shape1294, MAIN, branch("cool", "quiet", "off"), false),
+    bare_group: heardRings(bareGroup, MAIN, branch("fan_only", "high", null), true),
+    // A drawn branch whose swing is undefined, as a cell omits it.
+    undefined_swing: heardRings(
+        bareGroup, MAIN, { mode: "fan_only", fan: "auto" }, true),
+    power: heardRings({ ...plain, power: "off", mode: null },
+        MAIN, branch("cool", "auto", null), false),
+    other_lattice: heardRings({ ...dry, axis: "preset", lattice: "eco" },
+        MAIN, branch("dry", "auto", "off"), false),
+    nothing: heardRings(null, MAIN, branch("cool", "auto", null), false),
+}));
+"""
+
+
+@pytest.fixture(scope="module")
+def rings(tmp_path_factory):
+    """``heardRings`` run on the shapes above."""
+    _toolchain()
+    out = tmp_path_factory.mktemp("ringsjs")
+    subprocess.run(
+        [
+            str(TSC), "src/matrix-lattice.ts",
+            "--module", "esnext", "--target", "es2022",
+            "--moduleResolution", "bundler",
+            "--skipLibCheck", "--outDir", str(out),
+        ],
+        cwd=FRONTEND, check=True, capture_output=True, timeout=180,
+    )
+    (out / "rings.mjs").write_text(RINGS_DRIVER, encoding="utf-8")
+    result = subprocess.run(
+        ["node", str(out / "rings.mjs")],
         check=True, capture_output=True, text=True, timeout=60,
     )
     return json.loads(result.stdout)
@@ -455,3 +544,83 @@ class TestEveryForwarderCarriesThePair:
         body = body[: body.index("\n}\n")]
         assert "axis?: string | null;" in body
         assert "lattice?: string | null;" in body
+
+
+class TestTheHeardRings:
+    """``heardRings``: which chips and tiles a heard state rings."""
+
+    NONE: ClassVar[dict] = {
+        "mode": None, "fan": None, "swing": None, "tiles": [],
+    }
+
+    def test_a_plain_press_rings_as_it_always_did(self, rings):
+        assert rings["plain_fresh"] == {
+            "mode": "cool", "fan": "auto", "swing": None, "tiles": [22],
+        }
+        assert rings["plain_on_branch"]["tiles"] == [22]
+        # Browsed off the heard branch: the chips stay, the tile does
+        # not, because the same position there is another command.
+        assert rings["plain_off_branch"] == {
+            "mode": "cool", "fan": "auto", "swing": None, "tiles": [],
+        }
+        assert rings["plain_bare"]["tiles"] == [None]
+
+    def test_a_row_from_before_reads_as_a_plain_press(self, rings):
+        assert rings["plain_old_row"] == rings["plain_fresh"]
+        assert rings["plain_empty_spanned"] == rings["plain_fresh"]
+
+    def test_a_spanned_dimension_rings_no_chip(self, rings):
+        assert rings["dry_fresh"]["mode"] == "dry"
+        assert rings["dry_fresh"]["fan"] == "auto"
+        assert rings["g1294_low_off"]["fan"] is None
+        assert rings["g1294_low_off"]["swing"] is None
+        assert rings["g1294_low_off"]["mode"] == "cool"
+
+    def test_every_member_tile_rings_and_nothing_else(self, rings):
+        """A fresh press, before any click: the drawn branch is the
+        representative's, and every temperature the code is stored at
+        rings there. Another fan's branch is another code."""
+        assert rings["dry_fresh"]["tiles"] == list(range(18, 31))
+        assert rings["dry_other_fan"]["tiles"] == []
+
+    def test_a_tile_rings_only_on_a_whole_member_coordinate(self, rings):
+        """The 1294 shape. cool / low / off is in the fans and in the
+        swings, and cool / low / off / 18 is another code, so browsing
+        it rings no tile; the two real members each ring 18."""
+        assert rings["g1294_low_off"]["tiles"] == []
+        assert rings["g1294_low_vertical"]["tiles"] == [18]
+        assert rings["g1294_quiet_off_fresh"]["tiles"] == [18]
+
+    def test_a_bare_branch_and_an_absent_dimension(self, rings):
+        assert rings["bare_group"]["tiles"] == [None]
+        assert rings["undefined_swing"]["tiles"] == [None]
+
+    def test_power_another_lattice_and_nothing_ring_nothing(self, rings):
+        assert rings["power"] == self.NONE
+        assert rings["other_lattice"] == self.NONE
+        assert rings["nothing"] == self.NONE
+
+
+class TestTheMergedGroupPlumbing:
+    """Source pins, for the parts that run only inside lit."""
+
+    def test_last_heard_declares_spanned_and_members(self):
+        text = (SRC / "types.ts").read_text(encoding="utf-8")
+        body = text[text.index("export interface LastHeard {"):]
+        body = body[: body.index("\n}\n")]
+        assert "spanned?: Record<string, (string | number | null)[]>;" in body
+        assert "members?: (string | number | null)[][];" in body
+
+    def test_the_card_rings_through_the_helper(self):
+        text = (SRC / "ir-matrix-card.ts").read_text(encoding="utf-8")
+        assert "heardRings(" in text
+        assert "_onHeardBranch" not in text
+        assert "rings.tiles.includes(pos)" in text
+
+    def test_door_one_offers_the_rows_name_on_a_spanned_press(self):
+        text = (SRC / "ir-device-list.ts").read_text(encoding="utf-8")
+        body = text[text.index("private _onLastHeardTrigger("):]
+        body = body[: body.find("\n    private ", 1)]
+        assert "heard.cell_name" in body
+        assert "heard.spanned" in body
+        assert ".presetName=${this._mintTrigger.name ??" in text

@@ -230,6 +230,10 @@ export class IrDeviceList extends LitElement {
     @state() private _mintTrigger: {
         remoteId: string;
         detail: MatrixCellDetail;
+        // The dialog's default name when the door has a better one than
+        // the cell's own: door 1 on a press whose code the file stores
+        // under several settings offers the range the row shows.
+        name?: string;
     } | null = null;
     @state() private _confirmDeleteTrigger: IRTrigger | null = null;
     @state() private _duplicateTarget: DeviceSummary | null = null;
@@ -1388,11 +1392,12 @@ export class IrDeviceList extends LitElement {
             axis?: string | null;
             lattice?: string | null;
         },
+        name?: string,
     ): Promise<void> {
         if (!this.api) return;
         try {
             const detail = await this.api.remoteMatrixCell(remoteId, pick);
-            this._mintTrigger = { remoteId, detail };
+            this._mintTrigger = { remoteId, detail, name };
         } catch {
             // The cell stopped resolving between the card drawing it
             // and the click (a matrix file edited underneath, a remote
@@ -1403,20 +1408,34 @@ export class IrDeviceList extends LitElement {
 
     /** Door 1: the LAST HEARD row's + Trigger. */
     private _onLastHeardTrigger(remoteId: string, heard: LastHeard): void {
-        void this._mintFromMatrix(remoteId, {
-            mode: heard.mode,
-            fan: heard.fan,
-            swing: heard.swing,
-            temp: heard.temp,
-            power: heard.power,
-            // The heard state's lattice, which the backend has put on
-            // last_heard since the listener learned extras. Without it
-            // + Trigger on a heard Eco press asked for the MAIN cell
-            // and minted a trigger that fires on the main press and
-            // never on the one it came from (extras card round 2).
-            axis: heard.axis,
-            lattice: heard.lattice,
-        });
+        // A press the file stores under several settings resolves to
+        // its representative cell: the right code, under one particular
+        // setting's name. The row says "dry / fan: auto / 18-30", so the
+        // dialog offers that rather than the representative's "30". A
+        // plain press keeps the cell's own name, as it always has.
+        const name =
+            Object.keys(heard.spanned ?? {}).length > 0
+                ? heard.cell_name
+                : undefined;
+        void this._mintFromMatrix(
+            remoteId,
+            {
+                mode: heard.mode,
+                fan: heard.fan,
+                swing: heard.swing,
+                temp: heard.temp,
+                power: heard.power,
+                // The heard state's lattice, which the backend has put
+                // on last_heard since the listener learned extras.
+                // Without it + Trigger on a heard Eco press asked for
+                // the MAIN cell and minted a trigger that fires on the
+                // main press and never on the one it came from (extras
+                // card round 2).
+                axis: heard.axis,
+                lattice: heard.lattice,
+            },
+            name,
+        );
     }
 
     /** Doors 2 and 3: the card's action bar, on a browsed cell that
@@ -2554,7 +2573,8 @@ export class IrDeviceList extends LitElement {
                           .api=${this.api}
                           .remoteId=${this._mintTrigger.remoteId}
                           origin="matrix"
-                          .presetName=${this._mintTrigger.detail.name}
+                          .presetName=${this._mintTrigger.name ??
+                          this._mintTrigger.detail.name}
                           .code=${this._mintTrigger.detail.pronto}
                           protocol="PRONTO"
                           .signalFingerprint=${this._mintTrigger.detail.identity
