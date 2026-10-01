@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A press on a preset such as Eco heard after a restart is reported and re-sent as the preset's state, not the main state. The stored state index kept each state's coordinates but not which lattice it belonged to, so once Home Assistant restarted, an Eco press at cool / fan: auto / 22 was marked as the main state at the same coordinates, which is a different code. A remote pinned to a unit also sent the unit's main-lattice code for a preset press even before a restart; it now sends the unit's own code from that preset lattice, or nothing when the unit has no such lattice and no code with the same bytes. Stored state indexes rebuild once on upgrade.
+
+## [0.17.1] - 2026-09-30 -- Tidy Up
+
 ### Changed
 
 - Every air-conditioner frame description now states which of its frames carry settings, not just which one carries the main block. Two families keep a setting outside that block -- TCL carries a quiet flag in its first frame, and Gree carries the vane position in its second -- and nothing reading the descriptions could tell, which meant two different presses could be treated as the same one.
@@ -18,9 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Daikin 152 codes are read whether or not they start with the short leader burst a handset sends first. Some code files for these remotes write every state without it, while their Off, captured from a handset, has it, so HAIR read the Off and none of the states: nothing in the states could be checked against its label, and a handset press could not find its state. The field map now says the burst is optional, and HAIR reads a code the same way with or without it, from the same frames, so a handset press whose settings match a stored state finds that state. Only this family changes. Because the map now reads codes it did not read before, findings you had answered on a Daikin 152 remote come back once to be answered again.
 - Daikin 152 powerful, economy and sleep are read as settings of their own rather than as fan speeds. The field map read powerful as fan auto, so every powerful code sent at another speed was reported as a wrong fan speed, 84 of them on one remote. Each code now reads the speed it actually sends, with powerful on or off beside it, and fan-only codes are checked against their fan label like the other modes. Swing, economy and sleep are read but not checked yet, because no handset capture that turns them on and off is on file.
 - A trigger learned from one Daikin state no longer fires on every Daikin press. The trigger matcher trusted a decode of that shared preamble before anything else; it now sets aside a decode that does not cover the whole press, so the comparison reaches the part that differs. Triggers in other families match as they did.
-- A Daikin handset press finds its state even when the handset writes bytes the imported code file does not, and a press the receiver splits into frames is recognized from the frame that carries the settings. A handset puts its own clock and timer into every press, so its codes never matched a file byte for byte; HAIR now compares only the settings the field map reads, which the handset and the file agree on. This covers Daikin 152 and Daikin 216 remotes. Stored state indexes rebuild once on upgrade, and existing commands and triggers keep matching.
+- A Daikin handset press finds its state even when the handset writes bytes the imported code file does not, and a press the receiver splits into frames is recognized from the frame that carries the settings. A handset puts its own clock and timer into every press, so its codes never matched a file byte for byte; HAIR now compares only the settings the field map reads, which the handset and the file agree on. This covers Daikin 152 and Daikin 216 remotes. Stored state indexes rebuild once on upgrade, and existing commands and triggers keep matching. Reported by @orthobots (GH #183), whose remote file and handset capture are what the fix was measured against.
 - Deleting a command or a trigger now removes its entity from Home Assistant for good. HAIR took the entity out of the running system but left its entity registry row behind, so the deleted button or event stayed in entity pickers as unavailable, still attached to the device, and survived restarts. Both delete paths now remove the row as well. Rows that earlier versions left behind, including those of deleted devices, are cleared once at startup: only rows whose unique id is one of HAIR's own button, trigger or device-entity shapes are considered, only when their command, trigger or device is gone from the store, and never when the store failed to load or came up empty while the registry still holds HAIR rows. Reported by @kilrah (GH #186).
-- A press on a preset such as Eco heard after a restart is reported and re-sent as the preset's state, not the main state. The stored state index kept each state's coordinates but not which lattice it belonged to, so once Home Assistant restarted, an Eco press at cool / fan: auto / 22 was marked as the main state at the same coordinates, which is a different code. A remote pinned to a unit also sent the unit's main-lattice code for a preset press even before a restart; it now sends the unit's own code from that preset lattice, or nothing when the unit has no such lattice and no code with the same bytes. Stored state indexes rebuild once on upgrade.
 
 ## [0.17.0] - 2026-09-28 -- Layers
 
@@ -686,8 +691,6 @@ There is no 0.13.0; the version number skips from 0.12.1 to 0.14.0.
 - **The next person's adopt picks it up.** ADOPT DEVICE now seeds new commands -- and every cell of a matrix wig -- from the highest send times any fitter needed, so a wig fitted at three answers the first press on a fresh install with nothing to tune. The wig's own per-signal `send_count` still wins where it is higher, and the value is clamped to 1..10 everywhere it is read.
 - **The ledger shows the evidence.** Fittings that carry the field display "at N sends" alongside their coverage. Fittings recorded before this release show nothing there, deliberately: absent means unknown, not 1, so old fittings never silently claim a measurement they did not make.
 
-
-
 ### Fixed
 
 - **The startup freeze at flood scale.** `SignalStore.async_load()` ran its duplicate-healing pass directly on Home Assistant's event loop, and the pass was quadratic. Once the unknown-signal store grew large enough, every boot froze all of Home Assistant -- HTTP included -- for the duration; at 104,000 stored signals that was about 15 minutes of apparent death per start, with no warning from HA's blocking-call detector because the work is pure CPU, not I/O. The load transform now runs off the event loop in an executor job, and the heal is rewritten from pairwise rescans to hash lookups with identical merge results (pinned by test against the old algorithm). The same 104k-signal store now heals in under a second, and a store of any size can no longer stall the rest of Home Assistant. Reported by @carlmiller99 (GH #72) with a py-spy-profiled analysis that isolated both the freeze and its root cause; this release exists because of that report.
@@ -699,8 +702,6 @@ There is no 0.13.0; the version number skips from 0.12.1 to 0.14.0.
 ### Added
 
 - **The unknown-signal store is capped.** Two new bounds on sniffed signals: 200 per remote and 20,000 total (the existing 500-remote cap stays). When a cap is hit the oldest signals are evicted first, aliased rows last, and a warning names the remote and the receiver it was heard by. Clipped and plucked remotes are user creations and are never touched. Eviction is capacity protection, not hiding: an evicted signal reappears the moment its button is genuinely pressed again. A store already past the caps is trimmed once at load, so an install sitting on a flooded store recovers on its first boot after upgrading with no manual `.storage` surgery.
-
-
 
 ### Added
 
