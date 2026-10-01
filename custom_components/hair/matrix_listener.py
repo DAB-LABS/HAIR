@@ -70,7 +70,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -170,6 +170,103 @@ class CellHit:
     # the right one and why the answer has to travel with the hit.
     axis: str | None = None
     lattice: str | None = None
+    # WHAT THE PRESS DOES NOT PIN DOWN. Empty for a code the file
+    # stores once. For a code it stores under several settings (every
+    # temperature of dry, when the unit ignores temperature there), the
+    # dimensions those cells disagree on, each with its sorted values:
+    # ``(("temp", (18.0, ..., 30.0)),)``. The coordinates above stay the
+    # representative's, the cell the index met last, because triggers,
+    # the dedup window and the "+ Trigger" door all key on them; this is
+    # what stops the hearing surfaces passing the representative's
+    # temperature off as the one pressed.
+    spanned: tuple[tuple[str, tuple], ...] = ()
+    # The coordinates of every cell in that group, one tuple shared by
+    # every hit of the group. On the hit because nothing else on it
+    # names its group once the index has come back off disk, and the
+    # card needs them to ring only the tiles that really are this code.
+    members: tuple[tuple, ...] = ()
+
+
+#: The four dimensions of a cell, in the order coordinates are written.
+_DIMS = ("mode", "fan", "swing", "temp")
+
+
+def _coords(cell: Any) -> tuple:
+    """A cell's coordinates as a group records them: temperature as a
+    float, so a coordinate read back from JSON compares equal."""
+    temp = cell.temp
+    return (cell.mode, cell.fan, cell.swing,
+            None if temp is None else float(temp))
+
+
+def _sorted_values(values: Any) -> tuple:
+    """A dimension's values in one fixed order, None last.
+
+    The order has to be the same in memory and after a round trip
+    through the stored index, and a None can sit beside strings or
+    numbers when one member lacks the dimension, which a bare sort
+    would refuse to compare.
+    """
+    return tuple(sorted(
+        set(values), key=lambda v: (v is None, "" if v is None else v),
+    ))
+
+
+def spanned_of(members: Any) -> tuple[tuple[str, tuple], ...]:
+    """The dimensions a set of member coordinates disagrees on, with
+    each dimension's values."""
+    rows = list(members)
+    out = []
+    for position, dim in enumerate(_DIMS):
+        values = _sorted_values(row[position] for row in rows)
+        if len(values) > 1:
+            out.append((dim, values))
+    return tuple(out)
+
+
+def spanned_dict(spanned: Any) -> dict[str, list]:
+    """``spanned`` as every surface outside the hit renders it:
+    ``{"temp": [18.0, ..., 30.0]}``. JSON-native, so it can sit in a
+    stored index, an event, ``last_heard`` and a send's cell dict."""
+    return {dim: list(values) for dim, values in spanned}
+
+
+def _spanned_from_dict(rendered: Any) -> tuple[tuple[str, tuple], ...]:
+    """The tuple form back from the dict rendering (a stored row)."""
+    if not rendered:
+        return ()
+    return tuple(
+        (dim, tuple(
+            float(v) if dim == "temp" and v is not None else v
+            for v in rendered[dim]
+        ))
+        for dim in _DIMS
+        if dim in rendered
+    )
+
+
+@dataclass(frozen=True)
+class CellGroup:
+    """The cells of one lattice that carry one code.
+
+    What a file does when the unit ignores a setting: dry stored once
+    per temperature with the same code each time. Built with the index
+    and looked up from any member cell's TEXT, by
+    ``CellIndex.groups[(lattice, digest)]``; see ``build_cell_index``.
+
+    ``lattice`` is None for the main lattice and ``(axis, key)`` for an
+    extra. ``members`` is every member's coordinates, in lattice order.
+    ``digests`` is every member's text digest, which can be several:
+    the group is HAIR's quantized idea of one code, so a lattice built
+    from captures holds one code as several texts. ``full_branches`` is
+    every ``(mode, fan, swing)`` branch all of whose cells are members,
+    which is where the unit demonstrably ignores temperature.
+    """
+
+    lattice: tuple[str, str] | None
+    members: tuple[tuple, ...]
+    digests: frozenset[str]
+    full_branches: frozenset[tuple]
 
 
 @dataclass
@@ -190,6 +287,13 @@ class CellIndex:
     # file-sourced, so every cell earns it; the gate that matters is on
     # the capture side, in match().
     norm_fp: NormFpIndex = field(default_factory=NormFpIndex)
+    # Every merged group, reachable from any member cell by
+    # ``(lattice, digest of its normalized Pronto)``: None for the main
+    # lattice and ``(axis, key)`` for an extra, since an extra can hold
+    # a main cell's exact text. One shared ``CellGroup`` per group. The
+    # send side reads this on the DEVICE's own index, never the
+    # remote's: what was sent is the device's fact.
+    groups: dict[tuple, CellGroup] = field(default_factory=dict)
 
     def __bool__(self) -> bool:
         return bool(
@@ -295,6 +399,20 @@ def build_cell_index(
     NormFpIndex). On the bench closet that costs a handful of lattices a
     handful of cells, and it is the price of never naming the wrong
     state.
+
+    A KEY THAT MERGES A GROUP NAMES THE GROUP. A key several cells
+    claim with the same code keeps the last of them, which is the right
+    code and the wrong setting: a file stores dry once per temperature
+    with one code when the unit ignores temperature there, so a dry
+    press was heard as "dry / fan: auto / 30", whatever the handset
+    showed, and a pinned unit's card moved to 30. Ten of the fifteen
+    field packs do this somewhere. So after the cells are added, the
+    cells of each lattice are grouped by the code they claimed under,
+    and every stored hit of a group of two or more learns what the
+    group spans and is named for it ("dry / fan: auto / 18-30"). Its
+    coordinates and ``cell_key`` stay the representative's, so every
+    key resolves exactly as it did and a trigger minted on the old name
+    still fires. ``_attach_groups`` has the rules.
     """
     from .event_parser import EventParser
     from .identity import (
@@ -302,7 +420,11 @@ def build_cell_index(
         norm_fingerprint,
         whole_code_discriminator,
     )
-    from .wig_climate import cell_display_name, state_display_name
+    from .wig_climate import (
+        cell_display_name,
+        spanned_display_name,
+        state_display_name,
+    )
     from .wig_format import cell_key
     from .wig_identity import wig_signal_identity
 
@@ -332,12 +454,13 @@ def build_cell_index(
         claims[tier][key] = code
         store[key] = hit
 
-    def _add(pronto: str | None, hit_factory: Any) -> None:
+    def _add(pronto: str | None, hit_factory: Any) -> tuple[CellHit, Any] | None:
+        """Index one code; its hit and claim discriminator, or None."""
         if not pronto:
-            return
+            return None
         identity = wig_signal_identity(pronto)
         if identity is None:
-            return
+            return None
         # The diamonds show what was HEARD, so the pattern comes off
         # the canonical form too.
         hit = hit_factory(
@@ -379,9 +502,31 @@ def build_cell_index(
         index.norm_fp.add(
             norm_fingerprint(identity.raw_timings), code, hit,
         )
+        return hit, code
+
+    # What the merged groups are built from: every indexed cell by the
+    # lattice it belongs to and the code it claimed under, and for each
+    # hit the group it would belong to. The group is found from the hit
+    # by that record, never by its coordinates: a lattice may hold two
+    # cells at one coordinate with different codes, and a coordinate
+    # lookup would hand one of them the other's group.
+    claimed: dict[tuple, list[tuple[Any, CellHit]]] = {}
+    hit_group: dict[int, tuple] = {}
+    power_codes: set = set()
+
+    def _member(lattice: tuple | None, cell: Any, added: Any) -> None:
+        if added is None:
+            return
+        hit, code = added
+        inner = _inner_code(code)
+        if inner is None:
+            return
+        key = (lattice, inner)
+        claimed.setdefault(key, []).append((cell, hit))
+        hit_group[id(hit)] = key
 
     for cell in matrix.cells:
-        _add(
+        added = _add(
             cell.pronto,
             lambda sl, cell=cell: CellHit(
                 cell_key=cell_key(cell),
@@ -398,6 +543,7 @@ def build_cell_index(
                 sl_pattern=sl,
             ),
         )
+        _member(None, cell, added)
     # EXTRAS ARE HEARD TOO (item 5c). The index is built from
     # matrix.cells alone before this, so a handset sending an Eco state
     # raised no state_heard and drew no LAST HEARD row, while the card
@@ -411,7 +557,7 @@ def build_cell_index(
     # not in this one. The lattice travels on its own two fields.
     for extra in getattr(matrix, "extras", None) or ():
         for cell in extra.cells:
-            _add(
+            added = _add(
                 cell.pronto,
                 lambda sl, cell=cell, extra=extra: CellHit(
                     cell_key=cell_key(cell),
@@ -431,8 +577,9 @@ def build_cell_index(
                     sl_pattern=sl,
                 ),
             )
+            _member((extra.axis, extra.key), cell, added)
     for power, pronto in (("off", matrix.off), ("on", matrix.on)):
-        _add(
+        added = _add(
             pronto,
             lambda sl, power=power: CellHit(
                 cell_key=power,
@@ -441,7 +588,128 @@ def build_cell_index(
                 sl_pattern=sl,
             ),
         )
+        if added is not None:
+            power_codes.add(_inner_code(added[1]))
+    _attach_groups(
+        index, matrix, claimed, hit_group, power_codes,
+        lambda cell, spanned, lattice: spanned_display_name(
+            cell,
+            spanned,
+            unit=matrix.unit,
+            display_unit=display_unit,
+            precision=matrix.precision,
+            lattice=lattice,
+        ),
+    )
     return index
+
+
+def _inner_code(code: Any) -> Any:
+    """The whole-code discriminator itself, out of a read-bytes wrapper.
+
+    ``_StateOrCode`` is deliberately unhashable, because "same state OR
+    same code" is not an equivalence; the code inside it is a plain
+    string, and same-code is the relation a merged group is made of.
+    """
+    return code.code if isinstance(code, _StateOrCode) else code
+
+
+def _attach_groups(
+    index: CellIndex,
+    matrix: Any,
+    claimed: dict[tuple, list[tuple[Any, CellHit]]],
+    hit_group: dict[int, tuple],
+    power_codes: set,
+    name: Any,
+) -> None:
+    """Record every merged group, and tell each stored hit its own.
+
+    A group is the cells of ONE lattice that claimed under one code, so
+    an extra holding a main cell's code never joins a main group: the
+    two lattices are different codes at every shared coordinate by
+    construction, and a coincidence between them is not a setting the
+    unit ignores. A code the matrix also uses as Off or On is not a
+    group either; a cell spelled with the Off bytes is malformed, and
+    its stored hit is Off's, as it was.
+
+    Each stored hit of a group is replaced once, memoized by the object
+    it replaces, so a key that stores a different representative than
+    another key of the same group (a capture-built lattice, whose S/L
+    fingerprints differ from capture to capture) keeps its own. Every
+    replacement shares the group's one members tuple. Coordinates,
+    ``cell_key`` and ``sl_pattern`` are the representative's and are
+    not touched, so every key answers the same cell it did and the
+    stored row count does not move.
+    """
+    from .wig_climate import pronto_digest
+
+    lattice_cells: dict[tuple | None, list] = {None: list(matrix.cells)}
+    for extra in getattr(matrix, "extras", None) or ():
+        lattice_cells.setdefault((extra.axis, extra.key), []).extend(
+            extra.cells
+        )
+    groups: dict[tuple, CellGroup] = {}
+    cell_of_hit: dict[int, Any] = {}
+    for key, entries in claimed.items():
+        lattice, inner = key
+        if len(entries) < 2 or inner in power_codes:
+            continue
+        members = tuple(dict.fromkeys(_coords(cell) for cell, _hit in entries))
+        if len(members) < 2:
+            # Two copies of one code at one coordinate: nothing spans.
+            continue
+        member_cells = {id(cell) for cell, _hit in entries}
+        covered: dict[tuple, bool] = {}
+        for cell in lattice_cells.get(lattice, ()):
+            branch = (cell.mode, cell.fan, cell.swing)
+            covered[branch] = (
+                covered.get(branch, True) and id(cell) in member_cells
+            )
+        digests = frozenset(
+            digest for digest in (
+                pronto_digest(cell.pronto) for cell, _hit in entries
+            ) if digest is not None
+        )
+        group = CellGroup(
+            lattice=lattice,
+            members=members,
+            digests=digests,
+            full_branches=frozenset(
+                branch for branch, full in covered.items() if full
+            ),
+        )
+        groups[key] = group
+        for digest in digests:
+            index.groups[(lattice, digest)] = group
+        for cell, hit in entries:
+            cell_of_hit[id(hit)] = cell
+    if not groups:
+        return
+
+    replaced: dict[int, CellHit] = {}
+
+    def _named(hit: CellHit) -> CellHit:
+        group = groups.get(hit_group.get(id(hit)))  # type: ignore[arg-type]
+        if group is None:
+            return hit
+        new = replaced.get(id(hit))
+        if new is None:
+            spanned = spanned_of(group.members)
+            new = replaced[id(hit)] = replace(
+                hit,
+                spanned=spanned,
+                members=group.members,
+                cell_name=name(
+                    cell_of_hit[id(hit)], dict(spanned), hit.lattice,
+                ),
+            )
+        return new
+
+    for store in (
+        index.decoded, index.fp_bytehash, index.bytehash, index.norm_fp.refs,
+    ):
+        for key, hit in list(store.items()):
+            store[key] = _named(hit)
 
 
 class MatrixListener:
@@ -478,6 +746,13 @@ class MatrixListener:
         # Ids whose index is being built right now, so a burst of
         # frames dispatches one build rather than one per frame.
         self._building: set[str] = set()
+        # How many times each id has been invalidated. A build started
+        # under one count and finishing under another was built from a
+        # file that has since changed, so it neither caches nor writes,
+        # and builds again: a second change landing mid-build used to be
+        # swallowed by ``_building`` and leave the first change's index
+        # in place for the rest of the run.
+        self._generation: dict[str, int] = {}
         # Last heard time per (remote, cell), for the one-press-one-event
         # rule. Keyed on the cell as well as the remote so a deliberate
         # change of state inside the window is still two events; see
@@ -532,6 +807,7 @@ class MatrixListener:
         """
         self._matrix_cache.pop(remote_id, None)
         self._index_cache.pop(remote_id, None)
+        self._generation[remote_id] = self._generation.get(remote_id, 0) + 1
         for key in [k for k in self._recent_hits if k[0] == remote_id]:
             self._recent_hits.pop(key, None)
         from .matrix_store import delete_cell_index
@@ -634,7 +910,16 @@ class MatrixListener:
         remote created at runtime is ready for its first press the same
         way a remote that existed at boot is. Safe to call twice: an
         in-flight build is not started again.
+
+        A WARM INDEX IS LEFT ALONE. The pin door and the matrix-changed
+        signal warm a device's lattice too, and a warm that rebuilt an
+        index already in hand would only be rebuilding the copy this
+        listener has, which a porthole edit can leave behind the file.
+        Every door that CHANGES a lattice invalidates it first, so it
+        arrives here cold and is built from disk.
         """
+        if matrix_id in self._index_cache:
+            return
         self._schedule_index_build(matrix_id)
 
     # --- Hearing ------------------------------------------------------
@@ -741,30 +1026,66 @@ class MatrixListener:
 
         The return value exists for the setup warm's one INFO line. The
         lazy path drops it, as a task's result always is.
+
+        BUILT FROM THE FILE, STAMPED WITH THE FILE IT WAS BUILT FROM.
+        The matrix is read from disk here, not from this listener's
+        cached parse, and the file is hashed BEFORE it is read. A porthole
+        edit writes the file under a parse this listener may still hold,
+        and an index built from that parse and stamped with the new
+        file's hash would be believed by every boot after it. Hashed
+        first, a file that changes mid-build leaves an index stamped
+        with the older hash, which the next read refuses.
+
+        And a build that an ``invalidate`` overtook is thrown away and
+        started again rather than cached, for the reason given where the
+        generation count is kept.
         """
+        generation = self._generation.get(remote_id, 0)
+        overtaken = False
         try:
+            from .matrix_store import load_matrix, matrix_content_hash
             from .wig_climate import unit_letter
 
+            config_dir = self._hass.config.config_dir
             display_unit = unit_letter(
                 self._hass.config.units.temperature_unit
             )
             index = await self._hass.async_add_executor_job(
-                _load_stored_index,
-                self._hass.config.config_dir, remote_id, display_unit,
+                _load_stored_index, config_dir, remote_id, display_unit,
             )
+            if self._generation.get(remote_id, 0) != generation:
+                overtaken = True
+                return None
             if index is not None:
                 self._index_cache[remote_id] = index
                 _LOGGER.debug(
                     "Cell index for remote %s read from disk", remote_id
                 )
                 return "read"
-            matrix = await self.async_get_matrix(remote_id)
+            content_hash = await self._hass.async_add_executor_job(
+                matrix_content_hash, config_dir, remote_id,
+            )
+            matrix = await self._hass.async_add_executor_job(
+                load_matrix, config_dir, remote_id,
+            )
             if matrix is None:
                 return None
             index = await self._hass.async_add_executor_job(
-                _build_and_store_index,
-                self._hass.config.config_dir, remote_id, matrix, display_unit,
+                build_cell_index, matrix, display_unit,
             )
+            if self._generation.get(remote_id, 0) != generation:
+                overtaken = True
+                return None
+            await self._hass.async_add_executor_job(
+                _store_index,
+                config_dir, remote_id, index, content_hash, display_unit,
+            )
+            if self._generation.get(remote_id, 0) != generation:
+                # The file on disk is stamped with the hash of what it
+                # was built from, so the next read refuses it if that
+                # is stale; only the in-memory copy has to be withheld.
+                overtaken = True
+                return None
             self._index_cache[remote_id] = index
             _LOGGER.debug(
                 "Cell index built for matrix %s: %d decoded, %d hashed",
@@ -773,6 +1094,12 @@ class MatrixListener:
             return "built"
         finally:
             self._building.discard(remote_id)
+            if overtaken:
+                _LOGGER.debug(
+                    "Matrix %s changed while its cell index was being "
+                    "built; building it again", remote_id,
+                )
+                self._schedule_index_build(remote_id)
 
     def _record(
         self,
@@ -797,10 +1124,16 @@ class MatrixListener:
                 receiver_entity_id
             )
 
+        spanned = dict(hit.spanned)
         remote.last_heard = {
             "cell_key": hit.cell_key,
             "cell_name": hit.cell_name,
             "power": hit.power,
+            # The representative's coordinates even on a press whose
+            # code the file stores under several settings: the
+            # "+ Trigger" door forwards these to a door that resolves
+            # coordinates, and the card seeds its branch from them.
+            # ``spanned`` says which of them the press did not pin down.
             "mode": hit.mode,
             "fan": hit.fan,
             "swing": hit.swing,
@@ -810,27 +1143,43 @@ class MatrixListener:
             # before this, so an old row reads exactly as it did.
             "axis": hit.axis,
             "lattice": hit.lattice,
+            "spanned": spanned_dict(hit.spanned),
             "sl_pattern": hit.sl_pattern,
             "at": now_iso,
             "receiver_entity_id": receiver_entity_id,
             "receiver_area_name": area_name,
         }
+        members = [list(member) for member in hit.members]
+        if members:
+            # For the card's tile ring, which has to test a WHOLE
+            # coordinate: a group need not be every combination of its
+            # values, so "fan is one of them and swing is one of them"
+            # can ring a tile that is another code.
+            remote.last_heard["members"] = members
         remote.updated_at = now_iso
         self._store.update_trigger_remote(remote)
         self._hass.async_create_task(self._store.async_save())
 
+        # THE EVENT SAYS ONLY WHAT THE PRESS PINS DOWN (owner ruling
+        # 2026-10-01: honesty over compatibility). A setting the code
+        # does not decide is null here, with ``spanned`` listing what it
+        # could be: the representative's value is just the last cell
+        # the file happened to list, and an automation handed it would
+        # act on a number nobody chose. Only the event, never the hit
+        # or ``last_heard``, which the doors above still need whole.
         event_data = {
             "remote_id": remote.id,
             "remote_name": remote.name,
             "cell_key": hit.cell_key,
             "cell_name": hit.cell_name,
             "power": hit.power,
-            "mode": hit.mode,
-            "fan": hit.fan,
-            "swing": hit.swing,
-            "temp": hit.temp,
+            "mode": None if "mode" in spanned else hit.mode,
+            "fan": None if "fan" in spanned else hit.fan,
+            "swing": None if "swing" in spanned else hit.swing,
+            "temp": None if "temp" in spanned else hit.temp,
             "axis": hit.axis,
             "lattice": hit.lattice,
+            "spanned": spanned_dict(hit.spanned),
             "timestamp": now_iso,
             # The v0.5.7 location trio, resolved the same way and at
             # the same moment a trigger fire resolves it.
@@ -842,11 +1191,15 @@ class MatrixListener:
 
         # The panel's bloom rides the existing trigger subscription
         # with a discriminator rather than a second subscribe command:
-        # one channel, two kinds of news.
+        # one channel, two kinds of news. The members ride here and
+        # not on the event, which the recorder keeps: a few kilobytes
+        # on every stored event would be paid for by nobody who reads
+        # them.
         if self._trigger_manager is not None:
-            self._trigger_manager.notify_subscribers({
-                "kind": "state_heard", **event_data,
-            })
+            push = {"kind": "state_heard", **event_data}
+            if members:
+                push["members"] = [list(member) for member in hit.members]
+            self._trigger_manager.notify_subscribers(push)
 
         self._dispatch_pinned_cell(remote, hit, identity)
 
@@ -975,6 +1328,7 @@ class MatrixListener:
             return None
         from .wig_climate import (
             cell_display_name,
+            spanned_display_name,
             state_display_name,
             unit_letter,
         )
@@ -998,12 +1352,25 @@ class MatrixListener:
             cell, extra = self._cell_by_identity(device_id, matrix, identity)
         if cell is None:
             return None
+        base = cell
+        display_unit = unit_letter(self._hass.config.units.temperature_unit)
+        lattice_key = None if extra is None else extra.key
+        # BASE'S BYTES, ALWAYS. Everything below may change what the send
+        # is CALLED and which coordinates the card is told; nothing below
+        # may change what goes to the air. The Pronto and the count
+        # returned are base's own on every path, so a merged group can
+        # only ever relabel a send, never redirect it.
+        grouped = self._merged_group_send(
+            device_id, base, matrix.cells if extra is None else extra.cells,
+            None if extra is None else (extra.axis, extra.key),
+        )
+        named = base if grouped is None else grouped["chosen"]
         # The DEVICE's own coordinates, not the remote's: two wigs for
         # one unit may spell a dimension differently, and the card
         # belongs to the device.
         state: dict[str, Any] = {
-            "mode": cell.mode, "fan": cell.fan,
-            "swing": cell.swing, "temp": cell.temp,
+            "mode": named.mode, "fan": named.fan,
+            "swing": named.swing, "temp": named.temp,
         }
         if extra is not None:
             # Which lattice, as matrix-send carries it: the same
@@ -1011,20 +1378,148 @@ class MatrixListener:
             # the card must not follow this send to the main tile.
             state["axis"] = extra.axis
             state["lattice"] = extra.key
-        return (
-            cell_display_name(
-                cell,
+        if grouped is None or grouped["concrete"]:
+            name = cell_display_name(
+                named,
                 unit=matrix.unit,
-                display_unit=unit_letter(
-                    self._hass.config.units.temperature_unit
-                ),
+                display_unit=display_unit,
                 precision=matrix.precision,
-                lattice=None if extra is None else extra.key,
-            ),
-            cell.pronto,
-            cell.send_count,
-            state,
+                lattice=lattice_key,
+            )
+        else:
+            # A MISS IS NAMED AS ONE. The device card rings as "current"
+            # the tile whose name this is, so naming the representative
+            # here would ring 30 while the dial says 24.
+            name = spanned_display_name(
+                named,
+                grouped["spanned"],
+                unit=matrix.unit,
+                display_unit=display_unit,
+                precision=matrix.precision,
+                lattice=lattice_key,
+            )
+        if grouped is not None:
+            state["spanned"] = {
+                dim: list(values) for dim, values in grouped["spanned"].items()
+            }
+            state["members"] = [list(member) for member in grouped["members"]]
+            state["temp_free"] = grouped["temp_free"]
+        return (name, base.pronto, base.send_count, state)
+
+    def _merged_group_send(
+        self,
+        device_id: str,
+        base: Any,
+        cells: list,
+        lattice: tuple[str, str] | None,
+    ) -> dict[str, Any] | None:
+        """What a send of ``base`` may say about the group it is in.
+
+        None when there is no group to speak of: the device's index is
+        not built yet, or base's code is the only cell that carries it.
+        The send then goes out named as base, exactly as it always did.
+
+        THE DEVICE'S GROUP, NEVER THE REMOTE'S. The hit carries the
+        remote's ``spanned``, which says what the remote's file stores;
+        what the card follows is what was sent to the device, out of
+        the device's file, and the two files need not agree. So the
+        group is looked up on the device's own index, by base's lattice
+        and the digest of base's text.
+
+        CHECKED AGAINST THE LIVE LATTICE. The index can be behind the
+        file: a porthole edit rewrites a cell in place, a delete or a
+        thinning removes cells. So base's list is walked once, comparing
+        coordinates only, and a member coordinate is kept only when at
+        least one cell is found at it and every cell found there still
+        carries one of the group's texts. Only the cells found at member
+        coordinates have their text normalized, which bounds the work
+        by the group rather than by the lattice: this runs on the event
+        loop, twice per press per pinned device.
+
+        THE NAME AND THE CARD MAY FOLLOW THE DEVICE'S CURRENT STATE,
+        through a sibling: a kept cell with base's exact text and send
+        count, which therefore transmits exactly what base does. On
+        each spanned dimension the wanted value is the device's current
+        one when the group holds it, base's otherwise, and the wanted
+        cell is looked up among the siblings only, never in the lattice
+        by coordinates: a lattice may hold another code at the same
+        coordinate.
+        """
+        from .wig_climate import pronto_digest
+
+        index = self._index_cache.get(device_id)
+        if index is None:
+            # The press goes out as it always did, and the next one has
+            # its group. Nothing else builds a device's index after a
+            # runtime pin or a matrix change when its words and the
+            # remote's agree, so without this the dial rule would stay
+            # off until a restart.
+            self._schedule_index_build(device_id)
+            return None
+        base_digest = pronto_digest(base.pronto)
+        group = index.groups.get((lattice, base_digest))
+        if group is None:
+            return None
+        wanted_coords = set(group.members)
+        found: dict[tuple, list] = {}
+        for cell in cells:
+            coords = _coords(cell)
+            if coords in wanted_coords:
+                found.setdefault(coords, []).append(cell)
+        digests: dict[int, str | None] = {}
+        kept: list[tuple] = []
+        for member in group.members:
+            at = found.get(member)
+            if not at:
+                continue
+            for cell in at:
+                digests[id(cell)] = pronto_digest(cell.pronto)
+            if all(digests[id(cell)] in group.digests for cell in at):
+                kept.append(member)
+        spanned = dict(spanned_of(kept))
+        if not spanned:
+            return None
+        dropped = wanted_coords.difference(kept)
+        siblings = [
+            cell
+            for member in kept
+            for cell in found[member]
+            if digests[id(cell)] == base_digest
+            and cell.send_count == base.send_count
+        ]
+        if not any(cell is base for cell in siblings):
+            siblings.append(base)
+
+        provider = getattr(self._device_manager, "climate_state", None)
+        current = provider(device_id) if provider is not None else None
+        wanted = list(_coords(base))
+        found_all = current is not None
+        for position, dim in enumerate(_DIMS):
+            if dim not in spanned:
+                continue
+            value = None if current is None else current.get(dim)
+            if value is not None and value in spanned[dim]:
+                wanted[position] = (
+                    float(value) if dim == "temp" else value
+                )
+            else:
+                found_all = False
+        chosen = next(
+            (cell for cell in siblings if _coords(cell) == tuple(wanted)),
+            base,
         )
+        branch = (chosen.mode, chosen.fan, chosen.swing)
+        return {
+            "chosen": chosen,
+            "concrete": found_all and _coords(chosen) == tuple(wanted),
+            "spanned": spanned,
+            "members": kept,
+            # The unit ignores temperature on this branch only when the
+            # file stores every cell of it as this one code, and none of
+            # those cells has since changed under the index.
+            "temp_free": branch in group.full_branches
+            and not any(member[:3] == branch for member in dropped),
+        }
 
     def _cell_by_identity(
         self, device_id: str, matrix: ClimateMatrix, identity: _Identity
@@ -1110,7 +1605,10 @@ def _cell_in_hit_lattice(
 # learned to merge a code a file stores under several labels), and to
 # /8 when a hit row gained its axis and lattice: a /7 row has no room
 # for them, so every extras hit it holds would read back as a
-# main-lattice state. A stored index of an older format is
+# main-lattice state, and to /9 when a hit learned the merged group it
+# answers for and the index gained the groups themselves: a /8 index
+# names a dry press by its last cell and gives the send side no group
+# to read. A stored index of an older format is
 # simply not read, so every lattice rebuilds once and gains the new map;
 # the rebuild is the same seconds-of-work the first build was.
 #
@@ -1122,21 +1620,80 @@ def _cell_in_hit_lattice(
 # pre-migration hashes while captures arrived carrying post-migration
 # ones. Every climate lattice would silently stop recognizing its own
 # cells, with nothing in any log to say so.
-INDEX_FORMAT = "hair-cell-index/8"
+INDEX_FORMAT = "hair-cell-index/9"
 
 
-def _hit_to_row(hit: CellHit) -> list:
+def _hit_to_row(hit: CellHit, group: int | None = None) -> list:
+    """One stored hit. Element 10 is ``spanned`` in its dict rendering
+    and element 11 the ordinal of the hit's group in the payload's
+    ``groups`` list, so the members are stored once per group rather
+    than once per row."""
     return [
         hit.cell_key, hit.cell_name, hit.power, hit.mode, hit.fan,
         hit.swing, hit.temp, hit.sl_pattern, hit.axis, hit.lattice,
+        spanned_dict(hit.spanned), group,
     ]
 
 
-def _row_to_hit(row: list) -> CellHit:
+def _row_to_hit(row: list, groups: list[CellGroup] | None = None) -> CellHit:
+    ordinal = row[11] if len(row) > 11 else None
     return CellHit(
         cell_key=row[0], cell_name=row[1], power=row[2], mode=row[3],
         fan=row[4], swing=row[5], temp=row[6], sl_pattern=row[7],
         axis=row[8], lattice=row[9],
+        spanned=_spanned_from_dict(row[10] if len(row) > 10 else None),
+        members=(
+            () if ordinal is None or groups is None
+            else groups[ordinal].members
+        ),
+    )
+
+
+def _branch_order(branch: tuple) -> tuple:
+    return tuple((v is None, "" if v is None else v) for v in branch)
+
+
+def _group_to_row(group: CellGroup) -> dict:
+    """One group, JSON-native only.
+
+    ``write_cell_index`` swallows a ``TypeError``, so a set or a tuple
+    key in here would not fail loudly: the index would simply never be
+    written, and every boot would pay the build again.
+    """
+    return {
+        "lattice": None if group.lattice is None else list(group.lattice),
+        "members": [list(member) for member in group.members],
+        "digests": sorted(group.digests),
+        "full": [
+            list(branch)
+            for branch in sorted(group.full_branches, key=_branch_order)
+        ],
+    }
+
+
+def _row_to_group(row: dict) -> CellGroup:
+    """One group back from JSON, in exactly the shapes the build makes.
+
+    JSON has no tuples and no sets. A member read back as a list is
+    never ``in`` a tuple of tuples, and a branch read back as a list is
+    never in a set of tuples, so without the rebuild below the dial
+    rule would quietly stop applying from the second boot on.
+    """
+    lattice = row["lattice"]
+    if lattice is not None:
+        axis, key = lattice
+        lattice = (axis, key)
+    members = tuple(
+        (mode, fan, swing, None if temp is None else float(temp))
+        for mode, fan, swing, temp in row["members"]
+    )
+    return CellGroup(
+        lattice=lattice,
+        members=members,
+        digests=frozenset(row["digests"]),
+        full_branches=frozenset(
+            (mode, fan, swing) for mode, fan, swing in row["full"]
+        ),
     )
 
 
@@ -1148,8 +1705,16 @@ def _index_to_payload(
     A lattice's cells are heavily shared across tiers (the same hit is
     reachable by decoded fingerprint, by composite key and by hash), so
     storing the hits once and pointing at them keeps the file at roughly
-    the size of the coordinates rather than three copies of them.
+    the size of the coordinates rather than three copies of them. The
+    merged groups are stored once each, and a hit points at its own.
     """
+    groups: list[dict] = []
+    ordinal: dict[int, int] = {}
+    for group in index.groups.values():
+        if id(group.members) not in ordinal:
+            ordinal[id(group.members)] = len(groups)
+            groups.append(_group_to_row(group))
+
     hits: list[list] = []
     seen: dict[int, int] = {}
 
@@ -1157,7 +1722,9 @@ def _index_to_payload(
         key = id(hit)
         if key not in seen:
             seen[key] = len(hits)
-            hits.append(_hit_to_row(hit))
+            hits.append(_hit_to_row(
+                hit, ordinal.get(id(hit.members)) if hit.members else None,
+            ))
         return seen[key]
 
     from .identity import field_map_digest
@@ -1176,6 +1743,7 @@ def _index_to_payload(
         # Cell NAMES are display strings, so they freeze the unit they
         # were built in; flipping the install's unit rebuilds.
         "unit": display_unit,
+        "groups": groups,
         "hits": hits,
         "decoded": {k: _ref(v) for k, v in index.decoded.items()},
         "fp_bytehash": [
@@ -1194,8 +1762,12 @@ def _payload_to_index(payload: dict) -> CellIndex | None:
     try:
         if payload.get("format") != INDEX_FORMAT:
             return None
-        hits = [_row_to_hit(row) for row in payload["hits"]]
+        groups = [_row_to_group(row) for row in payload["groups"]]
+        hits = [_row_to_hit(row, groups) for row in payload["hits"]]
         index = CellIndex()
+        for group in groups:
+            for digest in group.digests:
+                index.groups[(group.lattice, digest)] = group
         for key, ref in payload["decoded"].items():
             index.decoded[key] = hits[ref]
         for fp, bh, ref in payload["fp_bytehash"]:
@@ -1236,18 +1808,41 @@ def _load_stored_index(
     return _payload_to_index(payload)
 
 
-def _build_and_store_index(
-    config_dir: str, remote_id: str, matrix: Any, display_unit: str | None
-) -> CellIndex:
-    """Build the index and leave a copy on disk for the next boot."""
-    from .matrix_store import matrix_content_hash, write_cell_index
+def _store_index(
+    config_dir: str,
+    remote_id: str,
+    index: CellIndex,
+    content_hash: str | None,
+    display_unit: str | None,
+) -> bool:
+    """Leave a built index on disk for the next boot."""
+    from .matrix_store import write_cell_index
 
-    index = build_cell_index(matrix, display_unit)
-    write_cell_index(
-        config_dir,
-        remote_id,
-        _index_to_payload(
-            index, matrix_content_hash(config_dir, remote_id), display_unit
-        ),
+    return write_cell_index(
+        config_dir, remote_id,
+        _index_to_payload(index, content_hash, display_unit),
     )
+
+
+def _build_and_store_index(
+    config_dir: str,
+    remote_id: str,
+    matrix: Any,
+    display_unit: str | None,
+    content_hash: str | None = None,
+) -> CellIndex:
+    """Build the index and leave a copy on disk for the next boot.
+
+    ``content_hash`` is the hash of the file ``matrix`` was read FROM,
+    taken before it was read. Hashing the file after the build stamps
+    an index built from an older parse with the newer file's hash, and
+    every later boot then believes it. Omitted, the file is hashed now,
+    which is right only for a caller that has just read it.
+    """
+    from .matrix_store import matrix_content_hash
+
+    if content_hash is None:
+        content_hash = matrix_content_hash(config_dir, remote_id)
+    index = build_cell_index(matrix, display_unit)
+    _store_index(config_dir, remote_id, index, content_hash, display_unit)
     return index

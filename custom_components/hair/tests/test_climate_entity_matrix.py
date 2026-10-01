@@ -505,3 +505,345 @@ class TestExtrasDoNotRestoreAPreset:
             State("climate.x", "cool", {"preset_mode": "Night"}), cell
         )
         assert entity.preset_mode == "Night"
+
+
+# ---------------------------------------------------------------------------
+# A send whose code the file stores under several cells
+# ---------------------------------------------------------------------------
+#
+# A pinned send carries ``spanned``, ``members`` and ``temp_free`` when
+# the device's file stores the code it sent under several settings. The
+# card keeps a dimension the send does not pin down only where the
+# result is still one of those cells, and keeps its temperature only
+# where the unit demonstrably ignores it.
+
+
+def _dry_matrix() -> ClimateMatrix:
+    """Cool 16-30 per temperature, dry 18-30 as one stored code."""
+    cells = [
+        ClimateCell(mode="cool", fan="auto", swing="off", temp=float(t),
+                    pronto=f"P-C-{t}")
+        for t in range(16, 31)
+    ] + [
+        ClimateCell(mode="dry", fan="auto", swing="off", temp=float(t),
+                    pronto="P-DRY")
+        for t in range(18, 31)
+    ]
+    return ClimateMatrix(
+        min_temp=16.0, max_temp=30.0, precision=1.0, modes=["cool", "dry"],
+        fan_modes=["auto"], swing_modes=["off"], off=P_OFF, cells=cells,
+    )
+
+
+def _send(entity, name, cell):
+    from custom_components.hair.send_signal import DeviceSent
+
+    entity._handle_device_sent(DeviceSent(
+        device_id="dev-1", command_name=name, matrix_cell=cell,
+        origin="manager",
+    ))
+
+
+def _group_cell(mode, fan, swing, temp, members, *, temp_free):
+    """A pinned send's cell dict, members as JSON hands them back."""
+    from custom_components.hair.matrix_listener import spanned_dict, spanned_of
+
+    members = [tuple(m) for m in members]
+    return {
+        "mode": mode, "fan": fan, "swing": swing, "temp": temp,
+        "spanned": spanned_dict(spanned_of(members)),
+        "members": [list(m) for m in members],
+        "temp_free": temp_free,
+    }
+
+
+_DRY = [("dry", "auto", "off", float(t)) for t in range(18, 31)]
+
+
+class TestAMergedGroupSend:
+    @pytest.mark.asyncio
+    async def test_a_member_at_the_cards_temperature_keeps_the_dial(self):
+        entity, _ = await _entity(_dry_matrix())
+        entity._hvac_mode, entity._fan_mode = HVACMode.COOL, "auto"
+        entity._swing_mode, entity._target_temperature = "off", 24.0
+
+        _send(entity, "dry / fan: auto / swing: off / 24",
+              _group_cell("dry", "auto", "off", 24.0, _DRY, temp_free=True))
+
+        assert entity.hvac_mode == HVACMode.DRY
+        assert entity.target_temperature == 24.0
+
+    @pytest.mark.asyncio
+    async def test_a_dial_outside_the_group_stays_where_the_unit_ignores_it(
+        self,
+    ):
+        """16 is not a dry temperature, but every dry cell of this branch
+        is the one code, so the unit ignores temperature there: the dial
+        stays at 16 and the next cool goes out at 16."""
+        entity, mgr = await _entity(_dry_matrix())
+        entity._hvac_mode, entity._fan_mode = HVACMode.COOL, "auto"
+        entity._swing_mode, entity._target_temperature = "off", 16.0
+
+        _send(entity, "dry / fan: auto / swing: off / 18-30",
+              _group_cell("dry", "auto", "off", 30.0, _DRY, temp_free=True))
+
+        assert entity.hvac_mode == HVACMode.DRY
+        assert entity.target_temperature == 16.0
+        assert entity.extra_state_attributes["matrix_cell"] == (
+            "dry / fan: auto / swing: off / 18-30"
+        )
+        await entity.async_set_hvac_mode(HVACMode.COOL)
+        assert mgr.async_send_matrix_cell.call_args.args[1] == (
+            "cool / fan: auto / swing: off / 16"
+        )
+
+    @pytest.mark.asyncio
+    async def test_members_that_came_through_json_are_still_members(self):
+        """A send's members are lists, and a temperature may come back
+        an int; neither may switch the rule off."""
+        entity, _ = await _entity(_dry_matrix())
+        entity._hvac_mode, entity._fan_mode = HVACMode.COOL, "auto"
+        entity._swing_mode, entity._target_temperature = "off", 24.0
+        cell = _group_cell("dry", "auto", "off", 30.0, _DRY, temp_free=False)
+        cell["members"] = [[m, f, s, int(t)] for m, f, s, t in _DRY]
+
+        _send(entity, "dry / fan: auto / swing: off / 24", cell)
+
+        assert entity.target_temperature == 24.0
+
+    @pytest.mark.asyncio
+    async def test_a_group_that_covers_part_of_its_branch_moves_the_dial(self):
+        """The 1000 shape: heat / high / 18 and 19 are one code and the
+        rest of the branch is real, so the dial follows the send."""
+        entity, _ = await _entity()
+        entity._hvac_mode, entity._fan_mode = HVACMode.HEAT, "high"
+        entity._target_temperature = 25.0
+        members = [("heat", "high", None, 18.0), ("heat", "high", None, 19.0)]
+
+        _send(entity, "heat / fan: high / 18-19",
+              _group_cell("heat", "high", None, 19.0, members,
+                          temp_free=False))
+
+        assert entity.target_temperature == 19.0
+
+    @pytest.mark.asyncio
+    async def test_a_non_product_group_lands_on_a_member_2740(self):
+        """dry / auto / 16 with dry / level1-4 / 16-30. The card at dry /
+        auto / 17 is inside the fans and inside the temperatures and is
+        another code. The card gives up its fan for the cell's, which
+        is the chosen rule: membership of the whole coordinate, and a
+        fan kept only when the whole result is a member."""
+        entity, _ = await _entity()
+        entity._hvac_mode, entity._fan_mode = HVACMode.DRY, "auto"
+        entity._target_temperature = 17.0
+        members = [("dry", "auto", None, 16.0)] + [
+            ("dry", f"level{n}", None, float(t))
+            for n in range(1, 5) for t in range(16, 31)
+        ]
+
+        _send(entity, "dry / fan: any / 16-30",
+              _group_cell("dry", "level4", None, 30.0, members,
+                          temp_free=True))
+
+        landed = ("dry", entity.fan_mode, None, entity.target_temperature)
+        assert landed == ("dry", "level4", None, 17.0)
+        assert landed in members
+
+    @pytest.mark.asyncio
+    async def test_a_non_product_group_lands_on_a_member_1294(self):
+        """cool / low / vertical / 18 and cool / quiet / off / 18 are
+        one code. The card at cool / low / off is in the fans and in the
+        swings, and cool / low / off / 18 is another code."""
+        entity, _ = await _entity(_matrix(swing=True))
+        entity._hvac_mode, entity._fan_mode = HVACMode.COOL, "low"
+        entity._swing_mode, entity._target_temperature = "off", 18.0
+        members = [("cool", "low", "vertical", 18.0),
+                   ("cool", "quiet", "off", 18.0)]
+
+        _send(entity, "cool / fan: low|quiet / swing: off|vertical / 18",
+              _group_cell("cool", "quiet", "off", 18.0, members,
+                          temp_free=False))
+
+        landed = ("cool", entity.fan_mode, entity.swing_mode,
+                  entity.target_temperature)
+        assert landed == ("cool", "quiet", "off", 18.0)
+
+    @pytest.mark.asyncio
+    async def test_an_off_card_takes_the_first_mapped_member_whole(self):
+        """A group whose representative's mode the file does not map,
+        with the card OFF: the first mapped member is adopted whole.
+        Its mode alone, with the representative's fan, would be dry /
+        auto / 24, which is another code."""
+        entity, _ = await _entity()
+        assert entity.hvac_mode == HVACMode.OFF
+        members = [("vent", "auto", None, 24.0), ("dry", "low", None, 24.0)]
+
+        _send(entity, "vent|dry / fan: auto|low / 24",
+              _group_cell("vent", "auto", None, 24.0, members,
+                          temp_free=False))
+
+        assert entity.hvac_mode == HVACMode.DRY
+        assert entity.fan_mode == "low"
+        assert entity.target_temperature == 24.0
+
+    @pytest.mark.asyncio
+    async def test_an_extras_send_with_a_group_moves_the_readout_only(self):
+        entity, _ = await _entity(_dry_matrix())
+        entity._hvac_mode, entity._fan_mode = HVACMode.COOL, "auto"
+        entity._swing_mode, entity._target_temperature = "off", 24.0
+        cell = _group_cell("dry", "auto", "off", 30.0, _DRY, temp_free=True)
+        cell.update(axis="preset", lattice="eco")
+
+        _send(entity, "(eco) dry / fan: auto / swing: off / 18-30", cell)
+
+        assert (entity.hvac_mode, entity.target_temperature) == (
+            HVACMode.COOL, 24.0,
+        )
+        assert entity.extra_state_attributes["matrix_cell"] == (
+            "(eco) dry / fan: auto / swing: off / 18-30"
+        )
+
+
+# ---------------------------------------------------------------------------
+# The entity tells the device manager where it is
+# ---------------------------------------------------------------------------
+
+
+def _real_manager(matrix):
+    from custom_components.hair.device_manager import DeviceManager
+
+    manager = DeviceManager(MagicMock(), MagicMock(), MagicMock(), "entry-1")
+    manager._matrix_cache["dev-1"] = matrix
+    return manager
+
+
+async def _added(manager, last_state=None, extra=None):
+    entity = HAIRClimateEntity(_device(), manager)
+    entity.async_write_ha_state = MagicMock()
+    entity.hass = MagicMock()
+    entity.hass.config.units.temperature_unit = "°C"
+    entity.async_get_last_state = AsyncMock(return_value=last_state)
+    entity.async_get_last_extra_data = AsyncMock(return_value=extra)
+    await entity.async_added_to_hass()
+    return entity
+
+
+class TestTheClimateStateProvider:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("last_state", [
+        None,                                   # nothing stored
+        ("not-a-mode", {}),                     # an unreadable mode
+        ("fan_only", {}),                       # a mode the file lacks
+        ("cool", {"temperature": 22.0, "fan_mode": "auto"}),  # restored
+    ])
+    async def test_it_registers_after_every_restore_path(self, last_state):
+        """``_async_restore_state`` returns early on three paths, so the
+        registration sits after the await, not at its end."""
+        from homeassistant.core import State
+
+        state = None if last_state is None else State(
+            "climate.x", last_state[0], last_state[1],
+        )
+        manager = _real_manager(_matrix())
+
+        entity = await _added(manager, state)
+
+        assert manager._climate_states["dev-1"] == entity._native_climate_state
+        assert manager.climate_state("dev-1") == entity._native_climate_state()
+
+    @pytest.mark.asyncio
+    async def test_it_answers_in_the_files_own_words_and_unit(self):
+        """Native, because the HA state attribute is converted to the
+        install's unit and an exact match against the file's numbers
+        would miss. The mode is the FILE's key for the HA mode."""
+        matrix = _matrix()
+        matrix.unit = "F"
+        matrix.modes = ["cold", "dry", "heat", "auto"]
+        for cell in matrix.cells:
+            if cell.mode == "cool":
+                cell.mode = "cold"
+        manager = _real_manager(matrix)
+        entity = await _added(manager)
+        entity._hvac_mode, entity._fan_mode = HVACMode.COOL, "low"
+        entity._target_temperature = 72.0
+
+        assert manager.climate_state("dev-1") == {
+            "mode": "cold", "fan": "low", "swing": None, "temp": 72.0,
+        }
+        entity._hvac_mode = HVACMode.OFF
+        assert manager.climate_state("dev-1")["mode"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_flat_entity_answers_nothing(self):
+        manager = _real_manager(_matrix())
+        device = _device()
+        device.climate_matrix = False
+        entity = HAIRClimateEntity(device, manager)
+        entity.hass = MagicMock()
+        entity.async_write_ha_state = MagicMock()
+        await entity.async_added_to_hass()
+
+        assert manager.climate_state("dev-1") is None
+
+    @pytest.mark.asyncio
+    async def test_removal_unregisters_only_its_own(self):
+        """A second entity for the same device registers over the first;
+        the first's removal must not take the second's with it. ``==``,
+        because a bound method is a new object every time it is read."""
+        manager = _real_manager(_matrix())
+        first = await _added(manager)
+        second = await _added(manager)
+        second._target_temperature = 29.0
+
+        await first.async_will_remove_from_hass()
+        assert manager.climate_state("dev-1")["temp"] == 29.0
+
+        await second.async_will_remove_from_hass()
+        assert manager.climate_state("dev-1") is None
+
+    def test_a_provider_that_fails_costs_the_name_not_the_send(self):
+        manager = _real_manager(_matrix())
+
+        def _broken():
+            raise RuntimeError("entity half torn down")
+
+        manager.register_climate_state("dev-1", _broken)
+        assert manager.climate_state("dev-1") is None
+        assert manager.climate_state("dev-unknown") is None
+
+    def test_a_deleted_device_forgets_its_provider(self):
+        manager = _real_manager(_matrix())
+        manager.register_climate_state("dev-1", lambda: {"mode": "cool"})
+        manager._hass.data = {}
+
+        manager._forget_matrix_caches("dev-1")
+
+        assert manager.climate_state("dev-1") is None
+
+
+@pytest.mark.asyncio
+async def test_a_restart_after_a_spanned_press_keeps_the_dial_and_names_a_cell():
+    """The live readout said the range; after a restart it is re-derived
+    through ``resolve_cell``, which snaps the kept dial to the nearest
+    real cell and names that one. Accepted, and pinned: the dial keeps
+    the user's 16, and the readout names a cell that carries the dry
+    code, never the representative's 30."""
+    from homeassistant.core import State
+
+    from custom_components.hair.climate import _ClimateExtraStoredData
+
+    matrix = _dry_matrix()
+    manager = _real_manager(matrix)
+    last = State("climate.x", "dry", {
+        "fan_mode": "auto", "swing_mode": "off", "temperature": 16.0,
+        "matrix_cell": "dry / fan: auto / swing: off / 18-30",
+    })
+    extra = _ClimateExtraStoredData(native_target_temperature=16.0)
+
+    entity = await _added(manager, last, extra)
+
+    assert entity.hvac_mode == HVACMode.DRY
+    assert entity.target_temperature == 16.0
+    assert entity.extra_state_attributes["matrix_cell"] == (
+        "dry / fan: auto / swing: off / 18"
+    )

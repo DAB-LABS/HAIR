@@ -1372,13 +1372,15 @@ def test_a_stale_cell_index_is_refused(tmp_path):
 
     write_matrix(tmp_path, "r1", _matrix())
     _build_and_store_index(str(tmp_path), "r1", _matrix(), "C")
-    # /8 since a hit row carries its axis and lattice: a /7 row has no
-    # room for them, so its extras hits read back as main-lattice
-    # states. /7 was DAIKIN152 joining read-bytes identity and the
-    # Daikin settings frame taking one shared key (GH #183), /6
-    # read-bytes identity, /5 setting-frame identity, and /4 replaced
-    # /3, which let one Daikin key answer for the whole lattice.
-    assert INDEX_FORMAT == "hair-cell-index/8"
+    # /9 since a hit carries the merged group it answers for and the
+    # index carries the groups: an /8 index names a dry press by its
+    # last cell and gives the send side no group to read. /8 was a hit
+    # row gaining its axis and lattice, /7 DAIKIN152 joining read-bytes
+    # identity and the Daikin settings frame taking one shared key
+    # (GH #183), /6 read-bytes identity, /5 setting-frame identity, and
+    # /4 replaced /3, which let one Daikin key answer for the whole
+    # lattice.
+    assert INDEX_FORMAT == "hair-cell-index/9"
     assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
     path = index_path(tmp_path, "r1")
@@ -1386,7 +1388,7 @@ def test_a_stale_cell_index_is_refused(tmp_path):
     # The other two freshness keys are intact: only the format is old.
     assert payload["unit"] == "C"
     assert payload["matrix"]
-    payload["format"] = "hair-cell-index/7"
+    payload["format"] = "hair-cell-index/8"
     path.write_text(_json.dumps(payload))
 
     assert _load_stored_index(str(tmp_path), "r1", "C") is None
@@ -1583,8 +1585,13 @@ def _device_matrix_with_extra(
 
 
 def _stored(index: CellIndex) -> CellIndex:
-    """The index as a restart reads it back."""
-    restored = _ml._payload_to_index(_ml._index_to_payload(index, "h1", "C"))
+    """The index as a restart reads it back: through JSON, which has no
+    tuples and no sets, exactly as the file on disk does. A round trip
+    that skipped JSON would let a tuple survive that a restart turns
+    into a list."""
+    restored = _ml._payload_to_index(_json.loads(_json.dumps(
+        _ml._index_to_payload(index, "h1", "C")
+    )))
     assert restored is not None
     return restored
 
@@ -1700,3 +1707,508 @@ async def test_the_frame_fallback_resolves_on_the_devices_extras_lattice():
         ("dev-1", "(Eco) cool / fan: auto / 22", PRONTO_ECO_22, 1, True)
     ]
     assert dm.states[0]["cell"]["lattice"] == "Eco"
+
+
+# ---------------------------------------------------------------------------
+# A code the file stores under several settings (the merged-group dial)
+# ---------------------------------------------------------------------------
+
+# cool / auto / 22 and 23 are one code here, the way a file stores a
+# mode whose temperature the unit ignores; 24 is a code of its own.
+
+
+def _grouped_matrix() -> ClimateMatrix:
+    matrix = _matrix()
+    matrix.cells = [
+        ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=PRONTO_COOL_22),
+        ClimateCell(mode="cool", fan="auto", temp=23.0, pronto=PRONTO_COOL_22),
+        ClimateCell(mode="cool", fan="auto", temp=24.0, pronto=PRONTO_COOL_23),
+    ]
+    return matrix
+
+
+def _matrix_with_extra_group() -> ClimateMatrix:
+    """``_matrix_with_extra`` with an Eco group: one code at 22-24."""
+    matrix = _matrix_with_extra()
+    matrix.extras[0].cells = [
+        ClimateCell(mode="cool", fan="auto", temp=float(t), pronto=PRONTO_ECO_22)
+        for t in (22, 23, 24)
+    ]
+    return matrix
+
+
+def _device_matrix_with_extra_group() -> ClimateMatrix:
+    """The device's own Eco group, in its own bytes. The send side reads
+    the DEVICE's group, so a test of the extras rule needs one here."""
+    matrix = _device_matrix_with_extra()
+    matrix.extras[0].cells = [
+        ClimateCell(
+            mode="cool", fan="auto", temp=float(t), pronto=PRONTO_DEV_ECO_22,
+        )
+        for t in (22, 23, 24)
+    ]
+    return matrix
+
+
+@pytest.mark.asyncio
+async def test_a_spanned_press_is_published_with_what_it_does_not_pin_down():
+    """THE CONTRACT PIN for ``hair_state_heard`` (owner ruling
+    2026-10-01): in the event, a setting the press does not pin down is
+    null and ``spanned`` lists what it could be; ``last_heard`` keeps
+    the representative's coordinates, for the "+ Trigger" door and the
+    card's seed, and gains the members the card rings by. The members
+    ride the panel push and never the event, which the recorder keeps.
+    """
+    from unittest.mock import ANY
+
+    remote = TriggerRemote(id="r1", name="Bedroom AC", climate_matrix=True)
+    tm = MagicMock()
+    tm.resolve_receiver_area = MagicMock(return_value=("area-1", "Bedroom"))
+    hass, _store, listener = _listener_ready(
+        remote, trigger_manager=tm, matrix=_grouped_matrix(),
+    )
+    identity = _identity(PRONTO_COOL_22)
+
+    await listener.on_signal_captured(
+        identity.fingerprint, identity.byte_hash,
+        identity.decoded_fingerprint, "infrared.bedroom",
+    )
+
+    members = [["cool", "auto", None, 22.0], ["cool", "auto", None, 23.0]]
+    assert remote.last_heard == {
+        "cell_key": "cool/auto/23",
+        "cell_name": "cool / fan: auto / 22-23",
+        "power": None,
+        "mode": "cool", "fan": "auto", "swing": None, "temp": 23.0,
+        "axis": None, "lattice": None,
+        "spanned": {"temp": [22.0, 23.0]},
+        "sl_pattern": ANY,
+        "at": ANY,
+        "receiver_entity_id": "infrared.bedroom",
+        "receiver_area_name": "Bedroom",
+        "members": members,
+    }
+    event_type, event_data = hass.bus.async_fire.call_args[0]
+    assert event_type == EVENT_STATE_HEARD
+    assert event_data == {
+        "remote_id": "r1",
+        "remote_name": "Bedroom AC",
+        "cell_key": "cool/auto/23",
+        "cell_name": "cool / fan: auto / 22-23",
+        "power": None,
+        "mode": "cool", "fan": "auto", "swing": None, "temp": None,
+        "axis": None, "lattice": None,
+        "spanned": {"temp": [22.0, 23.0]},
+        "timestamp": ANY,
+        "receiver_entity_id": "infrared.bedroom",
+        "receiver_area_id": "area-1",
+        "receiver_area_name": "Bedroom",
+    }
+    assert tm.notify_subscribers.call_args[0][0] == {
+        "kind": "state_heard", **event_data, "members": members,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_plain_press_is_published_as_it_always_was():
+    """The same lattice, the code it stores once: every coordinate, an
+    empty ``spanned`` and no members anywhere."""
+    from unittest.mock import ANY
+
+    remote = TriggerRemote(id="r1", name="Bedroom AC", climate_matrix=True)
+    tm = MagicMock()
+    tm.resolve_receiver_area = MagicMock(return_value=("area-1", "Bedroom"))
+    hass, _store, listener = _listener_ready(
+        remote, trigger_manager=tm, matrix=_grouped_matrix(),
+    )
+    identity = _identity(PRONTO_COOL_23)
+
+    await listener.on_signal_captured(
+        identity.fingerprint, identity.byte_hash,
+        identity.decoded_fingerprint, "infrared.bedroom",
+    )
+
+    assert remote.last_heard == {
+        "cell_key": "cool/auto/24",
+        "cell_name": "cool / fan: auto / 24",
+        "power": None,
+        "mode": "cool", "fan": "auto", "swing": None, "temp": 24.0,
+        "axis": None, "lattice": None,
+        "spanned": {},
+        "sl_pattern": ANY,
+        "at": ANY,
+        "receiver_entity_id": "infrared.bedroom",
+        "receiver_area_name": "Bedroom",
+    }
+    _event_type, event_data = hass.bus.async_fire.call_args[0]
+    assert event_data == {
+        "remote_id": "r1",
+        "remote_name": "Bedroom AC",
+        "cell_key": "cool/auto/24",
+        "cell_name": "cool / fan: auto / 24",
+        "power": None,
+        "mode": "cool", "fan": "auto", "swing": None, "temp": 24.0,
+        "axis": None, "lattice": None,
+        "spanned": {},
+        "timestamp": ANY,
+        "receiver_entity_id": "infrared.bedroom",
+        "receiver_area_id": "area-1",
+        "receiver_area_name": "Bedroom",
+    }
+    assert "members" not in tm.notify_subscribers.call_args[0][0]
+
+
+def test_a_stored_index_keeps_its_groups_and_every_hits_group(tmp_path):
+    """Through ``write_cell_index`` and ``load_cell_index``, which is
+    JSON: every group comes back with tuple members, float
+    temperatures, a set of digests and a set of tuple branches, the
+    extra's group keyed by its axis and key, and every hit pointing at
+    its group's one members tuple. ``write_cell_index`` swallows a
+    TypeError, so the True below is what proves the payload is JSON."""
+    from custom_components.hair.matrix_store import (
+        load_cell_index,
+        write_cell_index,
+    )
+
+    matrix = _matrix_with_extra_group()
+    matrix.cells = _grouped_matrix().cells
+    index = build_cell_index(matrix)
+    assert {g.lattice for g in index.groups.values()} == {
+        None, ("preset", "eco"),
+    }
+
+    assert write_cell_index(
+        tmp_path, "r1", _ml._index_to_payload(index, "h1", "C")
+    ) is True
+    restored = _ml._payload_to_index(load_cell_index(tmp_path, "r1"))
+
+    assert restored is not None
+    assert restored.groups == index.groups
+    for key, group in restored.groups.items():
+        assert isinstance(group.members, tuple)
+        assert all(isinstance(m, tuple) for m in group.members)
+        assert all(isinstance(b, tuple) for b in group.full_branches)
+        assert isinstance(group.digests, frozenset)
+        assert key[0] == group.lattice
+    for tier in ("decoded", "fp_bytehash", "bytehash"):
+        for key, hit in getattr(index, tier).items():
+            twin = getattr(restored, tier)[key]
+            assert twin == hit
+            if twin.members:
+                assert any(
+                    twin.members is g.members for g in restored.groups.values()
+                )
+    eco = _identity(PRONTO_ECO_22)
+    eco_hit = restored.fp_bytehash[(eco.fingerprint, eco.byte_hash)]
+    assert eco_hit.spanned == (("temp", (22.0, 23.0, 24.0)),)
+    assert eco_hit.cell_name == "(eco) cool / fan: auto / 22-24"
+    assert (eco_hit.axis, eco_hit.lattice) == ("preset", "eco")
+
+
+def test_an_index_stored_before_groups_is_rebuilt_with_them(tmp_path):
+    """An /8 index has no groups and names a dry press by its last cell.
+    It is refused, and the rebuild carries the groups."""
+    from custom_components.hair.matrix_listener import (
+        _build_and_store_index,
+        _load_stored_index,
+    )
+    from custom_components.hair.matrix_store import index_path, write_matrix
+
+    matrix = _grouped_matrix()
+    write_matrix(tmp_path, "r1", matrix)
+    _build_and_store_index(str(tmp_path), "r1", matrix, "C")
+    path = index_path(tmp_path, "r1")
+    payload = _json.loads(path.read_text())
+    payload["format"] = "hair-cell-index/8"
+    del payload["groups"]
+    payload["hits"] = [row[:10] for row in payload["hits"]]
+    path.write_text(_json.dumps(payload))
+
+    assert _load_stored_index(str(tmp_path), "r1", "C") is None
+
+    _build_and_store_index(str(tmp_path), "r1", matrix, "C")
+    rebuilt = _load_stored_index(str(tmp_path), "r1", "C")
+    assert rebuilt is not None and rebuilt.groups
+
+
+# --- The device index is warm when a send needs its groups ----------------
+
+
+def _bench(tmp_path, remote_matrix, device_matrix, *, pinned=True):
+    """A real listener over a real config dir, both files written, the
+    remote's index warm and the device's cold. Tasks are collected, not
+    run, so each test decides what has happened when."""
+    from custom_components.hair.matrix_store import write_matrix
+
+    write_matrix(tmp_path, "r1", remote_matrix)
+    write_matrix(tmp_path, "dev-1", device_matrix)
+    remote = TriggerRemote(
+        id="r1", name="Bedroom AC", climate_matrix=True,
+        pinned_device_ids=["dev-1"] if pinned else [],
+    )
+    store = _store_with(remote)
+    device = MagicMock(id="dev-1", climate_matrix=True)
+    device.name = "Bedroom Head Unit"
+    store.get_device = MagicMock(return_value=device)
+    hass = _hass(store)
+    hass.config.config_dir = str(tmp_path)
+    tasks: list = []
+    hass.async_create_task = MagicMock(side_effect=tasks.append)
+    tm = MagicMock()
+    tm.resolve_receiver_area = MagicMock(return_value=(None, None))
+    dm = _RecordingDeviceManager(device_matrix)
+    listener = MatrixListener(hass, store, tm, dm)
+    listener._index_cache["r1"] = build_cell_index(remote_matrix)
+    return listener, store, remote, tm, dm, tasks
+
+
+async def _drain(tasks):
+    while tasks:
+        batch, tasks[:] = list(tasks), []
+        for coro in batch:
+            await coro
+
+
+async def _press_and_send(listener, tasks, tm, dm, pronto):
+    """Hear, dispatch and send WITHOUT running a build the press
+    scheduled: the harness would otherwise drain it inside the press and
+    hide which press had the group."""
+    identity = _identity(pronto)
+    tm.dispatch_cell_retransmit.reset_mock()
+    await listener.on_signal_captured(
+        identity.fingerprint, identity.byte_hash,
+        identity.decoded_fingerprint, None,
+    )
+    held = []
+    while tasks:
+        batch, tasks[:] = list(tasks), []
+        for coro in batch:
+            if getattr(coro, "__qualname__", "").endswith("_async_build_index"):
+                held.append(coro)
+            else:
+                await coro
+    listener._recent_hits.clear()
+    key = tm.dispatch_cell_retransmit.call_args.args[2]
+    await listener.async_send_pinned_cell("dev-1", key)
+    tasks.extend(held)
+    return dm.states[-1]["cell"]
+
+
+@pytest.mark.asyncio
+async def test_a_press_that_finds_the_device_index_cold_builds_it(tmp_path):
+    """A same-file pairing never misses its coordinates, so nothing else
+    would build the device's index. That press goes out as it always
+    did, without a group; it schedules the build, and the next press
+    has the group."""
+    listener, _s, _r, tm, dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(),
+    )
+
+    first = await _press_and_send(listener, tasks, tm, dm, PRONTO_COOL_22)
+
+    assert "spanned" not in first
+    assert "dev-1" in listener._building
+    await _drain(tasks)
+    assert listener._index_cache["dev-1"].groups
+    second = await _press_and_send(listener, tasks, tm, dm, PRONTO_COOL_22)
+    assert second["spanned"] == {"temp": [22.0, 23.0]}
+
+
+@pytest.mark.asyncio
+async def test_pinning_at_runtime_warms_the_devices_index(tmp_path, fake_hass):
+    """The pin door warms the device's lattice, so the FIRST press after
+    a runtime pin already has its group."""
+    from custom_components.hair.websocket_api import (
+        ws_pin_trigger_remote_device,
+    )
+
+    from .test_websocket_api import _make_connection, _wire_triggers
+
+    listener, store, remote, tm, dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(), pinned=False,
+    )
+    _wire_triggers(fake_hass, store)
+    fake_hass.data[DOMAIN]["entry-1"]["matrix_listener"] = listener
+    store.get_trigger_remote = MagicMock(return_value=remote)
+
+    await ws_pin_trigger_remote_device(fake_hass, _make_connection(), {
+        "id": 1, "type": "hair/trigger-remote/pin",
+        "remote_id": "r1", "device_id": "dev-1",
+    })
+    await _drain(tasks)
+
+    # Before any press.
+    assert listener._index_cache["dev-1"].groups
+    sent = await _press_and_send(listener, tasks, tm, dm, PRONTO_COOL_22)
+    assert sent["spanned"] == {"temp": [22.0, 23.0]}
+
+
+@pytest.mark.asyncio
+async def test_a_matrix_change_warms_a_pinned_devices_index_again(
+    tmp_path, fake_hass,
+):
+    """A repair signals matrix-changed, which drops the device's index;
+    the same signal rebuilds it from the new file, so the next press has
+    its group without waiting for a restart."""
+    from custom_components.hair.matrix_store import write_matrix
+    from custom_components.hair.websocket_api import _signal_matrix_changed
+
+    from .test_websocket_api import _wire_triggers
+
+    listener, store, _remote, tm, dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(),
+    )
+    _wire_triggers(fake_hass, store)
+    fake_hass.data[DOMAIN]["entry-1"]["matrix_listener"] = listener
+    listener.warm_index("dev-1")
+    await _drain(tasks)
+    before = listener._index_cache["dev-1"]
+
+    repaired = _grouped_matrix()
+    repaired.cells.append(ClimateCell(
+        mode="cool", fan="auto", temp=25.0, pronto=PRONTO_COOL_22,
+    ))
+    write_matrix(tmp_path, "dev-1", repaired)
+    dm._matrix = repaired
+    _signal_matrix_changed(fake_hass, "dev-1")
+    await _drain(tasks)
+
+    after = listener._index_cache["dev-1"]
+    assert after is not before
+    assert {m[3] for g in after.groups.values() for m in g.members} == {
+        22.0, 23.0, 25.0,
+    }
+    sent = await _press_and_send(listener, tasks, tm, dm, PRONTO_COOL_22)
+    assert sent["spanned"] == {"temp": [22.0, 23.0, 25.0]}
+
+
+@pytest.mark.asyncio
+async def test_a_matrix_change_does_not_warm_an_unpinned_device(
+    tmp_path, fake_hass,
+):
+    """On a Pi a large lattice is many seconds of an executor thread, so
+    only a device some remote drives is rebuilt eagerly."""
+    from custom_components.hair.websocket_api import _signal_matrix_changed
+
+    from .test_websocket_api import _wire_triggers
+
+    listener, store, _remote, _tm, _dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(), pinned=False,
+    )
+    _wire_triggers(fake_hass, store)
+    fake_hass.data[DOMAIN]["entry-1"]["matrix_listener"] = listener
+
+    _signal_matrix_changed(fake_hass, "dev-1")
+
+    assert tasks == []
+
+
+def _code_at(index, pronto):
+    """The cell key the index answers for a code, or None."""
+    identity = _identity(pronto)
+    matched = index.match(
+        identity.decoded_fingerprint, identity.fingerprint,
+        identity.byte_hash,
+    )
+    return None if matched is None else matched[0].cell_key
+
+
+@pytest.mark.asyncio
+async def test_a_warm_never_stores_an_old_parse_under_the_new_files_hash(
+    tmp_path,
+):
+    """v4 sequence 1: an index built this run, a porthole edit that
+    rewrites a cell's bytes on disk while this listener still holds the
+    old parse, then a pin. The warm must not store the old content under
+    the new file's hash, which every later boot would believe."""
+    from custom_components.hair.matrix_listener import _load_stored_index
+    from custom_components.hair.matrix_store import write_matrix
+
+    listener, _s, _r, _tm, _dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(),
+    )
+    listener.warm_index("dev-1")
+    await _drain(tasks)
+    old_parse = _grouped_matrix()
+    listener._matrix_cache["dev-1"] = old_parse
+
+    edited = _grouped_matrix()
+    edited.cells[2].pronto = PRONTO_DEV_22
+    write_matrix(tmp_path, "dev-1", edited)
+    listener.warm_index("dev-1")  # the pin door
+    await _drain(tasks)
+
+    # A restart reads the stored index back.
+    restarted = _load_stored_index(str(tmp_path), "dev-1", "C")
+    if restarted is not None:
+        assert _code_at(restarted, PRONTO_COOL_23) is None
+        assert _code_at(restarted, PRONTO_DEV_22) == "cool/auto/24"
+
+
+@pytest.mark.asyncio
+async def test_a_build_reads_the_file_not_the_listeners_parse(tmp_path):
+    """The other half of the same guard: a build that runs at all builds
+    what is on disk."""
+    from custom_components.hair.matrix_listener import _load_stored_index
+    from custom_components.hair.matrix_store import write_matrix
+
+    listener, _s, _r, _tm, _dm, _tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(),
+    )
+    listener._matrix_cache["dev-1"] = _grouped_matrix()
+    edited = _grouped_matrix()
+    edited.cells[2].pronto = PRONTO_DEV_22
+    write_matrix(tmp_path, "dev-1", edited)
+
+    await listener._async_build_index("dev-1")
+
+    assert _code_at(listener._index_cache["dev-1"], PRONTO_DEV_22) == (
+        "cool/auto/24"
+    )
+    assert _code_at(listener._index_cache["dev-1"], PRONTO_COOL_23) is None
+    restarted = _load_stored_index(str(tmp_path), "dev-1", "C")
+    assert _code_at(restarted, PRONTO_DEV_22) == "cool/auto/24"
+
+
+@pytest.mark.asyncio
+async def test_two_changes_during_one_build_end_on_the_second(tmp_path):
+    """v4 sequence 2: a build is in flight for change A when change B
+    lands. B's warm is swallowed by the in-flight guard, so the build
+    for A must notice it was overtaken: it neither caches nor writes,
+    and builds again. The run ends on B, and so does a restart (or the
+    restart finds nothing and builds B itself)."""
+    from custom_components.hair.matrix_listener import _load_stored_index
+    from custom_components.hair.matrix_store import load_matrix, write_matrix
+
+    listener, _s, _r, _tm, _dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(),
+    )
+    change_b = _grouped_matrix()
+    change_b.cells[2].pronto = PRONTO_DEV_22
+    executor = listener._hass.async_add_executor_job
+    landed = []
+
+    async def _job(func, *args):
+        result = await executor(func, *args)
+        if func is load_matrix and not landed:
+            # A's file has been read; change B lands while A builds.
+            landed.append(True)
+            write_matrix(tmp_path, "dev-1", change_b)
+            listener.invalidate("dev-1")
+            listener.warm_index("dev-1")
+        return result
+
+    listener._hass.async_add_executor_job = _job
+    change_a = _grouped_matrix()
+    write_matrix(tmp_path, "dev-1", change_a)
+    listener.invalidate("dev-1")
+    listener.warm_index("dev-1")
+    await _drain(tasks)
+
+    assert landed
+    index = listener._index_cache["dev-1"]
+    assert _code_at(index, PRONTO_DEV_22) == "cool/auto/24"
+    restarted = _load_stored_index(str(tmp_path), "dev-1", "C")
+    if restarted is not None:
+        assert _code_at(restarted, PRONTO_DEV_22) == "cool/auto/24"
+        assert _code_at(restarted, PRONTO_COOL_23) is None

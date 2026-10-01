@@ -255,6 +255,14 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         if self._matrix_mode and self._matrix is None:
             await self._async_load_matrix()
         await self._async_restore_state()
+        # Here, after the restore has been awaited, and not at the end of
+        # the restore itself: that returns early on three paths, and an
+        # entity with nothing to restore must register all the same.
+        # The provider is read when a pinned send is resolved, so a send
+        # that waited in the coalescer sees the state at send time.
+        self._manager.register_climate_state(
+            self._device.id, self._native_climate_state
+        )
         self._power_verdict_unsub = async_dispatcher_connect(
             self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
         )
@@ -273,6 +281,11 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self._subscribe_sensors()
 
     async def async_will_remove_from_hass(self) -> None:
+        # Only our own registration: another entity for this device may
+        # have registered since, and it must outlive this removal.
+        self._manager.unregister_climate_state(
+            self._device.id, self._native_climate_state
+        )
         if self._power_verdict_unsub is not None:
             self._power_verdict_unsub()
             self._power_verdict_unsub = None
@@ -518,6 +531,30 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         )
         return before != after
 
+    def _native_climate_state(self) -> dict[str, Any] | None:
+        """Where this entity is, in the FILE's vocabulary and unit.
+
+        What the matrix listener reads to name a pinned send whose code
+        the file stores under several settings (see
+        ``DeviceManager.climate_state``). Native on purpose:
+        ``_target_temperature`` is already in the file's unit, while the
+        HA state attribute is converted to the install's, and an exact
+        match against the file's temperatures would silently miss on a
+        mixed-unit install. None outside matrix mode. ``mode`` is None
+        while OFF, and for a mode the file does not map.
+        """
+        if not self._matrix_mode:
+            return None
+        return {
+            "mode": (
+                None if self._hvac_mode == HVACMode.OFF
+                else self._file_mode_for(self._hvac_mode)
+            ),
+            "fan": self._fan_mode,
+            "swing": self._swing_mode,
+            "temp": self._target_temperature,
+        }
+
     def _apply_sent_matrix(self, sent: DeviceSent) -> None:
         if sent.power == "off":
             self._capture_active_mode()
@@ -555,6 +592,16 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             # which is also true.
             self._matrix_cell = sent.command_name
             return
+        if cell.get("spanned"):
+            self._apply_merged_group(cell)
+        else:
+            self._apply_coordinates(cell)
+        # The readout says what went out, in the same display grammar
+        # the Mirror row carries, which is exactly the send's name.
+        self._matrix_cell = sent.command_name
+
+    def _apply_coordinates(self, cell: dict[str, Any]) -> None:
+        """Move every dimension the cell names."""
         mode = self._hvac_for_file_mode(cell.get("mode"))
         if mode is not None:
             self._hvac_mode = mode
@@ -568,9 +615,95 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             # native and HA converts for the card (temperature_unit's
             # docstring). No conversion here would be one too many.
             self._target_temperature = float(cell["temp"])
-        # The readout says what went out, in the same display grammar
-        # the Mirror row carries, which is exactly the send's name.
-        self._matrix_cell = sent.command_name
+
+    def _apply_merged_group(self, cell: dict[str, Any]) -> None:
+        """Follow a send whose code the file stores under several cells.
+
+        A pinned remote's dry press goes out with the right bytes, but
+        the file stores that one code at every dry temperature, so the
+        send cannot say which temperature the handset showed. Moving
+        the dial to the cell the send was resolved to would move it to
+        whichever of those the file listed last, and the next cool from
+        Home Assistant would then go out at that temperature: a change
+        nobody asked for. So the card keeps what it can keep, and only
+        where the result is still a cell that carries this code.
+
+        A WHOLE COORDINATE, NOT A DIMENSION AT A TIME. The candidate is
+        the card's current value on each spanned dimension and the
+        cell's value everywhere else. It is adopted only when it is one
+        of the group's members, because a group need not be every
+        combination of its values: a fan that is in the group and a
+        temperature that is in the group can still name a cell of
+        another code. Otherwise the cell's own coordinates are adopted,
+        as before. That gives up an in-group fan for the
+        representative's when another dimension is outside the group,
+        which always still lands on a member.
+
+        THE DIAL STAYS WHERE IT IS when the unit demonstrably ignores
+        temperature on the adopted branch (``temp_free``: the file
+        stores every cell of it as this code). The handset's setpoint is
+        unknown to us, and the dial where the user left it is what makes
+        the next cool go out at the temperature they chose. Where the
+        group covers only part of its branch the adopted temperature
+        stands: there the unit does read it.
+
+        A state code turns the card on. When the adopted mode is one the
+        file does not map and the card is OFF, the first mapped member is
+        adopted whole, never its mode alone, which could name another
+        code.
+        """
+        spanned = cell.get("spanned") or {}
+        # Tuples, whatever the send carried: a member that came through
+        # JSON is a list, and a tuple candidate is never "in" a list of
+        # lists.
+        ordered = [
+            (
+                member[0], member[1], member[2],
+                None if member[3] is None else float(member[3]),
+            )
+            for member in cell.get("members") or ()
+        ]
+        members = set(ordered)
+        current = {
+            "mode": (
+                None if self._hvac_mode == HVACMode.OFF
+                else self._file_mode_for(self._hvac_mode)
+            ),
+            "fan": self._fan_mode,
+            "swing": self._swing_mode,
+            "temp": (
+                None if self._target_temperature is None
+                else float(self._target_temperature)
+            ),
+        }
+        dims = ("mode", "fan", "swing", "temp")
+        own = (
+            cell.get("mode"), cell.get("fan"), cell.get("swing"),
+            None if cell.get("temp") is None else float(cell["temp"]),
+        )
+        candidate = tuple(
+            current[dim] if dim in spanned else own[position]
+            for position, dim in enumerate(dims)
+        )
+        adopted = candidate if (
+            candidate[0] is not None and candidate in members
+        ) else own
+        before_temp = self._target_temperature
+        was_off = self._hvac_mode == HVACMode.OFF
+        self._apply_coordinates(dict(zip(dims, adopted, strict=True)))
+        if (
+            "temp" in spanned
+            and cell.get("temp_free")
+            and before_temp is not None
+        ):
+            self._target_temperature = before_temp
+        if was_off and self._hvac_mode == HVACMode.OFF:
+            for member in ordered:
+                if self._hvac_for_file_mode(member[0]) is not None:
+                    self._apply_coordinates(
+                        dict(zip(dims, member, strict=True))
+                    )
+                    break
 
     def _apply_sent_flat(self, sent: DeviceSent) -> None:
         feature = self._reverse_command_mapping().get(

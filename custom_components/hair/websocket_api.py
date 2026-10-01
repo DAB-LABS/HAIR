@@ -2926,18 +2926,20 @@ async def ws_command_update(
     # first: if the cell is gone the row is stale, and updating the
     # command anyway would leave a row claiming bytes no cell carries.
     cell = _porthole_cell(device_manager, msg["device_id"], msg["command_id"])
-    if (
-        cell is not None
-        and msg.get("pronto")
-        and not await device_manager.async_replace_cell(
+    if cell is not None and msg.get("pronto"):
+        if not await device_manager.async_replace_cell(
             msg["device_id"], cell, msg["pronto"]
-        )
-    ):
-        connection.send_error(
-            msg["id"], "cell_missing",
-            "That cell is no longer in the device's matrix",
-        )
-        return
+        ):
+            connection.send_error(
+                msg["id"], "cell_missing",
+                "That cell is no longer in the device's matrix",
+            )
+            return
+        # The lattice changed like any other writer's, so it says so
+        # like any other writer: the listener's index of this device
+        # still records the old bytes at this cell, and the climate
+        # entity still holds them.
+        _signal_matrix_changed(hass, msg["device_id"])
 
     stored = _command_by_ids(data, msg["device_id"], msg["command_id"])
     # The one place a saved spacing is checked (GH #151). Refused
@@ -4244,6 +4246,14 @@ async def ws_pin_trigger_remote_device(
         rederive_remote(store, remote)
         store.update_trigger_remote(remote)
         await store.async_save()
+    # A pinned matrix device's index is what a send reads its merged
+    # groups from, and nothing else builds it for a device pinned while
+    # running whose words match its remote's: without this the dial
+    # rule would stay off for that pairing until a restart.
+    device = store.get_device(device_id)
+    listener = data.get("matrix_listener")
+    if listener is not None and device is not None and device.climate_matrix:
+        listener.warm_index(device_id)
     connection.send_result(msg["id"], {
         "pinned_device_ids": list(remote.pinned_device_ids),
     })
@@ -8639,6 +8649,17 @@ def _signal_matrix_changed(hass: HomeAssistant, device_id: str) -> None:
         # The lattice CHANGED, so every cached index and reading built
         # from it is answering about a file that no longer exists.
         listener.invalidate(device_id)
+        # And rebuilt now, for a device some remote is pinned to: its
+        # sends read their merged groups from that index, and nothing
+        # else rebuilds it while the remote's words and the device's
+        # agree. Only for a pinned device, since on a Pi a large lattice
+        # is many seconds of an executor thread.
+        store = data.get("store")
+        if store is not None and any(
+            device_id in remote.pinned_device_ids
+            for remote in store.get_all_trigger_remotes()
+        ):
+            listener.warm_index(device_id)
     async_dispatcher_send(hass, SIGNAL_MATRIX_CHANGED, device_id)
 
 

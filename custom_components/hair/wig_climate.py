@@ -26,6 +26,7 @@ vocabulary without touching the stored cell.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 
 from .wig_format import (
     ClimateCell,
@@ -164,6 +165,137 @@ def cell_display_name(
         )
     name = " / ".join(parts)
     return f"({lattice}) {name}" if lattice else name
+
+
+#: Above this many values a spanned mode, fan or swing reads "any"
+#: rather than listing them. Two or three values are worth naming
+#: ("cool|heat_cool"); a dozen are not, and "any" would overclaim for
+#: two.
+SPANNED_LIST_MAX = 3
+
+
+def _spanned_word(value: object) -> str:
+    """One value of a spanned set, verbatim. A dimension one member
+    does not carry reads "-": no corpus vocabulary holds that word, so
+    it cannot be mistaken for a real value."""
+    return "-" if value is None else str(value)
+
+
+def _spanned_temps(
+    values: tuple,
+    unit: str,
+    display_unit: str | None,
+    precision: float,
+) -> str:
+    """A spanned temperature: "18-30" when the values are contiguous at
+    the matrix's precision, "18|19|25" when they are not."""
+    temps = [v for v in values if v is not None]
+    step = precision or 1.0
+    contiguous = (
+        len(temps) == len(values)
+        and len(temps) > 1
+        and all(
+            abs((b - a) - step) < 1e-6
+            for a, b in pairwise(temps)
+        )
+    )
+    if contiguous:
+        low = display_temp_str(temps[0], unit, display_unit, precision)
+        high = display_temp_str(temps[-1], unit, display_unit, precision)
+        return f"{low}-{high}"
+    return "|".join(
+        "-" if v is None
+        else display_temp_str(v, unit, display_unit, precision)
+        for v in values
+    )
+
+
+def spanned_display_name(
+    cell: ClimateCell,
+    spanned: dict[str, tuple],
+    unit: str = "C",
+    display_unit: str | None = None,
+    precision: float = 1.0,
+    lattice: str | None = None,
+) -> str:
+    """The name of a press whose code the file stores under several
+    settings: what the press pins down, and what it does not.
+
+    A file that stores one code at every temperature of dry, because
+    the unit ignores temperature there, cannot say which of those
+    temperatures a press of that code meant. Naming one of them, as the
+    index used to (the last one it met), shows a setting nobody chose.
+    So the dimensions the stored cells disagree on are named as the set
+    they could be, in ``cell_display_name``'s grammar and units:
+
+    - a temperature as its range when the values are contiguous at the
+      matrix's precision ("dry / fan: auto / 18-30"), and as its values
+      when they are not ("18|19|25");
+    - any other dimension as its values when there are three or fewer
+      ("cool|heat_cool / fan: medium / 25"), and as "any" above that.
+
+    ``cell`` supplies every dimension that is NOT spanned, which all the
+    stored cells agree on. ``spanned`` maps a dimension to its values,
+    already sorted. No corpus vocabulary value contains "|" or equals
+    "any", and a range is never a number, so such a name can never be
+    mistaken for a real cell's. ``lattice`` keeps the "(eco) " prefix.
+    """
+    def _dim(name: str, value: object) -> str | None:
+        values = spanned.get(name)
+        if not values:
+            return None if value is None else str(value)
+        if len(values) > SPANNED_LIST_MAX:
+            return "any"
+        return "|".join(_spanned_word(v) for v in values)
+
+    parts = [_dim("mode", cell.mode) or "-"]
+    fan = _dim("fan", cell.fan)
+    if fan is not None:
+        parts.append(f"fan: {fan}")
+    swing = _dim("swing", cell.swing)
+    if swing is not None:
+        parts.append(f"swing: {swing}")
+    temps = spanned.get("temp")
+    if temps:
+        parts.append(_spanned_temps(
+            tuple(temps), unit, display_unit, precision,
+        ))
+    elif cell.temp is not None:
+        parts.append(
+            display_temp_str(cell.temp, unit, display_unit, precision)
+        )
+    name = " / ".join(parts)
+    return f"({lattice}) {name}" if lattice else name
+
+
+def pronto_text_key(pronto: str | None) -> str | None:
+    """Compare Pronto by content, not by whitespace and case.
+
+    Equal keys mean equal timings: ``ProntoCommand`` reads the words
+    with ``split()`` and ``int(word, 16)`` and keeps no text. Two cells
+    with equal keys therefore transmit exactly the same thing, which is
+    what lets the merged-group send name one of them for the other.
+    """
+    if not pronto:
+        return None
+    return " ".join(pronto.split()).upper()
+
+
+def pronto_digest(pronto: str | None) -> str | None:
+    """A short digest of a cell's normalized Pronto text.
+
+    How the stored index finds a cell's merged group from the cell
+    itself. Coordinates cannot do it, because a file may hold two cells
+    at one coordinate with different codes, and text is what tells
+    them apart. Eight bytes, so a stored index carries sixteen hex
+    characters per member rather than a whole code.
+    """
+    import hashlib
+
+    key = pronto_text_key(pronto)
+    if key is None:
+        return None
+    return hashlib.blake2b(key.encode(), digest_size=8).hexdigest()
 
 
 def exact_cell(
