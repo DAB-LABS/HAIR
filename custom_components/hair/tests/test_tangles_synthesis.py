@@ -21,6 +21,7 @@ result to hand anybody.
 """
 from __future__ import annotations
 
+import random
 from dataclasses import replace
 from pathlib import Path
 
@@ -33,9 +34,11 @@ from custom_components.hair.tangles import (
     ORIGIN_SYNTHESIZED,
     SYNTH_FIELD_PROVISIONAL,
     SYNTH_NO_WITNESS,
+    SYNTH_RULE_FAILS,
     SYNTH_RULE_PROVISIONAL,
     SYNTH_UNREADABLE,
     SynthesisBug,
+    _repair_integrity,
     list_tangles,
     pre_read,
     read_lattice,
@@ -44,6 +47,8 @@ from custom_components.hair.tangles import (
 )
 from custom_components.hair.wig_comb import comb_wig
 from custom_components.hair.wig_format import Wig, cell_key, parse_wig
+
+from .test_cell_index_shared_keys import _pack_matrix
 
 FIXTURES = Path(__file__).parent / "fixtures"
 KOMECO = (FIXTURES / "wigs"
@@ -129,18 +134,61 @@ class TestRewritingOneFieldInPlace:
         original = {int(w, 16) for w in source.pronto.split()[4:]}
         assert all(int(w, 16) in original for w in built.split()[4:])
 
+    @pytest.mark.parametrize(
+        "field_map",
+        [m for m in field_readers.library()
+         if any(rule.ratified for rule in m.integrity)],
+        ids=lambda m: m.protocol_id,
+    )
     def test_a_recomputed_rule_satisfies_the_reader_that_checks_it(
-            self, komeco):
+            self, field_map):
         """THE coupling pin. The repair mirrors check_integrity's
         arithmetic rather than importing it, because one asks and the
-        other answers. If they ever drift, this fails."""
-        lattice = read_lattice(komeco.climate)
-        built = _witness(lattice, komeco, 19.0)
-        reading = field_readers.read_code(
-            built, [lattice.field_map], prefer=lattice.field_map.protocol_id)
-        for rule in lattice.field_map.integrity:
-            if rule.ratified:
-                assert field_readers.check_integrity(reading, rule) is True
+        other answers. If they ever drift, this fails.
+
+        Every map with a ratified rule, not one family: the pin ran on
+        ZHLT01 alone while FUJITSU128's ``scale: -1`` went unrecomputed,
+        so every synthesized Fujitsu repair carried a check byte the
+        unit rejects."""
+        rng = random.Random(field_map.protocol_id)
+        for _ in range(16):
+            frames = [[rng.randrange(256) for _ in range(bits // 8)]
+                      for bits in field_map.frame_layout]
+            repaired = _repair_integrity(field_map, frames)
+            reading = field_readers.Reading(
+                field_map.protocol_id,
+                tuple(tuple(frame) for frame in repaired))
+            for rule in field_map.integrity:
+                if rule.ratified:
+                    assert field_readers.check_integrity(
+                        reading, rule) is True, (rule.type, rule.params)
+
+    def test_a_rewritten_fujitsu_frame_keeps_a_checksum_the_unit_accepts(
+            self):
+        """FUJITSU128's check byte is 0xD0 minus the sum, not the sum
+        plus 0xD0. Every cell of the field pack, its mode rewritten,
+        recomputed, and put back through the reader."""
+        field_map = next(m for m in field_readers.library()
+                         if m.protocol_id == "FUJITSU128")
+        spec = field_map.field_named("mode")
+        mask, shift = field_readers.bit_selector(spec.bits)
+        pack = _pack_matrix("FUJITSU128.json")
+        assert pack.cells
+        for cell in pack.cells:
+            reading = field_readers.read_code(cell.pronto)
+            assert reading.protocol_id == "FUJITSU128"
+            frames = [list(frame) for frame in reading.frames]
+            current = frames[spec.frame][spec.byte]
+            frames[spec.frame][spec.byte] = current ^ (mask & (1 << shift))
+            stale_check = frames[0][15]
+            repaired = _repair_integrity(field_map, frames)
+            assert repaired[0][15] != stale_check
+            after = field_readers.Reading(
+                "FUJITSU128", tuple(tuple(frame) for frame in repaired))
+            for rule in field_map.integrity:
+                if rule.ratified:
+                    assert field_readers.check_integrity(
+                        after, rule) is True
 
 
 class TestTheWitnessedCard:
@@ -304,6 +352,54 @@ class TestTheWall:
                 lattice, _witness_card(komeco), _witness(lattice, komeco),
                 "temperature", witness_target=AIMED,
             )
+
+    def test_a_built_candidate_that_breaks_a_ratified_rule_is_refused(
+            self, komeco, monkeypatch):
+        """The read-back checks fields only. A candidate whose fields
+        read right and whose check bytes are stale would pass it, and
+        the unit would reject the code. Refused, not raised."""
+        lattice = read_lattice(komeco.climate)
+        witness = _witness(lattice, komeco)
+        monkeypatch.setattr(
+            "custom_components.hair.tangles._repair_integrity",
+            lambda field_map, frames: [list(frame) for frame in frames],
+        )
+        result = synthesize(
+            lattice, _witness_card(komeco), witness, "temperature",
+            witness_target=AIMED,
+        )
+        assert result.refused == SYNTH_RULE_FAILS
+        assert result.candidates == {}
+
+    def test_a_captured_witness_that_breaks_a_ratified_rule_is_declined(
+            self, komeco, monkeypatch):
+        """A capture handed over verbatim is checked the same way. A bad
+        press is the user's, not a defect: its own row is declined with
+        a reason, never raised, and the cells built from their own
+        siblings stand exactly as they would had it not been aimed."""
+        lattice = read_lattice(komeco.climate)
+        with monkeypatch.context() as patched:
+            patched.setattr(
+                "custom_components.hair.tangles._repair_integrity",
+                lambda field_map, frames: [list(frame) for frame in frames],
+            )
+            stale = _witness(lattice, komeco)
+        assert pre_read(lattice, stale).integrity == {
+            "complement_pairs": False}
+        rows = _witness_card(komeco)
+        aimed = synthesize(
+            lattice, rows, stale, "temperature", witness_target=AIMED)
+        assert aimed.refused is None
+        assert aimed.declined == {AIMED: SYNTH_RULE_FAILS}
+        assert AIMED not in aimed.candidates
+        assert len(aimed.candidates) == 3
+        assert {c["origin"] for c in aimed.candidates.values()} == {
+            ORIGIN_SYNTHESIZED}
+        not_aimed = synthesize(lattice, rows, stale, "temperature")
+        assert {
+            rid: c["pronto"] for rid, c in not_aimed.candidates.items()
+            if rid != AIMED
+        } == {rid: c["pronto"] for rid, c in aimed.candidates.items()}
 
 
 class TestTheWholeRepair:
