@@ -26,7 +26,6 @@ vocabulary without touching the stored cell.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import pairwise
 
 from .wig_format import (
     ClimateCell,
@@ -187,27 +186,32 @@ def _spanned_temps(
     display_unit: str | None,
     precision: float,
 ) -> str:
-    """A spanned temperature: "18-30" when the values are contiguous at
-    the matrix's precision, "18|19|25" when they are not."""
+    """A spanned temperature, as its contiguous runs: "18-30" for one
+    run, "16-18|20-32" where the file skips a value, and a run of one as
+    its number ("16-18|20|22-32"). Contiguous means one step of the
+    matrix's precision apart. Listing every value instead reads as a
+    wall of numbers on a real file whose dry group skips one degree.
+    """
     temps = [v for v in values if v is not None]
     step = precision or 1.0
-    contiguous = (
-        len(temps) == len(values)
-        and len(temps) > 1
-        and all(
-            abs((b - a) - step) < 1e-6
-            for a, b in pairwise(temps)
-        )
-    )
-    if contiguous:
-        low = display_temp_str(temps[0], unit, display_unit, precision)
-        high = display_temp_str(temps[-1], unit, display_unit, precision)
-        return f"{low}-{high}"
-    return "|".join(
-        "-" if v is None
-        else display_temp_str(v, unit, display_unit, precision)
-        for v in values
-    )
+
+    def _shown(temp: float) -> str:
+        return display_temp_str(temp, unit, display_unit, precision)
+
+    runs: list[list[float]] = []
+    for temp in temps:
+        if runs and abs((temp - runs[-1][-1]) - step) < 1e-6:
+            runs[-1].append(temp)
+        else:
+            runs.append([temp])
+    parts = [
+        _shown(run[0]) if len(run) == 1
+        else f"{_shown(run[0])}-{_shown(run[-1])}"
+        for run in runs
+    ]
+    if len(temps) < len(values):
+        parts.append("-")
+    return "|".join(parts)
 
 
 def spanned_display_name(
@@ -228,9 +232,9 @@ def spanned_display_name(
     So the dimensions the stored cells disagree on are named as the set
     they could be, in ``cell_display_name``'s grammar and units:
 
-    - a temperature as its range when the values are contiguous at the
-      matrix's precision ("dry / fan: auto / 18-30"), and as its values
-      when they are not ("18|19|25");
+    - a temperature as its contiguous runs at the matrix's precision:
+      one range when there is one run ("dry / fan: auto / 18-30"), the
+      runs joined by "|" where the file skips a value ("16-18|20-32");
     - any other dimension as its values when there are three or fewer
       ("cool|heat_cool / fan: medium / 25"), and as "any" above that.
 

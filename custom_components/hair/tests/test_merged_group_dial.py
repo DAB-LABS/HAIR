@@ -792,9 +792,37 @@ class TestTheRangeName:
             "dry / fan: auto / swing: off / 64-68"
         )
 
-    def test_a_gap_lists_the_values(self):
+    def test_a_gap_splits_the_range_into_its_runs(self):
+        """The bench file: a dry group across 16-32 that skips 19."""
+        temps = tuple(float(t) for t in range(16, 33) if t != 19)
+        assert self._name({"temp": temps}) == (
+            "dry / fan: auto / swing: off / 16-18|20-32"
+        )
+
+    def test_a_run_of_one_is_its_number(self):
+        temps = tuple(float(t) for t in (16, 17, 18, 20, *range(22, 33)))
+        assert self._name({"temp": temps}) == (
+            "dry / fan: auto / swing: off / 16-18|20|22-32"
+        )
         assert self._name({"temp": (18.0, 19.0, 25.0)}) == (
-            "dry / fan: auto / swing: off / 18|19|25"
+            "dry / fan: auto / swing: off / 18-19|25"
+        )
+
+    def test_runs_follow_the_matrix_precision(self):
+        """At half a degree, 22 and 22.5 are one run; at whole degrees
+        every value two apart stands alone."""
+        assert self._name({"temp": (22.0, 22.5, 23.0, 24.0)},
+                          precision=0.5) == (
+            "dry / fan: auto / swing: off / 22-23|24"
+        )
+        assert self._name({"temp": (18.0, 20.0, 22.0)}) == (
+            "dry / fan: auto / swing: off / 18|20|22"
+        )
+
+    def test_runs_convert_to_the_display_unit(self):
+        assert self._name({"temp": (18.0, 19.0, 21.0)},
+                          display_unit="F") == (
+            "dry / fan: auto / swing: off / 64-66|70"
         )
 
     def test_three_values_are_listed_and_more_are_any(self):
