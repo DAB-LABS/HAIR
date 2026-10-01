@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A Fujitsu code built in Needs attention from one press of the real remote now carries a check byte the air conditioner accepts. Fujitsu closes its frame with 0xD0 minus the sum of the seven bytes before the check byte, and the repair wrote 0xD0 plus that sum, so every code it built read as the right setting but carried a check byte the unit would reject. The repair now computes every check byte exactly as HAIR's reader checks it, and a built code that still breaks a check its field map vouches for is no longer offered as a fix.
+
 ## [0.17.1] - 2026-09-30 -- Tidy Up
 
 ### Changed
@@ -687,8 +691,6 @@ There is no 0.13.0; the version number skips from 0.12.1 to 0.14.0.
 - **The next person's adopt picks it up.** ADOPT DEVICE now seeds new commands -- and every cell of a matrix wig -- from the highest send times any fitter needed, so a wig fitted at three answers the first press on a fresh install with nothing to tune. The wig's own per-signal `send_count` still wins where it is higher, and the value is clamped to 1..10 everywhere it is read.
 - **The ledger shows the evidence.** Fittings that carry the field display "at N sends" alongside their coverage. Fittings recorded before this release show nothing there, deliberately: absent means unknown, not 1, so old fittings never silently claim a measurement they did not make.
 
-
-
 ### Fixed
 
 - **The startup freeze at flood scale.** `SignalStore.async_load()` ran its duplicate-healing pass directly on Home Assistant's event loop, and the pass was quadratic. Once the unknown-signal store grew large enough, every boot froze all of Home Assistant -- HTTP included -- for the duration; at 104,000 stored signals that was about 15 minutes of apparent death per start, with no warning from HA's blocking-call detector because the work is pure CPU, not I/O. The load transform now runs off the event loop in an executor job, and the heal is rewritten from pairwise rescans to hash lookups with identical merge results (pinned by test against the old algorithm). The same 104k-signal store now heals in under a second, and a store of any size can no longer stall the rest of Home Assistant. Reported by @carlmiller99 (GH #72) with a py-spy-profiled analysis that isolated both the freeze and its root cause; this release exists because of that report.
@@ -700,8 +702,6 @@ There is no 0.13.0; the version number skips from 0.12.1 to 0.14.0.
 ### Added
 
 - **The unknown-signal store is capped.** Two new bounds on sniffed signals: 200 per remote and 20,000 total (the existing 500-remote cap stays). When a cap is hit the oldest signals are evicted first, aliased rows last, and a warning names the remote and the receiver it was heard by. Clipped and plucked remotes are user creations and are never touched. Eviction is capacity protection, not hiding: an evicted signal reappears the moment its button is genuinely pressed again. A store already past the caps is trimmed once at load, so an install sitting on a flooded store recovers on its first boot after upgrading with no manual `.storage` surgery.
-
-
 
 ### Added
 
