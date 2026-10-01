@@ -895,6 +895,61 @@ def read_bytes_hash(timings: list[int] | None) -> str | None:
 
     Otherwise None, and the caller keeps today's identity exactly.
     """
+    got = _read_bytes(timings)
+    return None if got is None else got[0]
+
+
+def read_bytes_form(
+    timings: list[int] | None,
+) -> tuple[str, str | None] | None:
+    """``(read key, byte form)`` of a capture from ONE decode, or None.
+
+    The key is ``read_bytes_hash``'s. The byte form is a digest of what
+    the map decoded: the protocol id and, for every frame the map's
+    layout attributes to the code, that frame's whole bytes, frames the
+    map reads nothing from included. It answers a different question
+    from the key. The key says which STATE the map reads; the form says
+    whether two codes carry the same BYTES, which is what the cell index
+    asks before it lets two waveforms of one state answer as one (see
+    ``matrix_listener._StateOrCode``).
+
+    Properties that follow from the decode and are relied on:
+
+    - ``bits_to_bytes`` keeps whole bytes only, so a frame one bit over
+      its width inside ``bits_tolerance`` has the same form.
+    - An optional leader that was left out stands in as an empty frame,
+      exactly as a leader that decodes to no whole byte does, so a code
+      with its leader and one without have one form.
+    - Codes whose frames the layout attributes differently never share
+      a form: the frame count is part of it.
+    - The form is None for a lone frame keyed through the shared-frame
+      path, which no layout attributes to either family. A None form is
+      never equal to anything.
+
+    Unlike the key, the form is compared, never stored, and only within
+    one build; it has no on-disk life to keep stable.
+    """
+    got = _read_bytes(timings)
+    if got is None:
+        return None
+    key, decoded = got
+    return key, (None if decoded is None else _byte_form_digest(*decoded))
+
+
+def _byte_form_digest(protocol_id: str, frames) -> str:
+    import json
+
+    payload = json.dumps(
+        [protocol_id, [list(frame) for frame in frames]],
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(("bytes:" + payload).encode()).hexdigest()[:16]
+
+
+def _read_bytes(timings: list[int] | None):
+    """``(key, (protocol id, frames laid on the layout) or None)``, or
+    None: the answers of ``read_bytes_hash``, with what they read.
+    """
     if not READ_BYTES_VERIFIED:
         return None
     train = _stripped(timings)
@@ -908,11 +963,14 @@ def read_bytes_hash(timings: list[int] | None) -> str | None:
         shared = _shared_group_of(field_map.protocol_id)
         if shared is not None:
             signature, members = shared
-            return shared_frame_key(
+            key = shared_frame_key(
                 signature, members, decoded[field_map.setting_frames[0]]
             )
-        return read_bytes_key(field_map, decoded)
-    return _lone_shared_frame_key(train, timings)
+        else:
+            key = read_bytes_key(field_map, decoded)
+        return None if key is None else (key, (field_map.protocol_id, decoded))
+    key = _lone_shared_frame_key(train, timings)
+    return None if key is None else (key, None)
 
 
 def _lone_shared_frame_key(train, timings) -> str | None:

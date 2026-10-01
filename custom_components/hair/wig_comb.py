@@ -1021,23 +1021,27 @@ def _temperature_moves(
 def _skip_reason(
     spec: Any, mode_spec: Any, code: _Code, moves: dict[str, bool]
 ) -> str | None:
-    """Why this field is not comparable on this code, or None."""
+    """Why this field is not comparable on this code, or None.
+
+    The map's own reasons are ``field_readers.field_skip_reason``, which
+    the distinctness sweep shares; the comb adds the two that are its
+    alone, before and after it: a provisional field is coverage here,
+    and a temperature this wig never moves in a mode is frozen.
+    """
     if not spec.ratified:
         return field_readers.NOT_RATIFIED
-    if not field_readers.applies(spec, code.coordinates):
-        return field_readers.NOT_APPLICABLE
+    reason = field_readers.field_skip_reason(
+        spec, mode_spec, code.coordinates
+    )
+    if reason is not None:
+        return reason
     mode = code.coordinates.get("mode")
     if spec.name == "temperature" and mode_spec is not None:
         trait = field_readers.mode_trait(mode_spec, mode, "temp")
-        if trait == "invariant":
-            return field_readers.TEMP_INVARIANT
         # A mode the map never named is treated as file_dependent: the
         # map cannot vouch for it, so the wig's own behaviour decides.
         if trait != "varies" and not moves.get(mode or "", False):
             return field_readers.TEMP_FROZEN
-    if spec.name == "fan_speed" and mode_spec is not None \
-            and field_readers.mode_trait(mode_spec, mode, "fan") == "forced":
-        return field_readers.FAN_FORCED
     return None
 
 

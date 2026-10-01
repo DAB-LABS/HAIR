@@ -1372,15 +1372,18 @@ def test_a_stale_cell_index_is_refused(tmp_path):
 
     write_matrix(tmp_path, "r1", _matrix())
     _build_and_store_index(str(tmp_path), "r1", _matrix(), "C")
-    # /9 since a hit carries the merged group it answers for and the
-    # index carries the groups: an /8 index names a dry press by its
-    # last cell and gives the send side no group to read. /8 was a hit
+    # /10 since a read-bytes key merges one state held as several
+    # captures and answers each capture's waveform with its own cell: a
+    # /9 index refuses those keys. /9 was a hit learning the merged
+    # group it answers for and the index carrying the groups (an /8
+    # index names a dry press by its last cell and gives the send side
+    # no group to read), /8 was a hit
     # row gaining its axis and lattice, /7 DAIKIN152 joining read-bytes
     # identity and the Daikin settings frame taking one shared key
     # (GH #183), /6 read-bytes identity, /5 setting-frame identity, and
     # /4 replaced /3, which let one Daikin key answer for the whole
     # lattice.
-    assert INDEX_FORMAT == "hair-cell-index/9"
+    assert INDEX_FORMAT == "hair-cell-index/10"
     assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
     path = index_path(tmp_path, "r1")
@@ -1388,7 +1391,7 @@ def test_a_stale_cell_index_is_refused(tmp_path):
     # The other two freshness keys are intact: only the format is old.
     assert payload["unit"] == "C"
     assert payload["matrix"]
-    payload["format"] = "hair-cell-index/8"
+    payload["format"] = "hair-cell-index/9"
     path.write_text(_json.dumps(payload))
 
     assert _load_stored_index(str(tmp_path), "r1", "C") is None

@@ -120,22 +120,58 @@ class _StateOrCode:
     ruling 2026-09-30) -- or when they carry the same CODE: a file that
     stores one code under several labels, as dry and fan_only do when
     the unit ignores temperature (owner ruling 2026-09-30, measured on
-    the #183 wig: 1,344 of 2,016 cells in 64 such groups). Either one
-    merges; only a pair that differs in both is refused. Deliberately
-    not an equivalence relation, so it is never hashed.
+    the #183 wig: 1,344 of 2,016 cells in 64 such groups) -- or when
+    they carry the same BYTES in the same mode of the same lattice.
+
+    THE BYTES HALF is for a lattice built from one capture per cell.
+    SmartIR 1128 stores dry once per temperature, each cell its own
+    capture: the captures read identically on every bit the map reads
+    and differ by one mark-space pair outside them, so "same code?" says
+    no to every pair, the key is refused, and the file refuses its own
+    states. What the map decoded is the same, frame for frame and byte
+    for byte (``identity.read_bytes_form``), so the unit cannot tell the
+    two apart either. The two guards keep it to that case. Mode, because
+    the owner's ruling that one code merges across modes is about
+    identical WAVEFORMS, and stretching it to bytes would be a new
+    ruling, not this fix: SmartIR 1100's byte-identical cells in two
+    modes stay refused. Lattice, because a preset's cell can carry a
+    main cell's bytes in another waveform, and merging them would hear
+    every main press of that state as the preset. A cell with no byte
+    form never merges by bytes.
+
+    Any one half merges; only a pair that differs in all three is
+    refused. Deliberately not an equivalence relation, so it is never
+    hashed, and a key keeps every claimant (``build_cell_index``).
     """
 
-    __slots__ = ("code", "state")
+    __slots__ = ("code", "form", "lattice", "mode", "state")
     __hash__ = None  # type: ignore[assignment]
 
-    def __init__(self, state: tuple, code: object) -> None:
+    def __init__(
+        self,
+        state: tuple,
+        code: object,
+        form: str | None = None,
+        mode: str | None = None,
+        lattice: tuple | None = None,
+    ) -> None:
         self.state = state
         self.code = code
+        self.form = form
+        self.mode = mode
+        self.lattice = lattice
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _StateOrCode):
             return NotImplemented
-        return self.state == other.state or self.code == other.code
+        if self.state == other.state or self.code == other.code:
+            return True
+        return (
+            self.form is not None
+            and self.form == other.form
+            and self.mode == other.mode
+            and self.lattice == other.lattice
+        )
 
     def __ne__(self, other: object) -> bool:
         equal = self.__eq__(other)
@@ -247,11 +283,14 @@ def _spanned_from_dict(rendered: Any) -> tuple[tuple[str, tuple], ...]:
 
 @dataclass(frozen=True)
 class CellGroup:
-    """The cells of one lattice that carry one code.
+    """The cells of one lattice that the index hears as one code.
 
     What a file does when the unit ignores a setting: dry stored once
-    per temperature with the same code each time. Built with the index
-    and looked up from any member cell's TEXT, by
+    per temperature with the same code each time. "One code" is the
+    index's merge rule (``_StateOrCode``), so a lattice built from one
+    capture per cell, whose captures of one state differ only outside
+    the bits the map reads, is one group too. Built with the index and
+    looked up from any member cell's TEXT, by
     ``CellIndex.groups[(lattice, digest)]``; see ``build_cell_index``.
 
     ``lattice`` is None for the main lattice and ``(axis, key)`` for an
@@ -294,6 +333,16 @@ class CellIndex:
     # send side reads this on the DEVICE's own index, never the
     # remote's: what was sent is the device's fact.
     groups: dict[tuple, CellGroup] = field(default_factory=dict)
+    # EXACT WAVEFORM WINS INSIDE A MERGED KEY. ``(tier, key) -> {norm_fp:
+    # hit}`` for a plain-tier key whose claimants are more than one
+    # waveform (one state held as several captures, which the bytes half
+    # of ``_StateOrCode`` merges): the last claimant of each normalized
+    # fingerprint, which is exactly the cell the normalized tier answers
+    # for that waveform. Consulted by ``match`` on whichever tier
+    # answered; see ``build_cell_index``.
+    by_waveform: dict[tuple[str, Any], dict[str, CellHit]] = field(
+        default_factory=dict
+    )
 
     def __bool__(self) -> bool:
         return bool(
@@ -331,6 +380,14 @@ class CellIndex:
         capture, and -- because the decode told us nothing -- the
         normalized tier is allowed to answer, which the old "only if
         nothing decoded" wording would have blocked.
+
+        A MERGED KEY ANSWERS A KNOWN WAVEFORM WITH ITS OWN CELL. Where a
+        key holds one state as several waveforms (``by_waveform``), the
+        capture's normalized fingerprint picks the claimant of that
+        waveform, and only a waveform none of them carries gets the
+        representative. A press that found its own cell through the
+        normalized tier before its key merged finds the same cell now,
+        so a pinned device is sent the same text.
         """
         skipped_decode = decode_covers is False
         if (
@@ -338,20 +395,42 @@ class CellIndex:
             and not skipped_decode
             and decoded_fingerprint in self.decoded
         ):
-            return (self.decoded[decoded_fingerprint], TIER_DECODED)
+            return (
+                self._waveform("decoded", decoded_fingerprint,
+                               self.decoded[decoded_fingerprint], norm_fp),
+                TIER_DECODED,
+            )
         if signal_fingerprint or byte_hash:
-            hit = self.fp_bytehash.get((signal_fingerprint, byte_hash))
+            key = (signal_fingerprint, byte_hash)
+            hit = self.fp_bytehash.get(key)
             if hit is not None:
-                return (hit, TIER_BYTE_HASH)
+                return (
+                    self._waveform("fp_bytehash", key, hit, norm_fp),
+                    TIER_BYTE_HASH,
+                )
         if byte_hash is not None:
             hit = self.bytehash.get(byte_hash)
             if hit is not None:
-                return (hit, TIER_BYTE_HASH)
+                return (
+                    self._waveform("bytehash", byte_hash, hit, norm_fp),
+                    TIER_BYTE_HASH,
+                )
         if norm_fp and (not decoded_fingerprint or skipped_decode):
             hit = self.norm_fp.get(norm_fp)
             if hit is not None:
                 return (hit, TIER_NORM_FP)
         return None
+
+    def _waveform(
+        self, tier: str, key: Any, hit: CellHit, norm_fp: str | None
+    ) -> CellHit:
+        """The claimant of the capture's own waveform under a merged
+        key, or the key's representative."""
+        if norm_fp:
+            claimants = self.by_waveform.get((tier, key))
+            if claimants is not None:
+                return claimants.get(norm_fp, hit)
+        return hit
 
 
 def build_cell_index(
@@ -386,6 +465,26 @@ def build_cell_index(
     the honest answer until payload-frame identity lands: better to
     hear nothing than to name a state nobody pressed.
 
+    A READ-BYTES FAMILY ALSO MERGES ON ITS BYTES (2026-10-01). A lattice
+    built from one capture per cell holds one state as several codes
+    that differ only outside the bits the map reads, and "same code?"
+    refused every one of their keys, so the file refused its own states.
+    Two such claimants are now one thing when the map decoded the same
+    bytes from them, in the same mode of the same lattice; the guards
+    and the reasons are on ``_StateOrCode``. Every claimant is checked,
+    not only the last (``_claim``).
+
+    EXACT WAVEFORM WINS INSIDE A MERGED KEY. A key that merges several
+    waveforms answers with its representative, the last claimant, and a
+    press of another of them that found its own cell through the
+    normalized tier before would now be named as the representative and
+    a pinned device sent the representative's text. So such a key also
+    remembers its claimants by normalized fingerprint
+    (``CellIndex.by_waveform``), and ``match`` answers a known waveform
+    with its own cell. The representative itself is unchanged, so
+    ``cell_key``, triggers minted on it, the dedup window and the
+    coalescer keys do not move.
+
     ONE IDENTITY FORM, and it is not the file's. ``wig_signal_identity``
     hashes the canonical (wire) Pronto -- see identity.py's
     canonical-form block for why a lattice code's trailing gap word does
@@ -407,17 +506,19 @@ def build_cell_index(
     press was heard as "dry / fan: auto / 30", whatever the handset
     showed, and a pinned unit's card moved to 30. Ten of the fifteen
     field packs do this somewhere. So after the cells are added, the
-    cells of each lattice are grouped by the code they claimed under,
-    and every stored hit of a group of two or more learns what the
-    group spans and is named for it ("dry / fan: auto / 18-30"). Its
-    coordinates and ``cell_key`` stay the representative's, so every
-    key resolves exactly as it did and a trigger minted on the old name
-    still fires. ``_attach_groups`` has the rules.
+    cells of each lattice are grouped into the cells the index hears as
+    one code, and every stored hit of a group of two or more learns
+    what the group spans and is named for it ("dry / fan: auto /
+    18-30"). Its coordinates and ``cell_key`` stay the representative's,
+    so every key resolves exactly as it did and a trigger minted on the
+    old name still fires. ``_merged_groups`` and ``_attach_groups`` have
+    the rules.
     """
     from .event_parser import EventParser
     from .identity import (
         canonical_pronto,
         norm_fingerprint,
+        read_bytes_form,
         whole_code_discriminator,
     )
     from .wig_climate import (
@@ -429,104 +530,113 @@ def build_cell_index(
     from .wig_identity import wig_signal_identity
 
     index = CellIndex()
-    # Which code claimed each tier key, and the keys two different codes
-    # claimed. ``NormFpIndex`` keeps its own pair of these internally;
-    # these are the same bookkeeping for the three plain dicts.
-    claims: dict[str, dict[Any, Any]] = {
-        "decoded": {}, "fp_bytehash": {}, "bytehash": {},
+    # Every claimant of every tier key, as (hit, discriminator, normalized
+    # fingerprint), and the keys whose claimants are not all one thing.
+    # Kept for the build only and dropped with it: a list per key on the
+    # cached index would hold megabytes for the life of the remote, and
+    # the index read back from disk would differ from a fresh one. The
+    # normalized tier is bookkept here too, writing ``NormFpIndex``'s
+    # ``refs`` and ``ambiguous`` directly, so that class keeps the
+    # last-claimant rule its other users (the known-command index and
+    # the pin map, whose discriminators are plain strings) rely on.
+    stores: dict[str, dict] = {
+        "decoded": index.decoded,
+        "fp_bytehash": index.fp_bytehash,
+        "bytehash": index.bytehash,
+        "norm_fp": index.norm_fp.refs,
     }
-    poisoned: dict[str, set] = {
-        "decoded": set(), "fp_bytehash": set(), "bytehash": set(),
+    claims: dict[str, dict[Any, list[tuple[CellHit, Any, str | None]]]] = {
+        tier: {} for tier in stores
     }
+    poisoned: dict[str, set] = {tier: set() for tier in stores}
 
     def _claim(
-        tier: str, store: dict, key: Any, code: Any, hit: CellHit
+        tier: str, key: Any, code: Any, hit: CellHit, waveform: str | None
     ) -> None:
-        """Put ``hit`` under ``key``, unless two codes want that key."""
+        """Put ``hit`` under ``key``, unless the key's claimants would not
+        all be one thing.
+
+        EVERY CLAIMANT, NOT THE LAST. ``_StateOrCode`` is not transitive:
+        A may be the same thing as C and B as C while A and B are not.
+        Checked against the last claimant only, whether such a key
+        answered depended on the order of the file, and when it did it
+        could name a state the press was not. So a newcomer must be the
+        same thing as every claimant before it; a key whose claimants
+        are not pairwise one thing is poisoned. For a plain discriminator
+        equality is transitive and this is the old rule exactly.
+        """
         if key in poisoned[tier]:
             return
-        claimed = claims[tier].get(key, _UNCLAIMED)
-        if claimed is not _UNCLAIMED and claimed != code:
+        held = claims[tier].setdefault(key, [])
+        if any(other != code for _hit, other, _waveform in held):
             poisoned[tier].add(key)
-            claims[tier].pop(key, None)
-            store.pop(key, None)
+            del claims[tier][key]
+            stores[tier].pop(key, None)
+            if tier == "norm_fp":
+                index.norm_fp.ambiguous.add(key)
             return
-        claims[tier][key] = code
-        store[key] = hit
+        held.append((hit, code, waveform))
+        stores[tier][key] = hit
 
-    def _add(pronto: str | None, hit_factory: Any) -> tuple[CellHit, Any] | None:
-        """Index one code; its hit and claim discriminator, or None."""
+    # Every indexed code in the order it was added, for the merged
+    # groups: see ``_merged_groups``.
+    indexed: list[_Indexed] = []
+
+    def _add(
+        pronto: str | None, hit_factory: Any, lattice: tuple | None,
+        cell: Any = None,
+    ) -> None:
+        """Index one code under every tier it has a key for."""
         if not pronto:
-            return None
+            return
         identity = wig_signal_identity(pronto)
         if identity is None:
-            return None
+            return
         # The diamonds show what was HEARD, so the pattern comes off
         # the canonical form too.
-        hit = hit_factory(
-            EventParser._pronto_sl_pattern(
-                canonical_pronto(identity.pronto) or identity.pronto
-            )
-        )
+        canonical = canonical_pronto(identity.pronto) or identity.pronto
+        hit = hit_factory(EventParser._pronto_sl_pattern(canonical))
         code: Any = whole_code_discriminator(
             identity.raw_timings,
             identity.byte_hash or identity.fingerprint,
         )
         # A READ-BYTES family names its state by what the map reads, so
-        # the refusal asks "same state, or same code?" rather than "same
-        # code?" alone: see ``_StateOrCode``. Asked of the whole code
-        # only, two copies of one state that differ in a clock byte would
-        # refuse each other and neither would ever be heard.
-        read_key = EventParser.pronto_read_key(
-            canonical_pronto(identity.pronto) or identity.pronto
+        # the refusal asks "same state, same code, or same bytes?" rather
+        # than "same code?" alone: see ``_StateOrCode``. Asked of the
+        # whole code only, two copies of one state that differ in a
+        # clock byte would refuse each other and neither would ever be
+        # heard. The read key and the byte form come from one decode.
+        words = EventParser._parse_pronto_words(canonical)
+        read = (
+            None if words is None
+            else read_bytes_form(EventParser._pronto_us(words))
         )
-        if read_key is not None and read_key == identity.byte_hash:
+        if read is not None and read[0] == identity.byte_hash:
             code = _StateOrCode(
                 ("state", hit.lattice, hit.cell_key, hit.power), code,
+                form=read[1], mode=hit.mode, lattice=lattice,
             )
+        waveform = norm_fingerprint(identity.raw_timings)
         # A DECODE THAT EXPLAINS PART OF THE CAPTURE IS NOT AN IDENTITY.
         # Indexing it would claim this cell IS that fingerprint, and on
         # a Daikin every cell would claim the same one.
         if identity.decoded_fingerprint and identity.decode_covers is not False:
-            _claim(
-                "decoded", index.decoded,
-                identity.decoded_fingerprint, code, hit,
-            )
+            _claim("decoded", identity.decoded_fingerprint, code, hit,
+                   waveform)
         if identity.fingerprint:
-            _claim(
-                "fp_bytehash", index.fp_bytehash,
-                (identity.fingerprint, identity.byte_hash), code, hit,
-            )
+            _claim("fp_bytehash", (identity.fingerprint, identity.byte_hash),
+                   code, hit, waveform)
         if identity.byte_hash is not None:
-            _claim("bytehash", index.bytehash, identity.byte_hash, code, hit)
-        index.norm_fp.add(
-            norm_fingerprint(identity.raw_timings), code, hit,
-        )
-        return hit, code
-
-    # What the merged groups are built from: every indexed cell by the
-    # lattice it belongs to and the code it claimed under, and for each
-    # hit the group it would belong to. The group is found from the hit
-    # by that record, never by its coordinates: a lattice may hold two
-    # cells at one coordinate with different codes, and a coordinate
-    # lookup would hand one of them the other's group.
-    claimed: dict[tuple, list[tuple[Any, CellHit]]] = {}
-    hit_group: dict[int, tuple] = {}
-    power_codes: set = set()
-
-    def _member(lattice: tuple | None, cell: Any, added: Any) -> None:
-        if added is None:
-            return
-        hit, code = added
-        inner = _inner_code(code)
-        if inner is None:
-            return
-        key = (lattice, inner)
-        claimed.setdefault(key, []).append((cell, hit))
-        hit_group[id(hit)] = key
+            _claim("bytehash", identity.byte_hash, code, hit, waveform)
+        if waveform:
+            _claim("norm_fp", waveform, code, hit, waveform)
+        indexed.append(_Indexed(
+            hit=hit, cell=cell, lattice=lattice, inner=_inner_code(code),
+            power=hit.power is not None,
+        ))
 
     for cell in matrix.cells:
-        added = _add(
+        _add(
             cell.pronto,
             lambda sl, cell=cell: CellHit(
                 cell_key=cell_key(cell),
@@ -542,8 +652,9 @@ def build_cell_index(
                 temp=cell.temp,
                 sl_pattern=sl,
             ),
+            None,
+            cell,
         )
-        _member(None, cell, added)
     # EXTRAS ARE HEARD TOO (item 5c). The index is built from
     # matrix.cells alone before this, so a handset sending an Eco state
     # raised no state_heard and drew no LAST HEARD row, while the card
@@ -557,7 +668,7 @@ def build_cell_index(
     # not in this one. The lattice travels on its own two fields.
     for extra in getattr(matrix, "extras", None) or ():
         for cell in extra.cells:
-            added = _add(
+            _add(
                 cell.pronto,
                 lambda sl, cell=cell, extra=extra: CellHit(
                     cell_key=cell_key(cell),
@@ -576,10 +687,13 @@ def build_cell_index(
                     lattice=extra.key,
                     sl_pattern=sl,
                 ),
+                (extra.axis, extra.key),
+                cell,
             )
-            _member((extra.axis, extra.key), cell, added)
+    # The power codes belong to the main lattice: a cell of it that
+    # carries Off's bytes is Off, never a group (``_merged_groups``).
     for power, pronto in (("off", matrix.off), ("on", matrix.on)):
-        added = _add(
+        _add(
             pronto,
             lambda sl, power=power: CellHit(
                 cell_key=power,
@@ -587,11 +701,24 @@ def build_cell_index(
                 power=power,
                 sl_pattern=sl,
             ),
+            None,
         )
-        if added is not None:
-            power_codes.add(_inner_code(added[1]))
+    # Which claimant answers each waveform, for a key whose claimants
+    # are more than one: see ``CellIndex.by_waveform``. Kept on every
+    # plain tier because ``match`` may answer from any of them, and
+    # nothing guarantees an S/L fingerprint separates two normalized
+    # ones. Last claimant per waveform, as the normalized tier keeps.
+    for tier in ("decoded", "fp_bytehash", "bytehash"):
+        for key, held in claims[tier].items():
+            waveforms: dict[str, CellHit] = {}
+            for hit, _code, waveform in held:
+                if waveform:
+                    waveforms[waveform] = hit
+            if len(waveforms) > 1:
+                index.by_waveform[(tier, key)] = waveforms
+    claimed, hit_group = _merged_groups(indexed, claims)
     _attach_groups(
-        index, matrix, claimed, hit_group, power_codes,
+        index, matrix, claimed, hit_group,
         lambda cell, spanned, lattice: spanned_display_name(
             cell,
             spanned,
@@ -604,14 +731,113 @@ def build_cell_index(
     return index
 
 
+@dataclass(frozen=True, slots=True)
+class _Indexed:
+    """One code the build indexed: its hit, the cell it came from (None
+    for a power code), its lattice (None for the main one, power codes
+    included), and the whole-code discriminator it claimed under."""
+
+    hit: CellHit
+    cell: Any
+    lattice: tuple | None
+    inner: Any
+    power: bool
+
+
 def _inner_code(code: Any) -> Any:
     """The whole-code discriminator itself, out of a read-bytes wrapper.
 
     ``_StateOrCode`` is deliberately unhashable, because "same state OR
-    same code" is not an equivalence; the code inside it is a plain
-    string, and same-code is the relation a merged group is made of.
+    same code OR same bytes" is not an equivalence; the code inside it
+    is a plain string, and same-code is the relation a merged group
+    starts from.
     """
     return code.code if isinstance(code, _StateOrCode) else code
+
+
+def _merged_groups(
+    indexed: list[_Indexed],
+    claims: dict[str, dict[Any, list[tuple[CellHit, Any, str | None]]]],
+) -> tuple[dict[tuple, list[tuple[Any, CellHit]]], dict[int, tuple]]:
+    """The cells the index hears as one code, per lattice.
+
+    ``({group key: [(cell, hit), ...]}, {id(hit): group key})``, members
+    in lattice order.
+
+    A GROUP IS A CONNECTED COMPONENT. Two cells are joined when they
+    carry one whole code (the rule merged groups started from, and it
+    holds whether or not any key survived: a lattice whose every key
+    another cell poisoned still sends from its groups, so dropping them
+    would bring back the dial moving on a dry press, on the device
+    side), and when they are claimants of one key that survived. The
+    second is what the bytes half of ``_StateOrCode`` adds: a lattice
+    built from one capture per cell holds one state as several codes,
+    and only the key they all claimed connects them. A poisoned key's
+    claimants were dropped with it, so nothing a later claimant undid
+    survives into a group.
+
+    Three rules keep a component a group, each the merged-group rule as
+    it was. Only cells of ONE lattice are joined: an extra holding a
+    main cell's code is a coincidence between two lattices, not a
+    setting the unit ignores. The power codes take part as members of
+    the main lattice, and a component holding one is no group, nor is
+    one whose code is Off's or On's in any lattice: a cell spelled with
+    the Off bytes is malformed, and its stored hit is Off's, as it was.
+    And a group is two or more cells.
+    """
+    parent = list(range(len(indexed)))
+    position = {id(entry.hit): n for n, entry in enumerate(indexed)}
+
+    def find(n: int) -> int:
+        while parent[n] != n:
+            parent[n] = parent[parent[n]]
+            n = parent[n]
+        return n
+
+    def join(nodes: list[int]) -> None:
+        first: dict[tuple | None, int] = {}
+        for n in nodes:
+            lattice = indexed[n].lattice
+            if lattice not in first:
+                first[lattice] = n
+                continue
+            a, b = find(first[lattice]), find(n)
+            if a != b:
+                parent[max(a, b)] = min(a, b)
+
+    by_code: dict[tuple, list[int]] = {}
+    for n, entry in enumerate(indexed):
+        if entry.inner is not None:
+            by_code.setdefault((entry.lattice, entry.inner), []).append(n)
+    for nodes in by_code.values():
+        join(nodes)
+    for keys in claims.values():
+        for held in keys.values():
+            join([position[id(hit)] for hit, _code, _waveform in held])
+
+    power_codes = {
+        entry.inner for entry in indexed
+        if entry.power and entry.inner is not None
+    }
+    components: dict[int, list[int]] = {}
+    for n in range(len(indexed)):
+        components.setdefault(find(n), []).append(n)
+    claimed: dict[tuple, list[tuple[Any, CellHit]]] = {}
+    hit_group: dict[int, tuple] = {}
+    for root, nodes in components.items():
+        if any(
+            indexed[n].power or indexed[n].inner in power_codes
+            for n in nodes
+        ):
+            continue
+        cells = [n for n in nodes if indexed[n].cell is not None]
+        if len(cells) < 2:
+            continue
+        key = (indexed[cells[0]].lattice, root)
+        claimed[key] = [(indexed[n].cell, indexed[n].hit) for n in cells]
+        for n in cells:
+            hit_group[id(indexed[n].hit)] = key
+    return claimed, hit_group
 
 
 def _attach_groups(
@@ -619,18 +845,12 @@ def _attach_groups(
     matrix: Any,
     claimed: dict[tuple, list[tuple[Any, CellHit]]],
     hit_group: dict[int, tuple],
-    power_codes: set,
     name: Any,
 ) -> None:
     """Record every merged group, and tell each stored hit its own.
 
-    A group is the cells of ONE lattice that claimed under one code, so
-    an extra holding a main cell's code never joins a main group: the
-    two lattices are different codes at every shared coordinate by
-    construction, and a coincidence between them is not a setting the
-    unit ignores. A code the matrix also uses as Off or On is not a
-    group either; a cell spelled with the Off bytes is malformed, and
-    its stored hit is Off's, as it was.
+    ``claimed`` is ``_merged_groups``' answer, which has the rules for
+    what a group is: one lattice, two or more cells, never a power code.
 
     Each stored hit of a group is replaced once, memoized by the object
     it replaces, so a key that stores a different representative than
@@ -639,7 +859,10 @@ def _attach_groups(
     replacement shares the group's one members tuple. Coordinates,
     ``cell_key`` and ``sl_pattern`` are the representative's and are
     not touched, so every key answers the same cell it did and the
-    stored row count does not move.
+    stored row count does not move. The by-waveform answers are stored
+    hits too and go through the same memo, so a press answered by a
+    claimant that is not its key's representative carries the group's
+    facts exactly as the representative's would.
     """
     from .wig_climate import pronto_digest
 
@@ -651,8 +874,8 @@ def _attach_groups(
     groups: dict[tuple, CellGroup] = {}
     cell_of_hit: dict[int, Any] = {}
     for key, entries in claimed.items():
-        lattice, inner = key
-        if len(entries) < 2 or inner in power_codes:
+        lattice, _component = key
+        if len(entries) < 2:
             continue
         members = tuple(dict.fromkeys(_coords(cell) for cell, _hit in entries))
         if len(members) < 2:
@@ -710,6 +933,9 @@ def _attach_groups(
     ):
         for key, hit in list(store.items()):
             store[key] = _named(hit)
+    for claimants in index.by_waveform.values():
+        for waveform, hit in list(claimants.items()):
+            claimants[waveform] = _named(hit)
 
 
 class MatrixListener:
@@ -1640,7 +1866,11 @@ def _cell_in_hit_lattice(
 # main-lattice state, and to /9 when a hit learned the merged group it
 # answers for and the index gained the groups themselves: a /8 index
 # names a dry press by its last cell and gives the send side no group
-# to read. A stored index of an older format is
+# to read, and to /10 when a read-bytes key learned to merge one state
+# held as several captures and to answer each capture's own waveform
+# with its own cell (``by_waveform``): a /9 index refuses those keys
+# and has no map to keep a merged key's answers. A stored index of an
+# older format is
 # simply not read, so every lattice rebuilds once and gains the new map;
 # the rebuild is the same seconds-of-work the first build was.
 #
@@ -1652,7 +1882,7 @@ def _cell_in_hit_lattice(
 # pre-migration hashes while captures arrived carrying post-migration
 # ones. Every climate lattice would silently stop recognizing its own
 # cells, with nothing in any log to say so.
-INDEX_FORMAT = "hair-cell-index/9"
+INDEX_FORMAT = "hair-cell-index/10"
 
 
 def _hit_to_row(hit: CellHit, group: int | None = None) -> list:
@@ -1787,6 +2017,20 @@ def _index_to_payload(
         # claimed was already dropped at build time and must not come
         # back through the file.
         "norm_fp": {k: _ref(v) for k, v in index.norm_fp.refs.items()},
+        # ``[tier, key, {norm_fp: ref}]`` per merged key. A composite key
+        # is a tuple, which JSON cannot key a dict by (and
+        # ``write_cell_index`` swallows the ``TypeError``, so the index
+        # would simply never be written); it is written as a list and
+        # read back as a tuple. Last, so the hit table above is laid out
+        # exactly as it was.
+        "by_waveform": [
+            [
+                tier,
+                list(key) if isinstance(key, tuple) else key,
+                {waveform: _ref(hit) for waveform, hit in claimants.items()},
+            ]
+            for (tier, key), claimants in index.by_waveform.items()
+        ],
     }
 
 
@@ -1811,6 +2055,17 @@ def _payload_to_index(payload: dict) -> CellIndex | None:
             # add() would need the discriminators, which the file has no
             # reason to carry.
             index.norm_fp.refs[key] = hits[ref]
+        for tier, key, claimants in payload["by_waveform"]:
+            # A list key left a list would never equal the tuple a
+            # capture is looked up by, and every merged key would quietly
+            # answer its representative again from the second boot on.
+            if tier not in ("decoded", "fp_bytehash", "bytehash"):
+                raise ValueError(tier)
+            if isinstance(key, list):
+                key = tuple(key)
+            index.by_waveform[(tier, key)] = {
+                waveform: hits[ref] for waveform, ref in claimants.items()
+            }
     except (KeyError, IndexError, TypeError, ValueError):
         return None
     return index or None

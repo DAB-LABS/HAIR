@@ -396,6 +396,51 @@ def shape_extra_pair_settings() -> ClimateMatrix:
     return _extra_pair_lattice("settings")
 
 
+def shape_extra_pair_preamble() -> ClimateMatrix:
+    """Shape F0: the extra pair after the constant preamble, where only
+    the whole-code discriminator sees it."""
+    return _extra_pair_lattice("preamble")
+
+
+def shape_1128_poisoned() -> ClimateMatrix:
+    """``shape_1128`` with every key of its dry captures poisoned.
+
+    Each dry capture gets a heat cell whose code is that capture plus a
+    second frame of its own: the first frame is all the composite key,
+    the byte hash and the normalized fingerprint of an unlisted family
+    see, so those keys are claimed by two different whole codes and
+    answer nothing. One more heat cell carries the dry payload played
+    slower, which decodes to the dry state's own fingerprint as a
+    different code and poisons the decoded key too. The dry captures
+    are then joined by nothing but their whole code, which is what a
+    merged group was made of before any key could merge one.
+    """
+    matrix = shape_1128()
+    shared = _payload(0xDD)
+    dry = [c for c in matrix.cells if c.mode == "dry"]
+    heat: list[ClimateCell] = []
+    for n, cell in enumerate(dry):
+        second = pulse_code(_payload(0x200 + n)).split()[4:]
+        first = cell.pronto.split()
+        words = first[4:] + second
+        heat.append(ClimateCell(
+            mode="heat", fan="level1", temp=cell.temp,
+            pronto=" ".join(
+                [*first[:2], f"{len(words) // 2:04X}", "0000", *words]
+            ),
+        ))
+    slower = pulse_code(shared).split()
+    heat.append(ClimateCell(
+        mode="heat", fan="level2", temp=16.0,
+        pronto=" ".join(slower[:4] + [
+            f"{round(int(w, 16) * 1.15):04X}" for w in slower[4:]
+        ]),
+    ))
+    matrix.cells.extend(heat)
+    matrix.modes = ["cool", "dry", "heat"]
+    return matrix
+
+
 # ---------------------------------------------------------------------------
 # Pairings, for the golden and for the tests that sweep it
 # ---------------------------------------------------------------------------
