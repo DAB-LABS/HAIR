@@ -1868,6 +1868,11 @@ SYNTH_RULE_PROVISIONAL = "integrity-rule-not-ratified"
 #: The capture does not read as the value the cluster needs. Nothing is
 #: witnessed, so nothing is synthesized.
 SYNTH_NO_WITNESS = "capture-does-not-read-as-needed"
+#: A candidate breaks a rule the map vouches for, so the unit would
+#: reject it. A captured press that does is declined on its own row; a
+#: built one refuses the whole run, because the arithmetic behind every
+#: other built cell is the same.
+SYNTH_RULE_FAILS = "integrity-rule-fails"
 #: This cell has no healthy relative to build from.
 SYNTH_NO_SIBLING = "no-healthy-sibling"
 #: Nothing read the lattice, or the sibling's own bytes will not parse.
@@ -2032,8 +2037,12 @@ def _repair_integrity(
                 if last >= len(frame):
                     continue
                 modulus = int(params.get("mod", 256) or 256)
+                # ``scale`` as check_integrity reads it: +1 unless the
+                # map says otherwise, -1 for a check byte that is a
+                # constant MINUS the sum (FUJITSU128).
+                scale = int(params.get("scale", 1) or 1)
                 total = (
-                    sum(frame[first:last + 1])
+                    scale * sum(frame[first:last + 1])
                     + int(params.get("offset", 0) or 0)
                 ) % modulus % 256
             else:
@@ -2198,6 +2207,24 @@ def _healthy_siblings(
     return sorted(out, key=_distance)
 
 
+def _breaks_a_ratified_rule(field_map: Any, pronto: str) -> bool:
+    """True when a rule the map vouches for is violated in ``pronto``.
+
+    Only a definite False counts. A rule that cannot be evaluated on
+    this frame is left to the read-back, as it was before.
+    """
+    reading = field_readers.read_code(
+        pronto, [field_map], prefer=field_map.protocol_id
+    )
+    if not reading.identified:
+        return False
+    return any(
+        field_readers.check_integrity(reading, rule) is False
+        for rule in field_map.integrity
+        if rule.ratified
+    )
+
+
 def synthesize(
     lattice: LatticeReading,
     rows: list[TangleRow],
@@ -2315,6 +2342,15 @@ def synthesize(
                 f"synthesized candidate for {row.target.key} reads as "
                 f"{verdict.reads_as} against {verdict.claims}"
             )
+        if _breaks_a_ratified_rule(field_map, built):
+            # The read-back above checks fields only. A bad capture is
+            # the user's press: its row is declined and the cells built
+            # from their own siblings stand, as they would had the press
+            # not been aimed. A bad built cell is refused, not raised.
+            if origin == ORIGIN_CAPTURE:
+                result.declined[row.id] = SYNTH_RULE_FAILS
+                continue
+            return Synthesis(refused=SYNTH_RULE_FAILS)
         result.candidates[row.id] = {
             "pronto": built,
             "digest": _cell_digest(built),
