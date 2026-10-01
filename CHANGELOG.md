@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A Fujitsu code built in Needs attention from one press of the real remote now carries a check byte the air conditioner accepts. Fujitsu closes its frame with 0xD0 minus the sum of the seven bytes before the check byte, and the repair wrote 0xD0 plus that sum, so every code it built read as the right setting but carried a check byte the unit would reject. The repair now computes every check byte exactly as HAIR's reader checks it, and a built code that still breaks a check its field map vouches for is no longer offered as a fix.
+- A press on a preset such as Eco heard after a restart is reported and re-sent as the preset's state, not the main state. The stored state index kept each state's coordinates but not which lattice it belonged to, so once Home Assistant restarted, an Eco press at cool / fan: auto / 22 was marked as the main state at the same coordinates, which is a different code. A remote pinned to a unit also sent the unit's main-lattice code for a preset press even before a restart; it now sends the unit's own code from that preset lattice, or nothing when the unit has no such lattice and no code with the same bytes. Stored state indexes rebuild once on upgrade.
 
 ## [0.17.1] - 2026-09-30 -- Tidy Up
 

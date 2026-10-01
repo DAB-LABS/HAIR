@@ -975,7 +975,6 @@ class MatrixListener:
             return None
         from .wig_climate import (
             cell_display_name,
-            exact_cell,
             state_display_name,
             unit_letter,
         )
@@ -992,13 +991,26 @@ class MatrixListener:
                 {"power": hit.power},
             )
 
-        cell = None
+        cell = extra = None
         if hit.mode is not None:
-            cell = exact_cell(matrix, hit.mode, hit.fan, hit.swing, hit.temp)
+            cell, extra = _cell_in_hit_lattice(matrix, hit)
         if cell is None:
-            cell = self._cell_by_identity(device_id, matrix, identity)
+            cell, extra = self._cell_by_identity(device_id, matrix, identity)
         if cell is None:
             return None
+        # The DEVICE's own coordinates, not the remote's: two wigs for
+        # one unit may spell a dimension differently, and the card
+        # belongs to the device.
+        state: dict[str, Any] = {
+            "mode": cell.mode, "fan": cell.fan,
+            "swing": cell.swing, "temp": cell.temp,
+        }
+        if extra is not None:
+            # Which lattice, as matrix-send carries it: the same
+            # coordinates name a different code in the main lattice, so
+            # the card must not follow this send to the main tile.
+            state["axis"] = extra.axis
+            state["lattice"] = extra.key
         return (
             cell_display_name(
                 cell,
@@ -1007,22 +1019,20 @@ class MatrixListener:
                     self._hass.config.units.temperature_unit
                 ),
                 precision=matrix.precision,
+                lattice=None if extra is None else extra.key,
             ),
             cell.pronto,
             cell.send_count,
-            # The DEVICE's own coordinates, not the remote's: two wigs
-            # for one unit may spell a dimension differently, and the
-            # card belongs to the device.
-            {
-                "mode": cell.mode, "fan": cell.fan,
-                "swing": cell.swing, "temp": cell.temp,
-            },
+            state,
         )
 
     def _cell_by_identity(
         self, device_id: str, matrix: ClimateMatrix, identity: _Identity
-    ) -> Any | None:
-        """The device cell whose code IS this frame, or None.
+    ) -> tuple[Any | None, Any | None]:
+        """The device cell whose code IS this frame, and its lattice.
+
+        ``(cell, extra)`` as ``_cell_in_hit_lattice`` returns it, and
+        ``(None, None)`` when nothing matches.
 
         Uses the device's own ``CellIndex``, built and stored exactly
         like a remote's -- ``matrix_store`` is id-agnostic, so a device
@@ -1034,16 +1044,50 @@ class MatrixListener:
         index = self._index_cache.get(device_id)
         if index is None:
             self._schedule_index_build(device_id)
-            return None
+            return None, None
         matched = index.match(*identity)
         if matched is None:
-            return None
+            return None, None
         hit, _tier = matched
         if hit.power is not None or hit.mode is None:
-            return None
-        from .wig_climate import exact_cell
+            return None, None
+        return _cell_in_hit_lattice(matrix, hit)
 
-        return exact_cell(matrix, hit.mode, hit.fan, hit.swing, hit.temp)
+
+def _cell_in_hit_lattice(
+    matrix: ClimateMatrix, hit: CellHit
+) -> tuple[Any | None, Any | None]:
+    """The cell at a hit's coordinates, in the lattice the hit names.
+
+    ``(cell, extra)``, with ``extra`` None for the main lattice, or
+    ``(None, None)``. A hit naming an extras lattice this matrix does
+    not carry is a miss and NEVER the main lattice: every coordinate the
+    two share carries a different code, so a fallback would transmit
+    the wrong frame. The same rule the card's doors keep
+    (``websocket_api._lattice_for_request``), and the same
+    ``exact_cell(cells=...)`` search they use.
+    """
+    from .wig_climate import exact_cell
+
+    extra = None
+    if hit.axis is not None or hit.lattice is not None:
+        extra = next(
+            (
+                candidate
+                for candidate in getattr(matrix, "extras", None) or ()
+                if candidate.axis == hit.axis and candidate.key == hit.lattice
+            ),
+            None,
+        )
+        if extra is None:
+            return None, None
+    cell = exact_cell(
+        matrix, hit.mode, hit.fan, hit.swing, hit.temp,
+        cells=None if extra is None else extra.cells,
+    )
+    if cell is None:
+        return None, None
+    return cell, extra
 
 
 # ---------------------------------------------------------------------------
@@ -1063,8 +1107,10 @@ class MatrixListener:
 # (GH #183, 2026-09-30), which moves WHAT a listed family's byte hash is
 # computed from, and to /7 when DAIKIN152 joined and the Daikin settings
 # frame both families share took one key of its own (and the refusal
-# learned to merge a code a file stores under several labels). A stored
-# index of an older format is
+# learned to merge a code a file stores under several labels), and to
+# /8 when a hit row gained its axis and lattice: a /7 row has no room
+# for them, so every extras hit it holds would read back as a
+# main-lattice state. A stored index of an older format is
 # simply not read, so every lattice rebuilds once and gains the new map;
 # the rebuild is the same seconds-of-work the first build was.
 #
@@ -1076,13 +1122,13 @@ class MatrixListener:
 # pre-migration hashes while captures arrived carrying post-migration
 # ones. Every climate lattice would silently stop recognizing its own
 # cells, with nothing in any log to say so.
-INDEX_FORMAT = "hair-cell-index/7"
+INDEX_FORMAT = "hair-cell-index/8"
 
 
 def _hit_to_row(hit: CellHit) -> list:
     return [
         hit.cell_key, hit.cell_name, hit.power, hit.mode, hit.fan,
-        hit.swing, hit.temp, hit.sl_pattern,
+        hit.swing, hit.temp, hit.sl_pattern, hit.axis, hit.lattice,
     ]
 
 
@@ -1090,6 +1136,7 @@ def _row_to_hit(row: list) -> CellHit:
     return CellHit(
         cell_key=row[0], cell_name=row[1], power=row[2], mode=row[3],
         fan=row[4], swing=row[5], temp=row[6], sl_pattern=row[7],
+        axis=row[8], lattice=row[9],
     )
 
 
