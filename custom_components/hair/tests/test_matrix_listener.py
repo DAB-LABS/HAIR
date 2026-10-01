@@ -1372,13 +1372,13 @@ def test_a_stale_cell_index_is_refused(tmp_path):
 
     write_matrix(tmp_path, "r1", _matrix())
     _build_and_store_index(str(tmp_path), "r1", _matrix(), "C")
-    # /7 since DAIKIN152 joined read-bytes identity and the Daikin
-    # settings frame took one shared key (GH #183): a /6 index holds
-    # DAIKIN152 cells under timing hashes and DAIKIN216 cells under a
-    # family key a lone frame never reproduces. /6 was read-bytes
-    # identity, /5 setting-frame identity, and /4 replaced /3, which let
-    # one Daikin key answer for the whole lattice.
-    assert INDEX_FORMAT == "hair-cell-index/7"
+    # /8 since a hit row carries its axis and lattice: a /7 row has no
+    # room for them, so its extras hits read back as main-lattice
+    # states. /7 was DAIKIN152 joining read-bytes identity and the
+    # Daikin settings frame taking one shared key (GH #183), /6
+    # read-bytes identity, /5 setting-frame identity, and /4 replaced
+    # /3, which let one Daikin key answer for the whole lattice.
+    assert INDEX_FORMAT == "hair-cell-index/8"
     assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
     path = index_path(tmp_path, "r1")
@@ -1386,7 +1386,7 @@ def test_a_stale_cell_index_is_refused(tmp_path):
     # The other two freshness keys are intact: only the format is old.
     assert payload["unit"] == "C"
     assert payload["matrix"]
-    payload["format"] = "hair-cell-index/6"
+    payload["format"] = "hair-cell-index/7"
     path.write_text(_json.dumps(payload))
 
     assert _load_stored_index(str(tmp_path), "r1", "C") is None
@@ -1552,3 +1552,151 @@ async def test_the_two_codes_at_one_coordinate_are_heard_apart():
     assert eco_hit.lattice == "eco"
     assert main_hit.cell_name != eco_hit.cell_name
     assert remote.climate_matrix
+
+
+# ---------------------------------------------------------------------------
+# An extras hit read back from disk, and sent on a pinned device
+# ---------------------------------------------------------------------------
+
+# The pinned device's own Eco code at cool / auto / 22. Different bytes
+# from both the remote's Eco code and the device's main cell at the same
+# coordinates, so a send out of the wrong lattice is visible.
+PRONTO_DEV_ECO_22 = "0000 006D 0002 0000 00C0 00A0 00C0 00A0"
+
+
+def _device_matrix_with_extra(
+    key: str = "eco", pronto: str = PRONTO_DEV_ECO_22
+) -> ClimateMatrix:
+    from custom_components.hair.wig_format import ClimateExtra
+
+    matrix = _device_matrix()
+    matrix.extras = [
+        ClimateExtra(
+            axis="preset",
+            key=key,
+            cells=[
+                ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=pronto),
+            ],
+        ),
+    ]
+    return matrix
+
+
+def _stored(index: CellIndex) -> CellIndex:
+    """The index as a restart reads it back."""
+    restored = _ml._payload_to_index(_ml._index_to_payload(index, "h1", "C"))
+    assert restored is not None
+    return restored
+
+
+def test_a_stored_index_keeps_an_extras_hits_lattice():
+    """After a restart the index comes off disk. A hit that lost its
+    lattice there is published, and re-sent, as the main-lattice state
+    at the same coordinates, which is a different code."""
+    index = build_cell_index(_matrix_with_extra())
+    eco = _identity(PRONTO_ECO_22)
+    main = _identity(PRONTO_COOL_22)
+
+    restored = _stored(index)
+
+    eco_hit = restored.fp_bytehash[(eco.fingerprint, eco.byte_hash)]
+    assert (eco_hit.axis, eco_hit.lattice) == ("preset", "eco")
+    assert eco_hit.cell_name == "(eco) cool / fan: auto / 22"
+    main_hit = restored.fp_bytehash[(main.fingerprint, main.byte_hash)]
+    assert (main_hit.axis, main_hit.lattice) == (None, None)
+    for key, hit in index.fp_bytehash.items():
+        assert restored.fp_bytehash[key] == hit
+
+
+def test_an_index_stored_before_hits_carried_their_lattice_is_rebuilt(
+    tmp_path,
+):
+    """A /7 row has eight fields and no lattice. It must never be read
+    as a main-lattice hit; the format refuses it and the lattice
+    rebuilds."""
+    from custom_components.hair.matrix_listener import (
+        _build_and_store_index,
+        _load_stored_index,
+    )
+    from custom_components.hair.matrix_store import index_path, write_matrix
+
+    matrix = _matrix_with_extra()
+    write_matrix(tmp_path, "r1", matrix)
+    _build_and_store_index(str(tmp_path), "r1", matrix, "C")
+    path = index_path(tmp_path, "r1")
+    payload = _json.loads(path.read_text())
+    payload["format"] = "hair-cell-index/7"
+    payload["hits"] = [row[:8] for row in payload["hits"]]
+    path.write_text(_json.dumps(payload))
+
+    assert _load_stored_index(str(tmp_path), "r1", "C") is None
+
+    _build_and_store_index(str(tmp_path), "r1", matrix, "C")
+    rebuilt = _load_stored_index(str(tmp_path), "r1", "C")
+    assert rebuilt is not None
+    assert {hit.lattice for hit in rebuilt.fp_bytehash.values()} == {
+        None, "eco",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("from_disk", [False, True])
+async def test_a_pinned_device_is_sent_its_own_extras_cell(from_disk):
+    """Eco pressed on the handset sends the device's Eco code, not its
+    main-lattice code at the same coordinates, live or after a
+    restart."""
+    listener, tm, dm, tasks = _pinned(_device_matrix_with_extra())
+    index = build_cell_index(_matrix_with_extra())
+    listener._matrix_cache["r1"] = _matrix_with_extra()
+    listener._index_cache["r1"] = _stored(index) if from_disk else index
+
+    await _hear(listener, tasks, PRONTO_ECO_22)
+    await listener.async_send_pinned_cell("dev-1", "cool/auto/22")
+
+    tm.dispatch_cell_retransmit.assert_called_once()
+    assert dm.sends == [
+        ("dev-1", "(eco) cool / fan: auto / 22", PRONTO_DEV_ECO_22, 1, True)
+    ]
+    assert dm.states[0]["cell"] == {
+        "mode": "cool", "fan": "auto", "swing": None, "temp": 22.0,
+        "axis": "preset", "lattice": "eco",
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_extras_press_the_device_has_no_lattice_for_sends_nothing():
+    """The device carries no Eco lattice and no cell with the heard
+    bytes. Its main cell at the same coordinates is a different code,
+    so the answer is silence, as for any state the device lacks."""
+    listener, tm, dm, tasks = _pinned(
+        device_index=build_cell_index(_device_matrix())
+    )
+    listener._matrix_cache["r1"] = _matrix_with_extra()
+    listener._index_cache["r1"] = build_cell_index(_matrix_with_extra())
+
+    await _hear(listener, tasks, PRONTO_ECO_22)
+    await listener.async_send_pinned_cell("dev-1", "cool/auto/22")
+
+    assert tm.dispatch_cell_retransmit.call_count == 0
+    assert dm.sends == []
+
+
+@pytest.mark.asyncio
+async def test_the_frame_fallback_resolves_on_the_devices_extras_lattice():
+    """The device's file spells the preset "Eco", so the words miss,
+    and holds the very bytes heard. The frame finds the device's Eco
+    cell, and the send names that lattice rather than the main one."""
+    device_matrix = _device_matrix_with_extra("Eco", PRONTO_ECO_22)
+    listener, _tm, dm, tasks = _pinned(
+        device_matrix, device_index=build_cell_index(device_matrix)
+    )
+    listener._matrix_cache["r1"] = _matrix_with_extra()
+    listener._index_cache["r1"] = build_cell_index(_matrix_with_extra())
+
+    await _hear(listener, tasks, PRONTO_ECO_22)
+    await listener.async_send_pinned_cell("dev-1", "cool/auto/22")
+
+    assert dm.sends == [
+        ("dev-1", "(Eco) cool / fan: auto / 22", PRONTO_ECO_22, 1, True)
+    ]
+    assert dm.states[0]["cell"]["lattice"] == "Eco"

@@ -364,7 +364,7 @@ class TestTheCoverageGate:
 
 class TestTheStoredIndex:
 
-    def test_the_format_is_7_and_a_6_is_rejected(self, tmp_path):
+    def test_the_format_is_8_and_a_7_is_rejected(self, tmp_path):
         from custom_components.hair.matrix_listener import (
             _build_and_store_index,
             _load_stored_index,
@@ -377,14 +377,14 @@ class TestTheStoredIndex:
         )
         write_matrix(tmp_path, "r1", matrix)
         _build_and_store_index(str(tmp_path), "r1", matrix, "C")
-        assert INDEX_FORMAT == "hair-cell-index/7"
+        assert INDEX_FORMAT == "hair-cell-index/8"
         assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
         path = index_path(tmp_path, "r1")
         payload = _json.loads(path.read_text())
         assert payload["unit"] == "C"
         assert payload["matrix"]
-        payload["format"] = "hair-cell-index/6"
+        payload["format"] = "hair-cell-index/7"
         path.write_text(_json.dumps(payload))
         assert _load_stored_index(str(tmp_path), "r1", "C") is None
 
