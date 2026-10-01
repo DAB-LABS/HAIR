@@ -1041,7 +1041,7 @@ class MatrixListener:
         generation count is kept.
         """
         generation = self._generation.get(remote_id, 0)
-        overtaken = False
+        cached = False
         try:
             from .matrix_store import load_matrix, matrix_content_hash
             from .wig_climate import unit_letter
@@ -1054,10 +1054,10 @@ class MatrixListener:
                 _load_stored_index, config_dir, remote_id, display_unit,
             )
             if self._generation.get(remote_id, 0) != generation:
-                overtaken = True
                 return None
             if index is not None:
                 self._index_cache[remote_id] = index
+                cached = True
                 _LOGGER.debug(
                     "Cell index for remote %s read from disk", remote_id
                 )
@@ -1074,7 +1074,6 @@ class MatrixListener:
                 build_cell_index, matrix, display_unit,
             )
             if self._generation.get(remote_id, 0) != generation:
-                overtaken = True
                 return None
             await self._hass.async_add_executor_job(
                 _store_index,
@@ -1084,9 +1083,9 @@ class MatrixListener:
                 # The file on disk is stamped with the hash of what it
                 # was built from, so the next read refuses it if that
                 # is stale; only the in-memory copy has to be withheld.
-                overtaken = True
                 return None
             self._index_cache[remote_id] = index
+            cached = True
             _LOGGER.debug(
                 "Cell index built for matrix %s: %d decoded, %d hashed",
                 remote_id, len(index.decoded), len(index.bytehash),
@@ -1094,7 +1093,14 @@ class MatrixListener:
             return "built"
         finally:
             self._building.discard(remote_id)
-            if overtaken:
+            # Decided from the count, not from which line returned: a read
+            # of a file caught mid-write returns None, an exception
+            # returns nothing at all, and either can land after the
+            # writer's own signal, whose warm ``_building`` swallowed.
+            if (
+                not cached
+                and self._generation.get(remote_id, 0) != generation
+            ):
                 _LOGGER.debug(
                     "Matrix %s changed while its cell index was being "
                     "built; building it again", remote_id,
@@ -1248,8 +1254,11 @@ class MatrixListener:
             if device is None or not device.climate_matrix:
                 continue
             pair = (remote.id, device_id)
+            # Only "is there such a state?" is asked here; the send
+            # resolves again, so the group pass, which is the costly part
+            # on a large group, runs once per press rather than twice.
             resolved = await self._async_resolve_device_cell(
-                device_id, hit, identity
+                device_id, hit, identity, with_group=False,
             )
             if resolved is None:
                 if pair not in self._unmapped:
@@ -1311,9 +1320,17 @@ class MatrixListener:
         )
 
     async def _async_resolve_device_cell(
-        self, device_id: str, hit: CellHit, identity: _Identity
+        self,
+        device_id: str,
+        hit: CellHit,
+        identity: _Identity,
+        *,
+        with_group: bool = True,
     ) -> tuple[str, str, int, dict[str, Any]] | None:
         """The heard state on that device: (name, Pronto, count, state).
+
+        ``with_group=False`` resolves base alone, named as itself: for a
+        caller that only needs to know whether the device has the state.
 
         Coordinates first, the frame's own identity second, nothing
         third. The bytes always come from the device's CURRENT lattice
@@ -1360,10 +1377,23 @@ class MatrixListener:
         # may change what goes to the air. The Pronto and the count
         # returned are base's own on every path, so a merged group can
         # only ever relabel a send, never redirect it.
-        grouped = self._merged_group_send(
-            device_id, base, matrix.cells if extra is None else extra.cells,
-            None if extra is None else (extra.axis, extra.key),
-        )
+        grouped = None
+        if with_group:
+            try:
+                grouped = self._merged_group_send(
+                    device_id, base,
+                    matrix.cells if extra is None else extra.cells,
+                    None if extra is None else (extra.axis, extra.key),
+                )
+            except Exception:
+                # A fault in the group pass may cost the send its name,
+                # never the send: base goes out as it always did.
+                _LOGGER.debug(
+                    "Merged-group pass failed for device %s; sending %s "
+                    "under its own name", device_id, base.mode,
+                    exc_info=True,
+                )
+                grouped = None
         named = base if grouped is None else grouped["chosen"]
         # The DEVICE's own coordinates, not the remote's: two wigs for
         # one unit may spell a dimension differently, and the card
@@ -1492,6 +1522,8 @@ class MatrixListener:
 
         provider = getattr(self._device_manager, "climate_state", None)
         current = provider(device_id) if provider is not None else None
+        if not isinstance(current, dict):
+            current = None
         wanted = list(_coords(base))
         found_all = current is not None
         for position, dim in enumerate(_DIMS):

@@ -687,6 +687,42 @@ class TestAMergedGroupSend:
         assert entity.target_temperature == 24.0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("members", [
+        "dry",
+        [["dry", "auto", "off"]],
+        [["dry", "auto", "off", "24"]],
+        [[["dry"], "auto", "off", 24.0]],
+        [None, 7],
+        {"dry": 24},
+    ])
+    async def test_malformed_members_never_raise(self, members):
+        """A hand-edited store or a future writer must not crash the
+        dispatcher's callback: entries that are not four coordinates are
+        skipped, and with none left the cell's own coordinates apply."""
+        entity, _ = await _entity(_dry_matrix())
+        entity._hvac_mode, entity._fan_mode = HVACMode.COOL, "auto"
+        entity._swing_mode, entity._target_temperature = "off", 24.0
+        cell = _group_cell("dry", "auto", "off", 30.0, _DRY, temp_free=False)
+        cell["members"] = members
+
+        _send(entity, "dry / fan: auto / swing: off / 18-30", cell)
+
+        assert entity.hvac_mode == HVACMode.DRY
+        assert entity.target_temperature == 30.0
+
+    @pytest.mark.asyncio
+    async def test_well_formed_members_beside_malformed_ones_still_count(self):
+        entity, _ = await _entity(_dry_matrix())
+        entity._hvac_mode, entity._fan_mode = HVACMode.COOL, "auto"
+        entity._swing_mode, entity._target_temperature = "off", 24.0
+        cell = _group_cell("dry", "auto", "off", 30.0, _DRY, temp_free=False)
+        cell["members"] = [["dry", "auto"], *cell["members"]]
+
+        _send(entity, "dry / fan: auto / swing: off / 24", cell)
+
+        assert entity.target_temperature == 24.0
+
+    @pytest.mark.asyncio
     async def test_an_extras_send_with_a_group_moves_the_readout_only(self):
         entity, _ = await _entity(_dry_matrix())
         entity._hvac_mode, entity._fan_mode = HVACMode.COOL, "auto"

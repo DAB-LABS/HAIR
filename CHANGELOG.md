@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- A `hair_state_heard` event for a press whose code the remote's file stores under several settings now carries `null` for each setting the press does not pin down, and a new `spanned` field lists what each of those could be, for example `{"temp": [18, 19, ..., 30]}`. Its `cell_name` names the range ("dry / fan: auto / 18-30"). Those fields used to hold the last of the stored cells in the file, so an automation that passed `trigger.event.data.temp` to a service was handed a temperature nobody pressed; it never had the right number, and now it has to check for `null` before using one. Every event carries `spanned`, empty for a press that pins down every setting, and such an event is otherwise unchanged. The remote's last-heard row keeps all four settings, so + Trigger works as before.
+- A `hair_state_heard` event for a press whose code the remote's file stores under several settings now carries `null` for each setting the press does not pin down, and a new `spanned` field lists what each of those could be, for example `{"temp": [18.0, 19.0, ..., 30.0]}`. Its `cell_name` names the range ("dry / fan: auto / 18-30"). Those fields used to hold the last of the stored cells in the file, so an automation that passed `trigger.event.data.temp` to a service was handed a temperature nobody pressed; it never had the right number, and now it has to check for `null` before using one. Every event carries `spanned`, empty for a press that pins down every setting, and such an event is otherwise unchanged. The remote's last-heard row keeps all four settings, so + Trigger works as before.
 
 ### Fixed
 

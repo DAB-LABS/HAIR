@@ -2927,6 +2927,18 @@ async def ws_command_update(
     # command anyway would leave a row claiming bytes no cell carries.
     cell = _porthole_cell(device_manager, msg["device_id"], msg["command_id"])
     if cell is not None and msg.get("pronto"):
+        from .wig_climate import pronto_text_key
+
+        matrix = await device_manager.async_get_matrix(msg["device_id"])
+        before = next(
+            (
+                lattice_cell.pronto for lattice_cell in (
+                    matrix.cells if matrix is not None else ()
+                )
+                if device_manager._cell_matches(lattice_cell, cell)
+            ),
+            None,
+        )
         if not await device_manager.async_replace_cell(
             msg["device_id"], cell, msg["pronto"]
         ):
@@ -2935,11 +2947,14 @@ async def ws_command_update(
                 "That cell is no longer in the device's matrix",
             )
             return
-        # The lattice changed like any other writer's, so it says so
-        # like any other writer: the listener's index of this device
-        # still records the old bytes at this cell, and the climate
-        # entity still holds them.
-        _signal_matrix_changed(hass, msg["device_id"])
+        # A lattice whose bytes changed says so like every other
+        # writer's: the listener's index of this device still records
+        # the old bytes at this cell, and the climate entity still holds
+        # them. The editor sends the Pronto with every save, a rename
+        # included, and an unchanged code is no reason to rebuild an
+        # index, which on a large lattice is many seconds.
+        if pronto_text_key(before) != pronto_text_key(msg["pronto"]):
+            _signal_matrix_changed(hass, msg["device_id"])
 
     stored = _command_by_ids(data, msg["device_id"], msg["command_id"])
     # The one place a saved spacing is checked (GH #151). Refused
@@ -4249,10 +4264,16 @@ async def ws_pin_trigger_remote_device(
     # A pinned matrix device's index is what a send reads its merged
     # groups from, and nothing else builds it for a device pinned while
     # running whose words match its remote's: without this the dial
-    # rule would stay off for that pairing until a restart.
+    # rule would stay off for that pairing until a restart. Only for a
+    # matrix remote, the only kind whose sends read it.
     device = store.get_device(device_id)
     listener = data.get("matrix_listener")
-    if listener is not None and device is not None and device.climate_matrix:
+    if (
+        listener is not None
+        and remote.climate_matrix
+        and device is not None
+        and device.climate_matrix
+    ):
         listener.warm_index(device_id)
     connection.send_result(msg["id"], {
         "pinned_device_ids": list(remote.pinned_device_ids),
@@ -8649,14 +8670,14 @@ def _signal_matrix_changed(hass: HomeAssistant, device_id: str) -> None:
         # The lattice CHANGED, so every cached index and reading built
         # from it is answering about a file that no longer exists.
         listener.invalidate(device_id)
-        # And rebuilt now, for a device some remote is pinned to: its
-        # sends read their merged groups from that index, and nothing
-        # else rebuilds it while the remote's words and the device's
-        # agree. Only for a pinned device, since on a Pi a large lattice
-        # is many seconds of an executor thread.
+        # And rebuilt now, for a device some matrix remote is pinned
+        # to: its sends read their merged groups from that index, and
+        # nothing else rebuilds it while the remote's words and the
+        # device's agree. Only for such a device, since on a Pi a large
+        # lattice is many seconds of an executor thread.
         store = data.get("store")
         if store is not None and any(
-            device_id in remote.pinned_device_ids
+            remote.climate_matrix and device_id in remote.pinned_device_ids
             for remote in store.get_all_trigger_remotes()
         ):
             listener.warm_index(device_id)

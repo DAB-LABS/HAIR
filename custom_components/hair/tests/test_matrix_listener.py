@@ -2117,10 +2117,13 @@ def _code_at(index, pronto):
 async def test_a_warm_never_stores_an_old_parse_under_the_new_files_hash(
     tmp_path,
 ):
-    """v4 sequence 1: an index built this run, a porthole edit that
-    rewrites a cell's bytes on disk while this listener still holds the
-    old parse, then a pin. The warm must not store the old content under
-    the new file's hash, which every later boot would believe."""
+    """An index built this run, then a cell's bytes rewritten on disk
+    with no signal while this listener still holds the old parse, then
+    a pin. The pin's warm must leave the warm index alone rather than
+    rebuild it from that parse, so nothing old is stored under the new
+    file's hash, which every later boot would believe: the restart
+    finds the first build's hash, refuses it, and builds afresh. Once
+    the change IS signalled, the build reads the new file."""
     from custom_components.hair.matrix_listener import _load_stored_index
     from custom_components.hair.matrix_store import write_matrix
 
@@ -2129,6 +2132,7 @@ async def test_a_warm_never_stores_an_old_parse_under_the_new_files_hash(
     )
     listener.warm_index("dev-1")
     await _drain(tasks)
+    built = listener._index_cache["dev-1"]
     old_parse = _grouped_matrix()
     listener._matrix_cache["dev-1"] = old_parse
 
@@ -2136,13 +2140,25 @@ async def test_a_warm_never_stores_an_old_parse_under_the_new_files_hash(
     edited.cells[2].pronto = PRONTO_DEV_22
     write_matrix(tmp_path, "dev-1", edited)
     listener.warm_index("dev-1")  # the pin door
-    await _drain(tasks)
 
-    # A restart reads the stored index back.
+    # The warm index is left alone: no build, the same object.
+    assert tasks == []
+    assert listener._index_cache["dev-1"] is built
+    # A restart refuses what is stored: its hash is the first file's.
+    assert _load_stored_index(str(tmp_path), "dev-1", "C") is None
+
+    # The edit signalled, as every writer now does: the index is
+    # rebuilt from the file, and a restart reads that back.
+    listener.invalidate("dev-1")
+    listener.warm_index("dev-1")
+    await _drain(tasks)
+    assert _code_at(listener._index_cache["dev-1"], PRONTO_DEV_22) == (
+        "cool/auto/24"
+    )
     restarted = _load_stored_index(str(tmp_path), "dev-1", "C")
-    if restarted is not None:
-        assert _code_at(restarted, PRONTO_COOL_23) is None
-        assert _code_at(restarted, PRONTO_DEV_22) == "cool/auto/24"
+    assert restarted is not None
+    assert _code_at(restarted, PRONTO_COOL_23) is None
+    assert _code_at(restarted, PRONTO_DEV_22) == "cool/auto/24"
 
 
 @pytest.mark.asyncio
@@ -2172,11 +2188,10 @@ async def test_a_build_reads_the_file_not_the_listeners_parse(tmp_path):
 
 @pytest.mark.asyncio
 async def test_two_changes_during_one_build_end_on_the_second(tmp_path):
-    """v4 sequence 2: a build is in flight for change A when change B
-    lands. B's warm is swallowed by the in-flight guard, so the build
-    for A must notice it was overtaken: it neither caches nor writes,
-    and builds again. The run ends on B, and so does a restart (or the
-    restart finds nothing and builds B itself)."""
+    """A build is in flight for change A when change B lands. B's warm
+    is swallowed by the in-flight guard, so the build for A must notice
+    it was overtaken: it neither caches nor writes, and builds again.
+    The run ends on B, and a restart reads B back."""
     from custom_components.hair.matrix_listener import _load_stored_index
     from custom_components.hair.matrix_store import load_matrix, write_matrix
 
@@ -2209,6 +2224,156 @@ async def test_two_changes_during_one_build_end_on_the_second(tmp_path):
     index = listener._index_cache["dev-1"]
     assert _code_at(index, PRONTO_DEV_22) == "cool/auto/24"
     restarted = _load_stored_index(str(tmp_path), "dev-1", "C")
-    if restarted is not None:
-        assert _code_at(restarted, PRONTO_DEV_22) == "cool/auto/24"
-        assert _code_at(restarted, PRONTO_COOL_23) is None
+    assert restarted is not None
+    assert _code_at(restarted, PRONTO_DEV_22) == "cool/auto/24"
+    assert _code_at(restarted, PRONTO_COOL_23) is None
+
+
+@pytest.mark.asyncio
+async def test_a_torn_read_overtaken_by_its_writers_signal_builds_again(
+    tmp_path,
+):
+    """A build reads the file while it is being rewritten and gets
+    nothing back; the writer's signal lands meanwhile, and its warm is
+    swallowed because the id is mid-build. The re-run is decided from
+    the invalidation count, not from which line returned, so the index
+    is built once the read finishes rather than at the next press."""
+    from custom_components.hair.matrix_store import load_matrix
+
+    listener, _s, _r, _tm, _dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(),
+    )
+    executor = listener._hass.async_add_executor_job
+    torn = []
+
+    async def _job(func, *args):
+        if func is load_matrix and not torn:
+            torn.append(True)
+            listener.invalidate("dev-1")
+            listener.warm_index("dev-1")  # swallowed: mid-build
+            return None
+        return await executor(func, *args)
+
+    listener._hass.async_add_executor_job = _job
+    listener.warm_index("dev-1")
+    await _drain(tasks)
+
+    assert torn
+    assert listener._index_cache["dev-1"].groups
+    assert listener._building == set()
+
+
+@pytest.mark.asyncio
+async def test_a_build_that_fails_after_an_invalidate_builds_again(tmp_path):
+    """The same rule when the build raises instead."""
+    from custom_components.hair.matrix_store import load_matrix
+
+    listener, _s, _r, _tm, _dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(),
+    )
+    executor = listener._hass.async_add_executor_job
+    failed = []
+
+    async def _job(func, *args):
+        if func is load_matrix and not failed:
+            failed.append(True)
+            listener.invalidate("dev-1")
+            raise OSError("file busy")
+        return await executor(func, *args)
+
+    listener._hass.async_add_executor_job = _job
+    listener.warm_index("dev-1")
+    with pytest.raises(OSError):
+        await tasks.pop(0)
+    await _drain(tasks)
+
+    assert listener._index_cache["dev-1"].groups
+
+
+@pytest.mark.asyncio
+async def test_the_dispatch_check_runs_no_group_pass(tmp_path):
+    """The dispatch only asks whether the device has the state; the send
+    resolves again. One group pass per press, not two."""
+    listener, _s, _r, tm, dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(),
+    )
+    listener._index_cache["dev-1"] = build_cell_index(_grouped_matrix())
+    calls = []
+    real = listener._merged_group_send
+
+    def _counted(*args, **kwargs):
+        calls.append(args[0])
+        return real(*args, **kwargs)
+
+    listener._merged_group_send = _counted
+
+    sent = await _press_and_send(listener, tasks, tm, dm, PRONTO_COOL_22)
+
+    assert tm.dispatch_cell_retransmit.call_count == 1
+    assert calls == ["dev-1"]
+    assert sent["spanned"] == {"temp": [22.0, 23.0]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["cool", 3, ["dry"], RuntimeError])
+async def test_a_bad_climate_state_costs_the_name_never_the_send(
+    tmp_path, answer,
+):
+    """A provider answer that is not a dict, or anything that breaks the
+    group pass, leaves the send as base: the representative's bytes,
+    named as itself, with no group keys."""
+    listener, _s, _r, tm, dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(),
+    )
+    listener._index_cache["dev-1"] = build_cell_index(_grouped_matrix())
+    if answer is RuntimeError:
+        def _broken(*_args, **_kwargs):
+            raise RuntimeError("group pass broke")
+
+        listener._merged_group_send = _broken
+        dm.climate_state = lambda _device_id: {"temp": 22.0}
+    else:
+        dm.climate_state = lambda _device_id: answer
+
+    sent = await _press_and_send(listener, tasks, tm, dm, PRONTO_COOL_22)
+
+    assert dm.sends[-1][2] == PRONTO_COOL_22
+    if answer is RuntimeError:
+        assert "spanned" not in sent
+        assert dm.sends[-1][1] == "cool / fan: auto / 23"
+    else:
+        # Not a state at all: the press is named as the range.
+        assert sent["spanned"] == {"temp": [22.0, 23.0]}
+        assert dm.sends[-1][1] == "cool / fan: auto / 22-23"
+
+
+@pytest.mark.asyncio
+async def test_a_flat_remote_pinned_to_a_matrix_device_warms_nothing(
+    tmp_path, fake_hass,
+):
+    """Only a matrix remote's sends read a device's merged groups, so
+    neither the pin door nor a matrix change builds an index for a
+    device only a flat remote drives."""
+    from custom_components.hair.websocket_api import (
+        _signal_matrix_changed,
+        ws_pin_trigger_remote_device,
+    )
+
+    from .test_websocket_api import _make_connection, _wire_triggers
+
+    listener, store, remote, _tm, _dm, tasks = _bench(
+        tmp_path, _grouped_matrix(), _grouped_matrix(), pinned=False,
+    )
+    remote.climate_matrix = False
+    _wire_triggers(fake_hass, store)
+    fake_hass.data[DOMAIN]["entry-1"]["matrix_listener"] = listener
+    store.get_trigger_remote = MagicMock(return_value=remote)
+
+    await ws_pin_trigger_remote_device(fake_hass, _make_connection(), {
+        "id": 1, "type": "hair/trigger-remote/pin",
+        "remote_id": "r1", "device_id": "dev-1",
+    })
+    assert remote.pinned_device_ids == ["dev-1"]
+    _signal_matrix_changed(fake_hass, "dev-1")
+
+    assert tasks == []

@@ -653,16 +653,32 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         code.
         """
         spanned = cell.get("spanned") or {}
+        if not isinstance(spanned, dict):
+            spanned = {}
         # Tuples, whatever the send carried: a member that came through
         # JSON is a list, and a tuple candidate is never "in" a list of
-        # lists.
-        ordered = [
-            (
+        # lists. An entry that is not four coordinates is skipped rather
+        # than trusted: this runs inside the dispatcher's callback, and
+        # a malformed list must cost the card nothing worse than not
+        # keeping a value.
+        ordered = []
+        raw_members = cell.get("members") or ()
+        if not isinstance(raw_members, (list, tuple)):
+            raw_members = ()
+        for member in raw_members:
+            if not isinstance(member, (list, tuple)) or len(member) != 4:
+                continue
+            if not all(v is None or isinstance(v, str) for v in member[:3]):
+                continue
+            temp = member[3]
+            if temp is not None and (
+                isinstance(temp, bool) or not isinstance(temp, (int, float))
+            ):
+                continue
+            ordered.append((
                 member[0], member[1], member[2],
-                None if member[3] is None else float(member[3]),
-            )
-            for member in cell.get("members") or ()
-        ]
+                None if temp is None else float(temp),
+            ))
         members = set(ordered)
         current = {
             "mode": (

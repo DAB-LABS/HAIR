@@ -880,3 +880,58 @@ async def test_a_removed_member_is_not_where_the_dial_stays():
     assert sent.cell["temp_free"] is False
     assert pair.entity.target_temperature == 30.0
     assert sent.name == "dry / fan: auto / swing: off / 21-30"
+
+
+# ---------------------------------------------------------------------------
+# The porthole edit signals only a change of bytes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("new", "signals"), [
+    # The editor sends the Pronto with every save, a rename included;
+    # the same code in other spacing and case is not a change.
+    ("  0000 006d 0002 0000 0020 0040 0020 0040 ", False),
+    ("0000 006D 0002 0000 0040 0020 0040 0020", True),
+])
+async def test_a_porthole_save_signals_only_when_the_code_changed(
+    fake_hass, new, signals,
+):
+    """A matrix-changed signal drops and rebuilds the device's index,
+    which on a large lattice is many seconds without its groups."""
+    from unittest.mock import patch
+
+    from custom_components.hair.device_manager import DeviceManager
+    from custom_components.hair.models import IRCommand
+    from custom_components.hair.websocket_api import ws_command_update
+
+    from .test_send_spacing_doors import _conn, _platforms, _wire
+
+    old = "0000 006D 0002 0000 0020 0040 0020 0040"
+    coords = {"mode": "cool", "fan": "auto", "swing": None, "temp": 22.0}
+    command = IRCommand(
+        id="c1", name="cool / fan: auto / 22", protocol="PRONTO", code=old,
+        matrix_cell=dict(coords),
+    )
+    wired = _wire(fake_hass, command=command)
+    wired.manager.get_device = MagicMock(return_value=wired.device)
+    wired.manager.async_get_matrix = AsyncMock(return_value=ClimateMatrix(
+        min_temp=16.0, max_temp=30.0, off="0000 006D 0001 0000 0060 0060",
+        cells=[ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=old)],
+    ))
+    wired.manager.async_replace_cell = AsyncMock(return_value=True)
+    wired.manager._cell_matches = DeviceManager._cell_matches
+    conn = _conn()
+
+    with _platforms({"infrared.a": "esphome"}), patch(
+        "custom_components.hair.websocket_api._signal_matrix_changed"
+    ) as signal:
+        await ws_command_update(fake_hass, conn, {
+            "id": 1, "type": "hair/command/update",
+            "device_id": "dev-1", "command_id": "c1", "pronto": new,
+        })
+
+    wired.manager.async_replace_cell.assert_awaited_once()
+    assert signal.called is signals
+    if signals:
+        signal.assert_called_once_with(fake_hass, "dev-1")
