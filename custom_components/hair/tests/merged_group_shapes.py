@@ -402,6 +402,92 @@ def shape_extra_pair_preamble() -> ClimateMatrix:
     return _extra_pair_lattice("preamble")
 
 
+# WHERE THE S/L PATTERN AND THE NORMALIZED FINGERPRINT PART. Two codes
+# of one DAIKIN216 state, one bit-space moved in each, both still read
+# as the same bits:
+#
+# - a zero-space of 800 us is still a zero for the reader (its window
+#   ends at 815 us) and still S for the S/L pattern, but it crosses the
+#   normalized fingerprint's level boundary, so it is another waveform
+#   with the plain code's S/L pattern;
+# - a one-space of 1200 us is still a one, the same level for the
+#   normalized fingerprint and the same quantized whole code, but S on
+#   the S/L threshold of 1273 us, so it is the plain code's waveform
+#   with another S/L pattern.
+#
+# The composite key a press lands on therefore says nothing about which
+# waveform it is, which is what these two lattices are built to show.
+
+
+def sl_variant(zero_us: int | None = None, one_us: int | None = None) -> str:
+    """The DAIKIN216 dry / low state with the settings frame's first
+    zero-space and first one-space moved to these lengths."""
+    from . import test_read_bytes_identity as d216
+
+    timing = d216.D216.timing
+    pairs = d216._pairs([d216._FRAME0, d216._settings(mode_power=0x21)])
+    first = 1 + 64 + 1 + 1  # frame 0's header, bits and footer; frame 1's header
+    bits = range(first, first + 152)
+    zero_at = next(i for i in bits if pairs[i][1] == timing.zero.nominal)
+    one_at = next(i for i in bits if pairs[i][1] == timing.one.nominal)
+    if zero_us is not None:
+        pairs[zero_at] = (pairs[zero_at][0], zero_us)
+    if one_us is not None:
+        pairs[one_at] = (pairs[one_at][0], one_us)
+    return d216._pronto(pairs)
+
+
+def _dry_lattice(codes: list[str]) -> ClimateMatrix:
+    from . import test_read_bytes_identity as d216
+
+    cells = [
+        ClimateCell(mode="dry", fan="low", temp=float(18 + n), pronto=code)
+        for n, code in enumerate(codes)
+    ]
+    return _matrix(
+        cells, modes=["dry"], min_temp=16.0, max_temp=30.0,
+        off=d216._code(d216._settings(mode_power=0x30)),
+    )
+
+
+def shape_sl_split() -> ClimateMatrix:
+    """dry / low / 18 the plain code, 19 the plain code with the extra
+    pair in the preamble (its waveform, another whole code), 20 and 21
+    the code with both spaces moved. The plain code's composite key
+    holds 18 and 19 and only the bytes half keeps it; a press with the
+    plain S/L pattern and the moved code's waveform was heard as 21."""
+    from . import test_read_bytes_identity as d216
+
+    plain = d216._code(d216._settings(mode_power=0x21))
+    moved = sl_variant(zero_us=800, one_us=1200)
+    return _dry_lattice([
+        plain, extra_pair_code(d216._settings(mode_power=0x21), "preamble"),
+        moved, moved,
+    ])
+
+
+def shape_sl_split_press() -> str:
+    """The press ``shape_sl_split`` is built for: the moved code with
+    its one-space back at 1300 us."""
+    return sl_variant(zero_us=800)
+
+
+def shape_sl_split_one_code() -> ClimateMatrix:
+    """dry / low / 18 the plain code, 19 the zero-space moved (the
+    plain S/L pattern, another waveform and another whole code), 20 the
+    one-space moved (another S/L pattern, the plain waveform and the
+    plain whole code). A press of 18's own text was heard as 20, the
+    last cell of its waveform; the composite key it lands on, which
+    only the bytes half keeps, holds 18 as that waveform's claimant."""
+    from . import test_read_bytes_identity as d216
+
+    return _dry_lattice([
+        d216._code(d216._settings(mode_power=0x21)),
+        sl_variant(zero_us=800),
+        sl_variant(one_us=1200),
+    ])
+
+
 def extra_pair_after(pronto: str, family: str, frame: int) -> str:
     """``pronto`` with one extra (unit, zero) pair after the last bit of
     ``frame``, read with ``family``'s own timing: the same bytes, another

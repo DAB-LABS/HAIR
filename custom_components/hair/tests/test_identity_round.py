@@ -39,6 +39,7 @@ from custom_components.hair import field_readers as fr
 from custom_components.hair.event_parser import EventParser
 from custom_components.hair.identity import (
     TIER_BYTE_HASH,
+    TIER_NORM_FP,
     NormFpIndex,
     norm_fingerprint,
     whole_code_discriminator,
@@ -323,17 +324,48 @@ def _presses(pronto: str, family: str = "DAIKIN216") -> list[str]:
     return out
 
 
-class TestExactWaveformWins:
-    """Shape F1: dry / low / 18-23, the even temperatures one waveform
-    and the odd ones another, one set of bytes.
+def _first_key(index, identity):
+    """The tier key that answers a press of a waveform the normalized
+    tier does not know: the first one the press reaches that the rule
+    before the bytes half kept, or else the first one it reaches, with
+    that key's claimant of the press's own waveform when it has one.
+    The decoded tier holds no listed family's code here (DAIKIN216's
+    decode never covers, MITSUBISHI144 does not decode)."""
+    _decoded, fingerprint, byte_hash, waveform, _covers = identity
+    reached = [
+        (tier, key, store.get(key))
+        for tier, key, store in (
+            ("fp_bytehash", (fingerprint, byte_hash), index.fp_bytehash),
+            ("bytehash", byte_hash, index.bytehash),
+        )
+    ]
+    reached = [(tier, key, hit) for tier, key, hit in reached if hit]
+    for tier, key, hit in reached:
+        if (tier, key) not in index.held_back:
+            return hit
+    if not reached:
+        return None
+    tier, key, hit = reached[0]
+    return index.by_waveform.get((tier, key), {}).get(waveform, hit)
 
-    Before this round the read key was refused, and each waveform's own
-    composite and normalized keys answered the last cell of that
-    waveform: dry / low / 22 for the plain code and 23 for the extra
-    pair. The read key now merges all six, and its representative is
-    23, so without the by-waveform answer every plain press that came
-    in through the read key would be named 23 and a pinned device sent
-    23's text instead of 22's.
+
+class TestExactWaveformWins:
+    """A press heard before the merge is heard as the same cell after.
+
+    Shape F1: dry / low / 18-23, the even temperatures one waveform and
+    the odd ones another, one set of bytes. Before this round the read
+    key was refused, and each waveform's own composite and normalized
+    keys answered the last cell of that waveform: dry / low / 22 for the
+    plain code and 23 for the extra pair. The read key now merges all
+    six, and its representative is 23, so if it answered in its turn,
+    every plain press the air moved off its composite key would be named
+    23 and a pinned device sent 23's text instead of 22's. It answers
+    last instead, after the normalized tier that answered before.
+
+    The two S/L-split lattices are where answering from the merged key
+    in its turn goes wrong even with the by-waveform answer: the
+    composite key a press lands on holds none of its waveform's cells,
+    or an earlier one than the normalized tier answers.
     """
 
     BEFORE: ClassVar[dict[str, str]] = {
@@ -344,39 +376,45 @@ class TestExactWaveformWins:
     def _kind(cell) -> str:
         return "plain" if int(cell.temp) % 2 == 0 else "extra"
 
-    def _check(self, index, matrix, family="DAIKIN216"):
-        """Every press of every cell that is heard is heard as the cell
-        it was heard as before: a cool cell as itself, a dry press as
-        the last cell of its own waveform, which is what the normalized
-        tier holds for it and what both tiers that heard it before (its
-        composite key, or the normalized tier) answered. A dry press of
-        a waveform no cell carries has nothing to keep. And some presses
-        get there through the read key's map, answered by a claimant
-        that is not the key's representative."""
-        through_the_map = 0
-        for cell in matrix.cells:
-            for press in _presses(cell.pronto, family):
-                identity = _identity(press)
-                heard = identity and index.match(*identity)
-                if not heard:
-                    continue
-                hit, tier = heard
-                if cell.mode != "dry":
-                    assert hit.cell_key == cell_key(cell)
-                    continue
-                own = index.norm_fp.get(identity[3])
-                if own is None:
-                    continue
-                assert hit.cell_key == own.cell_key, press
-                if (tier == TIER_BYTE_HASH
-                        and (identity[1], identity[2]) not in (
-                            index.fp_bytehash)
-                        and hit.cell_key != index.bytehash[
-                            identity[2]].cell_key):
-                    through_the_map += 1
-        # The point of the map: presses the air moved off their
-        # composite key, answered at the read key with their own cell.
-        assert through_the_map > 0
+    def _check(self, index, matrix, family="DAIKIN216", extra=()):
+        """Every press heard is heard as it was before the merge.
+
+        A cool cell as itself. A dry press whose waveform the normalized
+        tier knows, as that tier's cell for it, which is what these
+        lattices answered before (their composite keys never part a
+        waveform's cells; checked against the base by probe). A dry
+        press of a waveform it does not know, as the first key it
+        reaches answers (``_first_key``). And some presses must reach a
+        key only the bytes half keeps and go on past it to the tier that
+        answered them before: the case the held-back keys exist for.
+        """
+        went_on = 0
+        presses = [(None, press) for press in extra] + [
+            (cell, press) for cell in matrix.cells
+            for press in _presses(cell.pronto, family)
+        ]
+        for cell, press in presses:
+            identity = _identity(press)
+            heard = identity and index.match(*identity)
+            if not heard:
+                continue
+            hit, tier = heard
+            if cell is not None and cell.mode != "dry":
+                assert hit.cell_key == cell_key(cell)
+                continue
+            own = index.norm_fp.get(identity[3])
+            if own is None:
+                assert hit.cell_key == _first_key(index, identity).cell_key, (
+                    press
+                )
+                continue
+            assert hit.cell_key == own.cell_key, press
+            composite = ("fp_bytehash", (identity[1], identity[2]))
+            if tier == TIER_NORM_FP and (
+                    composite in index.held_back
+                    or ("bytehash", identity[2]) in index.held_back):
+                went_on += 1
+        assert went_on > 0
 
     def test_the_map_forms_for_the_one_merged_key(self):
         index = build_cell_index(shapes.shape_extra_pair_settings())
@@ -428,10 +466,11 @@ class TestExactWaveformWins:
 
     @pytest.mark.asyncio
     async def test_a_pinned_device_is_sent_the_text_of_the_cell_heard(self):
-        """A plain press that reaches the merged key is sent dry / low /
-        22's text by a same-file pinned device, as before the merge, and
-        never the representative's: the same bytes in another text, and
-        on a device built from another file, another cell."""
+        """Every dry press is sent its own waveform's cell's text by a
+        same-file pinned device, as before the merge: a plain press is
+        sent 22's text, never the representative's (the same bytes in
+        another text, and on a device built from another file, another
+        cell)."""
         matrix = shapes.shape_extra_pair_settings()
         index = build_cell_index(matrix)
         bench = shapes.PinnedBench(matrix, copy.deepcopy(matrix), index,
@@ -494,29 +533,71 @@ class TestExactWaveformWins:
                             heard.add(got[0].cell_key)
                     assert len(heard) <= 1, (cell_key(cell), heard)
 
-    def test_a_composite_key_round_trips_as_a_tuple(self):
-        """Nothing guarantees an S/L fingerprint separates two waveforms,
-        so the map is kept on the composite tier too, and JSON cannot
-        key a dict by a tuple. Written as a list, read back as a tuple,
-        and answered from it."""
-        matrix = shapes.shape_extra_pair_settings()
+    @pytest.mark.asyncio
+    async def test_a_composite_key_holding_none_of_the_presss_waveform(self):
+        """``shape_sl_split``: the plain code's composite key holds 18 and
+        19 (one waveform, two whole codes) and only the bytes half keeps
+        it. The press with the plain S/L pattern and the moved code's
+        waveform was heard as 21 on the normalized tier, and a same-file
+        device sent the moved code's text. It still is, live and after a
+        round trip of the stored index, where the composite key comes
+        back a tuple and still answers last."""
+        matrix = shapes.shape_sl_split()
         index = build_cell_index(matrix)
-        claimants = next(iter(index.by_waveform.values()))
-        plain = _identity(next(
-            c.pronto for c in matrix.cells if c.mode == "dry" and c.temp == 18
-        ))
-        composite = (plain[1], plain[2])
-        assert composite in index.fp_bytehash
-        index.by_waveform[("fp_bytehash", composite)] = {
-            plain[3]: claimants[plain[3]],
+        press = shapes.shape_sl_split_press()
+        identity = _identity(press)
+        composite = ("fp_bytehash", (identity[1], identity[2]))
+        assert composite in index.held_back
+        assert set(index.by_waveform[composite]) == {
+            _identity(matrix.cells[0].pronto)[3],
         }
         payload = json.loads(json.dumps(_index_to_payload(index, "h", "C")))
-        assert ["fp_bytehash", list(composite)] in [
-            entry[:2] for entry in payload["by_waveform"]
-        ]
+        assert ["fp_bytehash", list(composite[1])] in payload["held_back"]
         restored = _payload_to_index(payload)
-        assert ("fp_bytehash", composite) in restored.by_waveform
-        assert restored.match(*plain)[0].cell_key == "dry/low/22"
+        assert composite in restored.held_back
+        assert composite in restored.by_waveform
+        moved = matrix.cells[3].pronto
+        for built in (index, restored):
+            assert built.match(*identity) == (
+                built.norm_fp.get(identity[3]), TIER_NORM_FP,
+            )
+            assert built.match(*identity)[0].cell_key == "dry/low/21"
+            bench = shapes.PinnedBench(matrix, copy.deepcopy(matrix), built,
+                                       built)
+            sent = await bench.resolve(bench.hear(press))
+            assert sent[1] == moved
+            self._check(built, matrix, extra=[press])
+
+    def test_a_composite_key_holding_an_earlier_cell_of_the_waveform(self):
+        """``shape_sl_split_one_code``: 18's own text lands on a composite
+        key that holds 18 and 19, kept only by the bytes half, and 18 is
+        its claimant of that waveform; the normalized tier, which answered
+        before, holds 20, the last cell of the waveform (the same whole
+        code under another S/L pattern). It is still heard as 20."""
+        matrix = shapes.shape_sl_split_one_code()
+        index = build_cell_index(matrix)
+        identity = _identity(matrix.cells[0].pronto)
+        composite = ("fp_bytehash", (identity[1], identity[2]))
+        assert composite in index.held_back
+        assert index.by_waveform[composite][identity[3]].cell_key == (
+            "dry/low/18"
+        )
+        assert index.match(*identity)[0].cell_key == "dry/low/20"
+        self._check(index, matrix)
+
+    def test_a_held_back_key_answers_what_nothing_else_hears(self):
+        """Shape F0, where every key of the dry state is one only the
+        bytes half keeps: nothing heard it before, and now the first key
+        a press reaches answers it, at the composite tier."""
+        matrix = shapes.shape_extra_pair_preamble()
+        index = build_cell_index(matrix)
+        dry = next(c for c in matrix.cells if c.mode == "dry")
+        identity = _identity(dry.pronto)
+        assert ("fp_bytehash", (identity[1], identity[2])) in index.held_back
+        assert ("norm_fp", identity[3]) in index.held_back
+        assert index.match(*identity) == (
+            index.fp_bytehash[(identity[1], identity[2])], TIER_BYTE_HASH,
+        )
 
 
 # ---------------------------------------------------------------------------

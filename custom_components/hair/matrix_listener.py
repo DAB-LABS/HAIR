@@ -333,13 +333,18 @@ class CellIndex:
     # send side reads this on the DEVICE's own index, never the
     # remote's: what was sent is the device's fact.
     groups: dict[tuple, CellGroup] = field(default_factory=dict)
-    # EXACT WAVEFORM WINS INSIDE A MERGED KEY. ``(tier, key) -> {norm_fp:
-    # hit}`` for a plain-tier key whose claimants are more than one
-    # waveform (one state held as several captures, which the bytes half
-    # of ``_StateOrCode`` merges): the last claimant of each normalized
-    # fingerprint, which is exactly the cell the normalized tier answers
-    # for that waveform. Consulted by ``match`` on whichever tier
-    # answered; see ``build_cell_index``.
+    # THE KEYS ONLY THE BYTES HALF KEEPS. ``(tier, key)`` for every key,
+    # on any of the four tiers, that the rule before the bytes half of
+    # ``_StateOrCode`` would have refused and that now answers. Such a
+    # key answered nothing before, so every press that reached it went on
+    # down the tiers, and it still does: ``match`` asks it last, for a
+    # press nothing else hears. See ``build_cell_index``.
+    held_back: set[tuple[str, Any]] = field(default_factory=set)
+    # For each held-back plain-tier key (``decoded``, ``fp_bytehash``,
+    # ``bytehash``): ``{norm_fp: hit}``, the last claimant of each
+    # normalized fingerprint among its claimants. When such a key does
+    # answer, a press of one of its claimants' waveforms is named as that
+    # claimant rather than as the key's representative.
     by_waveform: dict[tuple[str, Any], dict[str, CellHit]] = field(
         default_factory=dict
     )
@@ -381,51 +386,58 @@ class CellIndex:
         normalized tier is allowed to answer, which the old "only if
         nothing decoded" wording would have blocked.
 
-        A MERGED KEY ANSWERS A KNOWN WAVEFORM WITH ITS OWN CELL. Where a
-        key holds one state as several waveforms (``by_waveform``), the
-        capture's normalized fingerprint picks the claimant of that
-        waveform, and only a waveform none of them carries gets the
-        representative. A press that found its own cell through the
-        normalized tier before its key merged finds the same cell now,
-        so a pinned device is sent the same text.
+        A KEY ONLY THE BYTES HALF KEEPS ANSWERS LAST (``held_back``).
+        Before the bytes half such a key was refused, so a press that
+        reached it went on to the next tier, and whatever answered there
+        is the cell the press was heard as, and the text a pinned device
+        was sent. It still goes on: every key the old rule kept answers
+        first, in the usual order, exactly as it did, and a held-back key
+        answers only a press none of them hears. Asking it in its turn
+        instead was measured wrong on a constructed lattice: the S/L
+        pattern a capture lands on says nothing about its normalized
+        waveform (DAIKIN216's one-space of 1300 us sits on the S/L
+        threshold of 1273 us), so the composite key a press lands on can
+        hold none of its own waveform's cells, or hold an earlier one
+        than the normalized tier answers, and its answer would be
+        another cell, sent as another text. When a held-back key does
+        answer, the first one the press reached answers, with the
+        claimant of the press's own waveform when it holds one
+        (``by_waveform``) and its representative otherwise.
         """
         skipped_decode = decode_covers is False
+        tiers: list[tuple[str, Any, CellHit | None, int]] = []
         if (
             decoded_fingerprint
             and not skipped_decode
             and decoded_fingerprint in self.decoded
         ):
-            return (
-                self._waveform("decoded", decoded_fingerprint,
-                               self.decoded[decoded_fingerprint], norm_fp),
-                TIER_DECODED,
-            )
+            tiers.append(("decoded", decoded_fingerprint,
+                          self.decoded[decoded_fingerprint], TIER_DECODED))
         if signal_fingerprint or byte_hash:
             key = (signal_fingerprint, byte_hash)
-            hit = self.fp_bytehash.get(key)
-            if hit is not None:
-                return (
-                    self._waveform("fp_bytehash", key, hit, norm_fp),
-                    TIER_BYTE_HASH,
-                )
+            tiers.append(("fp_bytehash", key, self.fp_bytehash.get(key),
+                          TIER_BYTE_HASH))
         if byte_hash is not None:
-            hit = self.bytehash.get(byte_hash)
-            if hit is not None:
-                return (
-                    self._waveform("bytehash", byte_hash, hit, norm_fp),
-                    TIER_BYTE_HASH,
-                )
+            tiers.append(("bytehash", byte_hash, self.bytehash.get(byte_hash),
+                          TIER_BYTE_HASH))
         if norm_fp and (not decoded_fingerprint or skipped_decode):
-            hit = self.norm_fp.get(norm_fp)
-            if hit is not None:
-                return (hit, TIER_NORM_FP)
-        return None
+            tiers.append(("norm_fp", norm_fp, self.norm_fp.get(norm_fp),
+                          TIER_NORM_FP))
+        last: tuple[CellHit, int] | None = None
+        for tier, key, hit, number in tiers:
+            if hit is None:
+                continue
+            if (tier, key) not in self.held_back:
+                return (hit, number)
+            if last is None:
+                last = (self._waveform(tier, key, hit, norm_fp), number)
+        return last
 
     def _waveform(
         self, tier: str, key: Any, hit: CellHit, norm_fp: str | None
     ) -> CellHit:
-        """The claimant of the capture's own waveform under a merged
-        key, or the key's representative."""
+        """A held-back key's claimant of the capture's own waveform, or
+        the key's representative."""
         if norm_fp:
             claimants = self.by_waveform.get((tier, key))
             if claimants is not None:
@@ -474,16 +486,19 @@ def build_cell_index(
     and the reasons are on ``_StateOrCode``. Every claimant is checked,
     not only the last (``_claim``).
 
-    EXACT WAVEFORM WINS INSIDE A MERGED KEY. A key that merges several
-    waveforms answers with its representative, the last claimant, and a
-    press of another of them that found its own cell through the
-    normalized tier before would now be named as the representative and
-    a pinned device sent the representative's text. So such a key also
-    remembers its claimants by normalized fingerprint
-    (``CellIndex.by_waveform``), and ``match`` answers a known waveform
-    with its own cell. The representative itself is unchanged, so
-    ``cell_key``, triggers minted on it, the dedup window and the
-    coalescer keys do not move.
+    A PRESS HEARD BEFORE IS HEARD AS THE SAME CELL. A key the bytes half
+    keeps, and the rule before it would have refused, answered nothing
+    before; every press that reached it went on down the tiers and was
+    heard as whatever answered there, and a pinned device was sent that
+    cell's text. So the build records those keys (``CellIndex.held_back``)
+    and ``match`` asks them only after every other key, which keeps every
+    earlier answer exactly; they answer only presses nothing else hears.
+    For such a key on a plain tier the build also keeps its claimants by
+    normalized fingerprint (``CellIndex.by_waveform``), so when it does
+    answer, a press of one of its claimants' waveforms is named as that
+    claimant. The representative itself is unchanged, so ``cell_key``,
+    triggers minted on it, the dedup window and the coalescer keys do
+    not move.
 
     ONE IDENTITY FORM, and it is not the file's. ``wig_signal_identity``
     hashes the canonical (wire) Pronto -- see identity.py's
@@ -549,6 +564,11 @@ def build_cell_index(
         tier: {} for tier in stores
     }
     poisoned: dict[str, set] = {tier: set() for tier in stores}
+    # The surviving keys the rule before the bytes half would have
+    # refused: that rule compared a newcomer with the last claimant only,
+    # and asked "same state or same code?". Ordered, so the stored index
+    # is written the same way every time.
+    refused_before: dict[str, dict[Any, None]] = {tier: {} for tier in stores}
 
     def _claim(
         tier: str, key: Any, code: Any, hit: CellHit, waveform: str | None
@@ -568,6 +588,9 @@ def build_cell_index(
         if key in poisoned[tier]:
             return
         held = claims[tier].setdefault(key, [])
+        if (held and key not in refused_before[tier]
+                and not _same_before(held[-1][1], code)):
+            refused_before[tier][key] = None
         if any(other != code for _hit, other, _waveform in held):
             poisoned[tier].add(key)
             del claims[tier][key]
@@ -703,19 +726,22 @@ def build_cell_index(
             ),
             None,
         )
-    # Which claimant answers each waveform, for a key whose claimants
-    # are more than one: see ``CellIndex.by_waveform``. Kept on every
-    # plain tier because ``match`` may answer from any of them, and
-    # nothing guarantees an S/L fingerprint separates two normalized
-    # ones. Last claimant per waveform, as the normalized tier keeps.
-    for tier in ("decoded", "fp_bytehash", "bytehash"):
-        for key, held in claims[tier].items():
+    # The keys that answer last, and for those on a plain tier, which
+    # claimant answers each waveform: see ``CellIndex.held_back`` and
+    # ``CellIndex.by_waveform``. Last claimant per waveform, as the
+    # normalized tier keeps.
+    for tier, keys in claims.items():
+        for key, held in keys.items():
+            if key not in refused_before[tier]:
+                continue
+            index.held_back.add((tier, key))
+            if tier == "norm_fp":
+                continue
             waveforms: dict[str, CellHit] = {}
             for hit, _code, waveform in held:
                 if waveform:
                     waveforms[waveform] = hit
-            if len(waveforms) > 1:
-                index.by_waveform[(tier, key)] = waveforms
+            index.by_waveform[(tier, key)] = waveforms
     claimed, hit_group = _merged_groups(indexed, claims)
     _attach_groups(
         index, matrix, claimed, hit_group,
@@ -742,6 +768,17 @@ class _Indexed:
     lattice: tuple | None
     inner: Any
     power: bool
+
+
+def _same_before(held: Any, code: Any) -> bool:
+    """Two claimants as the rule before the bytes half saw them: the
+    same state or the same code. Anything else, including a read-bytes
+    claimant against a plain one, was two different codes."""
+    if isinstance(held, _StateOrCode) and isinstance(code, _StateOrCode):
+        return held.state == code.state or held.code == code.code
+    if isinstance(held, _StateOrCode) or isinstance(code, _StateOrCode):
+        return False
+    return held == code
 
 
 def _inner_code(code: Any) -> Any:
@@ -1867,9 +1904,9 @@ def _cell_in_hit_lattice(
 # answers for and the index gained the groups themselves: a /8 index
 # names a dry press by its last cell and gives the send side no group
 # to read, and to /10 when a read-bytes key learned to merge one state
-# held as several captures and to answer each capture's own waveform
-# with its own cell (``by_waveform``): a /9 index refuses those keys
-# and has no map to keep a merged key's answers. A stored index of an
+# held as several captures, answering only presses nothing else hears
+# (``held_back``, ``by_waveform``): a /9 index refuses those keys and
+# has nothing to say which keys answer last. A stored index of an
 # older format is
 # simply not read, so every lattice rebuilds once and gains the new map;
 # the rebuild is the same seconds-of-work the first build was.
@@ -2031,6 +2068,17 @@ def _index_to_payload(
             ]
             for (tier, key), claimants in index.by_waveform.items()
         ],
+        # The keys that answer last, ``[tier, key]``, sorted so one index
+        # is always written the same way. Without them every such key
+        # would answer in its turn after a restart, which is the wrong
+        # cell for a press heard before the merge.
+        "held_back": sorted(
+            (
+                [tier, list(key) if isinstance(key, tuple) else key]
+                for tier, key in index.held_back
+            ),
+            key=repr,
+        ),
     }
 
 
@@ -2066,6 +2114,12 @@ def _payload_to_index(payload: dict) -> CellIndex | None:
             index.by_waveform[(tier, key)] = {
                 waveform: hits[ref] for waveform, ref in claimants.items()
             }
+        for tier, key in payload["held_back"]:
+            if tier not in ("decoded", "fp_bytehash", "bytehash", "norm_fp"):
+                raise ValueError(tier)
+            if isinstance(key, list):
+                key = tuple(key)
+            index.held_back.add((tier, key))
     except (KeyError, IndexError, TypeError, ValueError):
         return None
     return index or None
