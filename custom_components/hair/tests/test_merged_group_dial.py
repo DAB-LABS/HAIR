@@ -275,7 +275,9 @@ def _states(state: dict | None) -> list[dict | None]:
 async def test_no_current_state_changes_the_bytes_a_pinned_device_is_sent():
     """The owner's rule as a test. Every row of the golden written at
     5e0bd0b2, before any of this existed, against the new code, under
-    every state the device's entity could report."""
+    every state the device's entity could report. (One source was
+    appended later, written at the commit before its own change; the
+    file records which.)"""
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))["rows"]
     compared = resolved = 0
     differ: list = []

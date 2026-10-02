@@ -1,4 +1,4 @@
-"""Generate the merged-group bytes golden.
+"""Generate the merged-group bytes golden, both columns.
 
 The owner's rule for the merged-group dial is that nothing it adds may
 change what a pinned device transmits for any press. A comparison
@@ -11,6 +11,7 @@ current state a climate entity could report.
 
     python custom_components/hair/tests/tools/gen_merged_group_golden.py
     python custom_components/hair/tests/tools/gen_merged_group_golden.py --check
+    python custom_components/hair/tests/tools/gen_merged_group_golden.py --append
 
 Run by path from the repository root, not with ``-m``: the package
 imports Home Assistant, which is not installed where the suite runs,
@@ -26,8 +27,21 @@ lattice with every other temperature removed, and an extras lattice.
 One row per press: the sha256 of the normalized Pronto that went out
 and its send count, or null when nothing would be sent.
 
-``--check`` writes nothing and exits non-zero when the rows differ from
-the committed file, printing how many were compared and which differ.
+TWO COLUMNS. ``merged-group-golden.json`` presses each cell's file
+text. ``merged-group-golden-captures.json`` presses each cell the way a
+receiver hands it over (``merged_group_shapes.capture_rows``: the air
+model of ``test_read_bytes_identity``, whole and split at the map's
+gap), for every source where a read key forms. A file code finds its
+cell through the composite key before the read key or the normalized
+tier is ever asked, so only the second column sees a change to how
+those two tiers answer.
+
+``--check`` writes nothing and exits non-zero when the rows of either
+column differ from the committed files, printing how many were compared
+and which differ. ``--append`` writes only the rows of sources a
+committed column does not have yet, leaving every committed row as it
+is, and records the commit it ran at for those sources; a column with
+no committed file is written whole.
 """
 from __future__ import annotations
 
@@ -44,9 +58,17 @@ if str(_ROOT) not in sys.path:
 
 import conftest  # noqa: E402,F401  (the Home Assistant stubs, as pytest loads them)
 from custom_components.hair.tests.merged_group_shapes import (  # noqa: E402
+    CAPTURE_GOLDEN,
     GOLDEN,
+    capture_rows,
     dump,
     golden_rows,
+)
+
+#: Each column: its committed file and what generates its rows.
+COLUMNS = (
+    ("files", GOLDEN, golden_rows),
+    ("captures", CAPTURE_GOLDEN, capture_rows),
 )
 
 
@@ -72,33 +94,50 @@ def _flatten(rows: dict) -> dict[tuple, str | None]:
     }
 
 
-def main(argv: list[str]) -> int:
-    rows = asyncio.run(golden_rows())
+def _check(label: str, path: Path, rows: dict) -> int:
     flat = _flatten(rows)
-    if "--check" in argv:
-        committed = _flatten(
-            json.loads(GOLDEN.read_text(encoding="utf-8"))["rows"]
-        )
-        differ = sorted(
-            key for key in set(flat) | set(committed)
-            if flat.get(key, "missing") != committed.get(key, "missing")
-        )
-        print(f"compared {len(committed)} committed rows against "
-              f"{len(flat)} generated: {len(differ)} differ")
-        for key in differ[:20]:
-            print("  ", key, committed.get(key, "missing"), "->",
-                  flat.get(key, "missing"))
-        return 1 if differ else 0
-    payload = {
-        "base_commit": _git_head(),
-        "row_count": len(flat),
-        "rows": rows,
-    }
-    GOLDEN.write_text(dump(payload), encoding="utf-8")
+    committed = _flatten(
+        json.loads(path.read_text(encoding="utf-8"))["rows"]
+    )
+    differ = sorted(
+        key for key in set(flat) | set(committed)
+        if flat.get(key, "missing") != committed.get(key, "missing")
+    )
+    print(f"{label}: compared {len(committed)} committed rows against "
+          f"{len(flat)} generated: {len(differ)} differ")
+    for key in differ[:20]:
+        print("  ", key, committed.get(key, "missing"), "->",
+              flat.get(key, "missing"))
+    return len(differ)
+
+
+def _write(label: str, path: Path, rows: dict, append: bool) -> None:
+    head = _git_head()
+    payload: dict = {"base_commit": head, "rows": rows}
+    if append and path.is_file():
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        added = sorted(set(rows) - set(payload["rows"]))
+        for source in added:
+            payload["rows"][source] = rows[source]
+            payload.setdefault("appended", {})[source] = head
+        print(f"{label}: appended {len(added)} sources {added}")
+    flat = _flatten(payload["rows"])
+    payload["row_count"] = len(flat)
+    path.write_text(dump(payload), encoding="utf-8")
     sent = sum(1 for row in flat.values() if row is not None)
-    print(f"wrote {len(flat)} rows ({sent} sent, {len(flat) - sent} "
-          f"nothing sent) to {GOLDEN}")
-    return 0
+    print(f"{label}: wrote {len(flat)} rows ({sent} sent, "
+          f"{len(flat) - sent} nothing sent) to {path}")
+
+
+def main(argv: list[str]) -> int:
+    differ = 0
+    for label, path, generate in COLUMNS:
+        rows = asyncio.run(generate())
+        if "--check" in argv:
+            differ += _check(label, path, rows)
+        else:
+            _write(label, path, rows, append="--append" in argv)
+    return 1 if differ else 0
 
 
 if __name__ == "__main__":

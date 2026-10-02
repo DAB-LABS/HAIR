@@ -1236,6 +1236,90 @@ def mode_trait(spec: FieldSpec, mode: str | None, trait: str) -> Any:
     return traits.get(trait)
 
 
+def field_skip_reason(
+    spec: FieldSpec, mode_spec: FieldSpec | None, coordinates: dict[str, Any]
+) -> str | None:
+    """Why the map says this field carries no comparable fact at these
+    coordinates, or None when it does.
+
+    The map's own word only: the field's ``applies_when``, and the mode
+    traits that freeze a temperature (``invariant``) or force a fan.
+    ``mode_spec`` is the map's mode field. Confidence is not asked here,
+    and neither is what a particular wig does (the comb's
+    ``TEMP_FROZEN``): the comb asks both around this call, and the
+    distinctness sweep (``labels_collide``) wants neither.
+
+    A REASON, NOT A YES OR NO. The comb records which of these it was
+    in its coverage, and a yes-or-no version folded all three into
+    "not applicable": four field packs' receipts changed for nothing.
+    """
+    if not applies(spec, coordinates):
+        return NOT_APPLICABLE
+    mode = coordinates.get("mode")
+    if (spec.name == "temperature" and mode_spec is not None
+            and mode_trait(mode_spec, mode, "temp") == "invariant"):
+        return TEMP_INVARIANT
+    if (spec.name == "fan_speed" and mode_spec is not None
+            and mode_trait(mode_spec, mode, "fan") == "forced"):
+        return FAN_FORCED
+    return None
+
+
+#: The four label dimensions the distinctness sweep compares.
+LABEL_DIMENSIONS = ("mode", "fan", "swing", "temp")
+
+
+def labels_collide(
+    field_map: FieldMap, first: dict[str, Any], second: dict[str, Any]
+) -> tuple[str, str | None] | None:
+    """Are two labels that share one read key different settings?
+
+    ``(dimension, field name)`` for the first dimension that makes them
+    so, the field None when no field of the map answers that dimension
+    at all; None when the map says the two labels are one setting.
+
+    THE DISTINCTNESS SWEEP ASKS THE MAP, NOT THE LABELS. A family joins
+    the read-bytes list only when no two of its states share a key, and
+    "two labels" is not "two states": DAIKIN152's dry ignores the fan
+    (``fan_speed`` is forced there) while ``powerful``, ``economy`` and
+    ``sleep`` answer the fan dimension with no ``applies_when`` at all,
+    so a file storing dry / auto and dry / low as one code is the unit
+    ignoring a setting, not a collision. On each dimension the labels
+    differ on, they collide only when some field answering it applies
+    at BOTH labels' coordinates and gives them different expected
+    values, or cannot compute one for either. A dimension no field
+    answers is a collision: the map cannot see it. A dimension whose
+    every field is inapplicable at one of the labels is skipped.
+
+    Provisional fields count, as they do for the key itself (owner
+    ruling 2026-09-30): hiding them hides DAIKIN152's real temperature
+    collisions. The wig-derived frozen-temperature rule stays in the
+    comb: a map trait is the map's word, and a file's behaviour is not.
+    """
+    from .wig_comb import FIELD_COORDINATE  # the comb imports this module
+
+    mode_spec = field_map.field_named("mode")
+    for dimension in LABEL_DIMENSIONS:
+        if first.get(dimension) == second.get(dimension):
+            continue
+        answering = [
+            spec for spec in field_map.fields
+            if (spec.coordinate or FIELD_COORDINATE.get(spec.name))
+            == dimension
+        ]
+        if not answering:
+            return dimension, None
+        for spec in answering:
+            if (field_skip_reason(spec, mode_spec, first) is not None
+                    or field_skip_reason(spec, mode_spec, second) is not None):
+                continue
+            ours = expected_value(spec, first.get(dimension))
+            theirs = expected_value(spec, second.get(dimension))
+            if ours is None or theirs is None or ours != theirs:
+                return dimension, spec.name
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Integrity
 # ---------------------------------------------------------------------------

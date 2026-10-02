@@ -336,6 +336,271 @@ def shape_1128() -> ClimateMatrix:
     )
 
 
+# One state, two waveforms, on a LISTED family. DAIKIN216 built by
+# ``test_read_bytes_identity``'s encoder, with one extra (unit, zero)
+# pulse pair inserted into some codes: the frame then reads one bit over
+# its width, inside the map's ``bits_tolerance``, and ``bits_to_bytes``
+# drops the partial byte, so every frame decodes to the same bytes and
+# the read key is the same while the whole waveform is not. It is the
+# capture-per-cell shape of SmartIR 1128 on a family the index reads.
+#
+# Where the pair sits decides what else sees it. After frame 0's 64 bits
+# (the constant preamble) it is invisible to ``norm_fp`` and to the S/L
+# fingerprint, which a ``SETTING_IDENTITY_VERIFIED`` family computes on
+# its settings frame alone. After the settings frame's 152 bits both of
+# them move, so the two waveforms are two normalized values and two
+# composite keys as well.
+
+
+def extra_pair_code(settings: list[int], where: str) -> str:
+    """A DAIKIN216 code of ``settings`` with one extra pulse pair,
+    ``where`` "preamble" (after frame 0's last bit) or "settings"
+    (after the settings frame's last bit)."""
+    from . import test_read_bytes_identity as d216
+
+    timing = d216.D216.timing
+    pairs = d216._pairs([d216._FRAME0, settings])
+    # header + 64 bits, or everything up to the closing footer pair
+    at = 1 + 64 if where == "preamble" else len(pairs) - 1
+    pairs.insert(at, (timing.unit.nominal, timing.zero.nominal))
+    return d216._pronto(pairs)
+
+
+def _extra_pair_lattice(where: str) -> ClimateMatrix:
+    """cool / low / 18-23, a code each; dry / low / 18-23, one state,
+    the even temperatures as the plain code and the odd ones with the
+    extra pair."""
+    from . import test_read_bytes_identity as d216
+
+    cells: list[ClimateCell] = []
+    for temp in range(18, 24):
+        cells.append(ClimateCell(
+            mode="cool", fan="low", temp=float(temp),
+            pronto=d216._code(d216._settings(temp_byte=2 * temp)),
+        ))
+    dry = d216._settings(mode_power=0x21)
+    for temp in range(18, 24):
+        cells.append(ClimateCell(
+            mode="dry", fan="low", temp=float(temp),
+            pronto=(d216._code(dry) if temp % 2 == 0
+                    else extra_pair_code(dry, where)),
+        ))
+    return _matrix(
+        cells, modes=["cool", "dry"],
+        off=d216._code(d216._settings(mode_power=0x30)),
+    )
+
+
+def shape_extra_pair_settings() -> ClimateMatrix:
+    """Shape F1: the extra pair inside the settings frame."""
+    return _extra_pair_lattice("settings")
+
+
+def shape_extra_pair_preamble() -> ClimateMatrix:
+    """Shape F0: the extra pair after the constant preamble, where only
+    the whole-code discriminator sees it."""
+    return _extra_pair_lattice("preamble")
+
+
+# WHERE THE S/L PATTERN AND THE NORMALIZED FINGERPRINT PART. Two codes
+# of one DAIKIN216 state, one bit-space moved in each, both still read
+# as the same bits:
+#
+# - a zero-space of 800 us is still a zero for the reader (its window
+#   ends at 815 us) and still S for the S/L pattern, but it crosses the
+#   normalized fingerprint's level boundary, so it is another waveform
+#   with the plain code's S/L pattern;
+# - a one-space of 1200 us is still a one, the same level for the
+#   normalized fingerprint and the same quantized whole code, but S on
+#   the S/L threshold of 1273 us, so it is the plain code's waveform
+#   with another S/L pattern.
+#
+# The composite key a press lands on therefore says nothing about which
+# waveform it is, which is what these two lattices are built to show.
+
+
+def sl_variant(
+    zero_us: int | None = None, one_us: int | None = None,
+    preamble: bool = False,
+) -> str:
+    """The DAIKIN216 dry / low state with the settings frame's first
+    zero-space and first one-space moved to these lengths, and with the
+    extra pair in the preamble when asked (the same waveform, another
+    whole code)."""
+    from . import test_read_bytes_identity as d216
+
+    timing = d216.D216.timing
+    pairs = d216._pairs([d216._FRAME0, d216._settings(mode_power=0x21)])
+    first = 1 + 64 + 1 + 1  # frame 0's header, bits and footer; frame 1's header
+    bits = range(first, first + 152)
+    zero_at = next(i for i in bits if pairs[i][1] == timing.zero.nominal)
+    one_at = next(i for i in bits if pairs[i][1] == timing.one.nominal)
+    if zero_us is not None:
+        pairs[zero_at] = (pairs[zero_at][0], zero_us)
+    if one_us is not None:
+        pairs[one_at] = (pairs[one_at][0], one_us)
+    if preamble:
+        pairs.insert(1 + 64, (timing.unit.nominal, timing.zero.nominal))
+    return d216._pronto(pairs)
+
+
+def _dry_lattice(codes: list[str]) -> ClimateMatrix:
+    from . import test_read_bytes_identity as d216
+
+    cells = [
+        ClimateCell(mode="dry", fan="low", temp=float(18 + n), pronto=code)
+        for n, code in enumerate(codes)
+    ]
+    return _matrix(
+        cells, modes=["dry"], min_temp=16.0, max_temp=30.0,
+        off=d216._code(d216._settings(mode_power=0x30)),
+    )
+
+
+def shape_sl_split() -> ClimateMatrix:
+    """dry / low / 18 the plain code, 19 the plain code with the extra
+    pair in the preamble (its waveform, another whole code), 20 and 21
+    the code with both spaces moved. The plain code's composite key
+    holds 18 and 19 and only the bytes half keeps it; a press with the
+    plain S/L pattern and the moved code's waveform was heard as 21."""
+    from . import test_read_bytes_identity as d216
+
+    plain = d216._code(d216._settings(mode_power=0x21))
+    moved = sl_variant(zero_us=800, one_us=1200)
+    return _dry_lattice([
+        plain, extra_pair_code(d216._settings(mode_power=0x21), "preamble"),
+        moved, moved,
+    ])
+
+
+def shape_sl_split_press() -> str:
+    """The press ``shape_sl_split`` is built for: the moved code with
+    its one-space back at 1300 us."""
+    return sl_variant(zero_us=800)
+
+
+def shape_sl_split_two_codes() -> ClimateMatrix:
+    """``shape_sl_split`` with 21 another whole code of 20's waveform,
+    so that every key of that waveform is held back too. Nothing heard
+    ``shape_sl_split_press`` here before; its composite key holds only
+    the plain waveform (18 and 19), while the read key and the
+    normalized key it reaches later both name 21."""
+    return _dry_lattice([
+        sl_variant(), sl_variant(preamble=True),
+        sl_variant(zero_us=800, one_us=1200),
+        sl_variant(zero_us=800, one_us=1200, preamble=True),
+    ])
+
+
+def shape_sl_split_one_code() -> ClimateMatrix:
+    """dry / low / 18 the plain code, 19 the zero-space moved (the
+    plain S/L pattern, another waveform and another whole code), 20 the
+    one-space moved (another S/L pattern, the plain waveform and the
+    plain whole code). A press of 18's own text was heard as 20, the
+    last cell of its waveform; the composite key it lands on, which
+    only the bytes half keeps, holds 18 as that waveform's claimant."""
+    from . import test_read_bytes_identity as d216
+
+    return _dry_lattice([
+        d216._code(d216._settings(mode_power=0x21)),
+        sl_variant(zero_us=800),
+        sl_variant(one_us=1200),
+    ])
+
+
+def extra_pair_after(pronto: str, family: str, frame: int) -> str:
+    """``pronto`` with one extra (unit, zero) pair after the last bit of
+    ``frame``, read with ``family``'s own timing: the same bytes, another
+    waveform, for any map the reader can walk."""
+    from custom_components.hair.event_parser import EventParser
+    from custom_components.hair.field_readers import (
+        library,
+        read_frames_positioned,
+    )
+
+    field_map = next(m for m in library() if m.protocol_id == family)
+    words = pronto.split()
+    timings = EventParser._pronto_us(EventParser._parse_pronto_words(pronto))
+    while timings and timings[-1] == 0:
+        timings.pop()
+    _frames, places, failed = read_frames_positioned(field_map.timing, timings)
+    assert not failed, family
+    at = 4 + 2 * (places[frame][-1] + 1)
+    tick = int(words[1], 16) * 0.241246
+    pair = [
+        f"{round(field_map.timing.unit.nominal / tick):04X}",
+        f"{round(field_map.timing.zero.nominal / tick):04X}",
+    ]
+    count = f"{int(words[2], 16) + 1:04X}"
+    return " ".join([*words[:2], count, words[3], *words[4:at], *pair,
+                     *words[at:]])
+
+
+def shape_mitsubishi144_capture_per_cell() -> ClimateMatrix:
+    """SmartIR 1128's shape on its own family, from the MITSUBISHI144
+    pack: cool / auto / auto at the pack's five temperatures, a code
+    each, and dry / auto / auto / 16-21 one state, the even temperatures
+    as the pack's code and the odd ones with an extra pair after the
+    settings frame. Meant for a test that lists the family."""
+    pack = pack_matrix("MITSUBISHI144.json")
+    cells = [
+        ClimateCell(mode=c.mode, fan=c.fan, swing=c.swing, temp=c.temp,
+                    pronto=c.pronto)
+        for c in pack.cells if (c.mode, c.fan, c.swing) == (
+            "cool", "auto", "auto")
+    ]
+    dry = next(
+        c.pronto for c in pack.cells
+        if (c.mode, c.fan, c.swing, c.temp) == ("dry", "auto", "auto", 16.0)
+    )
+    extra = extra_pair_after(dry, "MITSUBISHI144", 0)
+    for temp in range(16, 22):
+        cells.append(ClimateCell(
+            mode="dry", fan="auto", swing="auto", temp=float(temp),
+            pronto=dry if temp % 2 == 0 else extra,
+        ))
+    return _matrix(cells, modes=["cool", "dry"], off=pack.off)
+
+
+def shape_1128_poisoned() -> ClimateMatrix:
+    """``shape_1128`` with every key of its dry captures poisoned.
+
+    Each dry capture gets a heat cell whose code is that capture plus a
+    second frame of its own: the first frame is all the composite key,
+    the byte hash and the normalized fingerprint of an unlisted family
+    see, so those keys are claimed by two different whole codes and
+    answer nothing. One more heat cell carries the dry payload played
+    slower, which decodes to the dry state's own fingerprint as a
+    different code and poisons the decoded key too. The dry captures
+    are then joined by nothing but their whole code, which is what a
+    merged group was made of before any key could merge one.
+    """
+    matrix = shape_1128()
+    shared = _payload(0xDD)
+    dry = [c for c in matrix.cells if c.mode == "dry"]
+    heat: list[ClimateCell] = []
+    for n, cell in enumerate(dry):
+        second = pulse_code(_payload(0x200 + n)).split()[4:]
+        first = cell.pronto.split()
+        words = first[4:] + second
+        heat.append(ClimateCell(
+            mode="heat", fan="level1", temp=cell.temp,
+            pronto=" ".join(
+                [*first[:2], f"{len(words) // 2:04X}", "0000", *words]
+            ),
+        ))
+    slower = pulse_code(shared).split()
+    heat.append(ClimateCell(
+        mode="heat", fan="level2", temp=16.0,
+        pronto=" ".join(slower[:4] + [
+            f"{round(int(w, 16) * 1.15):04X}" for w in slower[4:]
+        ]),
+    ))
+    matrix.cells.extend(heat)
+    matrix.modes = ["cool", "dry", "heat"]
+    return matrix
+
+
 # ---------------------------------------------------------------------------
 # Pairings, for the golden and for the tests that sweep it
 # ---------------------------------------------------------------------------
@@ -439,6 +704,10 @@ SYNTHESIZED = {
     "synth-1100": shape_1100,
     "synth-1128": shape_1128,
     "synth-duplicate-coordinate": shape_duplicate_coordinate,
+    # Appended after the golden was first written (additions only):
+    # the golden is keyed by source name, so a new source adds rows and
+    # moves none.
+    "synth-extra-pair-settings": shape_extra_pair_settings,
 }
 
 
@@ -560,10 +829,21 @@ class PinnedBench:
             else build_cell_index(device_matrix)
         )
 
-    def hear(self, pronto: str):
+    def hear(self, pronto: str, identities: dict | None = None):
         """The hit the remote's index answers for a press, and its
-        identity, or None when the press is not heard."""
-        identity = press_identity(pronto)
+        identity, or None when the press is not heard.
+
+        ``identities`` is an optional memo of ``press_identity`` by
+        press text, for a caller that hears one press on several
+        benches: the identity is a pure function of the text, and
+        deriving it is the whole cost of a hearing.
+        """
+        if identities is None:
+            identity = press_identity(pronto)
+        else:
+            if pronto not in identities:
+                identities[pronto] = press_identity(pronto)
+            identity = identities[pronto]
         if identity is None:
             return None
         matched = self.remote_index.match(*identity)
@@ -610,4 +890,104 @@ async def golden_rows() -> dict:
             sent_row(await bench.resolve(bench.hear(cell.pronto)))
             for cell in pressed
         ]
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# The capture column: what a pinned device sends for a press off the air
+# ---------------------------------------------------------------------------
+#
+# The file-code golden presses each cell's own file text, and a file code
+# finds its cell through the (fingerprint, byte hash) pair long before
+# the read key or the normalized tier is asked. A real press is not file
+# text: the air moves every edge and a receiver splits a two-frame press
+# at its gap. So this second column presses each cell the way
+# ``test_read_bytes_identity._air`` says a receiver hands it over, whole
+# and split at the map's own gap, for every source where a read key
+# forms. Same benches, same rows.
+
+CAPTURE_GOLDEN = FIXTURES / "merged-group-golden-captures.json"
+
+#: Presses per transmitter per cell. Deterministic: ``_air`` seeds its
+#: generator from the transmitter and the press number.
+CAPTURE_PRESSES = 2
+CAPTURE_TRANSMITTERS = ("esphome", "broadlink")
+
+
+def map_split(pronto: str, gap_us: float) -> list[str]:
+    """A Pronto cut at every space of ``gap_us`` or more, each piece
+    keeping the space that closed it: the captures a receiver that ends
+    a capture at the map's own frame gap hands over for one press."""
+    words = [int(w, 16) for w in pronto.split()]
+    head, body = words[:4], words[4:]
+    tick = words[1] * 0.241246
+    pieces: list[list[int]] = []
+    current: list[int] = []
+    for i in range(0, len(body) - 1, 2):
+        current += [body[i], body[i + 1]]
+        if body[i + 1] * tick >= gap_us:
+            pieces.append(current)
+            current = []
+    if current:
+        pieces.append(current)
+    return [
+        " ".join(f"{w:04X}" for w in [head[0], head[1], len(p) // 2, 0, *p])
+        for p in pieces
+    ]
+
+
+def read_key_gap(matrix: ClimateMatrix) -> float | None:
+    """The ``timing.gap_min`` of the listed family a read key forms for
+    in this lattice, or None when no cell has a read key."""
+    from custom_components.hair.event_parser import EventParser
+    from custom_components.hair.field_readers import library, read_code
+
+    maps = {m.protocol_id: m for m in library()}
+    for cell in matrix.cells:
+        if EventParser.pronto_read_key(cell.pronto) is None:
+            continue
+        family = read_code(cell.pronto).protocol_id
+        if family in maps:
+            return maps[family].timing.gap_min
+    return None
+
+
+def capture_presses(pronto: str, gap_us: float) -> list[str]:
+    """Every capture-shaped press of one code, in a fixed order: per
+    transmitter and press number, the whole press, then its pieces."""
+    from .test_read_bytes_identity import _air
+
+    out: list[str] = []
+    for transmitter in CAPTURE_TRANSMITTERS:
+        for press in range(CAPTURE_PRESSES):
+            heard, _glitched = _air(pronto, press, transmitter)
+            out.append(heard)
+            out.extend(map_split(heard, gap_us))
+    return out
+
+
+async def capture_rows() -> dict:
+    """The capture column: ``{source: {pairing: [row per press]}}``."""
+    gaps = {
+        source: read_key_gap(matrix) for source, matrix in golden_sources()
+    }
+    rows: dict[str, dict[str, list]] = {}
+    identities: dict[str, object] = {}
+    presses: dict[str, list[str]] = {}
+    for source, name, bench, pressed in golden_benches():
+        gap = gaps[source]
+        if gap is None:
+            continue
+        if name == "same":
+            identities.clear()
+            presses.clear()
+        out: list[str | None] = []
+        for cell in pressed:
+            if cell.pronto not in presses:
+                presses[cell.pronto] = capture_presses(cell.pronto, gap)
+            for press in presses[cell.pronto]:
+                out.append(sent_row(
+                    await bench.resolve(bench.hear(press, identities))
+                ))
+        rows.setdefault(source, {})[name] = out
     return rows
