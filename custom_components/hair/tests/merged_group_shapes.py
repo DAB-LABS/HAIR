@@ -770,6 +770,7 @@ SYNTHESIZED = {
     # the golden is keyed by source name, so a new source adds rows and
     # moves none.
     "synth-extra-pair-settings": shape_extra_pair_settings,
+    "synth-mitsubishi144-sl-scope": shape_mitsubishi144_sl_scope,
 }
 
 

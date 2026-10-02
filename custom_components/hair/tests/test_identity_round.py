@@ -776,10 +776,13 @@ class TestTheGroupsFollowTheMerge:
     ):
         """On every field pack, both Komeco wigs and the seven shapes the
         golden was first written from, no read key merges two codes, so
-        the groups are exactly the whole-code groups they always were."""
+        the groups are exactly the whole-code groups they always were.
+        The sources appended to the golden since are left out."""
         sources = [
             (name, matrix) for name, matrix in shapes.golden_sources()
-            if name != "synth-extra-pair-settings"
+            if name not in (
+                "synth-extra-pair-settings", "synth-mitsubishi144-sl-scope",
+            )
         ]
         assert len(sources) == 24
         for name, matrix in sources:
