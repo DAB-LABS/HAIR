@@ -601,6 +601,68 @@ def shape_1128_poisoned() -> ClimateMatrix:
     return matrix
 
 
+def nudge_second_frame_one_space(pronto: str) -> str:
+    """``pronto`` with the first one-space of its second frame moved from
+    0x0030 to 0x002F cycles (1263 us to 1237 us at 38 kHz).
+
+    For MITSUBISHI144 the one-space sits exactly on the S/L threshold
+    (0x30), so the nudge flips that space's S/L class and nothing else:
+    the same bits, the same quantized whole code, another S/L pattern
+    over both frames and the same one over the setting frame."""
+    from custom_components.hair.field_readers import library
+
+    gap = next(
+        m for m in library() if m.protocol_id == "MITSUBISHI144"
+    ).timing.gap_min
+    words = pronto.split()
+    head, body = words[:4], words[4:]
+    tick = int(head[1], 16) * 0.241246
+    gap_at = next(
+        i for i in range(1, len(body), 2) if int(body[i], 16) * tick >= gap
+    )
+    for i in range(gap_at + 4, len(body), 2):
+        if body[i] == "0030":
+            body[i] = "002F"
+            return " ".join(head + body)
+    raise ValueError("no one-space in the second frame")
+
+
+def shape_mitsubishi144_sl_scope() -> ClimateMatrix:
+    """Two captures of one MITSUBISHI144 setting, stored as two cells.
+
+    Four cool cells of the pack, then the pack's dry / 16 code at
+    dry / auto / auto / 16 and the same code with one second-frame
+    one-space nudged across the S/L threshold
+    (``nudge_second_frame_one_space``) at dry / auto / auto / 17: what a
+    file built from captures holds when two presses of one setting
+    differed in a space the threshold splits.
+
+    Unlisted, the S/L fingerprint covers both frames (the 11 ms gap is
+    under the Pronto gap threshold), so each cell owns its composite key
+    and a press of 16's text is heard as 16. Listed, the fingerprint
+    covers the setting frame only, both cells share the composite key
+    with one whole code, and its last claimant answers: 16's text is
+    heard as 17, the same decoded bytes, and a same-file device is sent
+    17's text. That is the documented behaviour across the list change.
+    """
+    pack = pack_matrix("MITSUBISHI144.json")
+    dry = next(
+        c.pronto for c in pack.cells if (c.mode, c.temp) == ("dry", 16.0)
+    )
+    cells = [
+        ClimateCell(mode=c.mode, fan=c.fan, swing=c.swing, temp=c.temp,
+                    pronto=c.pronto)
+        for c in [c for c in pack.cells if c.mode == "cool"][:4]
+    ]
+    cells += [
+        ClimateCell(mode="dry", fan="auto", swing="auto", temp=16.0,
+                    pronto=dry),
+        ClimateCell(mode="dry", fan="auto", swing="auto", temp=17.0,
+                    pronto=nudge_second_frame_one_space(dry)),
+    ]
+    return _matrix(cells, modes=["cool", "dry"], off=pack.off)
+
+
 # ---------------------------------------------------------------------------
 # Pairings, for the golden and for the tests that sweep it
 # ---------------------------------------------------------------------------

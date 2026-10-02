@@ -80,6 +80,19 @@ def store():
     return store
 
 
+@pytest.fixture
+def m144_unlisted():
+    """The identity lists without MITSUBISHI144, as they shipped before
+    it joined. The bench's C1 and C2 are MITSUBISHI144: listed, their
+    captures carry the read key and are answered above the normalized
+    tier, so the tests that are about who may use that tier, on an
+    unlisted family's real captures, run with the family taken off."""
+    from .test_identity_round import _unlisted
+
+    with _unlisted("MITSUBISHI144"):
+        yield
+
+
 def wig_trigger(code: str, name: str, remote_id: str, origin: str = "closet"):
     """A trigger as ws_wig_make_remote mints one: identity from the file."""
     identity = wig_signal_identity(code)
@@ -99,7 +112,7 @@ def wig_trigger(code: str, name: str, remote_id: str, origin: str = "closet"):
 # --- the trigger tier ------------------------------------------------------
 
 
-def test_a_wig_minted_trigger_fires_on_a_real_press(store):
+def test_a_wig_minted_trigger_fires_on_a_real_press(store, m144_unlisted):
     """The failure this exists to fix, on the bench's own captures.
 
     Sixteen ACER triggers sat on a Remote and never fired. The file's
@@ -135,7 +148,7 @@ def test_a_wig_minted_trigger_fires_on_a_real_press(store):
         assert [t.id for t in matched] == [trigger.id], row["first_seen"]
 
 
-def test_the_tier_is_not_reached_without_it(store):
+def test_the_tier_is_not_reached_without_it(store, m144_unlisted):
     """Called the old way, the same press still misses.
 
     The tier is opt-in per call site, so a caller that has not been
@@ -153,7 +166,7 @@ def test_the_tier_is_not_reached_without_it(store):
     ) == []
 
 
-def test_two_file_sourced_triggers_of_one_shape_fire_neither(store):
+def test_two_file_sourced_triggers_of_one_shape_fire_neither(store, m144_unlisted):
     """One press must not run two buttons' automations."""
     remote = TriggerRemote(name="Bench Handset", origin="closet")
     store._trigger_remotes[remote.id] = remote
@@ -174,7 +187,7 @@ def test_two_file_sourced_triggers_of_one_shape_fire_neither(store):
     ) == []
 
 
-def test_a_capture_that_decoded_never_reaches_the_trigger_tier(store):
+def test_a_capture_that_decoded_never_reaches_the_trigger_tier(store, m144_unlisted):
     remote = TriggerRemote(name="Bench Handset", origin="closet")
     store._trigger_remotes[remote.id] = remote
     trigger = wig_trigger(air_code("C1"), "Cool 23", remote.id)
@@ -330,7 +343,7 @@ def adopted_device(code: str, name: str = "Power") -> IRDevice:
     return device
 
 
-def test_a_wig_adopted_command_is_recognized_on_a_real_press(store):
+def test_a_wig_adopted_command_is_recognized_on_a_real_press(store, m144_unlisted):
     """A device adopted from a wig, and the real remote in someone's hand."""
     device = adopted_device(air_code("C1"), name="Cool 23")
     store._data[device.id] = device
@@ -348,7 +361,7 @@ def test_a_wig_adopted_command_is_recognized_on_a_real_press(store):
         ) == ref
 
 
-def test_a_learned_command_is_not_offered_the_tier(store):
+def test_a_learned_command_is_not_offered_the_tier(store, m144_unlisted):
     """The same code on a device nobody adopted from a file."""
     device = adopted_device(air_code("C1"), name="Cool 23")
     device.source_wig_id = None
@@ -363,7 +376,7 @@ def test_a_learned_command_is_not_offered_the_tier(store):
     ) is None
 
 
-def test_two_file_commands_of_one_shape_match_neither(store):
+def test_two_file_commands_of_one_shape_match_neither(store, m144_unlisted):
     device = adopted_device(air_code("C1"), name="Cool 23")
     twin = adopted_device(stretched(air_code("C1")), name="Cool 23 (twin)")
     device.commands.append(twin.commands[0])
@@ -423,7 +436,7 @@ def test_a_learned_trigger_binds_to_nothing_through_the_tier(store):
 # --- the guards ------------------------------------------------------------
 
 
-def test_a_receiver_learned_trigger_never_matches_on_the_tier_alone(store):
+def test_a_receiver_learned_trigger_never_matches_on_the_tier_alone(store, m144_unlisted):
     """The v0.5.8 lesson, restated as a rule with teeth.
 
     The same code, the same capture, the same normalized value -- and no

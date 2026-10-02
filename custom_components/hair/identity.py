@@ -547,6 +547,7 @@ def _level_labels(values: list[float]) -> list[int]:
 #   PANASONIC216  setting_frames [1]     11 files                        0
 #   TCL112        setting_frames [1, 0]  14 files                        0
 #   DAIKIN152     setting_frames [3]     8 files                        14
+#   MITSUBISHI144 setting_frames [0]     19 files (2026-10-02)          0
 #
 # TCL112 is the case the key was added for: on ``payload_frame`` alone
 # it had 692 colliding identities, because its fan speed rides in frame
@@ -572,7 +573,7 @@ def _level_labels(values: list[float]) -> list[int]:
 # once they record which families are verified this constant moves into
 # them.
 SETTING_IDENTITY_VERIFIED = frozenset({
-    "DAIKIN216", "PANASONIC216", "TCL112", "DAIKIN152",
+    "DAIKIN216", "PANASONIC216", "TCL112", "DAIKIN152", "MITSUBISHI144",
 })
 
 
@@ -623,6 +624,14 @@ def setting_identity_families() -> tuple[str, ...]:
 #                                      (dry and fan_only ignore the
 #                                      temperature), and 1108's known
 #                                      cool/heat mislabel         in
+#   MITSUBISHI144 19 files (2026-10-02, no two labels share a key but
+#                 on the measurement   where the file stores one code
+#                 pass's map)          under several labels (dry,
+#                                      fan_only and ifeel ignore the
+#                                      temperature), 8 single readings
+#                                      filed under two labels, and two
+#                                      1129 codes that differ only in
+#                                      byte 9 bits 6-7            in
 #   PANASONIC216  11 files             swing unmapped (1030), quiet
 #                                      beside fan (1032)         out
 #   TCL112        14 files             turbo beside fan, Fahrenheit
@@ -630,7 +639,7 @@ def setting_identity_families() -> tuple[str, ...]:
 #
 # PANASONIC216 and TCL112 keep setting-frame identity until their maps
 # grow.
-READ_BYTES_VERIFIED = frozenset({"DAIKIN216", "DAIKIN152"})
+READ_BYTES_VERIFIED = frozenset({"DAIKIN216", "DAIKIN152", "MITSUBISHI144"})
 
 
 def read_bytes_families() -> tuple[str, ...]:

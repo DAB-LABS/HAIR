@@ -22,8 +22,10 @@ things wrong and one thing missing:
 - **Bit 4 of byte 7 was unread.** Fahrenheit states 61 and 62 differ
   only there. ``temperature_fahrenheit`` reads it, so they key apart.
 
-MITSUBISHI144 does NOT join the read-bytes list in this round; the
-pins at the end say what blocks it.
+MITSUBISHI144 did not join the identity lists in that round, because
+the cell index of the time refused a read key two cell keys share. It
+has since joined both; the pins at the end say what it is now, and
+what the former blocker became.
 
 Every code here is synthetic, built by a test-local encoder from the
 map's own timing nominals. Nothing from the corpus is in this file.
@@ -35,7 +37,6 @@ from collections import defaultdict
 
 import pytest
 
-import custom_components.hair.identity as idm
 from custom_components.hair import field_readers as fr
 from custom_components.hair import wig_comb
 from custom_components.hair.event_parser import EventParser
@@ -44,6 +45,7 @@ from custom_components.hair.identity import (
     SETTING_IDENTITY_VERIFIED,
     read_bytes_key,
 )
+from custom_components.hair.matrix_listener import build_cell_index
 from custom_components.hair.wig_format import ClimateCell, ClimateMatrix, Wig, cell_key
 
 MAPS = {m.protocol_id: m for m in fr.library()}
@@ -364,40 +366,68 @@ class TestTheCombReadsWhatTheLabelsSay:
 
 
 # ---------------------------------------------------------------------------
-# The list, and what keeps the family off it
+# The lists, and what the former blocker became
 # ---------------------------------------------------------------------------
 
 
-class TestNotOnTheListYet:
+class TestOnBothLists:
 
-    def test_it_is_on_neither_list(self):
-        assert "MITSUBISHI144" not in READ_BYTES_VERIFIED
-        assert "MITSUBISHI144" not in SETTING_IDENTITY_VERIFIED
+    def test_it_is_on_both_lists(self):
+        assert "MITSUBISHI144" in READ_BYTES_VERIFIED
+        assert "MITSUBISHI144" in SETTING_IDENTITY_VERIFIED
 
-    def test_so_its_byte_hash_is_still_the_timing_hash(self):
+    def test_so_its_byte_hash_is_the_read_key_not_the_timing_hash(self):
+        from .test_identity_round import _unlisted
+
         code = _pronto(_frame())
-        assert EventParser.pronto_read_key(code) is None
+        key = EventParser.pronto_read_key(code)
+        assert key is not None
+        assert EventParser.pronto_byte_hash(code) == key
+        with _unlisted("MITSUBISHI144"):
+            timing = EventParser.pronto_byte_hash(code)
+            assert EventParser.pronto_read_key(code) is None
+        assert timing is not None and timing != key
 
-    def test_the_blocker_a_frozen_mode_is_one_press_under_many_labels(
-            self, monkeypatch):
-        """Why it does not join. dry, fan_only and ifeel carry no setpoint,
-        so a remote sends one reading for every labelled temperature there,
-        and the files store that one reading under every temperature label
-        of the mode (347 of the 357 read-key collisions the pass counted on
-        the family's files are exactly this). The read key is then shared
-        by cells with different keys, which the index refuses and the
-        distinctness sweep counts as a collision, so on the list every dry
-        press would name nothing.
-        Pinned so the engine round that teaches both about applies_when
-        sees this flip."""
-        monkeypatch.setattr(
-            idm, "READ_BYTES_VERIFIED",
-            frozenset({*READ_BYTES_VERIFIED, "MITSUBISHI144"}))
+    def test_the_former_blocker_a_frozen_mode_is_one_press_under_many_labels(
+            self):
+        """Why it did not join at first. dry, fan_only and ifeel carry no
+        setpoint, so a remote sends one reading for every labelled
+        temperature there, and the files store that one reading under
+        every temperature label of the mode (347 of the 357 read-key
+        collisions the pass counted on the family's files are exactly
+        this). The read key is shared by cells with different keys, which
+        the index of the time refused, so on the list every dry press
+        would have named nothing.
+
+        It is still one key under three labels. The index now answers it
+        as the merged group: the press is heard, carries every member,
+        and is named for what it pins down. ``test_mitsubishi144_joins``
+        pins the same end to end on the field pack and on fan_only."""
         by_key: dict[str | None, set[str]] = defaultdict(set)
+        cells = []
         for temp in (18, 24, 30):
             cell = ClimateCell(mode="dry", fan="low", swing="auto",
                                temp=float(temp),
                                pronto=_pronto(_frame("dry", 24, "low")))
+            cells.append(cell)
             by_key[EventParser.pronto_read_key(cell.pronto)].add(cell_key(cell))
         assert None not in by_key
         assert [len(v) for v in by_key.values()] == [3]
+
+        cells.append(ClimateCell(mode="cool", fan="low", swing="auto",
+                                 temp=24.0,
+                                 pronto=_pronto(_frame("cool", 24, "low"))))
+        matrix = ClimateMatrix(
+            min_temp=16.0, max_temp=31.0, precision=1.0,
+            modes=["cool", "dry"], fan_modes=["low"], swing_modes=["auto"],
+            off=None, cells=cells,
+        )
+        from .merged_group_shapes import press_identity
+
+        index = build_cell_index(matrix)
+        hit, _tier = index.match(*press_identity(cells[0].pronto))
+        assert hit.spanned == (("temp", (18.0, 24.0, 30.0)),)
+        assert set(hit.members) == {
+            ("dry", "low", "auto", float(t)) for t in (18, 24, 30)
+        }
+        assert hit.cell_name == "dry / fan: low / swing: auto / 18|24|30"

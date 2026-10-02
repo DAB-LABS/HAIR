@@ -167,9 +167,10 @@ class TestTCL112KeepsItsFanSpeed:
 
 class TestTheAllowlist:
 
-    def test_it_is_the_four_families_measured_clean(self):
+    def test_it_is_the_five_families_measured_clean(self):
         assert set(SETTING_IDENTITY_VERIFIED) == {
             "DAIKIN216", "PANASONIC216", "TCL112", "DAIKIN152",
+            "MITSUBISHI144",
         }
 
     def test_gree_is_not_on_it(self):
@@ -180,7 +181,9 @@ class TestTheAllowlist:
         assert MAPS["GREE"].setting_frames == [0, 1]
 
     @pytest.mark.parametrize(
-        "name", ["DAIKIN216", "PANASONIC216", "TCL112", "DAIKIN152"])
+        "name",
+        ["DAIKIN216", "PANASONIC216", "TCL112", "DAIKIN152", "MITSUBISHI144"],
+    )
     def test_an_allowlisted_family_reads_its_setting_frames(self, name):
         matrix = _pack_matrix(f"{name}.json")
         raw = ProntoCommand(matrix.cells[0].pronto).get_raw_timings()

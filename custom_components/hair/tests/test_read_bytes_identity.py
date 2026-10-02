@@ -24,6 +24,7 @@ either family: ``test_daikin152_joins`` pins that half.
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import json as _json
 import random
 
@@ -31,7 +32,7 @@ import pytest
 
 import custom_components.hair.identity as idm
 from custom_components.hair.event_parser import EventParser
-from custom_components.hair.field_readers import library, read_code
+from custom_components.hair.field_readers import labels_collide, library, read_code
 from custom_components.hair.identity import (
     READ_BYTES_VERIFIED,
     SETTING_IDENTITY_VERIFIED,
@@ -176,8 +177,10 @@ def _air(code: str, press: int, transmitter: str) -> tuple[str, bool]:
 
 class TestTheList:
 
-    def test_the_two_daikin_families(self):
-        assert frozenset({"DAIKIN216", "DAIKIN152"}) == READ_BYTES_VERIFIED
+    def test_the_two_daikin_families_and_mitsubishi144(self):
+        assert frozenset({"DAIKIN216", "DAIKIN152", "MITSUBISHI144"}) == (
+            READ_BYTES_VERIFIED
+        )
 
     def test_it_is_inside_the_setting_frame_list(self):
         assert READ_BYTES_VERIFIED <= SETTING_IDENTITY_VERIFIED
@@ -198,11 +201,36 @@ class TestTheList:
 # ---------------------------------------------------------------------------
 
 
+def _frozen_modes(family: str) -> set[str]:
+    """The modes whose map trait freezes a dimension: a temperature the
+    unit ignores, or a fan the mode forces. A file stores one code under
+    every label of such a dimension."""
+    traits = MAPS[family].field_named("mode").mode_traits
+    return {
+        mode for mode, trait in traits.items()
+        if trait.get("temp") == "invariant" or trait.get("fan") == "forced"
+    }
+
+
+def _labels(cell) -> dict:
+    return {"mode": cell.mode, "fan": cell.fan, "swing": cell.swing,
+            "temp": cell.temp, "power": "on"}
+
+
 class TestTheDistinctnessSweep:
     """A family joins only when no two of its states share a key. This
     re-runs the sweep on every listed family's field pack, so a map
     edit that stops reading a setting its files vary fails here. The
     full sweep over each family's derivation sources is in the report.
+
+    "Two states" is not "two labels" where the map freezes a dimension:
+    MITSUBISHI144's dry ignores the temperature, so its pack stores one
+    dry code under every temperature label, and those cells are one
+    setting. A key two cells share passes only when every cell under it
+    is in a mode the map freezes AND the map calls every pair of their
+    labels one setting (``field_readers.labels_collide``). A family
+    with no frozen mode, DAIKIN216, therefore shares no key at all,
+    exactly the cell-keyed check it always had.
     """
 
     @pytest.mark.parametrize("family", sorted(READ_BYTES_VERIFIED))
@@ -210,16 +238,52 @@ class TestTheDistinctnessSweep:
         pack = PACKS / f"{family}.json"
         assert pack.is_file(), f"{family} is listed but has no field pack"
         matrix = _pack_matrix(f"{family}.json")
-        by_key: dict[str, set[str]] = {}
+        by_key: dict[str, list] = {}
         for cell in matrix.cells:
             key = EventParser.pronto_read_key(cell.pronto)
             assert key is not None, cell_key(cell)
-            by_key.setdefault(key, set()).add(cell_key(cell))
-        shared = {k: v for k, v in by_key.items() if len(v) > 1}
+            by_key.setdefault(key, []).append(cell)
+        frozen = _frozen_modes(family)
+        shared = {}
+        for key, cells in by_key.items():
+            labels = {cell_key(c) for c in cells}
+            if len(labels) < 2:
+                continue
+            if any(c.mode not in frozen for c in cells) or any(
+                labels_collide(MAPS[family], _labels(a), _labels(b))
+                for a, b in itertools.combinations(cells, 2)
+            ):
+                shared[key] = labels
         assert shared == {}
+
+    def test_daikin216_has_no_frozen_mode(self):
+        """So its sweep above is the strict one: no key shared at all."""
+        assert _frozen_modes("DAIKIN216") == set()
+
+    def test_a_frozen_mode_shares_keys_only_where_the_map_says_so(self):
+        """The rule bites: MITSUBISHI144's dry cells do share keys (one
+        code per swing and fan across every temperature), and a cool
+        code copied to another temperature is still a collision."""
+        matrix = _pack_matrix("MITSUBISHI144.json")
+        dry = [c for c in matrix.cells if c.mode == "dry"]
+        keys = {EventParser.pronto_read_key(c.pronto) for c in dry}
+        assert len(keys) < len(dry)
+        cool = [c for c in matrix.cells if c.mode == "cool"]
+        first, second = cool[0], next(
+            c for c in cool
+            if (c.fan, c.swing) == (cool[0].fan, cool[0].swing)
+            and c.temp != cool[0].temp
+        )
+        assert "cool" not in _frozen_modes("MITSUBISHI144")
+        assert labels_collide(
+            MAPS["MITSUBISHI144"], _labels(first), _labels(second)
+        ) == ("temp", "temperature")
 
     @pytest.mark.parametrize("family", sorted(READ_BYTES_VERIFIED))
     def test_the_power_codes_have_keys_of_their_own(self, family):
+        """The MITSUBISHI144 pack has no power codes, so its case passes
+        without testing anything; ``test_mitsubishi144_joins`` builds
+        an Off with the measurement pass's encoder instead."""
         matrix = _pack_matrix(f"{family}.json")
         cells = {EventParser.pronto_read_key(c.pronto) for c in matrix.cells}
         for code in (matrix.off, matrix.on):

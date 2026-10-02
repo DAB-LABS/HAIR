@@ -13,8 +13,11 @@ at its gap found its state only for a Daikin.
 The first is fixed here for every listed family: two claimants with the
 same decoded bytes in the same mode of the same lattice merge, a key
 remembers which claimant each waveform is, and the merged groups follow
-the merge. The second is built and pinned under a patched list: on the
-shipped lists no family reaches it, so it changes nothing yet.
+the merge. The second was built and pinned under a patched list, since
+no family on the lists of the time reached it; MITSUBISHI144 has since
+joined both lists, so those pins run on the real lists, and the ones
+that say what an unlisted family sees run with it taken off again
+(``_unlisted``).
 
 Every listed shape here is DAIKIN216 from ``test_read_bytes_identity``'s
 encoder, with one extra (unit, zero) pulse pair that reads one bit over
@@ -89,10 +92,40 @@ def _listed(*families: str):
         idm.norm_fingerprint_of_code.cache_clear()
 
 
-@pytest.fixture
-def m144_listed():
-    with _listed("MITSUBISHI144"):
+@contextlib.contextmanager
+def _unlisted(*families: str):
+    """Both identity lists with ``families`` taken off, as they were
+    before those families joined: the inverse of ``_listed``, clearing
+    the same cache the same way."""
+    saved = (idm.READ_BYTES_VERIFIED, idm.SETTING_IDENTITY_VERIFIED)
+    idm.norm_fingerprint_of_code.cache_clear()
+    try:
+        idm.READ_BYTES_VERIFIED = frozenset(saved[0] - set(families))
+        idm.SETTING_IDENTITY_VERIFIED = frozenset(saved[1] - set(families))
+        idm.norm_fingerprint_of_code.cache_clear()
         yield
+    finally:
+        idm.READ_BYTES_VERIFIED, idm.SETTING_IDENTITY_VERIFIED = saved
+        idm.norm_fingerprint_of_code.cache_clear()
+
+
+#: The lists as they ship. A test that patches them must put them back.
+_SHIPPED = (idm.READ_BYTES_VERIFIED, idm.SETTING_IDENTITY_VERIFIED)
+
+
+@pytest.fixture(autouse=True)
+def _the_lists_are_the_shipped_ones():
+    """Nothing leaks between tests: every test here starts and ends on
+    the lists as they ship, whatever it patched in between."""
+    assert (idm.READ_BYTES_VERIFIED, idm.SETTING_IDENTITY_VERIFIED) == _SHIPPED
+    yield
+    assert (idm.READ_BYTES_VERIFIED, idm.SETTING_IDENTITY_VERIFIED) == _SHIPPED
+
+
+def test_mitsubishi144_is_on_the_shipped_lists():
+    """So every pin below that names it runs on the real lists."""
+    assert "MITSUBISHI144" in idm.READ_BYTES_VERIFIED
+    assert "MITSUBISHI144" in idm.SETTING_IDENTITY_VERIFIED
 
 
 def _lattice(cells, extras=None) -> ClimateMatrix:
@@ -454,20 +487,19 @@ class TestExactWaveformWins:
         auto / 16-21, the pack's code on the even temperatures and the
         extra pair on the odd ones. A lone second frame is the same
         waveform in both, and is heard as the plain cell, as before."""
-        with _listed("MITSUBISHI144"):
-            matrix = shapes.shape_mitsubishi144_capture_per_cell()
-            index = build_cell_index(matrix)
-            before = {"plain": "dry/auto/auto/20", "extra": "dry/auto/auto/21"}
-            ((tier, _key), claimants), = index.by_waveform.items()
-            assert tier == "bytehash"
-            assert {h.cell_key for h in claimants.values()} == set(
-                before.values()
-            )
-            self._check(index, matrix, "MITSUBISHI144")
-            restored = _payload_to_index(json.loads(json.dumps(
-                _index_to_payload(index, "h", "C")
-            )))
-            self._check(restored, matrix, "MITSUBISHI144")
+        matrix = shapes.shape_mitsubishi144_capture_per_cell()
+        index = build_cell_index(matrix)
+        before = {"plain": "dry/auto/auto/20", "extra": "dry/auto/auto/21"}
+        ((tier, _key), claimants), = index.by_waveform.items()
+        assert tier == "bytehash"
+        assert {h.cell_key for h in claimants.values()} == set(
+            before.values()
+        )
+        self._check(index, matrix, "MITSUBISHI144")
+        restored = _payload_to_index(json.loads(json.dumps(
+            _index_to_payload(index, "h", "C")
+        )))
+        self._check(restored, matrix, "MITSUBISHI144")
 
     @pytest.mark.asyncio
     async def test_a_pinned_device_is_sent_the_text_of_the_cell_heard(self):
@@ -803,7 +835,13 @@ def test_every_comb_receipt_is_unchanged():
     ``field_readers.field_skip_reason`` for the sweep to share. Every
     field pack, clean and with its defects, and both Komeco wigs comb
     exactly as before: the digest of their 32 receipts at the commit
-    before the move."""
+    before the move was 6a5d89794b43d08d.
+
+    The MITSUBISHI144 measurement pass then moved that family's two
+    receipts and nothing else: their findings are the same 49 and 54,
+    and only their coverage changed, which now counts the new
+    provisional ``temperature_fahrenheit`` field. The other 30 receipts
+    hash as they did before the pass."""
     from custom_components.hair import wig_comb
     from custom_components.hair.wig_format import parse_wig
 
@@ -826,10 +864,33 @@ def test_every_comb_receipt_is_unchanged():
             default=str,
         )
     assert len(rendered) == 32
-    digest = hashlib.sha256(
-        "".join(rendered[k] for k in sorted(rendered)).encode()
-    ).hexdigest()[:16]
-    assert digest == "6a5d89794b43d08d"
+
+    def digest(names) -> str:
+        return hashlib.sha256(
+            "".join(rendered[k] for k in sorted(names)).encode()
+        ).hexdigest()[:16]
+
+    assert digest(rendered) == "cd8630f9d2d87314"
+    family = {"MITSUBISHI144.json", "MITSUBISHI144.defects.json"}
+    assert digest(set(rendered) - family) == "0cc567881d850667"
+    assert {name: digest([name]) for name in family} == {
+        "MITSUBISHI144.json": "def0f161e2396527",
+        "MITSUBISHI144.defects.json": "ab02044a47eb0a73",
+    }
+    # The findings as they were before the pass, digested the same way.
+    before = {
+        "MITSUBISHI144.json": (49, "3f1d6a6cec202bf6"),
+        "MITSUBISHI144.defects.json": (54, "0967b72e0c59589d"),
+    }
+    for name in family:
+        findings, coverage = json.loads(rendered[name])
+        assert (len(findings), hashlib.sha256(
+            json.dumps(findings, sort_keys=True).encode()
+        ).hexdigest()[:16]) == before[name]
+        assert coverage["fields"]["temperature_fahrenheit"] == {
+            "checked": 0,
+            "declined": {"field-provisional": 240, "no-coordinate": 1},
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -869,7 +930,7 @@ class TestTheSweep:
     def test_the_listed_packs_share_no_key(self, family):
         assert _shared_keys(family, _pack_matrix(f"{family}.json")) == {}
 
-    def test_the_mitsubishi144_pack_shares_no_key(self, m144_listed):
+    def test_the_mitsubishi144_pack_shares_no_key(self):
         matrix = _pack_matrix("MITSUBISHI144.json")
         assert _shared_keys("MITSUBISHI144", matrix) == {}
 
@@ -988,23 +1049,51 @@ class TestALoneFrame:
         assert not MAPS["DAIKIN152"].timing.header_mark.holds(2236)
         assert idm.read_bytes_hash(timings) is None
 
-    def test_on_the_shipped_lists_nothing_changes(self):
-        """No shipped family reaches answer 3: both are in the shared
-        group. Every fourth cell of every field pack, whole and split at
-        its map's gap, hashes as it did."""
+    def test_on_the_lists_without_mitsubishi144_nothing_changes(self):
+        """A2 is inert for an unlisted family. With MITSUBISHI144 taken
+        off the lists, as they shipped before it joined, no family
+        reaches answer 3 (both Daikins are in the shared group): every
+        fourth cell of every field pack, whole and split at its map's
+        gap, hashes as it did."""
+        with _unlisted("MITSUBISHI144"):
+            for family, field_map in MAPS.items():
+                path = FIXTURES / "field-packs" / f"{family}.json"
+                if not path.is_file():
+                    continue
+                for cell in _pack_matrix(path.name).cells[::4]:
+                    for code in [cell.pronto, *shapes.map_split(
+                            cell.pronto, field_map.timing.gap_min)]:
+                        timings = _us(code)
+                        assert idm.read_bytes_hash(timings) == (
+                            _without_answer_3(timings)
+                        ), (family, cell_key(cell))
+
+    def test_on_the_shipped_lists_only_mitsubishi144s_lone_frames_move(self):
+        """Listed, answer 3 keys MITSUBISHI144's lone frames, each with
+        its whole press's key, and nothing else: every other pack's
+        codes and pieces, and every whole MITSUBISHI144 code, hash as
+        they would without it."""
+        moved = 0
         for family, field_map in MAPS.items():
             path = FIXTURES / "field-packs" / f"{family}.json"
             if not path.is_file():
                 continue
             for cell in _pack_matrix(path.name).cells[::4]:
-                for code in [cell.pronto, *shapes.map_split(
-                        cell.pronto, field_map.timing.gap_min)]:
-                    timings = _us(code)
-                    assert idm.read_bytes_hash(timings) == (
-                        _without_answer_3(timings)
-                    ), (family, cell_key(cell))
+                whole = _us(cell.pronto)
+                assert idm.read_bytes_hash(whole) == _without_answer_3(whole)
+                pieces = shapes.map_split(
+                    cell.pronto, field_map.timing.gap_min)
+                for piece in pieces if len(pieces) > 1 else ():
+                    timings = _us(piece)
+                    got = idm.read_bytes_hash(timings)
+                    if got == _without_answer_3(timings):
+                        continue
+                    assert family == "MITSUBISHI144", (family, cell_key(cell))
+                    assert got == _read_key(cell.pronto)
+                    moved += 1
+        assert moved > 0
 
-    def test_the_air_path_rows_form_the_file_cells_key(self, m144_listed):
+    def test_the_air_path_rows_form_the_file_cells_key(self):
         """The bench's own captures: lone frames of two MITSUBISHI144
         cells through two receivers, and the two injected rows. The four
         Broadlink rows of C2 that read as nothing stay nothing."""
@@ -1026,9 +1115,7 @@ class TestALoneFrame:
                 formed += 1
         assert (formed, nothing) == (42, 4)
 
-    def test_each_half_of_a_flipper_press_forms_the_whole_press_key(
-        self, m144_listed,
-    ):
+    def test_each_half_of_a_flipper_press_forms_the_whole_press_key(self):
         gap = MAPS["MITSUBISHI144"].timing.gap_min
         presses = _flipper_presses()
         assert {"POWER", "Off"} <= set(presses)
@@ -1044,7 +1131,7 @@ class TestALoneFrame:
                 assert EventParser.pronto_read_key(half) == whole, name
                 assert _without_answer_3(_us(half)) is None
 
-    def test_no_lone_frame_of_the_pack_forms_a_wrong_key(self, m144_listed):
+    def test_no_lone_frame_of_the_pack_forms_a_wrong_key(self):
         gap = MAPS["MITSUBISHI144"].timing.gap_min
         right = 0
         for cell in _pack_matrix("MITSUBISHI144.json").cells[::6]:
@@ -1058,7 +1145,7 @@ class TestALoneFrame:
                         right += key == whole
         assert right > 0
 
-    def test_a_frame_two_maps_claim_names_neither(self, m144_listed):
+    def test_a_frame_two_maps_claim_names_neither(self):
         """Answer 3 needs the verdict to name the family alone. A frame
         a second family also claimed would name neither; the Daikin
         settings frame is the one such frame the shared rule covers."""
@@ -1082,7 +1169,7 @@ class TestALoneFrame:
         assert len(idm.lone_frame_candidates(_us(lone))) == 2
         assert EventParser.pronto_read_key(lone) == _read_key(daikin.pronto)
 
-    def test_a_frame_failing_a_ratified_rule_forms_no_key(self, m144_listed):
+    def test_a_frame_failing_a_ratified_rule_forms_no_key(self):
         """One payload bit flipped, the checksum left as it was."""
         cell = _pack_matrix("MITSUBISHI144.json").cells[0]
         piece = shapes.map_split(
@@ -1117,9 +1204,7 @@ class TestALoneFrame:
         frame = fr.read_code(cell.pronto).frames[1]
         assert idm.read_bytes_key(field_map, [frame, ()]) is None
 
-    def test_identify_lone_frame_still_names_mitsubishi144_alone(
-        self, m144_listed,
-    ):
+    def test_identify_lone_frame_still_names_mitsubishi144_alone(self):
         cell = _pack_matrix("MITSUBISHI144.json").cells[0]
         for piece in shapes.map_split(
                 cell.pronto, MAPS["MITSUBISHI144"].timing.gap_min):
@@ -1180,23 +1265,25 @@ def _one_press() -> tuple[str, list[str]]:
 
 class TestTriggersAndKnownCommands:
 
-    def test_a_whole_press_trigger_fires_on_a_lone_frame(self, m144_listed):
+    def test_a_whole_press_trigger_fires_on_a_lone_frame(self):
         whole, frames = _one_press()
         trigger = _learned(whole, "Cool", "r1")
         assert all(_fires(trigger, frame) for frame in frames)
 
-    def test_a_lone_frame_trigger_fires_on_the_whole_press(self, m144_listed):
+    def test_a_lone_frame_trigger_fires_on_the_whole_press(self):
         whole, frames = _one_press()
         trigger = _learned(frames[1], "Cool", "r1")
         assert _fires(trigger, whole)
         assert _fires(trigger, frames[0])
 
-    def test_on_the_shipped_lists_a_lone_frame_fires_nothing(self):
-        whole, frames = _one_press()
-        trigger = _learned(whole, "Cool", "r1")
-        assert not any(_fires(trigger, frame) for frame in frames)
+    def test_unlisted_a_lone_frame_fires_nothing(self):
+        """As the lists shipped before MITSUBISHI144 joined."""
+        with _unlisted("MITSUBISHI144"):
+            whole, frames = _one_press()
+            trigger = _learned(whole, "Cool", "r1")
+            assert not any(_fires(trigger, frame) for frame in frames)
 
-    def test_the_second_frame_of_one_press_fires_once(self, m144_listed):
+    def test_the_second_frame_of_one_press_fires_once(self):
         from unittest.mock import MagicMock
 
         from custom_components.hair.models import TriggerRemote
@@ -1233,7 +1320,7 @@ class TestTriggersAndKnownCommands:
         from custom_components.hair.models import CaptureResult, IRDevice
         from custom_components.hair.storage import HAIRStore
 
-        with _listed("MITSUBISHI144") if listed else contextlib.nullcontext():
+        with contextlib.nullcontext() if listed else _unlisted("MITSUBISHI144"):
             whole, frames = _one_press()
             signal = _signal(whole)
             device = IRDevice(name="Learned")
