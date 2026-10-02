@@ -34,12 +34,16 @@ integrity:
   - type: checksum_sum
     description: "Byte 17 is the sum of bytes 0..16, mod 256."
     params: {frame: 0, range: [0, 16], target_byte: 17, mod: 256, offset: 0}
-    verified_on: "13501/13501 cells across 19 files (every file 100%)"
+    verified_on: "12596/12597 codes across 19 distinct files, every file 100% of what
+      it can judge; the one unjudged code (1137.json) has a 143-bit first frame, so
+      byte 17 is missing (measurement pass 2026-09-30, s8_agreement.py)"
     confidence: ratified
   - type: frame_repeat
     description: "Frame 1 is byte-identical to frame 0."
     params: {frame: 1, equals: 0}
-    verified_on: "13464/13529 cells across 19 files (99.52%)"
+    verified_on: "12592/12597 codes across 19 distinct files (99.96%): one failure each
+      in 1124.json, 1137.json and 1139.json, and two lone frames in 1141.json that
+      have no frame 1 (measurement pass 2026-09-30, s8_agreement.py)"
     confidence: ratified
 
 fields:
@@ -52,50 +56,84 @@ fields:
       name: linear
       params: {offset: -16, round: floor}
     applies_when:
-      not_in: {mode: [dry, fan_only]}
+      # The Fahrenheit labels (61..88) are read by temperature_fahrenheit below;
+      # judged here they would read as C + 45 and fail on every cell.
+      not_in: {mode: [dry, fan_only, ifeel],
+               temp: [61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74,
+                      75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88]}
     confidence: ratified
     domain: "T in 16..31 C"
     vocabulary: {}
     agreement:
-      pass: 7232
-      checked: 7395
-      rate: "97.80%"
-      files_at_100: "10/18"
+      pass: 6446
+      checked: 6496
+      rate: "99.23% (measurement pass 2026-09-30; 92.13%, 6453/7004, on the map before
+        it, when the Fahrenheit labels and ifeel were judged here)"
+      files_at_100: "12/17"
       disagreeing_files:
-        - "6668.json (Mitsubishi Electric, litinoveweedle only): 24/32"
-        - "1129.json (Mitsubishi Electric): 1977/2016, spread thinly across a 2689-cell file"
+        - "6668.json (Mitsubishi Electric, litinoveweedle only): 24/32. A file defect:
+           per mode, the low nibble misses on 4 of the 16 labels (20..23) and bit 4, a
+           half degree no Celsius label has, is set on 8 more (16..18, 24..28). A
+           hypothesis, not a finding: the cool and heat columns were captured with the
+           remote set to Fahrenheit and labelled 16..31 C. It is consistent (every byte
+           is in the Fahrenheit table, and the labels it implies, 62..88 F, rise
+           strictly with the file's labels) but weak evidence, since the table holds
+           28 of the 32 five-bit values."
+        - "1129.json (Mitsubishi Electric): 1974/2013, spread thinly across a
+           2686-code file, 32 cells one degree high and 7 two degrees high"
         - "1120.json, 1124.json, 1136.json: one cell each"
 
   - name: mode
     frame: 0
     byte: 6
-    bits: "mask:0x1F"
-    encoding: "5-bit enum at byte 6. Values are spaced 8 apart, so bits 3-4 carry it in practice."
+    bits: "mask:0x3F"
+    encoding: "3-bit enum in bits 3-5 of byte 6 (heat 1, dry 2, cool 3, auto 4, fan 7),
+      read with bits 0-2, which are 0 in every cell of every file. Bit 6 is not mode."
     encoding_ref:
       name: enum_byte
       params:
-        vocabulary: {auto: 0x00, heat_cool: 0x00, ifeel: 0x00, heat: 0x08, dry: 0x10,
-                     cool: 0x18, fan_only: 0x18}
+        vocabulary: {auto: 0x20, heat_cool: 0x20, ifeel: 0x00, heat: 0x08, dry: 0x10,
+                     cool: 0x18, fan_only: 0x38}
     confidence: ratified
-    vocabulary: {auto: 0x00, heat_cool: 0x00, ifeel: 0x00, heat: 0x08, dry: 0x10,
-                 cool: 0x18, fan_only: 0x18}
+    vocabulary: {auto: 0x20, heat_cool: 0x20, ifeel: 0x00, heat: 0x08, dry: 0x10,
+                 cool: 0x18, fan_only: 0x38}
     vocabulary_notes:
-      - "fan_only shares cool's 0x18 in the files that ship it, distinguished elsewhere
-         in the frame; that collision is a fact about the data, not a merge."
+      - "Measurement pass 2026-09-30: the earlier mask 0x1F dropped bit 5, so fan_only
+         (0x38) read as cool (0x18) and auto (0x20) as 0x00. The two pairs are
+         different presses in every file that ships both (fan_only in 12 files, auto in
+         3), and on the read-bytes key they collided in 11 files. Bit 5 is now read."
+      - "Bits 0-2 are read with the mode although they are 0 in all 19 files, so a
+         nonzero value there is still a mode finding, as the field pack's planted
+         0x19 defect expects."
+      - "Bit 6 (0x40) is set on every cell of 1138.json and on every cell of 6668.json
+         except fan_only. It is not a mode value and no label in any file names it;
+         it is not read. See derivation.open_questions."
+      - "ifeel is 0x00, from its only source, 1133.json (112/112 cells). HAIR's SmartIR
+         adapter skips the mode, so it matters only to wigs from elsewhere."
+      - "heat_cool has no source in this family; it stays an alias of auto."
     mode_traits:
       cool: {temp: varies, fan: free}
       heat: {temp: varies, fan: free}
       dry: {temp: invariant, fan: free}
       fan_only: {temp: invariant, fan: free}
       auto: {temp: varies, fan: free}
-      ifeel: {temp: varies, fan: free}
+      # ifeel was "varies". Its only source, 1133.json, carries 0x8 in the
+      # temperature nibble on all 112 ifeel cells across 16 labelled
+      # temperatures, the same frozen value dry and fan_only carry.
+      ifeel: {temp: invariant, fan: free}
     agreement:
-      pass: 13427
-      checked: 13510
-      rate: "99.39%"
-      files_at_100: "17/19"
+      pass: 12502
+      checked: 12579
+      rate: "99.39% (measurement pass 2026-09-30). The map before it scored the same
+        99.39%, because under mask 0x1F fan_only and cool both read 0x18 and auto and
+        ifeel both read 0x00: the old field agreed with its labels by being unable to
+        tell four of them apart."
+      files_at_100: "18/19"
       disagreeing_files:
-        - "1138.json (Mitsubishi Electric): 80 fan_only cells read 0x00"
+        - "1138.json (Mitsubishi Electric): its 77 fan_only cells read 0x20, auto, with
+           a setpoint that moves with the label (0x0..0xF over 16..31) and the cooling
+           value in byte 8. A file defect, labels wrong and bytes right: that column is
+           auto mode filed as fan_only."
 
   - name: fan_speed
     frame: 0
@@ -116,14 +154,22 @@ fields:
                  level3: 0x3, highest: 0x4, Superhigh: 0x4, "super high": 0x4,
                  level4: 0x4, quiet: 0x5, Quiet: 0x5}
     agreement:
-      pass: 13194
-      checked: 13389
-      rate: "98.54%"
-      files_at_100: "13/19"
+      pass: 12465
+      checked: 12579
+      rate: "99.09% (measurement pass 2026-09-30, unchanged by it)"
+      files_at_100: "14/19"
       disagreeing_files:
-        - "1103.json (Daikin-badged): 16 'low' cells read 0x5"
-        - "1125.json (Mitsubishi Electric): 64 'highest' cells read 0x0"
-        - "1133.json, 1129.json: 16 to 17 cells each"
+        - "1103.json (Daikin-badged) and 1121.json (Mitsubishi Electric), which carry
+           identical commands: 16 'low' cells each read 0x5, the quiet rung. One
+           source filed under two names; its low is the remote's quiet."
+        - "1125.json (Mitsubishi Electric): all 49 'highest' cells read 0x0, auto.
+           The file has no auto label; its highest column is the remote's auto."
+        - "1133.json: 16 'Quiet' cells read 0x1, all in dry, where the other five
+           labels read as named; the file stores one reading under both Low and Quiet
+           in dry. Either the remote sends low for quiet in dry or the file misfiled
+           the column; 1133 is the only file with this ladder, so the files cannot
+           settle which. A handset press of quiet in dry would."
+        - "1129.json: 17 'med' cells read 0x1 or 0x0 in part of the file."
 
   - name: swing
     frame: 0
@@ -145,14 +191,24 @@ fields:
                  Mid: 0x3, middle: 0x3, "position 3": 0x3, low: 0x4, Low: 0x4,
                  mid_low: 0x4, "position 4": 0x4, bottom: 0x5, Bottom: 0x5,
                  "position 5": 0x5, swing: 0x7, Swing: 0x7}
+    vocabulary_notes:
+      - "Two label ladders share words. 1133, 1137 and 1141 name seven positions auto,
+         top, high, mid, low, bottom, swing (high 2, low 4). 1142 names auto, high,
+         mid_high, middle, mid_low, low, swing, and there high is 1 and low is 5 on
+         every one of its cells: a variant, not a defect. One vocabulary cannot hold
+         both, which is one reason the field stays provisional."
     agreement:
-      pass: 10212
-      checked: 10378
-      rate: "98.40%"
-      files_at_100: "3/6"
+      pass: 9390
+      checked: 9549
+      rate: "98.33% (measurement pass 2026-09-30, unchanged by it)"
+      files_at_100: "3/5"
       disagreeing_files:
-        - "1142.json (litinoveweedle only): 112 cells, 'high' and 'low' each one step off"
-        - "1129.json: 49 cells, three vane positions each one step off in part of the file"
+        - "1142.json (litinoveweedle only): 110 cells, its 'high' and 'low' (the
+           ladder variant in vocabulary_notes)"
+        - "1129.json: 49 cells, all in part of the file: dry/low position 1 reads 0x3
+           (two steps off), position 3 reads 0x4 and position 4 reads 0x5 (16 cells
+           each), and one auto/auto position 3 cell reads 0x0. Position 4 and position
+           5 then share one reading (0x5) on 32 dry/low cells."
 
   - name: power
     frame: 0
@@ -167,8 +223,55 @@ fields:
     agreement:
       pass: null
       checked: null
-      rate: "100.00% per-file consistency across all 19 identified files"
+      rate: "100.00%, 12597/12597 codes across 19 distinct files (measurement pass
+        2026-09-30)"
       files_at_100: "19/19"
+      disagreeing_files: []
+
+  - name: temperature_fahrenheit
+    frame: 0
+    byte: 7
+    bits: "mask:0x1F"
+    # A second field on the temp coordinate: the Fahrenheit labels, which the
+    # linear field above cannot express and now leaves alone.
+    coordinate: temp
+    encoding: "The remote's own Fahrenheit table. Low nibble is the whole Celsius degree
+      minus 16, as in the temperature field; bit 4 adds half a degree. 61..88 F land on
+      the nearest half degree the table allows, not on a formula."
+    encoding_ref:
+      name: enum_byte
+      params:
+        vocabulary: {61: 0x00, 62: 0x10, 63: 0x01, 64: 0x11, 65: 0x02, 66: 0x12,
+                     67: 0x03, 68: 0x04, 69: 0x05, 70: 0x15, 71: 0x06, 72: 0x16,
+                     73: 0x07, 74: 0x17, 75: 0x08, 76: 0x18, 77: 0x09, 78: 0x19,
+                     79: 0x0A, 80: 0x1A, 81: 0x0B, 82: 0x1B, 83: 0x0C, 84: 0x1C,
+                     85: 0x0D, 86: 0x1D, 87: 0x0E, 88: 0x0F}
+    applies_when:
+      in: {temp: [61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74,
+                  75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88]}
+      not_in: {mode: [dry, fan_only, ifeel]}
+    confidence: provisional
+    domain: "61..88 F. In Celsius files bit 4 is 0 except in 6668.json, see agreement."
+    vocabulary: {61: 0x00, 62: 0x10, 63: 0x01, 64: 0x11, 65: 0x02, 66: 0x12, 67: 0x03,
+                 68: 0x04, 69: 0x05, 70: 0x15, 71: 0x06, 72: 0x16, 73: 0x07, 74: 0x17,
+                 75: 0x08, 76: 0x18, 77: 0x09, 78: 0x19, 79: 0x0A, 80: 0x1A, 81: 0x0B,
+                 82: 0x1B, 83: 0x0C, 84: 0x1C, 85: 0x0D, 86: 0x1D, 87: 0x0E, 88: 0x0F}
+    vocabulary_notes:
+      - "Derived from the two Fahrenheit sources, 1142.json (litinoveweedle, all 28
+         labels, 374 cells in cool and heat) and 1139.json (both repositories,
+         byte-identical, 22 labels, heat only). Where they share a label they agree,
+         and each is 100% consistent with the table on its own cells."
+      - "Bit 4 as +0.5 C is what the table implies (62 F = 16.7 C reads 16.5, 70 F =
+         21.1 C reads 21.5); no Celsius file labels a half degree, so that reading is
+         not confirmed on a Celsius label."
+      - "Provisional because no handset capture is on file: the files prove it, a
+         remote has not. Read and part of identity, never judged."
+    agreement:
+      pass: 396
+      checked: 396
+      rate: "100.00% (374 cells of 1142.json, 22 of 1139.json; measurement pass
+        2026-09-30, s8_agreement.py)"
+      files_at_100: "2/2"
       disagreeing_files: []
 
 synthesis:
@@ -184,12 +287,70 @@ synthesis:
 
 derivation:
   files_used:
-    - {repo: both, file: "18 distinct files with the (144,144) layout", manufacturer: "Mitsubishi Electric x12, Mitsubishi x4, Daikin-badged x1, Starmex x1", models: [many]}
+    # Measurement pass 2026-09-30: every SmartIR climate file, in either
+    # repository, whose codes read as this family. 32 entries, 19 names; the 13
+    # names present in both repositories carry byte-identical codes, and
+    # 1103.json and 1121.json carry identical commands under two manufacturers,
+    # so there are 18 independent code sets. Codes counted read/total. Models
+    # are the files' supportedModels strings verbatim, from the litinoveweedle
+    # copy where both repositories carry the name: 51 distinct strings.
+    - {repo: both, file: "1103", manufacturer: Daikin, models: [Unknown], codes: "65/65", note: "same commands as 1121"}
+    - {repo: smartHomeHub, file: "1120", manufacturer: Mitsubishi Electric, models: [MSZ-GL25VGD, MSZ-GL35VGD, MSZ-GL42VGD, MSZ-GL50VGD, MSZ-GL60VGD, MSZ-GL71VGD, MSZ-GL80VGD], codes: "178/180"}
+    - {repo: both, file: "1121", manufacturer: Mitsubishi Electric, models: [MSZ-GA35VA], codes: "65/65"}
+    - {repo: smartHomeHub, file: "1124", manufacturer: Mitsubishi, models: [MSZ-SF25VE3, MSZ-SF35VE3, MSZ-SF42VE3, MSZ-SF50VE3, MSZ-AP20VG, MSZ-AP25VGD], codes: "450/481"}
+    - {repo: both, file: "1125", manufacturer: Mitsubishi Electric, models: [MLZ-KP25VF, MLZ-KP35VF, MLZ-KP50VF], codes: "228/257"}
+    - {repo: both, file: "1127", manufacturer: Mitsubishi Electric, models: [MSZ-HJ25VA], codes: "153/161"}
+    - {repo: both, file: "1128", manufacturer: Mitsubishi Electric, models: [MSZ-HJ25VA, MSZ-HJ35VA], codes: "315/321"}
+    - {repo: both, file: "1129", manufacturer: Mitsubishi Electric, models: [MSZ-GE22VA], codes: "2686/2689"}
+    - {repo: both, file: "1130", manufacturer: Mitsubishi Electric, models: [MS-SGD18VC], codes: "193/193"}
+    - {repo: smartHomeHub, file: "1133", manufacturer: Mitsubishi Electric Starmex, models: [MSXY-FN10VE, MSXY-FN07VE, MSXY-FN13VE, MSXY-FN18VE], codes: "2128/2129"}
+    - {repo: both, file: "1134", manufacturer: Mitsubishi Electric, models: [MG-GN18VF, MS-GN18VF, MS-GN13VF], codes: "241/241"}
+    - {repo: both, file: "1135", manufacturer: Mitsubishi, models: [MSZ-GE60VAD, MSZ-GE71VAD, MSZ-GE80VAD], codes: "479/481"}
+    - {repo: both, file: "1136", manufacturer: Mitsubishi Electric, models: [MSXY-FP10VG, MSXY-FP13VG, MSXY-FP18VG], codes: "270/289"}
+    - {repo: both, file: "1137", manufacturer: Mitsubishi Electric, models: ["MSZ-HR35VF (remote RH18A 903AL)"], codes: "2147/2241", note: "smartHomeHub copy lists MSZ-HR35VF"}
+    - {repo: both, file: "1138", manufacturer: Mitsubishi Electric, models: [Remote KM09D/166901], codes: "318/321"}
+    - {repo: both, file: "1139", manufacturer: Mitsubishi, models: [MLZ-KP09NA2, MLZ-KP18NA2], codes: "24/58", note: "Fahrenheit labels"}
+    - {repo: litinoveweedle, file: "1141", manufacturer: Mitsubishi Electric, models: ["MSZ-HR35VF (remote RH18A 247BL)"], codes: "2218/2241"}
+    - {repo: litinoveweedle, file: "1142", manufacturer: Mitsubishi Electric, models: [MSZ-WR24NA, MSZ-HM18NA-U1, MSZ-HM24NA-U1, MSZ-WR24NA-U1, MUZ-HM18NA, MUZ-HM24NA, NTXWMT18A112AA, NTXWMT24A112AA, NTXSMT18A112AB, NTXSMT24A112AA], codes: "374/393", note: "Fahrenheit labels"}
+    - {repo: litinoveweedle, file: "6668", manufacturer: Mitsubishi Electric, models: [Remote SG15H], codes: "65/65"}
+    - {source: "tests/fixtures/field-packs/MITSUBISHI144.json and .defects.json", note: "synthesized from this map; checked, never used to derive"}
   external_sources:
-    - "None. Corpus-derived only."
+    - "None. Corpus-derived only. No handset capture of this family is on file, so no
+       field added by the measurement pass is ratified."
   open_questions:
-    - "Bytes 0-4 are the constant preamble 23 CB 26 01 00 in every cell of every file.
-       Bytes 8, 10-16 are unassigned; byte 8 moves with mode in a few files."
+    - "Bytes 0-4 are the constant preamble 23 CB 26 01 00 in every cell of every file."
+    - "Byte 6 bit 6 is set on every cell of 1138.json and on every cell of 6668.json
+       except its fan_only column, and nowhere else. No label names it. Not read.
+       A handset pair, one state with the flag on and off, would say what it is."
+    - "Byte 7 bit 4 is the half degree (see temperature_fahrenheit). No Celsius file
+       labels a half degree; a handset press at 22.5 C would confirm it on a Celsius
+       label."
+    - "Byte 8: the low nibble follows the mode in all 19 files (cool and auto 0x6, dry
+       0x2, heat and fan_only 0x0, ifeel 0x6), so it separates nothing the mode field
+       does not, and it is not read. The high nibble is constant within every file
+       (0x3 in most, 0xC in 1135, 1138 and 6668, 0x0 in 1125 and 1139) and no file
+       labels it, so nothing in the files says what it controls and it cannot be given
+       a vocabulary; reading it would make a handset whose setting there differs from
+       its file miss every cell. Not read."
+    - "Byte 9 bits 6 and 7: exactly one of the two is set on every code of every file
+       (0x40 on most, 0x80 on some), and no label explains which. 0x80 gathers at the
+       temperature endpoints (16 and 31, 61 and 88) in 18 of the 19 files (all but
+       1138; 17 independent code sets, 1103 and 1121 counting once), and on the fan
+       auto cells of dry and fan_only in 1125 (labelled highest there), 1128, 1129
+       (dry only), 1130, 1133, 1136 and 1137; in 1129, 1133 and 1137 only on some
+       swing positions. Not read: reading it splits one labelled state into two keys. Two handset presses of one state, one at an
+       endpoint reached from each side, would settle it."
+    - "Byte 10 is a capture-time clock: it varies in 10 files with no label behind it,
+       and never exceeds 0x8F, 143 ten-minute steps, 23:50. Not read, by design, as
+       DAIKIN152's clock frame is not."
+    - "Bytes 11-13 and 15-16 are 0x00 in every cell of every file. Timers, if they live
+       there, are never set in the corpus."
+    - "Byte 14 is constant within most files (0x00, 0x02, 0x03, 0x10, 0x81) but follows
+       the mode in 1124.json (0x82 in cool and heat, 0x81 otherwise) and marks the
+       cool/auto column in 1138.json (0x30 against 0x10). It separates no two labelled
+       states in either file. Not read."
+    - "1133.json declares cool_econo and cool_powerful modes and ships no codes for
+       them, so econo and powerful are not located."
     - "1122.json decodes to a (40,144) layout and is excluded from this map."
   notes:
     - "This is the largest Mitsubishi sub-cluster the census names (34 rows / 20 distinct
@@ -199,3 +360,25 @@ derivation:
        derived: 112-bit single-frame (31 rows, mostly Hitachi and rebadges with 5
        Mitsubishi), 152-bit single-frame (24 rows, Mitsubishi Heavy plus Daikin and
        Sanyo), 88-bit (12 rows, Mitsubishi Heavy plus Panasonic)."
+    - "Measurement pass 2026-09-30, over the 19 files above with one copy per name
+       (12,597 codes). Changed: the mode mask (0x1F to 0x3F) and its vocabulary (auto
+       0x20, fan_only 0x38); the ifeel temperature trait (varies to invariant);
+       temperature no longer applies to Fahrenheit labels or ifeel. Added:
+       temperature_fahrenheit, provisional. Status stays draft."
+    - "Distinctness on the read-bytes key, per file, over the same 12,597 codes: before
+       the pass 7,018 keys and 519 collisions, of which 308 had frames that differ only
+       in bits no field reads, 15 were one press filed under two labels and 196 were
+       temperature in a mode where it does not apply. Of the 308, 306 were an unread
+       dimension (cool against fan_only in 11 files, 61 F against 62 F and the like
+       in 1139, 1142 and 6668), and the pass resolves all 306. The other 2, in
+       1129.json, remain: their labels differ in swing or temperature while the bits
+       that carry those are identical, and their bytes differ only in byte 9 bits 6
+       and 7, which no label explains (file defects, not a dimension). After: 7,325
+       keys and 357 collisions: 308 to 2 differing only in unread bits, 347
+       temperature where it does not apply, 8 one press under two labels. Three codes
+       form no read key: one 1137.json code with a short first frame and two lone
+       frames in 1141.json."
+    - "Comb on the 19 files, non-advisory findings: 1,202 on 1,172 rows before, 806 on
+       802 after. Every row removed is a Fahrenheit temperature finding (374 in
+       1142.json, 22 in 1139.json). No finding was added; the 77 mode findings on
+       1138.json stay, now reading 0x20 against 0x38 rather than 0x00 against 0x18."
