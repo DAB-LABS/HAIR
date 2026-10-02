@@ -760,3 +760,326 @@ class TestTheSweep:
             MAPS["DAIKIN152"], _label("cool", "auto", 30.0),
             _label("cool", "auto", 31.0),
         ) == ("temp", "temperature")
+
+
+# ---------------------------------------------------------------------------
+# 7. A lone frame of a listed family
+# ---------------------------------------------------------------------------
+
+
+def _flipper_presses() -> dict[str, str]:
+    from custom_components.hair.ir_command import raw_to_pronto
+
+    text = (
+        FIXTURES / "adapters" / "flipper_raw_mitsubishi-MSY-GE10VA.ir"
+    ).read_text(encoding="utf-8")
+    out = {}
+    for block in text.split("#")[1:]:
+        lines = block.splitlines()
+        name = next((ln.split(":", 1)[1].strip() for ln in lines
+                     if ln.startswith("name:")), None)
+        data = next((ln.split(":", 1)[1] for ln in lines
+                     if ln.startswith("data:")), None)
+        if name and data:
+            values = [int(v) for v in data.split()]
+            out[name] = raw_to_pronto(
+                [v if i % 2 == 0 else -v for i, v in enumerate(values)],
+                frequency=38000,
+            )
+    return out
+
+
+def _without_answer_3(timings):
+    """``read_bytes_hash`` as it was: answers 1 and 2 only."""
+    saved = idm._lone_family_frame_key
+    idm._lone_family_frame_key = lambda *args: None
+    try:
+        return idm.read_bytes_hash(timings)
+    finally:
+        idm._lone_family_frame_key = saved
+
+
+class TestALoneFrame:
+
+    def test_a_daikin216_frame_under_daikin152s_window_gets_no_key(self):
+        """A DAIKIN216 settings frame whose header mark (2236 us) is
+        inside DAIKIN216's window and under DAIKIN152's. The shared path
+        gives up, and the shared frame's family is never asked on its
+        own: a family key here is one no whole press carries."""
+        cell = _pack_matrix("DAIKIN216.json").cells[7]
+        lone = shapes.map_split(cell.pronto, MAPS["DAIKIN216"].timing.gap_min)[1]
+        timings = [abs(v) for v in _us(lone)]
+        assert idm.read_bytes_hash(timings) == _read_key(cell.pronto)
+        timings[0] = 2236
+        assert MAPS["DAIKIN216"].timing.header_mark.holds(2236)
+        assert not MAPS["DAIKIN152"].timing.header_mark.holds(2236)
+        assert idm.read_bytes_hash(timings) is None
+
+    def test_on_the_shipped_lists_nothing_changes(self):
+        """No shipped family reaches answer 3: both are in the shared
+        group. Every pack code and every piece of it, unchanged."""
+        for family, field_map in MAPS.items():
+            path = Path(__file__).parent / "fixtures" / "field-packs" / (
+                f"{family}.json"
+            )
+            if not path.is_file():
+                continue
+            for cell in _pack_matrix(path.name).cells[::4]:
+                for code in [cell.pronto, *shapes.map_split(
+                        cell.pronto, field_map.timing.gap_min)]:
+                    timings = _us(code)
+                    assert idm.read_bytes_hash(timings) == (
+                        _without_answer_3(timings)
+                    ), (family, cell_key(cell))
+
+    def test_the_air_path_rows_form_the_file_cells_key(self, m144_listed):
+        """The bench's own captures: lone frames of two MITSUBISHI144
+        cells through two receivers, and the two injected rows. The four
+        Broadlink rows of C2 that read as nothing stay nothing."""
+        from .test_matrix_listener import _air_captures, _air_code, _heard
+
+        formed = nothing = 0
+        for code in ("C1", "C2"):
+            key = _read_key(_air_code(code))
+            for row in _air_captures(code):
+                if row["transmitter"] not in ("esphome", "broadlink", "inject"):
+                    continue
+                heard = _heard(row)
+                if fr.read_code(heard.code).protocol_id is None:
+                    assert heard.byte_hash != key
+                    assert EventParser.pronto_read_key(heard.code) is None
+                    nothing += 1
+                    continue
+                assert heard.byte_hash == key, (code, row["transmitter"])
+                formed += 1
+        assert (formed, nothing) == (42, 4)
+
+    def test_each_half_of_a_flipper_press_forms_the_whole_press_key(
+        self, m144_listed,
+    ):
+        gap = MAPS["MITSUBISHI144"].timing.gap_min
+        presses = _flipper_presses()
+        assert {"POWER", "Off"} <= set(presses)
+        for name in ("POWER", "Off"):
+            whole = _read_key(presses[name])
+            halves = shapes.map_split(presses[name], gap)
+            assert len(halves) == 2
+            for half in halves:
+                verdict = idm.identify_lone_frame(_us(half))
+                assert (verdict.protocol_id, verdict.is_setting) == (
+                    "MITSUBISHI144", True,
+                )
+                assert EventParser.pronto_read_key(half) == whole, name
+                assert _without_answer_3(_us(half)) is None
+
+    def test_no_lone_frame_of_the_pack_forms_a_wrong_key(self, m144_listed):
+        gap = MAPS["MITSUBISHI144"].timing.gap_min
+        right = 0
+        for cell in _pack_matrix("MITSUBISHI144.json").cells[::6]:
+            whole = _read_key(cell.pronto)
+            for transmitter in ("esphome", "broadlink"):
+                for press in range(4):
+                    heard, _ = d216._air(cell.pronto, press, transmitter)
+                    for piece in shapes.map_split(heard, gap):
+                        key = EventParser.pronto_read_key(piece)
+                        assert key in (None, whole), cell_key(cell)
+                        right += key == whole
+        assert right > 0
+
+    def test_a_frame_two_maps_claim_names_neither(self, m144_listed):
+        """Answer 3 needs the verdict to name the family alone. A frame
+        a second family also claimed would name neither; the Daikin
+        settings frame is the one such frame the shared rule covers."""
+        cell = _pack_matrix("MITSUBISHI144.json").cells[0]
+        piece = shapes.map_split(
+            cell.pronto, MAPS["MITSUBISHI144"].timing.gap_min
+        )[0]
+        assert EventParser.pronto_read_key(piece) == _read_key(cell.pronto)
+        real = idm.lone_frame_candidates
+        twice = lambda t: [*real(t), idm.LoneFrame("OEM112", 0, True)]  # noqa: E731
+        idm.lone_frame_candidates = twice
+        try:
+            assert idm.identify_lone_frame(_us(piece)) is None
+            assert EventParser.pronto_read_key(piece) is None
+        finally:
+            idm.lone_frame_candidates = real
+        daikin = _pack_matrix("DAIKIN152.json").cells[3]
+        lone = shapes.map_split(
+            daikin.pronto, MAPS["DAIKIN152"].timing.gap_min
+        )[-1]
+        assert len(idm.lone_frame_candidates(_us(lone))) == 2
+        assert EventParser.pronto_read_key(lone) == _read_key(daikin.pronto)
+
+    def test_a_frame_failing_a_ratified_rule_forms_no_key(self, m144_listed):
+        """One payload bit flipped, the checksum left as it was."""
+        cell = _pack_matrix("MITSUBISHI144.json").cells[0]
+        piece = shapes.map_split(
+            cell.pronto, MAPS["MITSUBISHI144"].timing.gap_min
+        )[0]
+        timing = MAPS["MITSUBISHI144"].timing
+        timings = [abs(v) for v in _us(piece)]
+        assert idm.read_bytes_hash(timings) == _read_key(cell.pronto)
+        # The fifth byte's first bit: past the identity bytes.
+        pair = 1 + 8 * 5
+        space = 2 * pair + 1
+        one = timing.one.holds(timings[space])
+        timings[space] = round(
+            timing.zero.nominal if one else timing.one.nominal
+        )
+        assert idm.read_bytes_hash(timings) is None
+
+    def test_a_setting_frame_is_laid_where_its_verdict_says(self):
+        """PANASONIC216's settings frame is frame 1 of [64, 152]: laid at
+        index 0 it reads nothing. Listed, its lone frame 1 forms the key
+        of its whole press."""
+        field_map = MAPS["PANASONIC216"]
+        cell = _pack_matrix("PANASONIC216.json").cells[0]
+        lone = shapes.map_split(cell.pronto, field_map.timing.gap_min)[1]
+        with _listed("PANASONIC216"):
+            whole = _read_key(cell.pronto)
+            verdict = idm.identify_lone_frame(_us(lone))
+            assert (verdict.protocol_id, verdict.frame_index) == (
+                "PANASONIC216", 1,
+            )
+            assert EventParser.pronto_read_key(lone) == whole
+        frame = fr.read_code(cell.pronto).frames[1]
+        assert idm.read_bytes_key(field_map, [frame, ()]) is None
+
+    def test_identify_lone_frame_still_names_mitsubishi144_alone(
+        self, m144_listed,
+    ):
+        cell = _pack_matrix("MITSUBISHI144.json").cells[0]
+        for piece in shapes.map_split(
+                cell.pronto, MAPS["MITSUBISHI144"].timing.gap_min):
+            candidates = idm.lone_frame_candidates(_us(piece))
+            assert [(c.protocol_id, c.frame_index) for c in candidates] == [
+                ("MITSUBISHI144", 0),
+            ]
+
+
+# ---------------------------------------------------------------------------
+# 8. Triggers and the known-command index, once such a family is listed
+# ---------------------------------------------------------------------------
+
+
+def _signal(pronto: str):
+    """One capture, normalized as the Sniffer normalizes it."""
+    from custom_components.hair.ir_command import ProntoCommand, raw_to_pronto
+    from custom_components.hair.models import CaptureResult
+    from custom_components.hair.signal_monitor import normalize
+
+    raw = ProntoCommand(pronto).get_raw_timings()
+    return normalize(CaptureResult(
+        protocol="PRONTO", code=raw_to_pronto(raw, frequency=38000),
+        raw_timings=raw, frequency=38000,
+    ))
+
+
+def _learned(pronto: str, name: str, remote_id: str):
+    """A trigger learned from a capture, as the Sniffer mints one."""
+    from custom_components.hair.models import IRTrigger
+
+    signal = _signal(pronto)
+    return IRTrigger(
+        name=name, signal_fingerprint=signal.sig_fp, protocol="PRONTO",
+        code=signal.code, byte_hash=signal.byte_hash,
+        decoded_fingerprint=signal.decoded_fingerprint,
+        trigger_remote_id=remote_id, origin="remote",
+    )
+
+
+def _fires(trigger, pronto: str) -> bool:
+    signal = _signal(pronto)
+    return trigger.matches_signal(
+        signal.sig_fp, signal.byte_hash, signal.decoded_fingerprint,
+        signal.decode_covers,
+    )
+
+
+def _one_press() -> tuple[str, list[str]]:
+    """A MITSUBISHI144 press off the air, and its two frames."""
+    from .test_matrix_listener import _air_code
+
+    whole, _ = d216._air(_air_code("C1"), 1, "esphome")
+    frames = shapes.map_split(whole, MAPS["MITSUBISHI144"].timing.gap_min)
+    assert len(frames) == 2
+    return whole, frames
+
+
+class TestTriggersAndKnownCommands:
+
+    def test_a_whole_press_trigger_fires_on_a_lone_frame(self, m144_listed):
+        whole, frames = _one_press()
+        trigger = _learned(whole, "Cool", "r1")
+        assert all(_fires(trigger, frame) for frame in frames)
+
+    def test_a_lone_frame_trigger_fires_on_the_whole_press(self, m144_listed):
+        whole, frames = _one_press()
+        trigger = _learned(frames[1], "Cool", "r1")
+        assert _fires(trigger, whole)
+        assert _fires(trigger, frames[0])
+
+    def test_on_the_shipped_lists_a_lone_frame_fires_nothing(self):
+        whole, frames = _one_press()
+        trigger = _learned(whole, "Cool", "r1")
+        assert not any(_fires(trigger, frame) for frame in frames)
+
+    def test_the_second_frame_of_one_press_fires_once(self, m144_listed):
+        from unittest.mock import MagicMock
+
+        from custom_components.hair.models import TriggerRemote
+        from custom_components.hair.storage import HAIRStore
+        from custom_components.hair.trigger_manager import TriggerManager
+
+        store = HAIRStore(MagicMock())
+        store._loaded = True
+        remote = TriggerRemote(name="Handset", origin="remote")
+        store._trigger_remotes[remote.id] = remote
+        whole, frames = _one_press()
+        trigger = _learned(whole, "Cool", remote.id)
+        store._triggers[trigger.id] = trigger
+        hass = MagicMock()
+        manager = TriggerManager(hass, store)
+        fired = []
+        for frame in frames:
+            signal = _signal(frame)
+            fired.append(manager.on_signal_captured(
+                signal.sig_fp, "PRONTO", signal.code, None, "infrared.rx",
+                signal.byte_hash, signal.decoded_fingerprint,
+                signal.norm_fp, signal.decode_covers,
+            ))
+        assert [len(f) for f in fired] == [1, 0]
+
+    @pytest.mark.parametrize("listed", [False, True])
+    def test_a_known_commands_lone_frame_is_suppressed(self, listed):
+        """Suppression asks the known-command index, which matches on the
+        byte hash: once a licensed family is listed, a lone frame of a
+        known command is that command, exactly as its whole press is."""
+        from unittest.mock import MagicMock
+
+        from custom_components.hair.const import CommandCategory
+        from custom_components.hair.models import CaptureResult, IRDevice
+        from custom_components.hair.storage import HAIRStore
+
+        with _listed("MITSUBISHI144") if listed else contextlib.nullcontext():
+            whole, frames = _one_press()
+            signal = _signal(whole)
+            device = IRDevice(name="Learned")
+            command = CaptureResult(
+                protocol="PRONTO", code=signal.code,
+                raw_timings=list(signal.raw_timings), frequency=38000,
+            ).to_command("Cool", CommandCategory.CUSTOM)
+            command.signal_fingerprint = signal.sig_fp
+            command.byte_hash = signal.byte_hash
+            command.decoded_fingerprint = signal.decoded_fingerprint
+            device.commands.append(command)
+            store = HAIRStore(MagicMock())
+            store._loaded = True
+            store._data[device.id] = device
+            store._rebuild_command_index()
+            for frame in frames:
+                lone = _signal(frame)
+                found = store.match_command(
+                    lone.decoded_fingerprint, lone.sig_fp, lone.byte_hash,
+                )
+                assert found == ((device.id, command.id) if listed else None)

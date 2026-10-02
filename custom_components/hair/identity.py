@@ -656,13 +656,23 @@ def _verified_reading(train: list[int]):
     return None if got is None else (got[0], got[1])
 
 
-def _verified_decoding(train: list[int], families: frozenset[str]):
+def _verified_decoding(
+    train: list[int],
+    families: frozenset[str],
+    walked: dict[str, tuple] | None = None,
+):
     """``(map, places, decoded)`` for the first family in ``families``
     that reads and identifies this train, or None.
 
     ``decoded`` holds each frame's bytes laid on the map's layout, so a
     frame index means the same thing whether or not an optional leader
     was sent.
+
+    ``walked``, when given, collects ``(map, frames)`` for each family
+    whose own timing read the train on the way, the frames as read
+    (families whose read failed are left out). The lone-frame path asks
+    the same question of the same maps, and walking the train a second
+    time made it a third slower.
     """
     from .field_readers import (
         _matches_identity,
@@ -682,6 +692,8 @@ def _verified_decoding(train: list[int], families: frozenset[str]):
         )
         if failed:
             continue
+        if walked is not None:
+            walked[field_map.protocol_id] = (field_map, frames)
         # Laid on the map's layout, so a code that left out an optional
         # leader (schema v0.6) still names its setting frames by the
         # map's own indices. The stand-in leader has no positions and is
@@ -791,6 +803,20 @@ def _canonical_json(value) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _one_setting_frame_holds_all(field_map) -> bool:
+    """The map names one setting frame and reads every field from it.
+
+    Then that one frame carries the whole state, whether or not the
+    rest of the press arrived: what makes a settings frame shareable
+    between two families, and what licenses a lone frame of a family
+    that does not repeat its frame (``_lone_family_frame_key``).
+    """
+    if len(field_map.setting_frames) != 1:
+        return False
+    index = field_map.setting_frames[0]
+    return all(spec.frame == index for spec in field_map.fields)
+
+
 def shared_settings_frames() -> dict[tuple, tuple[tuple[str, int], ...]]:
     """``{signature: ((family, frame), ...)}`` for every setting frame two
     or more listed families share. Derived from the maps on each call;
@@ -801,11 +827,9 @@ def shared_settings_frames() -> dict[tuple, tuple[tuple[str, int], ...]]:
     for field_map in library():
         if field_map.protocol_id not in READ_BYTES_VERIFIED:
             continue
-        if len(field_map.setting_frames) != 1:
+        if not _one_setting_frame_holds_all(field_map):
             continue
         index = field_map.setting_frames[0]
-        if any(spec.frame != index for spec in field_map.fields):
-            continue
         signature = _frame_signature(field_map, index)
         if signature is None or not signature[1]:
             continue
@@ -892,6 +916,9 @@ def read_bytes_hash(timings: list[int] | None) -> str | None:
        ``lone_frame_candidates``, all members of one shared group): the
        shared frame key, which is the value answer 1 gives for the whole
        press, so a lone frame from either family finds its cell.
+    3. It is a lone frame one listed family alone claims, as a setting
+       frame its map licenses on its own: that family's key, the value
+       answer 1 gives for the whole press (``_lone_family_frame_key``).
 
     Otherwise None, and the caller keeps today's identity exactly.
     """
@@ -948,14 +975,15 @@ def _byte_form_digest(protocol_id: str, frames) -> str:
 
 def _read_bytes(timings: list[int] | None):
     """``(key, (protocol id, frames laid on the layout) or None)``, or
-    None: the answers of ``read_bytes_hash``, with what they read.
+    None: the three answers of ``read_bytes_hash``, with what they read.
     """
     if not READ_BYTES_VERIFIED:
         return None
     train = _stripped(timings)
     if not train:
         return None
-    got = _verified_decoding(train, READ_BYTES_VERIFIED)
+    walked: dict[str, tuple] = {}
+    got = _verified_decoding(train, READ_BYTES_VERIFIED, walked)
     if got is not None:
         field_map, _places, decoded = got
         if not _setting_rules_hold(field_map, decoded):
@@ -969,15 +997,20 @@ def _read_bytes(timings: list[int] | None):
         else:
             key = read_bytes_key(field_map, decoded)
         return None if key is None else (key, (field_map.protocol_id, decoded))
-    key = _lone_shared_frame_key(train, timings)
-    return None if key is None else (key, None)
+    groups = shared_settings_frames()
+    key = _lone_shared_frame_key(train, timings, groups)
+    if key is not None:
+        return key, None
+    return _lone_family_frame_key(timings, walked, groups)
 
 
-def _lone_shared_frame_key(train, timings) -> str | None:
-    """Answer 2 of ``read_bytes_hash``."""
+def _lone_shared_frame_key(train, timings, groups=None) -> str | None:
+    """Answer 2 of ``read_bytes_hash``. ``groups`` is
+    ``shared_settings_frames()``, when the caller already has it."""
     from .field_readers import bits_to_bytes, library, read_frames
 
-    groups = shared_settings_frames()
+    if groups is None:
+        groups = shared_settings_frames()
     if not groups:
         return None
     maps = {m.protocol_id: m for m in library()}
@@ -1013,6 +1046,118 @@ def _lone_shared_frame_key(train, timings) -> str | None:
             if not _setting_rules_hold(field_map, laid):
                 return None
         return shared_frame_key(signature, members, decoded)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# A LONE FRAME OF ONE LISTED FAMILY (answer 3 of read_bytes_hash)
+# ---------------------------------------------------------------------------
+#
+# A receiver that ends a capture at the frame gap hands a two-frame
+# press over as two captures. Answer 1 reads neither: each is short of
+# the layout. Answer 2 covers the frame two listed families share and
+# nothing else, so a split press found its state only for a Daikin,
+# where a whole press finds it for every listed family. Both families
+# listed today share that frame, so nothing reaches this answer yet; it
+# is here so that a family joining the list needs no engine change.
+#
+# WHEN A LONE FRAME CARRIES THE STATE. Only where the map says so, two
+# ways:
+#
+# - The reader's half-press licence (``read_code``'s second pass): the
+#   map declares its frames one payload repeated, the frames that came
+#   are the declared width and every setting frame is among them, the
+#   identity bytes match and the frame holds together on the map's own
+#   ratified rules. MITSUBISHI144 and MIDEA_COOLIX hold it.
+# - The map names one setting frame and reads every field from it, so
+#   that frame alone is the whole state though the family does not
+#   repeat it (PANASONIC216's frame 1). This is the shared-frame path's
+#   own precondition; the two Daikins hold it and are skipped below,
+#   because their frame's one key is the shared key.
+#
+# And always: ``identify_lone_frame`` attributes the frame to this
+# family alone, as a setting frame; the frame is laid at the index THAT
+# verdict names (a PANASONIC216 settings frame laid at index 0 reads
+# nothing); and every ratified rule on the setting frames holds. A frame
+# two families claim names neither of them here either.
+#
+# WHAT IT COSTS. ``read_bytes_hash`` runs for every stored row in the
+# load-time backfill, so the order is cheapest first: the frames answer
+# 1 already read with each listed family's timing are reused, a width
+# test against the setting frame comes before any licence, and only a
+# frame that passes both pays ``identify_lone_frame``'s walk of the whole
+# library, once. A family in a shared group is skipped by the groups
+# answer 2 already computed; deriving them again per family made every
+# other family's codes a tenth slower.
+#
+# WHAT A USER COULD NOTICE, once such a family is listed: a trigger
+# learned from a whole press fires on a lone frame of the same state and
+# the reverse, and a known command's lone frame is suppressed as its
+# whole press is, because all of them now carry one key. The two frames
+# of one press arrive about 170 ms apart, inside both dedup windows.
+
+
+def _lone_family_frame_key(timings, walked, groups):
+    """Answer 3 of ``read_bytes_hash``: ``(key, (protocol id, frames))``
+    or None.
+
+    ``walked`` is ``(map, frames)`` per listed family, as answer 1 read
+    the train with that family's timing; ``groups`` the shared settings
+    frames answer 2 used.
+    """
+    # First the width, from what is already in hand: most of what is
+    # hashed is a whole press of another family, which no listed
+    # timing reads as one frame of a listed setting frame's width.
+    single = [
+        (field_map, frames) for field_map, frames in walked.values()
+        if len(frames) == 1 and field_map.setting_frames
+        and abs(
+            len(frames[0])
+            - field_map.frame_layout[field_map.setting_frames[0]]
+        ) <= field_map.bits_tolerance
+    ]
+    if not single:
+        return None
+    shared = {
+        family for members in groups.values() for family, _ in members
+    }
+    from .field_readers import (
+        _matches_identity,
+        _matches_repeat,
+        _payload_holds,
+        bits_to_bytes,
+    )
+
+    verdict: LoneFrame | None = None
+    asked = False
+    for field_map, frames in single:
+        family = field_map.protocol_id
+        if family in shared:
+            continue
+        as_bytes = bits_to_bytes(frames[0], field_map.bit_order)
+        repeats = (
+            _matches_repeat(field_map, frames)
+            and _matches_identity(field_map, [as_bytes])
+            and _payload_holds(field_map, [as_bytes])
+        )
+        if not repeats and not _one_setting_frame_holds_all(field_map):
+            continue
+        if not asked:
+            verdict = identify_lone_frame(timings)
+            asked = True
+        if verdict is None:
+            # Nothing, or more than one thing, claims this frame.
+            return None
+        if verdict.protocol_id != family or not verdict.is_setting:
+            continue
+        laid: list[tuple[int, ...]] = [()] * len(field_map.frame_layout)
+        laid[verdict.frame_index] = as_bytes
+        if not _setting_rules_hold(field_map, laid):
+            return None
+        key = read_bytes_key(field_map, laid)
+        if key is None:
+            return None
+        return key, (family, laid)
     return None
 
 
