@@ -419,9 +419,14 @@ def shape_extra_pair_preamble() -> ClimateMatrix:
 # waveform it is, which is what these two lattices are built to show.
 
 
-def sl_variant(zero_us: int | None = None, one_us: int | None = None) -> str:
+def sl_variant(
+    zero_us: int | None = None, one_us: int | None = None,
+    preamble: bool = False,
+) -> str:
     """The DAIKIN216 dry / low state with the settings frame's first
-    zero-space and first one-space moved to these lengths."""
+    zero-space and first one-space moved to these lengths, and with the
+    extra pair in the preamble when asked (the same waveform, another
+    whole code)."""
     from . import test_read_bytes_identity as d216
 
     timing = d216.D216.timing
@@ -434,6 +439,8 @@ def sl_variant(zero_us: int | None = None, one_us: int | None = None) -> str:
         pairs[zero_at] = (pairs[zero_at][0], zero_us)
     if one_us is not None:
         pairs[one_at] = (pairs[one_at][0], one_us)
+    if preamble:
+        pairs.insert(1 + 64, (timing.unit.nominal, timing.zero.nominal))
     return d216._pronto(pairs)
 
 
@@ -470,6 +477,19 @@ def shape_sl_split_press() -> str:
     """The press ``shape_sl_split`` is built for: the moved code with
     its one-space back at 1300 us."""
     return sl_variant(zero_us=800)
+
+
+def shape_sl_split_two_codes() -> ClimateMatrix:
+    """``shape_sl_split`` with 21 another whole code of 20's waveform,
+    so that every key of that waveform is held back too. Nothing heard
+    ``shape_sl_split_press`` here before; its composite key holds only
+    the plain waveform (18 and 19), while the read key and the
+    normalized key it reaches later both name 21."""
+    return _dry_lattice([
+        sl_variant(), sl_variant(preamble=True),
+        sl_variant(zero_us=800, one_us=1200),
+        sl_variant(zero_us=800, one_us=1200, preamble=True),
+    ])
 
 
 def shape_sl_split_one_code() -> ClimateMatrix:

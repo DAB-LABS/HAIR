@@ -327,10 +327,11 @@ def _presses(pronto: str, family: str = "DAIKIN216") -> list[str]:
 def _first_key(index, identity):
     """The tier key that answers a press of a waveform the normalized
     tier does not know: the first one the press reaches that the rule
-    before the bytes half kept, or else the first one it reaches, with
-    that key's claimant of the press's own waveform when it has one.
-    The decoded tier holds no listed family's code here (DAIKIN216's
-    decode never covers, MITSUBISHI144 does not decode)."""
+    before the bytes half kept; else the first held-back key it reaches
+    that names the press's own waveform, as that waveform's cell; else
+    the first held-back key's representative. The decoded tier holds no
+    listed family's code here (DAIKIN216's decode never covers,
+    MITSUBISHI144 does not decode)."""
     _decoded, fingerprint, byte_hash, waveform, _covers = identity
     reached = [
         (tier, key, store.get(key))
@@ -343,10 +344,11 @@ def _first_key(index, identity):
     for tier, key, hit in reached:
         if (tier, key) not in index.held_back:
             return hit
-    if not reached:
-        return None
-    tier, key, hit = reached[0]
-    return index.by_waveform.get((tier, key), {}).get(waveform, hit)
+    for tier, key, _hit in reached:
+        named = index.by_waveform.get((tier, key), {}).get(waveform)
+        if named is not None:
+            return named
+    return reached[0][2] if reached else None
 
 
 class TestExactWaveformWins:
@@ -376,7 +378,8 @@ class TestExactWaveformWins:
     def _kind(cell) -> str:
         return "plain" if int(cell.temp) % 2 == 0 else "extra"
 
-    def _check(self, index, matrix, family="DAIKIN216", extra=()):
+    def _check(self, index, matrix, family="DAIKIN216", extra=(),
+               goes_on=True):
         """Every press heard is heard as it was before the merge.
 
         A cool cell as itself. A dry press whose waveform the normalized
@@ -384,9 +387,11 @@ class TestExactWaveformWins:
         lattices answered before (their composite keys never part a
         waveform's cells; checked against the base by probe). A dry
         press of a waveform it does not know, as the first key it
-        reaches answers (``_first_key``). And some presses must reach a
-        key only the bytes half keeps and go on past it to the tier that
-        answered them before: the case the held-back keys exist for.
+        reaches answers (``_first_key``). And, unless ``goes_on`` is False
+        (a lattice where every key of the state is held back), some
+        presses must reach a key only the bytes half keeps and go on past
+        it to the tier that answered them before: the case the held-back
+        keys exist for.
         """
         went_on = 0
         presses = [(None, press) for press in extra] + [
@@ -414,7 +419,7 @@ class TestExactWaveformWins:
                     composite in index.held_back
                     or ("bytehash", identity[2]) in index.held_back):
                 went_on += 1
-        assert went_on > 0
+        assert went_on > 0 or not goes_on
 
     def test_the_map_forms_for_the_one_merged_key(self):
         index = build_cell_index(shapes.shape_extra_pair_settings())
@@ -567,6 +572,31 @@ class TestExactWaveformWins:
             sent = await bench.resolve(bench.hear(press))
             assert sent[1] == moved
             self._check(built, matrix, extra=[press])
+
+    @pytest.mark.asyncio
+    async def test_a_press_nothing_heard_is_named_by_a_key_of_its_waveform(
+        self,
+    ):
+        """``shape_sl_split_two_codes``: every key the press reaches is held
+        back, so nothing heard it before. The first, its composite key,
+        holds only the plain waveform; the read key's map and the
+        normalized key both name 21, the last cell of the press's own
+        waveform, and the press is named and sent as 21, not as the
+        composite key's representative."""
+        matrix = shapes.shape_sl_split_two_codes()
+        index = build_cell_index(matrix)
+        press = shapes.shape_sl_split_press()
+        identity = _identity(press)
+        composite = ("fp_bytehash", (identity[1], identity[2]))
+        assert composite in index.held_back
+        assert identity[3] not in index.by_waveform[composite]
+        assert ("norm_fp", identity[3]) in index.held_back
+        assert index.match(*identity)[0].cell_key == "dry/low/21"
+        bench = shapes.PinnedBench(matrix, copy.deepcopy(matrix), index,
+                                   index)
+        sent = await bench.resolve(bench.hear(press))
+        assert sent[1] == matrix.cells[3].pronto
+        self._check(index, matrix, extra=[press], goes_on=False)
 
     def test_a_composite_key_holding_an_earlier_cell_of_the_waveform(self):
         """``shape_sl_split_one_code``: 18's own text lands on a composite

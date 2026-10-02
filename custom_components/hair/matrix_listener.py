@@ -399,10 +399,14 @@ class CellIndex:
         threshold of 1273 us), so the composite key a press lands on can
         hold none of its own waveform's cells, or hold an earlier one
         than the normalized tier answers, and its answer would be
-        another cell, sent as another text. When a held-back key does
-        answer, the first one the press reached answers, with the
-        claimant of the press's own waveform when it holds one
-        (``by_waveform``) and its representative otherwise.
+        another cell, sent as another text. When held-back keys do
+        answer, the first that names the press's own waveform answers
+        with that waveform's cell: a plain-tier key whose ``by_waveform``
+        holds it, or the normalized key, which is that waveform. Only
+        when none of them does is the press named as the representative
+        of the first held-back key it reached; a composite key reached
+        first can hold none of the press's waveform while a later key
+        names it.
         """
         skipped_decode = decode_covers is False
         tiers: list[tuple[str, Any, CellHit | None, int]] = []
@@ -423,26 +427,31 @@ class CellIndex:
         if norm_fp and (not decoded_fingerprint or skipped_decode):
             tiers.append(("norm_fp", norm_fp, self.norm_fp.get(norm_fp),
                           TIER_NORM_FP))
-        last: tuple[CellHit, int] | None = None
+        own: tuple[CellHit, int] | None = None
+        first: tuple[CellHit, int] | None = None
         for tier, key, hit, number in tiers:
             if hit is None:
                 continue
             if (tier, key) not in self.held_back:
                 return (hit, number)
-            if last is None:
-                last = (self._waveform(tier, key, hit, norm_fp), number)
-        return last
+            if own is None:
+                named = self._waveform(tier, key, norm_fp)
+                if named is not None:
+                    own = (named, number)
+            if first is None:
+                first = (hit, number)
+        return own or first
 
     def _waveform(
-        self, tier: str, key: Any, hit: CellHit, norm_fp: str | None
-    ) -> CellHit:
-        """A held-back key's claimant of the capture's own waveform, or
-        the key's representative."""
-        if norm_fp:
-            claimants = self.by_waveform.get((tier, key))
-            if claimants is not None:
-                return claimants.get(norm_fp, hit)
-        return hit
+        self, tier: str, key: Any, norm_fp: str | None
+    ) -> CellHit | None:
+        """A held-back key's cell of the capture's own waveform, or None
+        when the key does not name that waveform."""
+        if not norm_fp:
+            return None
+        if tier == "norm_fp":
+            return self.norm_fp.get(norm_fp)
+        return self.by_waveform.get((tier, key), {}).get(norm_fp)
 
 
 def build_cell_index(
@@ -499,6 +508,16 @@ def build_cell_index(
     claimant. The representative itself is unchanged, so ``cell_key``,
     triggers minted on it, the dedup window and the coalescer keys do
     not move.
+
+    The one exception is a key the old rule kept and the every-claimant
+    rule refuses (``_claim``). A press that key answered is not simply
+    refused: it goes on down the tiers, and a lower tier may name
+    another cell. That takes a chain the old rule never compared end to
+    end (one state filed twice with an unread byte changed, one of the
+    two codes filed again under another label): on randomized synthetic
+    DAIKIN216 lattices built to provoke it, 395 presses departed this
+    way, 361 to nothing and 34 to another cell; on the field packs, the
+    SmartIR corpus and the golden sources it measured 0.
 
     ONE IDENTITY FORM, and it is not the file's. ``wig_signal_identity``
     hashes the canonical (wire) Pronto -- see identity.py's
