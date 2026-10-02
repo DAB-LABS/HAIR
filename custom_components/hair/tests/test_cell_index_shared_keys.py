@@ -364,7 +364,7 @@ class TestTheCoverageGate:
 
 class TestTheStoredIndex:
 
-    def test_the_format_is_8_and_a_7_is_rejected(self, tmp_path):
+    def test_the_format_is_9_and_an_8_is_rejected(self, tmp_path):
         from custom_components.hair.matrix_listener import (
             _build_and_store_index,
             _load_stored_index,
@@ -377,14 +377,14 @@ class TestTheStoredIndex:
         )
         write_matrix(tmp_path, "r1", matrix)
         _build_and_store_index(str(tmp_path), "r1", matrix, "C")
-        assert INDEX_FORMAT == "hair-cell-index/8"
+        assert INDEX_FORMAT == "hair-cell-index/9"
         assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
         path = index_path(tmp_path, "r1")
         payload = _json.loads(path.read_text())
         assert payload["unit"] == "C"
         assert payload["matrix"]
-        payload["format"] = "hair-cell-index/7"
+        payload["format"] = "hair-cell-index/8"
         path.write_text(_json.dumps(payload))
         assert _load_stored_index(str(tmp_path), "r1", "C") is None
 
@@ -486,3 +486,250 @@ class TestAPinnedDaikinDeviceIsSentTheRightState:
 
         assert heard == ["r1"]
         manager.dispatch_cell_retransmit.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# A key that merges a group names the group
+# ---------------------------------------------------------------------------
+#
+# Since the /4 refusal two cells whose whole codes are the same merge
+# under a key rather than poisoning it, and the key keeps the LAST of
+# them. A file that stores one code under several settings therefore
+# answered every press of it with its last cell. The index now records
+# each group (the cells of one lattice that claimed under one code) and
+# tells every stored hit what its group spans, while every key goes on
+# resolving exactly the cell it resolved before.
+
+
+def _without_groups(matrix):
+    """The index as it was built before groups: the same rule with the
+    group pass switched off."""
+    from unittest.mock import patch
+
+    with patch(
+        "custom_components.hair.matrix_listener._attach_groups",
+        lambda *args, **kwargs: None,
+    ):
+        return build_cell_index(matrix)
+
+
+def _stored_hits(index):
+    for tier in ("decoded", "fp_bytehash", "bytehash"):
+        yield from (
+            (tier, key, hit) for key, hit in getattr(index, tier).items()
+        )
+    yield from (("norm_fp", k, h) for k, h in index.norm_fp.refs.items())
+
+
+def _shape(name):
+    from . import merged_group_shapes as shapes
+
+    return getattr(shapes, name)()
+
+
+class TestAMergedGroup:
+
+    @pytest.mark.parametrize("build", [
+        lambda: _shape("daikin_dry"),
+        lambda: _shape("shape_1128"),
+        lambda: _shape("shape_duplicate_coordinate"),
+        lambda: _pack_matrix("MITSUBISHI144.json"),
+        lambda: _pack_matrix("TCL112.json"),
+    ])
+    def test_every_key_still_resolves_the_cell_it_did(self, build):
+        """The representative stays: same key set, same cell key,
+        coordinates and S/L pattern under every key, and the same number
+        of distinct stored hits, so the row count on disk does not move.
+        Only the name and the two new fields differ."""
+        from custom_components.hair.matrix_listener import _index_to_payload
+
+        matrix = build()
+        before = _without_groups(matrix)
+        after = build_cell_index(matrix)
+
+        old = {(t, k): h for t, k, h in _stored_hits(before)}
+        new = {(t, k): h for t, k, h in _stored_hits(after)}
+        assert old.keys() == new.keys()
+        for key, hit in old.items():
+            twin = new[key]
+            assert (twin.cell_key, twin.power, twin.mode, twin.fan,
+                    twin.swing, twin.temp, twin.sl_pattern, twin.axis,
+                    twin.lattice) == (
+                hit.cell_key, hit.power, hit.mode, hit.fan, hit.swing,
+                hit.temp, hit.sl_pattern, hit.axis, hit.lattice,
+            )
+            assert (twin.spanned == ()) == (twin.cell_name == hit.cell_name)
+        assert len(_index_to_payload(after, "h", "C")["hits"]) == len(
+            _index_to_payload(before, "h", "C")["hits"]
+        )
+
+    def test_a_dry_group_is_named_by_what_it_spans(self):
+        index = build_cell_index(_shape("daikin_dry"))
+        dry = [h for _t, _k, h in _stored_hits(index) if h.mode == "dry"]
+
+        assert dry
+        for hit in dry:
+            assert hit.cell_key == f"dry/{hit.fan}/off/30"
+            assert hit.spanned == (
+                ("temp", tuple(float(t) for t in range(18, 31))),
+            )
+            assert hit.cell_name == f"dry / fan: {hit.fan} / swing: off / 18-30"
+            assert hit.members == tuple(
+                ("dry", hit.fan, "off", float(t)) for t in range(18, 31)
+            )
+
+    def test_one_group_shares_one_members_tuple(self):
+        index = build_cell_index(_shape("daikin_dry"))
+        auto = [
+            h for _t, _k, h in _stored_hits(index)
+            if h.mode == "dry" and h.fan == "auto"
+        ]
+        assert len({id(h.members) for h in auto}) == 1
+        groups = {id(g): g for g in index.groups.values()}
+        assert len(groups) == 2
+        assert any(auto[0].members is g.members for g in groups.values())
+
+    def test_a_group_records_the_branches_it_wholly_covers(self):
+        index = build_cell_index(_shape("daikin_dry"))
+        branches = {
+            branch for g in index.groups.values() for branch in g.full_branches
+        }
+        assert branches == {("dry", "auto", "off"), ("dry", "high", "off")}
+
+    def test_a_partial_group_covers_no_branch(self):
+        index = build_cell_index(_shape("shape_1000"))
+        (group,) = {id(g): g for g in index.groups.values()}.values()
+        assert group.members == (
+            ("heat", "high", None, 18.0), ("heat", "high", None, 19.0),
+        )
+        assert group.full_branches == frozenset()
+
+    def test_a_twin_of_another_code_is_not_named_for_the_group(self):
+        """Two cells at dry / auto / off / 24, different codes. The other
+        code's hit is found by the code it claimed under, never by its
+        coordinates, so it keeps its own concrete name; and its cell
+        breaks the branch, so the dry auto branch is not wholly one
+        code."""
+        matrix = _shape("shape_duplicate_coordinate")
+        twin = matrix.cells[next(
+            i for i, c in enumerate(matrix.cells)
+            if (c.mode, c.fan, c.temp) == ("dry", "auto", 24.0)
+        )]
+        index = build_cell_index(matrix)
+        identity = wig_signal_identity(twin.pronto)
+        hit = index.bytehash[identity.byte_hash]
+
+        assert hit.cell_key == "dry/auto/off/24"
+        assert hit.spanned == ()
+        assert hit.cell_name == "dry / fan: auto / swing: off / 24"
+        auto = next(
+            g for g in index.groups.values() if g.members[0][1] == "auto"
+        )
+        assert ("dry", "auto", "off") not in auto.full_branches
+
+    def test_a_capture_built_group_keeps_each_keys_representative(self):
+        """Each capture of one code is its own S/L fingerprint, so the
+        composite key stores a different representative per capture
+        while the byte hash stores the last. Each key keeps its own,
+        live and after a restart, and all of them name the one group."""
+        from .test_matrix_listener import _stored
+
+        index = build_cell_index(_shape("shape_1128"))
+        dry = [(t, k, h) for t, k, h in _stored_hits(index) if h.mode == "dry"]
+        representatives = {h.cell_key for _t, _k, h in dry}
+        assert len(representatives) > 1
+        assert {h.cell_name for _t, _k, h in dry} == {
+            "dry / fan: level1 / 16-31",
+        }
+        restored = _stored(index)
+        for tier, key, hit in dry:
+            twin = (
+                restored.norm_fp.refs[key] if tier == "norm_fp"
+                else getattr(restored, tier)[key]
+            )
+            assert twin == hit
+        (group,) = {id(g): g for g in restored.groups.values()}.values()
+        assert len(group.digests) > 1
+
+    def test_a_cell_spelled_with_the_off_bytes_is_no_group(self):
+        """Malformed, and the safer answer is the one it always got: the
+        key answers Off, and nothing is named for a group."""
+        index = build_cell_index(_toy([
+            ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=_OFF),
+            ClimateCell(mode="cool", fan="auto", temp=23.0, pronto=_OFF),
+            ClimateCell(mode="cool", fan="auto", temp=24.0, pronto=_A),
+        ], off=_OFF))
+
+        assert index.groups == {}
+        assert all(h.spanned == () for _t, _k, h in _stored_hits(index))
+        assert _match(index, _OFF)[1] == "off"
+        names = {h.cell_name for _t, _k, h in _stored_hits(index)}
+        assert names == {"Off", "cool / fan: auto / 24"}
+
+    def test_a_code_shared_across_lattices_is_grouped_in_its_own_only(self):
+        """An extra holding a main cell's code is a coincidence between
+        two lattices, not a setting the unit ignores. The stored hit is
+        the extra's (it is added last, as today), and what it spans is
+        its own lattice's group alone."""
+        from custom_components.hair.wig_format import ClimateExtra
+
+        matrix = _toy([
+            ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=_A),
+            ClimateCell(mode="cool", fan="auto", temp=26.0, pronto=_B),
+        ], off=_OFF)
+        matrix.extras = [ClimateExtra(axis="preset", key="eco", cells=[
+            ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=_A),
+            ClimateCell(mode="cool", fan="auto", temp=23.0, pronto=_A),
+        ])]
+        index = build_cell_index(matrix)
+        identity = wig_signal_identity(_A)
+        hit = index.bytehash[identity.byte_hash]
+
+        assert (hit.lattice, hit.cell_key) == ("eco", "cool/auto/23")
+        assert hit.spanned == (("temp", (22.0, 23.0)),)
+        assert hit.members == (
+            ("cool", "auto", None, 22.0), ("cool", "auto", None, 23.0),
+        )
+        assert hit.cell_name == "(eco) cool / fan: auto / 22-23"
+        assert {g.lattice for g in index.groups.values()} == {
+            ("preset", "eco"),
+        }
+
+    def test_a_pair_across_lattices_alone_is_no_group(self):
+        from custom_components.hair.wig_format import ClimateExtra
+
+        matrix = _toy([
+            ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=_A),
+        ], off=_OFF)
+        matrix.extras = [ClimateExtra(axis="preset", key="eco", cells=[
+            ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=_A),
+        ])]
+        index = build_cell_index(matrix)
+
+        assert index.groups == {}
+        assert all(h.spanned == () for _t, _k, h in _stored_hits(index))
+
+    def test_a_code_stored_under_two_modes_names_both(self):
+        from . import merged_group_shapes as shapes
+
+        index = build_cell_index(shapes.wig_matrix(shapes.KOMECO_WIGS[1]))
+        names = {
+            h.cell_name for _t, _k, h in _stored_hits(index)
+            if dict(h.spanned).get("mode")
+        }
+        assert names == {
+            f"cool|heat_cool / fan: medium / swing: {s} / 25"
+            for s in ("off", "vertical", "horizontal", "both")
+        }
+
+    def test_fujitsu_stores_every_branch_as_one_code(self):
+        """The consequence stated in the report, pinned so it is seen
+        when the Fujitsu map changes it: every branch of the pack is one
+        code across temperature, so a Fujitsu card does not move its
+        temperature on a heard press until the map is fixed."""
+        index = build_cell_index(_pack_matrix("FUJITSU128.json"))
+        groups = {id(g): g for g in index.groups.values()}.values()
+        assert len(groups) == 20
+        for group in groups:
+            assert {m[:3] for m in group.members} == set(group.full_branches)
+            assert len(group.full_branches) == 1

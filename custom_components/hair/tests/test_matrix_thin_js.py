@@ -463,12 +463,22 @@ class TestTheCardSource:
         assert 'class="matrix-card ${editing ? "editing" : ""}"' in render
 
     def test_the_heard_state_rings_only_its_own_lattice(self):
+        """The ring decision lives in ``matrix-lattice.ts`` since the
+        merged-group dial (``heardRings``, which test_matrix_lattice_js
+        runs, another lattice's press included). What is pinned here is
+        that the card's chips and tiles take their rings from it, handed
+        the lattice on screen, and that the helper refuses a press from
+        another lattice before anything else."""
         card = _card()
-        assert "heardHere ? h!.mode : null" in card
-        assert "heardHere ? h!.fan : null" in card
-        assert "heardHere ? h!.swing : null" in card
-        branch = _method(card, "private _onHeardBranch(")
-        assert "if (!this._heardHere()) return false;" in branch
+        rings = _method(card, "private _rings(")
+        assert "heardRings(" in rings
+        assert "this._selectedRef()," in rings
+        assert "rings.mode," in card
+        assert "rings.fan," in card
+        assert "rings.swing," in card
+        lattice = (SRC / "matrix-lattice.ts").read_text(encoding="utf-8")
+        helper = lattice[lattice.index("export function heardRings("):]
+        assert "if (!heardInLattice(heard, selected)) return NO_RINGS;" in helper
         seed = _method(card, "private _seedBranch(")
         assert "this._heardHere()" in seed
 

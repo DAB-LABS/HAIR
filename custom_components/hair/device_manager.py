@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -135,6 +136,63 @@ class DeviceManager:
         # stale behind our back. Misses are NOT cached, so a file that
         # appears later (restored backup) is picked up on the next ask.
         self._matrix_cache: dict[str, ClimateMatrix] = {}
+        # Each matrix climate entity's current state, by device id, as a
+        # callable the entity registers once it has restored. Read by
+        # the matrix listener when a pinned send's code is one the file
+        # stores under several settings, to name the send after the
+        # setting the card is already on rather than the one the file
+        # listed last. Never read for bytes.
+        self._climate_states: dict[str, Callable[[], dict | None]] = {}
+
+    # --- The climate entity's current state ------------------------------
+
+    def register_climate_state(
+        self, device_id: str, provider: Callable[[], dict | None]
+    ) -> None:
+        """Let the listener ask this device's climate entity where it is.
+
+        Called by the entity after its restore, so the first answer is
+        the restored state. A second registration for the same device
+        replaces the first, which is what an entity re-added under a new
+        entity id does.
+        """
+        self._climate_states[device_id] = provider
+
+    def unregister_climate_state(
+        self, device_id: str, provider: Callable[[], dict | None]
+    ) -> None:
+        """Forget a provider, but only if it is still the registered one.
+
+        Compared with ``==``: a bound method is a fresh object every
+        time it is read, so ``is`` would never match and nothing would
+        ever be unregistered, while ``==`` still tells two entities'
+        methods apart. A removed entity that was already replaced must
+        not take its successor's registration with it.
+        """
+        if self._climate_states.get(device_id) == provider:
+            self._climate_states.pop(device_id, None)
+
+    def climate_state(self, device_id: str) -> dict | None:
+        """The device's climate entity's current state, or None.
+
+        ``{"mode", "fan", "swing", "temp"}`` in the file's own
+        vocabulary and unit, ``mode`` None while the entity is OFF.
+        None when no entity has registered (a disabled entity, or the
+        moment between a receiver's subscription and the climate
+        platform adding the entity) or the entity is not in matrix mode.
+        A provider that fails costs the send its name, never the send.
+        """
+        provider = self._climate_states.get(device_id)
+        if provider is None:
+            return None
+        try:
+            return provider()
+        except Exception:
+            _LOGGER.debug(
+                "Climate state for device %s could not be read",
+                device_id, exc_info=True,
+            )
+            return None
 
     async def async_create_device(self, device: IRDevice) -> IRDevice:
         """Create a new IR device, register in HA registry, create entities."""
@@ -438,6 +496,7 @@ class DeviceManager:
         holding. Best effort: hygiene must never fail a delete the store
         has already committed.
         """
+        self._climate_states.pop(device_id, None)
         data = self._hass.data.get(DOMAIN, {}).get(self._config_entry_id)
         listener = data.get("matrix_listener") if data else None
         if listener is None:
@@ -1265,9 +1324,9 @@ class DeviceManager:
         returns it verbatim), so exact equality is the common case; this
         only keeps a hand-edited file's spacing from costing a match.
         """
-        if not pronto:
-            return None
-        return " ".join(pronto.split()).upper()
+        from .wig_climate import pronto_text_key
+
+        return pronto_text_key(pronto)
 
     async def async_backfill_sent_states(self) -> int:
         """Stamp saved STATE rows with the cell they transmit.

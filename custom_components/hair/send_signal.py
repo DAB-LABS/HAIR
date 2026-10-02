@@ -61,6 +61,7 @@ class DeviceSent:
     command_id: str | None = None
     command_name: str = ""
     # {"mode", "fan", "swing", "temp"} -- a lattice cell's coordinates.
+    # A pinned send of a merged group adds spanned, members, temp_free.
     matrix_cell: dict[str, Any] | None = field(default=None)
     # "off" | "on" -- the matrix's own power codes.
     power: str | None = None

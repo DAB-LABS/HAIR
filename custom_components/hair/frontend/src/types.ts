@@ -836,6 +836,18 @@ export interface LastHeard {
     // a row persisted before then carries neither.
     axis?: string | null;
     lattice?: string | null;
+    // What the press does NOT pin down: a file that stores one code
+    // under several settings (dry at every temperature, when the unit
+    // ignores it there) cannot say which of them was pressed. Each
+    // dimension the stored cells disagree on, with its values; empty
+    // on a press that pins every setting. The coordinates above stay
+    // the representative's, for door 1 and the branch seed.
+    spanned?: Record<string, (string | number | null)[]>;
+    // On a spanned press only: every member cell's coordinates,
+    // [mode, fan, swing, temp], so a tile rings only on a cell that
+    // really carries this code. Optional, like ``spanned``: a row
+    // persisted before them carries neither.
+    members?: (string | number | null)[][];
     at: string;
     sl_pattern: string | null;
     receiver_entity_id: string | null;

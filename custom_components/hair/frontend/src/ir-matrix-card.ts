@@ -56,7 +56,12 @@ import type {
     MatrixThinResult,
     MatrixThinShape,
 } from "./types.js";
-import { heardInLattice, latticeView } from "./matrix-lattice.js";
+import {
+    heardInLattice,
+    heardRings,
+    latticeView,
+    type HeardRings,
+} from "./matrix-lattice.js";
 import type { LatticeRef, LatticeView } from "./matrix-lattice.js";
 import {
     defaultOpen,
@@ -385,20 +390,21 @@ export class IrMatrixCard extends LitElement {
         this._browsedBranch = true;
     }
 
-    /** Is the browsed branch the heard one? "Not browsed yet" counts
-     * as yes: the card shows what just happened rather than an
-     * arbitrary starting point, so a fresh frame rings its tile
-     * without the user having to click through to it first (handoff,
-     * the correction the mockup needed on its first pass). */
-    private _onHeardBranch(): boolean {
-        const h = this.heard;
-        if (!h || h.power !== null) return false;
-        if (!this._heardHere()) return false;
-        if (!this._browsedBranch) return true;
-        return (
-            this._selMode === h.mode &&
-            (this._selFan ?? null) === (h.fan ?? null) &&
-            (this._selSwing ?? null) === (h.swing ?? null)
+    /** What the heard state rings on the branch being drawn: the rule
+     * lives in ``matrix-lattice.ts`` so a test can run it. On a press
+     * whose code the file stores under several settings, a dimension
+     * the press does not pin down rings no chip, and a tile rings only
+     * when its whole coordinate is one of the cells carrying that code. */
+    private _rings(): HeardRings {
+        return heardRings(
+            this.heard,
+            this._selectedRef(),
+            {
+                mode: this._selMode,
+                fan: this._selFan ?? null,
+                swing: this._selSwing ?? null,
+            },
+            this._browsedBranch,
         );
     }
 
@@ -681,6 +687,7 @@ export class IrMatrixCard extends LitElement {
             if (c.t !== undefined) byTemp.set(c.t, c);
         }
         const temps = [...byTemp.keys()].sort((a, b) => a - b);
+        const rings = this._rings();
         if (temps.length === 0) {
             const bare = branch.find((c) => c.t === undefined) ?? null;
             if (!bare) return nothing;
@@ -688,7 +695,7 @@ export class IrMatrixCard extends LitElement {
                 currentName !== null &&
                 this._cellName(bare) === currentName;
             const isSel = this._selPower === null && this._browsed;
-            const rest = this._onHeardBranch() && this.heard!.temp === null;
+            const rest = rings.tiles.includes(null);
             return html`<div class="mx-grid">
                 <button
                     class="mx-tile ${isSel ? "sel" : ""} ${isCurrent
@@ -739,8 +746,7 @@ export class IrMatrixCard extends LitElement {
                 // different Mode/Fan/Swing, so ringing it under a
                 // mismatched browse would misattribute the heard
                 // state to the wrong command.
-                const rest =
-                    this._onHeardBranch() && this.heard!.temp === pos;
+                const rest = rings.tiles.includes(pos);
                 return html`<button
                     class="mx-tile ${
                         this._selPower === null &&
@@ -832,8 +838,9 @@ export class IrMatrixCard extends LitElement {
         const armed = hear
             ? this._browsed && !!(selected || this._selPower)
             : !!(selected || this._selPower);
-        // The heard state rings chips only in its own lattice.
-        const heardHere = !!h && h.power === null && this._heardHere();
+        // The heard state rings chips only in its own lattice, and on a
+        // press that leaves a dimension open, not on that dimension.
+        const rings = this._rings();
         const editing = this._editing && this._draft !== null;
         // The pencil: send mode, a readable lattice, and a page that
         // knows how to save. Never in hear mode (brief 2).
@@ -858,7 +865,7 @@ export class IrMatrixCard extends LitElement {
                 </div>
                 ${editing
                     ? this._renderEditor(mc!)
-                    : this._renderBrowse(mc, hear, h, heardHere, current,
+                    : this._renderBrowse(mc, hear, h, rings, current,
                           fans, swings, armed)}
             </div>
         `;
@@ -872,7 +879,7 @@ export class IrMatrixCard extends LitElement {
         mc: MatrixCells | null,
         hear: boolean,
         h: LastHeard | null,
-        heardHere: boolean,
+        rings: HeardRings,
         current: string | null,
         fans: string[],
         swings: string[],
@@ -922,7 +929,7 @@ export class IrMatrixCard extends LitElement {
                                       this._selSwing,
                                       this._selTemp,
                                   ),
-                              heardHere ? h!.mode : null,
+                              rings.mode,
                           )}
                           ${fans.length > 0
                               ? this._renderDimRow(
@@ -938,7 +945,7 @@ export class IrMatrixCard extends LitElement {
                                             this._selSwing,
                                             this._selTemp,
                                         ),
-                                    heardHere ? h!.fan : null,
+                                    rings.fan,
                                 )
                               : nothing}
                           ${swings.length > 0
@@ -955,7 +962,7 @@ export class IrMatrixCard extends LitElement {
                                             v,
                                             this._selTemp,
                                         ),
-                                    heardHere ? h!.swing : null,
+                                    rings.swing,
                                 )
                               : nothing}
                           ${this._renderGrid(current)}

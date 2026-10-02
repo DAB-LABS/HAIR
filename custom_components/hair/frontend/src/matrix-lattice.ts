@@ -8,7 +8,12 @@
  * one imports nothing but types, which erase, so a test can RUN it
  * instead of reading it.
  */
-import type { MatrixCellCoord, MatrixCells, SavePlanRow } from "./types.js";
+import type {
+    LastHeard,
+    MatrixCellCoord,
+    MatrixCells,
+    SavePlanRow,
+} from "./types.js";
 
 /** What the dimension browser reads: cells plus the three vocabulary
  * lists that go with them. */
@@ -194,4 +199,87 @@ export function heardInLattice(
     const s = latticeFields(selected);
     return (h.axis ?? null) === (s.axis ?? null) &&
         (h.lattice ?? null) === (s.lattice ?? null);
+}
+
+/** The branch the card is DRAWING: after the seed and every click,
+ * whatever the dimension rows and the tile grid are rendering now.
+ * Absent dimensions are null. */
+export interface DrawnBranch {
+    mode: string | null;
+    fan: string | null;
+    swing: string | null;
+}
+
+/** What a heard state rings on the card: one chip per dimension row
+ * (null rings none) and the temperatures whose tiles ring in the drawn
+ * branch (null is the bare tile of a branch with no temperature). */
+export interface HeardRings {
+    mode: string | null;
+    fan: string | null;
+    swing: string | null;
+    tiles: (number | null)[];
+}
+
+const NO_RINGS: HeardRings = { mode: null, fan: null, swing: null, tiles: [] };
+
+/** Which chips and tiles the heard state rings.
+ *
+ * A PLAIN PRESS rings exactly as it always has. Each dimension row
+ * rings the heard value whatever is browsed (there is one of each
+ * row). The heard temperature's tile rings only on the heard branch,
+ * because the same position under another mode, fan or swing is a
+ * different command; and "not browsed yet" counts as the heard branch,
+ * so a fresh press rings its tile without a click.
+ *
+ * A SPANNED PRESS is a code the file stores under several settings, so
+ * the representative's coordinates are one cell of several and must
+ * not be shown as the one pressed. A spanned dimension rings no chip.
+ * A tile rings only when the WHOLE coordinate it stands for (the drawn
+ * mode, fan and swing, and that tile's temperature) is one of the
+ * press's members. Testing the dimensions one at a time is not enough:
+ * a group need not be every combination of its values, and on one real
+ * shape (cool / low / vertical / 18 and cool / quiet / off / 18 one
+ * code) browsing cool / low / off would ring 18, which is another code.
+ *
+ * Null and undefined mean the same here (an absent dimension), because
+ * a cell omits one and a member writes null. ``browsedBranch`` is
+ * whether a click has moved the drawn branch; ``selected`` is the
+ * lattice on screen, as ``heardInLattice`` takes it.
+ *
+ * Pure and type-only, like every helper here, so a test can run it.
+ */
+export function heardRings(
+    heard: LastHeard | null | undefined,
+    selected: LatticeRef | null | undefined,
+    drawn: DrawnBranch,
+    browsedBranch: boolean,
+): HeardRings {
+    if (!heard || heard.power !== null) return NO_RINGS;
+    if (!heardInLattice(heard, selected)) return NO_RINGS;
+    const spanned = heard.spanned ?? {};
+    const isSpanned = (dim: string): boolean =>
+        Array.isArray(spanned[dim]) && spanned[dim].length > 0;
+    const chips = {
+        mode: isSpanned("mode") ? null : (heard.mode ?? null),
+        fan: isSpanned("fan") ? null : (heard.fan ?? null),
+        swing: isSpanned("swing") ? null : (heard.swing ?? null),
+    };
+    const dims = ["mode", "fan", "swing", "temp"];
+    if (!dims.some(isSpanned)) {
+        const onBranch =
+            !browsedBranch ||
+            ((drawn.mode ?? null) === (heard.mode ?? null) &&
+                (drawn.fan ?? null) === (heard.fan ?? null) &&
+                (drawn.swing ?? null) === (heard.swing ?? null));
+        return { ...chips, tiles: onBranch ? [heard.temp ?? null] : [] };
+    }
+    const tiles = (heard.members ?? [])
+        .filter(
+            (m) =>
+                (m[0] ?? null) === (drawn.mode ?? null) &&
+                (m[1] ?? null) === (drawn.fan ?? null) &&
+                (m[2] ?? null) === (drawn.swing ?? null),
+        )
+        .map((m) => (typeof m[3] === "number" ? m[3] : null));
+    return { ...chips, tiles };
 }

@@ -1,0 +1,613 @@
+"""Fixed lattice constructions for the merged-group pins.
+
+A file that stores one code under several settings answers every press
+of that code with whichever of those cells the index met last. The
+pins for that live in several modules (the listener, the climate
+entity, the stored index, the end to end shapes) and the bytes
+invariance golden is generated from the same constructions, so they
+live here, once, rather than being rebuilt slightly differently in
+each place. A golden generated from one construction and checked
+against another would prove nothing.
+
+EVERY CODE HERE IS SYNTHETIC. The DAIKIN152 shapes are built by the
+test-side encoder the #183 pins already use (``_stored_state`` over
+``_file_form`` over the traits round's ``_settings``), and the
+capture-built shape by a small pulse-distance encoder below. The
+SmartIR files the shapes are named after are not in this repository;
+each shape reproduces only the GROUPING one of them showed (which cells
+share a code), never a code from it.
+
+Nothing in this module may change once the golden is committed: the
+golden rows are keyed by position in these lattices, and the codes are
+what they hash.
+"""
+from __future__ import annotations
+
+import copy
+import itertools
+import json
+from pathlib import Path
+
+from custom_components.hair.wig_format import (
+    ClimateCell,
+    ClimateExtra,
+    ClimateMatrix,
+    parse_wig,
+)
+
+from .test_a_leader_is_not_off import _handset, _stored_state
+from .test_daikin152_joins import _file_form
+from .test_daikin152_traits import _settings
+
+FIXTURES = Path(__file__).parent / "fixtures"
+PACKS = FIXTURES / "field-packs"
+KOMECO_WIGS = (
+    FIXTURES / "wigs" / "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json",
+    FIXTURES / "thinning" / "komeco-pr19-after-834.wig.json",
+)
+
+# ---------------------------------------------------------------------------
+# Codes
+# ---------------------------------------------------------------------------
+
+_FAN_NIBBLES = (0x3, 0x5, 0x7, 0xA, 0xB)
+_SWINGS = ("off", "vertical", "horizontal", "both")
+
+
+def distinct_code(n: int) -> str:
+    """The n-th code of a family of codes that are all different.
+
+    Read-bytes DAIKIN152 states that differ in a byte the map reads, so
+    no two of them share an identity on any tier. Cool and heat only:
+    dry and fan_only overwrite the temperature byte, which is exactly
+    the merge the group codes below are made of.
+    """
+    temp = 10 + n % 23
+    fan = _FAN_NIBBLES[(n // 23) % 5]
+    mode = ("cool", "heat")[(n // 115) % 2]
+    swing = _SWINGS[(n // 230) % 4]
+    flags = (n // 920) % 8
+    return _stored_state(_file_form(_settings(
+        mode, fan, temp, swing=swing, powerful=bool(flags & 1),
+        economy=bool(flags & 2), sleep=bool(flags & 4),
+    )))
+
+
+def group_code(fan: int = 0xA, swing: str = "off") -> str:
+    """One shared code: a DAIKIN152 dry state, whose temperature byte
+    the encoder fixes, so every temperature spelled with it is one
+    code."""
+    return _stored_state(_file_form(_settings("dry", fan, 24, swing=swing)))
+
+
+def _off() -> str:
+    return _handset(_settings("cool", 0x7, 24, power=0))
+
+
+def _matrix(cells: list[ClimateCell], **over) -> ClimateMatrix:
+    temps = [c.temp for c in cells if c.temp is not None]
+    return ClimateMatrix(
+        min_temp=over.pop("min_temp", min(temps)),
+        max_temp=over.pop("max_temp", max(temps)),
+        precision=1.0,
+        modes=over.pop("modes", list(dict.fromkeys(c.mode for c in cells))),
+        fan_modes=over.pop(
+            "fan_modes",
+            list(dict.fromkeys(c.fan for c in cells if c.fan is not None)),
+        ),
+        swing_modes=over.pop(
+            "swing_modes",
+            list(dict.fromkeys(c.swing for c in cells if c.swing is not None)),
+        ),
+        off=over.pop("off", _off()),
+        cells=cells,
+        **over,
+    )
+
+
+class _Codes:
+    """Hands out distinct codes in a fixed order."""
+
+    def __init__(self, start: int = 0) -> None:
+        self._next = start
+
+    def __call__(self) -> str:
+        code = distinct_code(self._next)
+        self._next += 1
+        return code
+
+
+# ---------------------------------------------------------------------------
+# The shapes
+# ---------------------------------------------------------------------------
+
+
+def daikin_dry() -> ClimateMatrix:
+    """The #183 case: dry stores one code per fan across 18-30.
+
+    Cool is a real code per temperature from 16 to 30, so a dial left
+    at 16 in cool is outside the dry group's temperatures, which is the
+    case ``temp_free`` exists for. Dry auto and dry high are two groups
+    of thirteen text-identical cells.
+    """
+    codes = _Codes(0)
+    cells: list[ClimateCell] = []
+    for fan in ("auto", "high"):
+        for temp in range(16, 31):
+            cells.append(ClimateCell(
+                mode="cool", fan=fan, swing="off", temp=float(temp),
+                pronto=codes(),
+            ))
+    for fan, nibble in (("auto", 0xA), ("high", 0x7)):
+        shared = group_code(nibble)
+        for temp in range(18, 31):
+            cells.append(ClimateCell(
+                mode="dry", fan=fan, swing="off", temp=float(temp),
+                pronto=shared,
+            ))
+    return _matrix(cells, modes=["cool", "dry"])
+
+
+def daikin_dry_press(fan: str = "auto") -> str:
+    """A handset press of the dry state (any temperature: it is one
+    code)."""
+    nibble = {"auto": 0xA, "high": 0x7}[fan]
+    return _handset(_file_form(_settings("dry", nibble, 24)))
+
+
+def shape_1294() -> ClimateMatrix:
+    """A group that is not a product of its values.
+
+    cool / low / vertical / 18 and cool / quiet / off / 18 are one
+    code; cool / low / off / 18 and cool / quiet / vertical / 18 are
+    two others. Spanned on fan {low, quiet} and swing {off, vertical},
+    and a per-dimension test would call cool / low / off / 18 a member.
+    """
+    codes = _Codes(100)
+    shared = group_code(0x3, "vertical")
+    cells: list[ClimateCell] = []
+    for fan in ("low", "quiet"):
+        for swing in ("off", "vertical"):
+            for temp in range(18, 22):
+                member = temp == 18 and (fan, swing) in (
+                    ("low", "vertical"), ("quiet", "off"),
+                )
+                cells.append(ClimateCell(
+                    mode="cool", fan=fan, swing=swing, temp=float(temp),
+                    pronto=shared if member else codes(),
+                ))
+    return _matrix(cells)
+
+
+def shape_2740() -> ClimateMatrix:
+    """dry / auto / 16 with dry / level1-4 / 16-30, all one code.
+
+    dry / auto / 17-30 are real codes of their own, so dry / auto / 17
+    is inside the group's fans and inside its temperatures and is still
+    not a member. Cool is a code per cell.
+    """
+    codes = _Codes(200)
+    shared = group_code(0x5)
+    fans = ("auto", "level1", "level2", "level3", "level4")
+    cells: list[ClimateCell] = []
+    for fan in fans:
+        for temp in range(16, 31):
+            cells.append(ClimateCell(
+                mode="cool", fan=fan, temp=float(temp), pronto=codes(),
+            ))
+    for fan in fans:
+        for temp in range(16, 31):
+            member = fan != "auto" or temp == 16
+            cells.append(ClimateCell(
+                mode="dry", fan=fan, temp=float(temp),
+                pronto=shared if member else codes(),
+            ))
+    return _matrix(cells, modes=["cool", "dry"])
+
+
+def shape_1000() -> ClimateMatrix:
+    """A group that covers part of its branch.
+
+    heat / high / 18 and heat / high / 19 are one code while heat /
+    high / 16-30 are otherwise all real and distinct, so the unit does
+    NOT ignore temperature there and the dial must not stay put.
+    """
+    codes = _Codes(400)
+    shared = group_code(0xB)
+    cells: list[ClimateCell] = []
+    for mode in ("cool", "heat"):
+        for fan in ("low", "high"):
+            for temp in range(16, 31):
+                member = (mode, fan) == ("heat", "high") and temp in (18, 19)
+                cells.append(ClimateCell(
+                    mode=mode, fan=fan, temp=float(temp),
+                    pronto=shared if member else codes(),
+                ))
+    return _matrix(cells, modes=["cool", "heat"])
+
+
+def shape_duplicate_coordinate() -> ClimateMatrix:
+    """Two cells at dry / auto / off / 24 with different codes.
+
+    The parser allows it. The other code sits AHEAD of the group's own
+    dry / auto / off / 24, so a lookup that searched the lattice by
+    coordinates rather than the group's siblings would find it first.
+    """
+    matrix = daikin_dry()
+    at = next(
+        i for i, c in enumerate(matrix.cells)
+        if (c.mode, c.fan, c.temp) == ("dry", "auto", 24.0)
+    )
+    matrix.cells.insert(at, ClimateCell(
+        mode="dry", fan="auto", swing="off", temp=24.0,
+        pronto=distinct_code(600),
+    ))
+    return matrix
+
+
+def shape_1100() -> ClimateMatrix:
+    """A group spanning fan and temperature that leaves one fan out.
+
+    dry / auto, high, low and mid across 18-30 are one code; dry /
+    quiet is a real code per temperature. A device whose current fan is
+    quiet is outside the group even though fan is a spanned dimension.
+    """
+    codes = _Codes(700)
+    shared = group_code(0x3)
+    cells: list[ClimateCell] = []
+    for fan in ("auto", "high", "low", "mid", "quiet"):
+        for temp in range(18, 31):
+            cells.append(ClimateCell(
+                mode="cool", fan=fan, temp=float(temp), pronto=codes(),
+            ))
+    for fan in ("auto", "high", "low", "mid", "quiet"):
+        for temp in range(18, 31):
+            cells.append(ClimateCell(
+                mode="dry", fan=fan, temp=float(temp),
+                pronto=codes() if fan == "quiet" else shared,
+            ))
+    return _matrix(cells, modes=["cool", "dry"])
+
+
+# A capture-built lattice. Each cell is its own capture of the code it
+# carries, so the members of one group are the same code by HAIR's
+# quantized discriminator and different text. Long spaces sit on the
+# S/L threshold, so the capture wobble moves some of them across it and
+# the S/L fingerprint, hence the composite key, differs from capture to
+# capture while the byte hash does not: the shape that makes one group
+# store different representatives under different keys.
+_UNIT_HEADER = (0x0088, 0x0040)
+_MARK = 0x0010
+_SPACE_0 = 0x0010
+_SPACE_1 = 0x0030
+_TRAIL = 0x0400
+
+
+def _capture_word(value: int, position: int, take: int) -> int:
+    """One timing word as capture ``take`` recorded it: a wobble of up
+    to two carrier cycles either way, from a fixed pattern, never a
+    random one."""
+    wobble = ((position * 7 + take * 13) % 5) - 2
+    return max(1, value + wobble)
+
+
+def pulse_code(payload: bytes, take: int | None = None) -> str:
+    """A pulse-distance code, optionally as capture ``take`` of it."""
+    words = list(_UNIT_HEADER)
+    for byte in payload:
+        for bit in range(8):
+            words += [_MARK, _SPACE_1 if (byte >> bit) & 1 else _SPACE_0]
+    words += [_MARK, _TRAIL]
+    if take is not None:
+        words = [
+            _capture_word(w, i, take) if w != _TRAIL else w
+            for i, w in enumerate(words)
+        ]
+    head = [0x0000, 0x006D, len(words) // 2, 0x0000]
+    return " ".join(f"{w:04X}" for w in head + words)
+
+
+def _payload(n: int) -> bytes:
+    return bytes([0x23, 0xCB, 0x26, 0x01, n & 0xFF, (n >> 8) & 0xFF,
+                  0x5A, (n * 37) & 0xFF])
+
+
+def shape_1128() -> ClimateMatrix:
+    """Capture per cell: dry / level1 / 16-31 is one code in sixteen
+    captures, and cool is a code per cell, each its own capture."""
+    cells: list[ClimateCell] = []
+    take = itertools.count(1)
+    for fan_index, fan in enumerate(("level1", "level2")):
+        for temp in range(16, 32):
+            cells.append(ClimateCell(
+                mode="cool", fan=fan, temp=float(temp),
+                pronto=pulse_code(
+                    _payload(fan_index * 64 + temp), next(take)
+                ),
+            ))
+    shared = _payload(0xDD)
+    for temp in range(16, 32):
+        cells.append(ClimateCell(
+            mode="dry", fan="level1", temp=float(temp),
+            pronto=pulse_code(shared, next(take)),
+        ))
+    return _matrix(
+        cells, modes=["cool", "dry"], off=pulse_code(_payload(0xFFF)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pairings, for the golden and for the tests that sweep it
+# ---------------------------------------------------------------------------
+
+#: How far "a second file" moves every timing word. Small, so a
+#: read-bytes family still reads the same bytes; the point is only that
+#: the device's text differs from the remote's, so a send out of the
+#: wrong file is visible in its hash.
+RETIME_OFFSET = 1
+
+
+def retime(pronto: str | None, offset: int = RETIME_OFFSET) -> str | None:
+    """One Pronto with every burst word moved by ``offset`` cycles."""
+    if not pronto:
+        return pronto
+    words = pronto.split()
+    head, body = words[:4], words[4:]
+    moved = [f"{max(1, int(w, 16) + offset):04X}" for w in body]
+    return " ".join(head + moved)
+
+
+def retimed(matrix: ClimateMatrix) -> ClimateMatrix:
+    """The same lattice as a second file with its own text."""
+    out = copy.deepcopy(matrix)
+    for cell in out.cells:
+        cell.pronto = retime(cell.pronto)
+    for extra in out.extras or ():
+        for cell in extra.cells:
+            cell.pronto = retime(cell.pronto)
+    out.off = retime(out.off)
+    out.on = retime(out.on)
+    return out
+
+
+def sparse(matrix: ClimateMatrix) -> ClimateMatrix:
+    """The same lattice with every other temperature removed.
+
+    A press at a removed temperature misses the coordinates, which is
+    the door the identity fallback answers.
+    """
+    out = copy.deepcopy(matrix)
+    temps = sorted({c.temp for c in out.cells if c.temp is not None})
+    drop = set(temps[1::2])
+    out.cells = [c for c in out.cells if c.temp not in drop]
+    return out
+
+
+#: The extras lattice the golden adds to every source: the main cells,
+#: every timing word stretched by this factor, under one preset key.
+#: A stretched code is a different code by frame identity, so the extra
+#: never shares one with the main lattice, while two main cells that
+#: shared a code still share one in the extra.
+EXTRA_STRETCH = 1.15
+
+
+def _stretch(pronto: str | None) -> str | None:
+    if not pronto:
+        return pronto
+    words = pronto.split()
+    return " ".join(
+        words[:4] + [f"{round(int(w, 16) * EXTRA_STRETCH):04X}" for w in words[4:]]
+    )
+
+
+def with_extra(matrix: ClimateMatrix) -> ClimateMatrix:
+    """The lattice plus a synthesized ``preset / eco`` extra."""
+    out = copy.deepcopy(matrix)
+    out.extras = [ClimateExtra(
+        axis="preset", key="eco",
+        cells=[
+            ClimateCell(
+                mode=c.mode, fan=c.fan, swing=c.swing, temp=c.temp,
+                pronto=_stretch(c.pronto), send_count=c.send_count,
+            )
+            for c in matrix.cells
+        ],
+    )]
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+
+
+def pack_matrix(name: str) -> ClimateMatrix:
+    from .test_cell_index_shared_keys import _pack_matrix
+
+    return _pack_matrix(name)
+
+
+def wig_matrix(path: Path) -> ClimateMatrix:
+    return parse_wig(path.read_text(encoding="utf-8")).wig.climate
+
+
+SYNTHESIZED = {
+    "synth-daikin-dry": daikin_dry,
+    "synth-1294": shape_1294,
+    "synth-2740": shape_2740,
+    "synth-1000": shape_1000,
+    "synth-1100": shape_1100,
+    "synth-1128": shape_1128,
+    "synth-duplicate-coordinate": shape_duplicate_coordinate,
+}
+
+
+def golden_sources() -> list[tuple[str, ClimateMatrix]]:
+    """Every lattice the bytes golden covers, in a fixed order."""
+    out: list[tuple[str, ClimateMatrix]] = []
+    for path in sorted(PACKS.glob("*.json")):
+        if ".defects" in path.name:
+            continue
+        out.append((path.name, pack_matrix(path.name)))
+    for path in KOMECO_WIGS:
+        out.append((path.name, wig_matrix(path)))
+    for name, build in SYNTHESIZED.items():
+        out.append((name, build()))
+    return out
+
+
+def dump(obj) -> str:
+    """The golden's one serialization: sorted keys, one row per line."""
+    return json.dumps(obj, sort_keys=True, indent=0) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# What a pinned device sends for a press
+# ---------------------------------------------------------------------------
+
+GOLDEN = FIXTURES / "merged-group-golden.json"
+
+#: The four pairings, in the order the golden writes them. ``extras``
+#: presses the extra's cells; the other three press the main lattice.
+PAIRINGS = ("same", "retimed", "sparse", "extras")
+
+
+def pairing(matrix: ClimateMatrix, name: str):
+    """``(remote lattice, device lattice, the cells pressed)``."""
+    if name == "same":
+        return matrix, copy.deepcopy(matrix), matrix.cells
+    if name == "retimed":
+        return matrix, retimed(matrix), matrix.cells
+    if name == "sparse":
+        return matrix, sparse(matrix), matrix.cells
+    if name == "extras":
+        both = with_extra(matrix)
+        return both, copy.deepcopy(both), both.extras[0].cells
+    raise ValueError(name)
+
+
+def press_identity(pronto: str):
+    """A press, as the capture path hands it to ``CellIndex.match``."""
+    from custom_components.hair.identity import norm_fingerprint
+    from custom_components.hair.wig_identity import wig_signal_identity
+
+    identity = wig_signal_identity(pronto)
+    if identity is None:
+        return None
+    return (
+        identity.decoded_fingerprint, identity.fingerprint,
+        identity.byte_hash, norm_fingerprint(identity.raw_timings),
+        identity.decode_covers,
+    )
+
+
+def sent_row(resolved) -> str | None:
+    """One golden row: the sha256 of the normalized Pronto and the send
+    count, or None when nothing is sent."""
+    import hashlib
+
+    if resolved is None:
+        return None
+    _name, pronto, send_count, _state = resolved
+    text = " ".join(pronto.split()).upper()
+    return f"{hashlib.sha256(text.encode()).hexdigest()}:{send_count}"
+
+
+class PinnedBench:
+    """A real ``MatrixListener`` with one remote pinned to one device.
+
+    The device manager is a fake that answers the device's lattice and,
+    when given one, a current climate state: the same seam the climate
+    entity's provider uses. A fake without ``climate_state`` is what
+    every caller before the provider looked like.
+    """
+
+    def __init__(self, remote_matrix, device_matrix, remote_index=None,
+                 device_index=None):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from custom_components.hair.matrix_listener import (
+            MatrixListener,
+            build_cell_index,
+        )
+
+        store = MagicMock()
+        store.get_all_trigger_remotes = MagicMock(return_value=[])
+        hass = MagicMock()
+        hass.config.config_dir = "/nonexistent-config"
+        hass.config.units.temperature_unit = "°C"
+        hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close())
+        hass.async_add_executor_job = AsyncMock(
+            side_effect=lambda func, *args: func(*args)
+        )
+        self.state: dict | None = None
+        bench = self
+
+        class _Devices:
+            async def async_get_matrix(self, device_id):
+                return device_matrix
+
+            def climate_state(self, device_id):
+                return None if bench.state is None else dict(bench.state)
+
+        self.listener = MatrixListener(hass, store, MagicMock(), _Devices())
+        self.remote_index = (
+            remote_index if remote_index is not None
+            else build_cell_index(remote_matrix)
+        )
+        self.listener._index_cache["dev-1"] = (
+            device_index if device_index is not None
+            else build_cell_index(device_matrix)
+        )
+
+    def hear(self, pronto: str):
+        """The hit the remote's index answers for a press, and its
+        identity, or None when the press is not heard."""
+        identity = press_identity(pronto)
+        if identity is None:
+            return None
+        matched = self.remote_index.match(*identity)
+        if matched is None:
+            return None
+        return matched[0], identity
+
+    async def resolve(self, heard, state: dict | None = None):
+        """What the device is sent for a heard press."""
+        if heard is None:
+            return None
+        self.state = state
+        hit, identity = heard
+        return await self.listener._async_resolve_device_cell(
+            "dev-1", hit, identity
+        )
+
+
+def golden_benches():
+    """Every ``(source, pairing, bench, pressed cells)`` the golden
+    covers, building each index once."""
+    from custom_components.hair.matrix_listener import build_cell_index
+
+    for source, matrix in golden_sources():
+        main_index = build_cell_index(matrix)
+        extra_index = None
+        for name in PAIRINGS:
+            remote, device, pressed = pairing(matrix, name)
+            if name == "same":
+                bench = PinnedBench(remote, device, main_index, main_index)
+            elif name == "extras":
+                extra_index = build_cell_index(remote)
+                bench = PinnedBench(remote, device, extra_index, extra_index)
+            else:
+                bench = PinnedBench(remote, device, remote_index=main_index)
+            yield source, name, bench, pressed
+
+
+async def golden_rows() -> dict:
+    """The golden's rows: ``{source: {pairing: [row per pressed cell]}}``."""
+    rows: dict[str, dict[str, list]] = {}
+    for source, name, bench, pressed in golden_benches():
+        rows.setdefault(source, {})[name] = [
+            sent_row(await bench.resolve(bench.hear(cell.pronto)))
+            for cell in pressed
+        ]
+    return rows
