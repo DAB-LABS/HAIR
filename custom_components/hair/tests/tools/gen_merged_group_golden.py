@@ -42,6 +42,13 @@ and which differ. ``--append`` writes only the rows of sources a
 committed column does not have yet, leaving every committed row as it
 is, and records the commit it ran at for those sources; a column with
 no committed file is written whole.
+
+One source is written after its change rather than before it:
+``synth-mitsubishi144-sl-scope``, appended once MITSUBISHI144 had joined
+the identity lists. Its fifth row in the ``same`` and ``retimed``
+pairings differs from what the commit before would have sent, by owner
+ruling (across a list change, a press may be answered by another cell
+carrying the same decoded bytes); ``merged_group_shapes`` says why.
 """
 from __future__ import annotations
 

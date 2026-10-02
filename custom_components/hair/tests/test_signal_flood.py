@@ -280,6 +280,42 @@ class TestHealParity:
             _assert_parity(signals)
 
 
+class TestHealAliasJoin:
+    """The names of collapsed rows are joined onto the kept row, each
+    once, and past a length cap counted rather than shown."""
+
+    def _healed(self, aliases: list[str]) -> str:
+        dev = _dev([
+            _sig(n, "SL", "b1", alias=alias) for n, alias in enumerate(aliases)
+        ])
+        assert _heal_device_signals(dev) is True
+        (kept,) = dev.signals
+        return kept.alias
+
+    def test_each_name_once_even_inside_one_alias(self):
+        assert self._healed(["A", "B / B", "A"]) == "A / B"
+
+    def test_an_alias_of_only_separators_adds_nothing(self):
+        assert self._healed(["X", " / ", ""]) == "X"
+
+    def test_a_long_join_counts_what_it_does_not_show(self):
+        names = [f"Setting number {n:02d}" for n in range(40)]
+        alias = self._healed(names)
+        shown, more = alias.rsplit(" / ", 1)
+        assert len(shown) <= 120
+        assert shown.split(" / ") == names[:len(shown.split(" / "))]
+        assert more == f"... {40 - len(shown.split(' / '))} more"
+
+    def test_a_first_name_is_shown_whole(self):
+        long = "x" * 150
+        assert self._healed([long, "B"]) == f"{long} / ... 1 more"
+
+    def test_a_later_join_adds_to_the_count(self):
+        assert self._healed(["A / ... 3 more", "B", "C / ... 2 more"]) == (
+            "A / B / C / ... 5 more"
+        )
+
+
 class TestHealPerformance:
     def test_flood_scale_store_heals_fast(self):
         # The GH #72 skew: one fat device. 5,000 rows would take the

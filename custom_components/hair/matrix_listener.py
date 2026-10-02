@@ -631,7 +631,7 @@ def build_cell_index(
     indexed: list[_Indexed] = []
     # The plain-tier claims (``decoded``, ``fp_bytehash``, ``bytehash``)
     # in the order the codes were added, each with the byte hash of a
-    # cell whose code forms no read key (None otherwise). They are made
+    # code that forms no read key (None otherwise). They are made
     # after every code is added, in that same order, because whether
     # such a cell may claim one depends on the whole lattice: see
     # STRAY-BURST KEYS below.
@@ -639,6 +639,8 @@ def build_cell_index(
     # The timing keys the codes that form a read key would claim if
     # their family were not listed: the keys it left behind.
     left_behind: set[str] = set()
+    # The byte hashes of the codes the stray-burst floor took out.
+    floored: set[str] = set()
 
     def _add(
         pronto: str | None, hit_factory: Any, lattice: tuple | None,
@@ -675,9 +677,7 @@ def build_cell_index(
                 form=read[1], mode=hit.mode, lattice=lattice,
             )
         waveform = norm_fingerprint(identity.raw_timings)
-        unread = (
-            identity.byte_hash if cell is not None and read is None else None
-        )
+        unread = identity.byte_hash if read is None else None
         if read is not None and words is not None:
             behind = _timing_key(words)
             if behind is not None:
@@ -686,6 +686,8 @@ def build_cell_index(
         stray = read is None and _stray_burst(
             words, EventParser._pronto_identity_timings(canonical)
         )
+        if stray and identity.byte_hash is not None:
+            floored.add(identity.byte_hash)
         # A DECODE THAT EXPLAINS PART OF THE CAPTURE IS NOT AN IDENTITY.
         # Indexing it would claim this cell IS that fingerprint, and on
         # a Daikin every cell would claim the same one.
@@ -791,25 +793,31 @@ def build_cell_index(
     #   plain-tier key (``_stray_burst``). This also closes the same key
     #   where it is live today, on any family: a lattice with one such
     #   cell heard every stray-mark capture as that cell, by luck when
-    #   it was right.
-    # - A cell whose code forms no read key claims no plain-tier key
-    #   that a code of the lattice which does form one would claim on
-    #   its timing identity if its family were not listed
-    #   (``_timing_key``): a key its family left behind when it moved to
-    #   read keys, which is how the damaged cell came to answer alone.
-    #   The same holds for a key a long lead-in leaves behind, such as
-    #   a Daikin preamble every code of the file shares. A cell whose
+    #   it was right. Nor does any other code that forms no read key
+    #   claim a key the floor took out: a code that is the lead-in and
+    #   nothing else carries that same one-word identity, and with the
+    #   floored codes gone it would be left to answer alone.
+    # - A code that forms no read key claims no plain-tier key that a
+    #   code of the matrix which does form one (in any of its lattices,
+    #   or a power code: one remote is one family) would claim on its
+    #   timing identity if its family were not listed (``_timing_key``):
+    #   a key its family left behind when it moved to read keys, which
+    #   is how the damaged code came to answer alone. The same holds for
+    #   a key a long lead-in leaves behind, such as a Daikin preamble
+    #   every code of the file shares. This covers the power codes too:
+    #   a damaged Off left alone on such a key would hear a glitched
+    #   press as Off, send it, and turn the card off. A code whose
     #   timing key is its own keeps it: a press of its own text was
     #   heard as it, and still is.
     #
     # The normalized tier is claimed either way, so a press of such a
-    # cell's own waveform can still be heard as it there. The power
-    # codes are not cells and keep their keys under the second guard.
-    # The claims are made here, in the order the codes were added, so
-    # every key that survives keeps the claimants and the representative
-    # it had.
+    # code's own waveform can still be heard as it there. The claims are
+    # made here, in the order the codes were added, so every key that
+    # survives keeps the claimants and the representative it had.
+    #
+    # Neither guard moved ``INDEX_FORMAT``: see the note beside it.
     for tier, key, code, hit, waveform, unread in plain:
-        if unread is not None and unread in left_behind:
+        if unread is not None and (unread in left_behind or unread in floored):
             continue
         _claim(tier, key, code, hit, waveform)
     # The keys that answer last, and for those on a plain tier, which
@@ -2051,6 +2059,12 @@ def _cell_in_hit_lattice(
 # pre-migration hashes while captures arrived carrying post-migration
 # ones. Every climate lattice would silently stop recognizing its own
 # cells, with nothing in any log to say so.
+#
+# The stray-burst guards in ``build_cell_index`` (2026-10-02) changed the
+# build without a bump: they landed in the same change that put
+# MITSUBISHI144 on both identity lists, and ``field_map_digest`` hashes
+# the lists, so every index stored before them is refused by its digest
+# and rebuilt. A change to those guards on its own would need this bump.
 INDEX_FORMAT = "hair-cell-index/10"
 
 

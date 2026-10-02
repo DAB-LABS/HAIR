@@ -644,6 +644,12 @@ def shape_mitsubishi144_sl_scope() -> ClimateMatrix:
     with one whole code, and its last claimant answers: 16's text is
     heard as 17, the same decoded bytes, and a same-file device is sent
     17's text. That is the documented behaviour across the list change.
+
+    In the golden this source is the one whose rows were written after
+    its change rather than before (the family's listing): the fifth row
+    of the ``same`` and ``retimed`` pairings, a press of dry / 16's own
+    text, differs from what the base sent, by that ruling, so the fifth
+    and sixth rows carry one hash.
     """
     pack = pack_matrix("MITSUBISHI144.json")
     dry = next(

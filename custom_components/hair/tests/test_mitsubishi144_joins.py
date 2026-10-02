@@ -404,12 +404,88 @@ def test_the_stray_key_is_not_left_to_a_damaged_cell_1142_shaped():
     _no_glitch_is_heard_as_the_damaged_cell(_1142_shaped())
 
 
-def test_either_guard_alone_closes_it_on_a_listed_lattice(monkeypatch):
-    """With the stray-burst floor switched off, the second guard still
-    keeps the damaged cell, a cell of a listed family whose code forms
-    no read key, off every plain-tier key."""
-    monkeypatch.setattr(_ml, "_stray_burst", lambda *args: False)
+@pytest.mark.parametrize("off", ["_stray_burst", "_timing_key"])
+def test_either_guard_alone_closes_it_on_a_listed_lattice(monkeypatch, off):
+    """With the stray-burst floor switched off, the left-behind guard
+    keeps the damaged cell (its code forms no read key, and its key is
+    the one the readable lead-in codes left behind) off every plain-tier
+    key; with the left-behind guard switched off, the floor does."""
+    monkeypatch.setattr(_ml, off, lambda *args: (
+        False if off == "_stray_burst" else None
+    ))
     _no_glitch_is_heard_as_the_damaged_cell(_lead_in_pack_lattice())
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_code_that_is_only_the_lead_in_answers_nothing(reverse):
+    """A cell whose whole code is the lead-in (a capture of nothing,
+    stored as a cell) carries the one-word identity every lead-in code
+    carries. The floor leaves a code short as a whole alone, so without
+    the second half of the floor that cell would answer alone for every
+    lead-in code the floor took out: every lead-in cell's own text, and
+    any glitched capture opening with the mark, heard as it and the lone
+    mark sent. On an unlisted family (GREE), in both lattice orders."""
+    gree = shapes.pack_matrix("GREE.json").cells
+    cells = [
+        ClimateCell(mode=c.mode, fan=c.fan, swing=c.swing, temp=c.temp,
+                    pronto=_with_lead(c.pronto))
+        for c in gree[:4]
+    ]
+    lone = ClimateCell(mode="heat", fan="auto", temp=30.0,
+                       pronto="0000 006D 0001 0000 0008 0768")
+    cells.append(lone)
+    assert not _ml._stray_burst(
+        EventParser._parse_pronto_words(lone.pronto),
+        EventParser._pronto_identity_timings(lone.pronto),
+    )
+    assert wig_signal_identity(lone.pronto).byte_hash == (
+        wig_signal_identity(cells[0].pronto).byte_hash
+    )
+    matrix = _lattice(cells[::-1] if reverse else cells)
+    index = build_cell_index(matrix)
+    bench = PinnedBench(matrix, matrix, index, index)
+    presses = [c.pronto for c in cells[:4]]
+    presses.append(_with_lead(_glitched(gree[5].pronto)))
+    for press in presses:
+        heard = bench.hear(press)
+        assert heard is None or heard[0].cell_key != cell_key(lone)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_damaged_off_is_not_left_alone_on_a_left_behind_key(reverse):
+    """The power codes are under the left-behind guard too. A DAIKIN216
+    lattice with a damaged cell and a damaged Off, both settings frames
+    broken off: before the guard the two poisoned the preamble key they
+    share with every readable code; had the guard spared the Off, it
+    would answer alone, and a cool press whose settings frame broke off
+    would be heard as Off, a same-file device sent its Off, and the card
+    turned off while the unit cools. In both lattice orders, neither that
+    press nor the damaged cell's own text is heard as Off."""
+    from . import test_read_bytes_identity as d216
+
+    def broken(**settings) -> str:
+        words = d216._code(d216._settings(**settings)).split()
+        body = words[4:-40]
+        return " ".join([*words[:2], f"{len(body) // 2:04X}", "0000", *body])
+
+    cells = [
+        ClimateCell(mode="cool", fan="low", temp=float(18 + n),
+                    pronto=d216._code(d216._settings(temp_byte=0x24 + 2 * n)))
+        for n in range(4)
+    ]
+    cells.append(ClimateCell(mode="heat", fan="low", temp=22.0,
+                             pronto=broken(temp_byte=0x2C)))
+    off = broken(mode_power=0x30)
+    assert EventParser.pronto_read_key(off) is None
+    matrix = shapes._matrix(cells[::-1] if reverse else cells,
+                            modes=["cool", "heat"], off=off)
+    index = build_cell_index(matrix)
+    bench = PinnedBench(matrix, matrix, index, index)
+    for press in (broken(temp_byte=0x30), cells[-1].pronto):
+        heard = bench.hear(press)
+        assert heard is None or heard[0].power is None
+    for cell in cells[:4]:
+        assert bench.hear(cell.pronto)[0].cell_key == cell_key(cell)
 
 
 def test_the_floor_closes_a_live_stray_key_on_an_unlisted_lattice(
