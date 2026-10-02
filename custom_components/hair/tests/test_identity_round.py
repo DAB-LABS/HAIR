@@ -112,7 +112,6 @@ def _identity(pronto: str):
 
 
 _COOL = d216._settings()                       # cool / low / 18
-_HEAT = d216._settings(mode_power=0x41)        # heat, the same bytes else
 _PLAIN = d216._code(_COOL)
 _EXTRA = shapes.extra_pair_code(_COOL, "settings")
 _EXTRA_0 = shapes.extra_pair_code(_COOL, "preamble")
@@ -311,10 +310,10 @@ class TestTheMerge:
 # ---------------------------------------------------------------------------
 
 
-def _presses(pronto: str) -> list[str]:
+def _presses(pronto: str, family: str = "DAIKIN216") -> list[str]:
     """The file code, then ten capture-shaped presses per transmitter,
     whole and split at the map's gap."""
-    gap = d216.D216.timing.gap_min
+    gap = MAPS[family].timing.gap_min
     out = [pronto]
     for transmitter in ("esphome", "broadlink"):
         for press in range(10):
@@ -345,31 +344,37 @@ class TestExactWaveformWins:
     def _kind(cell) -> str:
         return "plain" if int(cell.temp) % 2 == 0 else "extra"
 
-    def _heard(self, index, matrix):
-        """(cell, press, heard) for every press of every cell."""
-        for cell in matrix.cells:
-            for press in _presses(cell.pronto):
-                identity = _identity(press)
-                yield cell, press, (
-                    None if identity is None else index.match(*identity)
-                )
-
-    def _check(self, index, matrix):
+    def _check(self, index, matrix, family="DAIKIN216"):
+        """Every press of every cell that is heard is heard as the cell
+        it was heard as before: a cool cell as itself, a dry press as
+        the last cell of its own waveform, which is what the normalized
+        tier holds for it and what both tiers that heard it before (its
+        composite key, or the normalized tier) answered. A dry press of
+        a waveform no cell carries has nothing to keep. And some presses
+        get there through the read key's map, answered by a claimant
+        that is not the key's representative."""
         through_the_map = 0
-        for cell, press, heard in self._heard(index, matrix):
-            if heard is None:
-                continue
-            hit, tier = heard
-            if cell.mode == "cool":
-                assert hit.cell_key == cell_key(cell)
-                continue
-            assert hit.cell_key == self.BEFORE[self._kind(cell)], press
-            identity = _identity(press)
-            if (tier == TIER_BYTE_HASH
-                    and (identity[1], identity[2]) not in index.fp_bytehash
-                    and hit.cell_key == self.BEFORE["plain"]):
-                through_the_map += 1
-        # The point of the map: plain presses the air moved off their
+        for cell in matrix.cells:
+            for press in _presses(cell.pronto, family):
+                identity = _identity(press)
+                heard = identity and index.match(*identity)
+                if not heard:
+                    continue
+                hit, tier = heard
+                if cell.mode != "dry":
+                    assert hit.cell_key == cell_key(cell)
+                    continue
+                own = index.norm_fp.get(identity[3])
+                if own is None:
+                    continue
+                assert hit.cell_key == own.cell_key, press
+                if (tier == TIER_BYTE_HASH
+                        and (identity[1], identity[2]) not in (
+                            index.fp_bytehash)
+                        and hit.cell_key != index.bytehash[
+                            identity[2]].cell_key):
+                    through_the_map += 1
+        # The point of the map: presses the air moved off their
         # composite key, answered at the read key with their own cell.
         assert through_the_map > 0
 
@@ -384,7 +389,13 @@ class TestExactWaveformWins:
 
     def test_every_press_heard_before_keeps_its_cell(self):
         matrix = shapes.shape_extra_pair_settings()
-        self._check(build_cell_index(matrix), matrix)
+        index = build_cell_index(matrix)
+        for cell in matrix.cells:
+            if cell.mode == "dry":
+                assert index.norm_fp.get(_identity(cell.pronto)[3]).cell_key == (
+                    self.BEFORE[self._kind(cell)]
+                )
+        self._check(index, matrix)
 
     def test_and_after_a_restart(self):
         matrix = shapes.shape_extra_pair_settings()
@@ -394,6 +405,57 @@ class TestExactWaveformWins:
         )))
         assert restored.by_waveform.keys() == index.by_waveform.keys()
         self._check(restored, matrix)
+
+    def test_the_same_on_a_listed_mitsubishi144(self):
+        """SmartIR 1128's shape on its own family, listed: dry / auto /
+        auto / 16-21, the pack's code on the even temperatures and the
+        extra pair on the odd ones. A lone second frame is the same
+        waveform in both, and is heard as the plain cell, as before."""
+        with _listed("MITSUBISHI144"):
+            matrix = shapes.shape_mitsubishi144_capture_per_cell()
+            index = build_cell_index(matrix)
+            before = {"plain": "dry/auto/auto/20", "extra": "dry/auto/auto/21"}
+            ((tier, _key), claimants), = index.by_waveform.items()
+            assert tier == "bytehash"
+            assert {h.cell_key for h in claimants.values()} == set(
+                before.values()
+            )
+            self._check(index, matrix, "MITSUBISHI144")
+            restored = _payload_to_index(json.loads(json.dumps(
+                _index_to_payload(index, "h", "C")
+            )))
+            self._check(restored, matrix, "MITSUBISHI144")
+
+    @pytest.mark.asyncio
+    async def test_a_pinned_device_is_sent_the_text_of_the_cell_heard(self):
+        """A plain press that reaches the merged key is sent dry / low /
+        22's text by a same-file pinned device, as before the merge, and
+        never the representative's: the same bytes in another text, and
+        on a device built from another file, another cell."""
+        matrix = shapes.shape_extra_pair_settings()
+        index = build_cell_index(matrix)
+        bench = shapes.PinnedBench(matrix, copy.deepcopy(matrix), index,
+                                   index)
+        own = {}
+        for cell in matrix.cells:
+            if cell.mode == "dry" and cell.temp in (22.0, 23.0):
+                own[self._kind(cell)] = shapes.sent_row(
+                    await bench.resolve(bench.hear(cell.pronto))
+                )
+        assert own["plain"] != own["extra"]
+        sent = 0
+        for cell in matrix.cells:
+            if cell.mode != "dry":
+                continue
+            for press in _presses(cell.pronto):
+                heard = bench.hear(press)
+                if heard is None:
+                    continue
+                assert shapes.sent_row(await bench.resolve(heard)) == (
+                    own[self._kind(cell)]
+                )
+                sent += 1
+        assert sent > 0
 
     def test_an_unknown_waveform_of_the_state_gets_the_representative(self):
         """A handset writing an unread byte its own way: the state's read
@@ -817,11 +879,10 @@ class TestALoneFrame:
 
     def test_on_the_shipped_lists_nothing_changes(self):
         """No shipped family reaches answer 3: both are in the shared
-        group. Every pack code and every piece of it, unchanged."""
+        group. Every fourth cell of every field pack, whole and split at
+        its map's gap, hashes as it did."""
         for family, field_map in MAPS.items():
-            path = Path(__file__).parent / "fixtures" / "field-packs" / (
-                f"{family}.json"
-            )
+            path = FIXTURES / "field-packs" / f"{family}.json"
             if not path.is_file():
                 continue
             for cell in _pack_matrix(path.name).cells[::4]:

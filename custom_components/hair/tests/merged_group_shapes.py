@@ -402,6 +402,60 @@ def shape_extra_pair_preamble() -> ClimateMatrix:
     return _extra_pair_lattice("preamble")
 
 
+def extra_pair_after(pronto: str, family: str, frame: int) -> str:
+    """``pronto`` with one extra (unit, zero) pair after the last bit of
+    ``frame``, read with ``family``'s own timing: the same bytes, another
+    waveform, for any map the reader can walk."""
+    from custom_components.hair.event_parser import EventParser
+    from custom_components.hair.field_readers import (
+        library,
+        read_frames_positioned,
+    )
+
+    field_map = next(m for m in library() if m.protocol_id == family)
+    words = pronto.split()
+    timings = EventParser._pronto_us(EventParser._parse_pronto_words(pronto))
+    while timings and timings[-1] == 0:
+        timings.pop()
+    _frames, places, failed = read_frames_positioned(field_map.timing, timings)
+    assert not failed, family
+    at = 4 + 2 * (places[frame][-1] + 1)
+    tick = int(words[1], 16) * 0.241246
+    pair = [
+        f"{round(field_map.timing.unit.nominal / tick):04X}",
+        f"{round(field_map.timing.zero.nominal / tick):04X}",
+    ]
+    count = f"{int(words[2], 16) + 1:04X}"
+    return " ".join([*words[:2], count, words[3], *words[4:at], *pair,
+                     *words[at:]])
+
+
+def shape_mitsubishi144_capture_per_cell() -> ClimateMatrix:
+    """SmartIR 1128's shape on its own family, from the MITSUBISHI144
+    pack: cool / auto / auto at the pack's five temperatures, a code
+    each, and dry / auto / auto / 16-21 one state, the even temperatures
+    as the pack's code and the odd ones with an extra pair after the
+    settings frame. Meant for a test that lists the family."""
+    pack = pack_matrix("MITSUBISHI144.json")
+    cells = [
+        ClimateCell(mode=c.mode, fan=c.fan, swing=c.swing, temp=c.temp,
+                    pronto=c.pronto)
+        for c in pack.cells if (c.mode, c.fan, c.swing) == (
+            "cool", "auto", "auto")
+    ]
+    dry = next(
+        c.pronto for c in pack.cells
+        if (c.mode, c.fan, c.swing, c.temp) == ("dry", "auto", "auto", 16.0)
+    )
+    extra = extra_pair_after(dry, "MITSUBISHI144", 0)
+    for temp in range(16, 22):
+        cells.append(ClimateCell(
+            mode="dry", fan="auto", swing="auto", temp=float(temp),
+            pronto=dry if temp % 2 == 0 else extra,
+        ))
+    return _matrix(cells, modes=["cool", "dry"], off=pack.off)
+
+
 def shape_1128_poisoned() -> ClimateMatrix:
     """``shape_1128`` with every key of its dry captures poisoned.
 
