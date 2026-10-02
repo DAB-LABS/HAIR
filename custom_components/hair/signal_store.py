@@ -1018,8 +1018,10 @@ def _heal_device_signals(device: UnknownDevice) -> bool:
     under the pre-unified runtime dedup. Signals collapse under the
     tiered identity rule (decoded > byte_hash > S/L fingerprint),
     merging each duplicate's hit count into the first (older)
-    occurrence and keeping that row's alias (adopting the duplicate's
-    alias only when the kept row has none). Two signals that share an
+    occurrence. The kept row keeps its alias, and a duplicate's alias
+    is never dropped: one the kept row lacks is joined onto it with
+    " / " (``_joined_alias``), so a name the owner gave stays visible
+    and a rename undoes the join. Two signals that share an
     S/L fingerprint but differ at the byte level (Panasonic, TCL, Sony
     siblings) are distinct and are NOT collapsed.
 
@@ -1091,8 +1093,7 @@ def _heal_device_signals(device: UnknownDevice) -> bool:
 
         if best is not None:
             best.hit_count += sig.hit_count
-            if not best.alias and sig.alias:
-                best.alias = sig.alias
+            best.alias = _joined_alias(best.alias, sig.alias)
             if sig.last_seen and (
                 not best.last_seen or sig.last_seen > best.last_seen
             ):
@@ -1127,6 +1128,26 @@ def _heal_device_signals(device: UnknownDevice) -> bool:
         device.signals = kept
         return True
     return False
+
+
+def _joined_alias(kept: str, other: str) -> str:
+    """The kept row's alias with a collapsed duplicate's names added.
+
+    WHY NOT DROP IT. A load-time re-key can make rows the owner named
+    apart one identity: when a family joins the read-bytes list, every
+    press of one setting (the whole press, its lone frames, a later
+    press with another clock byte) is one signal, and the heal collapses
+    them into the oldest. Keeping only that row's alias would delete
+    names the owner chose. The model holds one alias per row, so the
+    others are joined onto it, in the order the rows were kept, each
+    name once."""
+    if not other:
+        return kept
+    if not kept:
+        return other
+    names = kept.split(" / ")
+    added = [name for name in other.split(" / ") if name not in names]
+    return " / ".join([*names, *added])
 
 
 # ---------------------------------------------------------------------------
