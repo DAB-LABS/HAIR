@@ -2257,7 +2257,9 @@ def rewrite_field(
     member of the family it came from rather than an idealised drawing
     of one.
 
-    Returns None when the capture will not parse under the map.
+    Returns None when the capture will not parse under the map, or when
+    the field's bits cannot carry ``value`` (masking it in would write
+    some other value and call it this one).
     """
     words = _pronto_words(pronto)
     if words is None:
@@ -2284,6 +2286,8 @@ def rewrite_field(
     try:
         mask, shift = field_readers.bit_selector(spec.bits)
     except ValueError:
+        return None
+    if not field_readers.fits(spec, value):
         return None
 
     before = [
@@ -2736,6 +2740,18 @@ def _label_for(spec: Any, domain: list[Any], value: int) -> Any:
     return None
 
 
+def _comb_byte(text: Any) -> int | None:
+    """A byte value as the comb wrote it ("0x1A"), or None when the text
+    is not one. Both readers of a finding's ``expected`` and ``read`` go
+    through here, so a value the comb should never have written costs a
+    label rather than the whole listing."""
+    try:
+        value = int(str(text), 16)
+    except ValueError:
+        return None
+    return value if 0 <= value <= 0xFF else None
+
+
 def _stamp_mismatch_labels(
     rows: list[TangleRow], lattice: LatticeReading
 ) -> None:
@@ -2764,8 +2780,11 @@ def _stamp_mismatch_labels(
             if spec is None or expected is None or read is None:
                 continue
             domain = _axis_domain(lattice, name)
-            claimed = _label_for(spec, domain, int(str(expected), 16))
-            actual = _label_for(spec, domain, int(str(read), 16))
+            claimed_byte, read_byte = _comb_byte(expected), _comb_byte(read)
+            if claimed_byte is None or read_byte is None:
+                continue
+            claimed = _label_for(spec, domain, claimed_byte)
+            actual = _label_for(spec, domain, read_byte)
             if claimed is not None:
                 params["claimed"] = claimed
             if actual is not None:
@@ -2849,10 +2868,11 @@ def _cause_of(
         )
         expected, read = params.get("expected"), params.get("read")
         spec = lattice.spec_for(name) if name else None
-        if spec is not None and expected is not None and read is not None:
+        if (spec is not None and _comb_byte(expected) is not None
+                and _comb_byte(read) is not None):
             domain = _axis_domain(lattice, name)
-            claimed = _label_for(spec, domain, int(str(expected), 16))
-            actual = _label_for(spec, domain, int(str(read), 16))
+            claimed = _label_for(spec, domain, _comb_byte(expected))
+            actual = _label_for(spec, domain, _comb_byte(read))
             step = _ring_step(
                 _ring_domain(lattice, name), claimed, actual)
             if step is not None:

@@ -17,15 +17,27 @@ different fact from a label the map does not know.
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
+from pathlib import Path
 
 from custom_components.hair import field_readers as fr
 from custom_components.hair.models import IRDevice
-from custom_components.hair.tangles import list_tangles
+from custom_components.hair.tangles import (
+    _cause_of,
+    _stamp_mismatch_labels,
+    cluster_rows,
+    list_tangles,
+    read_lattice,
+    rewrite_field,
+)
 from custom_components.hair.wig_comb import CHECK_FIELD_MISMATCH, comb_wig
-from custom_components.hair.wig_format import Wig
+from custom_components.hair.wig_format import Wig, parse_wig
 
 from .test_field_sweep import _pack_wig
+
+KOMECO = (Path(__file__).parent / "fixtures" / "wigs"
+          / "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json")
 
 
 def _map(protocol_id: str) -> fr.FieldMap:
@@ -208,3 +220,68 @@ class TestEveryStatedValueFitsItsSelector:
                         assert fr.fits(spec, value), where
                         checked += 1
         assert checked > 50
+
+
+# ---------------------------------------------------------------------------
+# T4: both readers of a comb byte, on a byte the comb should never write
+# ---------------------------------------------------------------------------
+
+
+class TestABadCombByteCostsALabelNotTheListing:
+    """The source fix means the comb never writes ``0x-1F`` again, and
+    T2 pins that on its own. This is for the day it regresses: two
+    functions parse the comb's bytes, and guarding one of them moves
+    the crash one function down rather than removing it."""
+
+    def _rows(self):
+        wig = parse_wig(KOMECO.read_text()).wig
+        assert wig is not None
+        listing = list_tangles(
+            IRDevice(name="Komeco", climate_matrix=True), wig.climate)
+        lattice = read_lattice(wig.climate)
+        row = next(row for row in listing.rows
+                   if CHECK_FIELD_MISMATCH in row.classes)
+        row = copy.deepcopy(row)
+        for finding in row.findings:
+            if finding.get("check") != CHECK_FIELD_MISMATCH:
+                continue
+            params = dict(finding.get("params") or {})
+            params.pop("claimed", None)
+            params.pop("reads_as", None)
+            params["expected"] = "0x-1F"
+            finding["params"] = params
+        return row, lattice
+
+    def test_the_labels_are_skipped_without_a_raise(self):
+        row, lattice = self._rows()
+        _stamp_mismatch_labels([row], lattice)
+        for finding in row.findings:
+            if finding.get("check") == CHECK_FIELD_MISMATCH:
+                assert "claimed" not in finding["params"]
+                assert "reads_as" not in finding["params"]
+
+    def test_the_cause_falls_back_to_the_raw_text(self):
+        row, lattice = self._rows()
+        _rule, _key, field, detail = _cause_of(row, lattice)
+        assert field == "temperature"
+        assert detail.get("expected") == "0x-1F"
+
+    def test_and_the_row_still_gets_a_card(self):
+        row, lattice = self._rows()
+        clusters = cluster_rows([row], lattice)
+        assert any(row.id in cluster.members for cluster in clusters)
+
+
+# ---------------------------------------------------------------------------
+# T5: the writer behind every synthesized cell
+# ---------------------------------------------------------------------------
+
+
+class TestRewriteFieldWritesOnlyWhatFits:
+    def test_a_value_the_nibble_cannot_carry_is_refused(self):
+        field_map = _map("TCL112")
+        spec = field_map.field_named("temperature")
+        code = _pack_wig("TCL112.json").climate.cells[0].pronto
+        assert rewrite_field(field_map, code, spec, 5) is not None
+        for value in (-31, 16, 45):
+            assert rewrite_field(field_map, code, spec, value) is None, value
