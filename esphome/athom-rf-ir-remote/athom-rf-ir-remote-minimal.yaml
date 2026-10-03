@@ -10,30 +10,27 @@
 # Tested against:
 #   HAIR:            0.2.0
 #   HA Core:         2026.5.2
-#   ESPHome:         2026.5.1
-# Last verified:     2026-05-29
+#   ESPHome:         2026.9.1
+# Last verified:     2026-10-03
 # Purpose:           RX+TX
 # Hardware purchase: https://www.athom.tech/
 # GPIO map:
 #   GPIO25           IR TX (remote_transmitter)
 #   GPIO33           IR RX (remote_receiver, inverted)
-#   GPIO18           RF TX (remote_transmitter, 433 MHz)
-#   GPIO19           RF RX (remote_receiver, 433 MHz, inverted)
-#   GPIO27           Status LED
-#   GPIO0            Button
+#   GPIO18           RF TX (433 MHz, not configured here)
+#   GPIO19           RF RX (433 MHz, not configured here)
+#   GPIO27           Status LED (not configured here)
+#   GPIO0            Button (not configured here)
 # Notes:
-#   - Uses the official Athom package for hardware config. The package
-#     provides remote_transmitter, remote_receiver, ir_rf_proxy (infrared
-#     platform), BLE proxy, climate IR, and diagnostics out of the box.
-#   - On HA 2026.6+ the Athom package's ir_rf_proxy receiver entity is a
-#     native InfraredReceiverEntity and HAIR subscribes to it directly.
-#     This is the active path; no extra YAML is needed here.
-#   - The legacy on_pronto bridge that HAIR used on HA 2026.4-2026.5 is
-#     preserved at the bottom as a commented-out remote_receiver !extend
-#     block. Uncomment it only if you are running an older HA version
-#     that predates native InfraredReceiverEntity support.
-#   - RF hardware is present but only IR is used by HAIR. The Athom
-#     package exposes the RF side via radio_frequency platform entries.
+#   - Smallest config that gets IR TX + RX working with HAIR on the Athom
+#     RF IR Remote. It stands alone: nothing is pulled from Athom's package.
+#     The board settings, pins and ids come from Athom's
+#     athom-rf-ir-remote.yaml, so the HA entities keep the names the
+#     package gave them.
+#   - RF 433 MHz, BLE proxy, climate IR, status LED and button are not
+#     configured. For those, see athom-rf-ir-remote-full.yaml.
+#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-03.
+#     The HAIR and HA Core lines above record the last hardware run.
 # ============================================================================
 
 # --- Substitutions ---
@@ -43,46 +40,66 @@ substitutions:
   name: athom-rf-ir-remote-350628
   friendly_name: Athom RF IR Remote 1
 
-# --- Athom Package ---
-# Pulls the full hardware config from Athom's GitHub. Provides:
-#   - remote_transmitter (IR on GPIO25, RF on GPIO18)
-#   - remote_receiver (IR on GPIO33, RF on GPIO19)
-#   - infrared platform via ir_rf_proxy (TX + RX entities)
-#   - radio_frequency platform via ir_rf_proxy (TX + RX entities)
-#   - BLE proxy, climate IR, status LED, diagnostics
-packages:
-  China Athom Technology.Athom RF IR Remote: github://athom-tech/esp32-configs/athom-rf-ir-remote.yaml
-
 esphome:
   name: ${name}
   name_add_mac_suffix: false
   friendly_name: ${friendly_name}
+  platformio_options:
+    board_build.flash_mode: dio
+
+esp32:
+  board: esp32dev
+  variant: esp32
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+
+logger:
 
 api:
   encryption:
     key: !secret api_encryption_key
 
+ota:
+  - platform: esphome
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  ap: {}
 
-# --- HAIR legacy bridge (pre-2026.6) ---
-# This block extends the Athom package's ir_receiver to add an
-# on_pronto trigger that forwards every captured IR signal to the HA
-# event bus. It is preserved here as commented-out historical reference
-# for users on HA 2026.4-2026.5.
-#
-# On HA 2026.6+ the Athom package's ir_rf_proxy receiver entity is a
-# native InfraredReceiverEntity and HAIR subscribes to it directly,
-# so this bridge is no longer active and no longer needed. Uncomment
-# the block only if you are running an older HA version that predates
-# native InfraredReceiverEntity support.
-# remote_receiver:
-#   - id: !extend ir_receiver
-#     on_pronto:
-#       then:
-#         - homeassistant.event:
-#             event: esphome.remote_received
-#             data:
-#               protocol: PRONTO
-#               code: !lambda 'return x.data;'
+captive_portal:
+
+# --- IR Transmitter (TX) ---
+remote_transmitter:
+  id: ir_transmitter
+  pin: GPIO25
+  carrier_duty_percent: 50%
+  non_blocking: true
+
+# --- IR Receiver (RX) ---
+# Registered with HA through the infrared: platform below.
+# Why these numbers, and the alternatives: docs/receiver-timing.md
+remote_receiver:
+  id: ir_receiver
+  pin:
+    number: GPIO33
+    inverted: true          # most receiver modules idle high; flip this if nothing ever decodes
+  clock_resolution: 400000  # 2.5us ticks; exact conversion, and it keeps the RMT divider legal on every ESP32
+  idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 82ms is the cap on C3/S3
+  tolerance: 25%
+  dump: all                 # chatty; remove once things work
+
+# --- HA Native Infrared Platform ---
+# These entries register the device as an infrared entity in HA, so HAIR
+# can discover it as an emitter and receiver automatically.
+infrared:
+  - platform: ir_rf_proxy
+    name: IR Proxy Transmitter
+    id: ir_proxy_transmitter
+    remote_transmitter_id: ir_transmitter
+  - platform: ir_rf_proxy
+    name: IR Proxy Receiver
+    id: ir_proxy_receiver
+    receiver_frequency: 38kHz
+    remote_receiver_id: ir_receiver

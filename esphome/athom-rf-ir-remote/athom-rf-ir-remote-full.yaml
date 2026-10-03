@@ -10,8 +10,8 @@
 # Tested against:
 #   HAIR:            0.2.0
 #   HA Core:         2026.5.2
-#   ESPHome:         2026.5.1
-# Last verified:     2026-05-29
+#   ESPHome:         2026.9.1
+# Last verified:     2026-10-03
 # Purpose:           RX+TX
 # Hardware purchase: https://www.athom.tech/
 # GPIO map:
@@ -27,11 +27,10 @@
 #   - Based on Athom's athom-rf-ir-remote.yaml v3.0.1, set up for the
 #     native HA infrared platform path on HA 2026.6+.
 #   - RF hardware components are included but only IR is used by HAIR.
-#   - The legacy on_pronto bridge is preserved further down as
-#     commented-out historical reference for users on HA 2026.4-2026.5.
-#     On HA 2026.6+ it is unused.
 #   - BLE proxy, climate IR, and improv are included. Remove any sections
 #     you do not need.
+#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-03.
+#     The HAIR and HA Core lines above record the last hardware run.
 # ============================================================================
 
 # --- Substitutions ---
@@ -166,48 +165,26 @@ remote_receiver:
     tolerance: 25%
     id: rf_receiver
 
-  # IR receiver on GPIO33. The infrared: platform below references this
-  # block's id to register the receiver as a native HA
-  # InfraredReceiverEntity, which HAIR subscribes to via
-  # infrared.async_subscribe_receiver() on HA 2026.6+.
-  #
-  # The legacy on_pronto event-bus bridge that HAIR used on HA
-  # 2026.4-2026.5 is preserved below as commented-out historical
-  # reference. It is no longer active and no longer needed on 2026.6+.
-  # Uncomment it only if you are running an older HA version that
-  # predates native InfraredReceiverEntity support.
-  - pin:
+  # IR receiver on GPIO33.
+  # Registered with HA through the infrared: platform below.
+  # Why these numbers, and the alternatives: docs/receiver-timing.md
+  - id: ir_receiver
+    pin:
       number: GPIO33
-      inverted: true
-    dump: all
+      inverted: true          # most receiver modules idle high; flip this if nothing ever decodes
+    clock_resolution: 400000  # 2.5us ticks; exact conversion, and it keeps the RMT divider legal on every ESP32
+    idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 82ms is the cap on C3/S3
     tolerance: 25%
-    id: ir_receiver
-
-    # Legacy HAIR bridge (pre-2026.6). No longer needed on HA 2026.6+.
-    # on_pronto:
-    #   then:
-    #     - homeassistant.event:
-    #         event: esphome.remote_received
-    #         data:
-    #           protocol: PRONTO
-    #           code: !lambda 'return x.data;'
+    dump: all                 # chatty; remove once things work
 
 # =====================================================================
 # HA Native Infrared Platform
 # =====================================================================
 # These entries register the device as infrared entities in HA. HAIR
 # discovers them automatically.
-#
-# On HA 2026.6+:
 #   - TX entity (ir_proxy_transmitter) handles outbound commands.
 #   - RX entity (ir_proxy_receiver) is a native InfraredReceiverEntity
-#     and HAIR subscribes to it directly. This is the active path.
-#
-# On HA 2026.4-2026.5:
-#   - TX entity works the same way.
-#   - The native RX subscription is not available. To enable Sniffer
-#     capture on those HA versions, uncomment the on_pronto bridge in
-#     the remote_receiver block above.
+#     and HAIR subscribes to it directly.
 
 infrared:
   - platform: ir_rf_proxy
