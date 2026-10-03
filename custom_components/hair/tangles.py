@@ -835,10 +835,14 @@ def find_donor(
     WHAT THE MAP SAYS APPLIES. A field the map says carries nothing at
     the target (the fan in dry, where the unit forces it) is not
     compared, so a dry cell can donate whatever its fan bits hold. But
-    the donor must be judged by the same fields as the target: a
-    Fahrenheit label and a Celsius one share a byte on MITSUBISHI144,
-    and a 76 F cell carrying 24.5 C would otherwise pass for a 24 C
-    target because only the Celsius field applies there.
+    no field may apply at the donor's label that does not apply at the
+    target's: a Fahrenheit label and a Celsius one share a byte on
+    MITSUBISHI144, and a 76 F cell carrying 24.5 C would otherwise pass
+    for a 24 C target, because the half-degree bit only the Fahrenheit
+    field reads is never compared. The other way round is safe and is
+    allowed: where FEWER fields apply at the donor's label (a dry cell
+    carrying a cool code), every field that applies at the target is
+    still read from the donor's bytes and held to the target's label.
     """
     if not lattice.readable:
         return None, ABSTAIN_UNREADABLE
@@ -903,7 +907,8 @@ def find_donor(
             continue
         if _elsewhere(candidate, varying) != anchor:
             continue
-        if _applies(_cell_coords(candidate)) != shape:
+        if any(here and not there for here, there in zip(
+                _applies(_cell_coords(candidate)), shape, strict=True)):
             continue
         if any(
             lattice.reads(candidate_key, lattice.spec_for(name)) != value
@@ -1248,7 +1253,7 @@ def build_provenance(
         # say. A press the reader could not read at all disagrees with
         # nothing in particular, and writing three empty containers
         # beside the attestation said "we looked and found nothing"
-        # three times in a row. Each of the three appears only when it
+        # three times in a row. Each of them appears only when it
         # carries something.
         note: dict[str, Any] = {"user_attested": True}
         reads_as = dict(disagreed.get("reads_as") or {})
@@ -1260,6 +1265,22 @@ def build_provenance(
             note["claims"] = claims
         if mismatches:
             note["mismatches"] = mismatches
+        # A field the map places by its own coordinate (a DAIKIN216
+        # vane, DAIKIN152's powerful flag) is compared but never named,
+        # so it has no claim or reading label above. Its raw values are
+        # what the reading said, and without them an override of it
+        # would record the field's name and nothing a re-ratification
+        # could count.
+        raw_read = dict(disagreed.get("raw_read") or {})
+        raw_expected = dict(disagreed.get("raw_expected") or {})
+        values = {
+            name: {"expected": raw_expected[name], "read": raw_read[name]}
+            for name in mismatches
+            if name not in claims
+            and name in raw_expected and name in raw_read
+        }
+        if values:
+            note["values"] = values
         record["reading_disagreed"] = note
     return record
 
@@ -2337,9 +2358,20 @@ def _healthy_siblings(
         here = _cell_coords(candidate)
         healthy = True
         for spec in lattice.field_map.fields:
-            if not spec.ratified:
+            # Only the rewritten field is rewritten. Another field on the
+            # same axis (a flag beside DAIKIN152's fan speed) rides into
+            # the built code exactly as the sibling sends it, so it is
+            # judged against the TARGET's label wherever it applies
+            # there, provisional or not -- the rule the donor search
+            # holds such a field to. Judged against the sibling's own
+            # label, a powerful sibling is healthy and builds a low code
+            # that sends powerful.
+            rides = (spec.name != field_name and _axis_of(spec) == axis
+                     and applies_at_target[spec.name])
+            if not spec.ratified and not rides:
                 continue
-            claimed = _coordinate_of(candidate, spec.name, lattice)
+            claimed = _coordinate_of(
+                target if rides else candidate, spec.name, lattice)
             if claimed is None:
                 continue
             if (spec.name != POWER_FIELD
@@ -2503,7 +2535,9 @@ def synthesize(
         if verdict.matches is not True:
             raise SynthesisBug(
                 f"synthesized candidate for {row.target.key} reads as "
-                f"{verdict.reads_as} against {verdict.claims}"
+                f"{verdict.reads_as} against {verdict.claims}, "
+                f"mismatched on {verdict.mismatches} (read "
+                f"{verdict.raw_read} against {verdict.raw_expected})"
             )
         if _breaks_a_ratified_rule(field_map, built):
             # The read-back above checks fields only. A bad capture is

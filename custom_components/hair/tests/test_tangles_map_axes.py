@@ -39,12 +39,18 @@ from custom_components.hair import field_readers
 from custom_components.hair.models import IRDevice
 from custom_components.hair.tangles import (
     ABSTAIN_NO_READING,
+    BATCH_EMPTY,
+    BATCH_NO_CANDIDATE,
     MECHANIC_RECAPTURE,
     MECHANIC_WITNESS,
+    ORIGIN_CAPTURE,
     ORIGIN_SYNTHESIZED,
     ORIGIN_TRIM,
+    SYNTH_NO_SIBLING,
     SYNTH_NO_WITNESS,
     TRIM_READS_WRONG,
+    SynthesisBug,
+    build_provenance,
     find_donor,
     find_trim,
     list_tangles,
@@ -672,6 +678,109 @@ class TestAMixedUnitColumn:
         assert donor is None
         assert reason == ABSTAIN_NO_READING
 
+    def test_a_donor_where_fewer_fields_apply_is_still_offered(self):
+        """The guard runs one way only. ``cool/auto/auto/24`` and
+        ``dry/auto/auto/20`` carry each other's codes, so the dry cell
+        sends the cool 24 code. The temperature does not apply at its
+        dry label, but it is still read from its bytes and held to the
+        target's 24, so nothing goes unchecked and the fix stands."""
+        pack = _pack("MITSUBISHI144.json")
+        target, dry = "cool/auto/auto/24", "dry/auto/auto/20"
+        matrix = _swapped(pack, target, dry)
+        listing = _listing(matrix)
+        row = _row(listing, target)
+        assert set(_fields(row.findings)) == {"temperature", "mode"}
+        assert row.donor and row.donor["key"] == dry
+        verdict = pre_read(read_lattice(matrix), row.donor["pronto"],
+                           _coords(target))
+        assert verdict.matches is True
+        card = next(c for c in listing.clusters if row.id in c.members)
+        assert card.id == "same-shift:temperature:-2:donor"
+
+
+# ---------------------------------------------------------------------------
+# A sibling carries its whole axis
+# ---------------------------------------------------------------------------
+
+
+def _low_card(fans: dict):
+    """A #183-shaped lattice whose two cool/low/*/24 cells send 0x5, so
+    one fan_speed card asks for a witness."""
+    matrix = _d183({"cool/low/off/24": (0x5, {}),
+                    "cool/low/vertical/24": (0x5, {})}, fans=fans)
+    listing = _listing(matrix)
+    card = next(c for c in listing.clusters if c.field == "fan_speed")
+    assert card.mechanic == MECHANIC_WITNESS
+    witness = _stored_state(_file_form(_d152_settings(
+        "cool", 0x3, 24, swing="off")))
+    return listing, read_lattice(matrix), card, witness
+
+
+class TestASiblingCarriesItsWholeAxis:
+    """The witness road rewrites one field. On DAIKIN152 the fan axis is
+    a speed nibble and three flags, and the flags ride into the built
+    code exactly as the sibling sends them. So a sibling is healthy only
+    if they already read what the TARGET's label implies."""
+
+    def test_a_powerful_sibling_is_not_built_into_a_low_code(self):
+        """The nearest sibling of a low cell is a powerful one. Judged by
+        its own label it is healthy, and a low code built from it sends
+        powerful: the read-back then raised. It is not a sibling."""
+        listing, lattice, card, witness = _low_card({
+            "low": (0x3, {}), "powerful": (0x7, {"powerful": True})})
+        rows = [r for r in listing.rows if r.id in card.members]
+        result = synthesize(lattice, rows, witness, "fan_speed")
+        assert result.refused is None
+        assert result.candidates == {}
+        assert set(result.declined.values()) == {SYNTH_NO_SIBLING}
+        plan = plan_batch(listing, lattice, card.id, witness=witness)
+        assert plan.refused == BATCH_EMPTY
+        assert set(plan.declined.values()) == {BATCH_NO_CANDIDATE}
+        aimed = "cell:cool/low/off/24"
+        plan = plan_batch(listing, lattice, card.id, witness=witness,
+                          witness_target=aimed)
+        assert plan.refused is None
+        assert plan.candidates[aimed]["origin"] == ORIGIN_CAPTURE
+        assert plan.declined == {"cell:cool/low/vertical/24":
+                                 BATCH_NO_CANDIDATE}
+
+    def test_an_economy_sibling_is_not_built_into_a_low_code(self):
+        """Economy is provisional, so the read-back cannot catch it. The
+        economy cell sorts first by key; the code is built from the high
+        cell instead, and sends no economy."""
+        listing, lattice, card, witness = _low_card({
+            "low": (0x3, {}), "economy": (0x7, {"economy": True}),
+            "high": (0x7, {})})
+        economy = lattice.spec_for("economy")
+        plan = plan_batch(listing, lattice, card.id, witness=witness)
+        assert plan.refused is None
+        assert {key: c["sibling"] for key, c in plan.candidates.items()} == {
+            "cell:cool/low/off/24": "cool/high/off/24",
+            "cell:cool/low/vertical/24": "cool/high/vertical/24",
+        }
+        for candidate in plan.candidates.values():
+            assert candidate["verdict"]["matches"] is True
+            reading = field_readers.read_code(candidate["pronto"])
+            assert field_readers.read_field(reading, economy) == 0
+
+    def test_a_failed_read_back_names_what_failed(self, monkeypatch):
+        """Raised, never returned -- and the message has to say which
+        field failed, which the labels alone cannot for a field the map
+        places by its own coordinate."""
+        _matrix, listing, lattice = _defects("MITSUBISHI144")
+        rows = {row.id: row for row in listing.rows}
+        card = next(c for c in listing.clusters
+                    if c.field == "mode" and rows[c.members[0]].target.key
+                    == "cool/auto/auto/24")
+        heat = _codes(_pack("MITSUBISHI144.json"))["heat/auto/auto/24"]
+        monkeypatch.setattr(
+            "custom_components.hair.tangles.rewrite_field",
+            lambda *args, **kwargs: heat,
+        )
+        witness = _codes(_pack("MITSUBISHI144.json"))["cool/auto/auto/24"]
+        with pytest.raises(SynthesisBug, match=r"mismatched on \['mode'\]"):
+            plan_batch(listing, lattice, card.id, witness=witness)
+
 
 # ---------------------------------------------------------------------------
 # Compared, not named
@@ -703,6 +812,27 @@ class TestAMapOnlyFieldIsComparedNotNamed:
         assert field_name not in verdict.reads_as
         for name in verdict.claims:
             assert name in FIELD_COORDINATE or name == POWER_FIELD
+
+    def test_an_override_records_the_values_it_overrode(self):
+        """A declared disagreement is the record a re-ratification
+        counts. With no label to write for a vane, the note keeps the
+        two raw values instead of the field's name alone."""
+        target = "cool/low/vertical/22"
+        matrix = _copied(_pack("DAIKIN216.json"), target, "cool/low/off/22")
+        listing = _listing(matrix)
+        lattice = read_lattice(matrix)
+        verdict = pre_read(lattice, _codes(matrix)["cool/low/off/22"],
+                           _coords(target))
+        record = build_provenance(
+            source="paste", prior_pronto=_codes(matrix)[target],
+            lattice=lattice, row=_row(listing, target), tested=True,
+            disagreed=verdict.as_dict(),
+        )
+        note = record["reading_disagreed"]
+        assert note["mismatches"] == ["swing_vertical"]
+        assert "swing_vertical" not in note.get("claims", {})
+        assert note["values"] == {
+            "swing_vertical": {"expected": 0xF, "read": 0x0}}
 
 
 # ---------------------------------------------------------------------------
