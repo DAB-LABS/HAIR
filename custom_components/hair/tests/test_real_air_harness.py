@@ -968,8 +968,9 @@ def test_the_handset_presses_and_the_daikin152_capture_are_heard_as_no_other_cel
 
 def test_a_ci_run_without_the_harness_fails():
     class Item:
-        def __init__(self, marked):
+        def __init__(self, marked, nodeid=""):
             self.marked = marked
+            self.nodeid = nodeid
 
         def get_closest_marker(self, name):
             return object() if self.marked and name == "real_air" else None
@@ -979,6 +980,13 @@ def test_a_ci_run_without_the_harness_fails():
     assert real_air_missing([], ci) is not None
     assert real_air_missing([Item(False), Item(True)], ci) is None
     assert real_air_missing([Item(False)], {}) is None
+    # Some of the harness deselected (a -k, -m or --deselect that keeps
+    # one of its tests) fails as well; all of it selected passes.
+    both = [Item(True, "floor[A]"), Item(True, "floor[B]")]
+    collected = ["floor[A]", "floor[B]"]
+    assert real_air_missing(both, ci, collected) is None
+    assert "floor[B]" in real_air_missing(both[:1], ci, collected)
+    assert real_air_missing(both[:1], {}, collected) is None
 
 
 def table() -> str:

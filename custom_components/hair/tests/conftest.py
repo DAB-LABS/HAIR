@@ -121,24 +121,48 @@ def _reset_tx_gate():
 # The real-air harness cannot be switched off in CI
 # ---------------------------------------------------------------------------
 # ``real_air`` is registered so a developer can deselect the harness
-# locally (``-m 'not real_air'``). A run on GitHub Actions that selected
-# none of it has lost the floors without failing anything, so it fails
-# here instead, after every deselection has been applied.
+# locally (``-m 'not real_air'``). A run on GitHub Actions that dropped
+# any of it has lost floors without failing anything, so it fails here
+# instead, after every deselection has been applied: the harness tests
+# are recorded before ``-k``, ``-m`` and ``--deselect`` act, and every
+# one of them must still be selected.
+
+_SUBSET_HINT = "; to run a subset on Actions, unset GITHUB_ACTIONS for that step"
 
 
-def real_air_missing(items, environ=os.environ) -> str | None:
-    """Why this selection is not allowed to run, or None."""
+def real_air_missing(items, environ=os.environ, collected=()) -> str | None:
+    """Why this selection is not allowed to run, or None. ``collected``
+    holds the node ids of the real_air tests collected before any
+    deselection."""
     if environ.get("GITHUB_ACTIONS") != "true":
         return None
-    if any(item.get_closest_marker("real_air") for item in items):
-        return None
-    return (
-        "this CI run selected no real_air test: the real-air harness "
-        "is the only floor on read rates and must run in CI"
-    )
+    if not any(item.get_closest_marker("real_air") for item in items):
+        return (
+            "this CI run selected no real_air test: the real-air harness "
+            "is the only floor on read rates and must run in CI" + _SUBSET_HINT
+        )
+    dropped = sorted(set(collected) - {item.nodeid for item in items})
+    if dropped:
+        return (
+            f"this CI run deselected {len(dropped)} of the "
+            f"{len(set(collected))} real_air tests, {dropped[0]} among them: "
+            "every floor must run in CI" + _SUBSET_HINT
+        )
+    return None
+
+
+_REAL_AIR_COLLECTED: list[str] = []
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items):
+    """The real_air tests as collected, before any deselection."""
+    _REAL_AIR_COLLECTED[:] = [
+        item.nodeid for item in items if item.get_closest_marker("real_air")
+    ]
 
 
 def pytest_collection_finish(session):
-    why = real_air_missing(session.items)
+    why = real_air_missing(session.items, collected=_REAL_AIR_COLLECTED)
     if why is not None:
         raise pytest.UsageError(why)
