@@ -78,7 +78,21 @@ Shop: https://shop.kincony.com/products/esp32-s3-smart-ir-rf-controller-kincony-
 
 **HAIR status.** KinCony's AGv3 marketing page carries **"Works with HAIR"** plus the GitHub URL. No `esphome/kc868-agv3/` config in this repo yet -- use KinCony's published ESPHome / KCS docs until a HAIR-tested config lands.
 
-A board without an in-repo config still needs the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`); a KinCony user ran into the `idle` ceiling this week.
+A board without an in-repo config still needs the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`); a KC868-AGv3 (ESP32-S3) user ran into the 32,767 us `idle` ceiling this week.
+
+**Pins** (from KinCony's AGv3 pin definition, https://www.kincony.com/forum/showthread.php?tid=9468):
+
+| Function | GPIO |
+|---|---|
+| IR receiver | GPIO1 |
+| IR sender, on board (7 IR tubes inside the box) | GPIO47 |
+| IR extension ports 1 and 2 | GPIO43, GPIO44 |
+| RF433 sender / receiver | GPIO2 / GPIO9 |
+| Buzzer | GPIO21 |
+
+The receiver pin is active-low on this board, so `inverted: true` with a pullup is what works; that is the setting in Simon's config below, working on his unit in the video.
+
+**Walkthrough.** [Now IR Proxy is Easy with the Kincony IR Gateway and ESP Home!](https://www.youtube.com/watch?v=LqFLHZzLR54) by Simon Says Home Assistant (5:53, 2026-10-03) sets this board up as an ESPHome IR proxy. The board diagram shown in the video is KinCony's image of the earlier KC868-AG; the device being set up is the AGv3, as its label shows.
 
 ---
 
@@ -88,15 +102,22 @@ A board without an in-repo config still needs the receiver values from [Receiver
 
 **Chip.** Original ESP32 module, not the S3 (KinCony's page: "designed KC868-AG by ESP32 module"; the board is marked KC868-AG-V1.2).
 
-**IR hardware.** A ring of IR LEDs on the board for 360° coverage (IR sender on IO2) and one IR receiver (IO23), plus a 433 MHz RF sender and receiver (IO22, IO13) and a buzzer (IO4), per KinCony's pin list. The IR LEDs are on the board; there are no sockets for external IR leads.
+**IR hardware.** A ring of IR LEDs on the board for 360° coverage and one IR receiver, plus a 433 MHz RF sender and receiver and a buzzer. The IR LEDs are on the board; there are no sockets for external IR leads.
+
+**Pins** (from KinCony's KC868-AG pin definition, https://www.kincony.com/forum/showthread.php?tid=1667):
+
+| Function | GPIO |
+|---|---|
+| IR receiver | IO23 |
+| IR sender | IO2 |
+| RF433 sender / receiver | IO22 / IO13 |
+| Buzzer | IO4 |
 
 **Price / buy.** **$35** on KinCony's shop, listed as sold out when checked on 2026-10-03.  
 Marketing: https://www.kincony.com/esp32-rf-ir-gateway.html  
 Shop: https://shop.kincony.com/products/kc868-ag-esp32-433mhz-rf-and-ir-gateway
 
 **HAIR status.** No in-repo config yet; the receiver values in [Receiver timing](receiver-timing.md) apply (`clock_resolution: 400000` with `idle: 80ms`). KinCony's ESPHome YAML: https://www.kincony.com/forum/showthread.php?tid=2329 · Pin map: https://www.kincony.com/forum/showthread.php?tid=1667
-
-**Walkthrough.** [Now IR Proxy is Easy with the Kincony IR Gateway and ESP Home!](https://www.youtube.com/watch?v=LqFLHZzLR54) by Simon Says Home Assistant (5:53, 2026-10-03) sets this board up as an ESPHome IR proxy.
 
 ---
 
@@ -153,7 +174,7 @@ The published ESPHome demo **enables transmitters 1-4** and leaves 5-8 commented
 
 Schematic: https://www.kincony.com/download/AG8-schematic.pdf
 
-No `esphome/kincony-ag8/` folder in this repo yet. A board without an in-repo config still needs the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`); a KinCony user ran into the `idle` ceiling this week.
+No `esphome/kincony-ag8/` folder in this repo yet. A board without an in-repo config still needs the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`); a KC868-AGv3 (ESP32-S3) user ran into the 32,767 us `idle` ceiling this week.
 
 ---
 
