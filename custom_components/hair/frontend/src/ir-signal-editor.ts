@@ -609,8 +609,13 @@ export class IrSignalEditor extends LitElement {
             // reports, and "Your wig has been updated." still lands.
             this._afterTangleApply(result, 0, 0);
         } catch (err) {
+            // The websocket client rejects with the server's plain
+            // { code, message } object, so the refusal's code is on
+            // err.code and not inside the message text.
             const message = (err as Error).message || String(err);
-            if (message.includes("reading_disagreed_required")) {
+            const code = (err as { code?: unknown } | null)?.code;
+            if (code === "reading_disagreed_required"
+                    || message.includes("reading_disagreed_required")) {
                 this._raiseTangleLadder(this._pronto, "paste");
             } else {
                 this._error = message;
@@ -886,7 +891,9 @@ export class IrSignalEditor extends LitElement {
             // read and leave the popup usable, instead of pulsing at
             // something that has stopped (issue 4).
             const message = IrSignalEditor._tangleError(err);
-            if (message.includes("reading_disagreed_required")) {
+            const code = (err as { code?: unknown } | null)?.code;
+            if (code === "reading_disagreed_required"
+                    || message.includes("reading_disagreed_required")) {
                 this._raiseTangleLadder(pronto, "capture");
             } else {
                 this._error = message;

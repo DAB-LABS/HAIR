@@ -65,6 +65,8 @@ KOMECO = (FIXTURES / "wigs"
           / "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json")
 DREO = (FIXTURES / "wigs"
         / "dreo-fan-dr-haf004s-perfect-fit.wig.json")
+EDITOR = (Path(__file__).parents[1] / "frontend" / "src"
+          / "ir-signal-editor.ts")
 
 #: The refusal's code, as a literal. The panel matches on this exact
 #: text, so a second code for the unread case would close its ladder.
@@ -418,6 +420,23 @@ class TestOneRefusalCode:
         """The panel raises its ladder on this literal. The unread
         refusals above are pinned to it at the door too."""
         assert APPLY_DISAGREEMENT_UNDECLARED == REFUSAL
+
+    def test_the_panel_reads_the_code_where_the_client_puts_it(self):
+        """The websocket client rejects with the server's plain
+        ``{code, message}`` object, so the code is on ``err.code`` and
+        never inside the message text. Both roads that can be refused
+        (paste and capture) have to look there, or the ladder never
+        rises and the refusal shows as a plain error."""
+        text = EDITOR.read_text(encoding="utf-8")
+        paste = text.split("private async _applyToTangle(", 1)[1].split(
+            "\n    /** The ladder, from either road", 1)[0]
+        capture = text.split("const message = IrSignalEditor._tangleError(err);",
+                             1)[1].split("} finally {", 1)[0]
+        for body in (paste, capture):
+            assert "(err as { code?: unknown } | null)?.code" in body
+            assert f'code === "{REFUSAL}"' in body
+        assert 'this._raiseTangleLadder(this._pronto, "paste");' in paste
+        assert 'this._raiseTangleLadder(pronto, "capture");' in capture
 
 
 # ---------------------------------------------------------------------------
