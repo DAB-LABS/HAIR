@@ -58,6 +58,7 @@ from custom_components.hair.websocket_api import (
 from custom_components.hair.wig_comb import CHECK_FIELD_MISMATCH
 from custom_components.hair.wig_format import Wig, WigSignal, cell_key, parse_wig
 
+from .leg import strict_nec_available
 from .test_field_sweep import PACKS, _pack_wig
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -299,9 +300,13 @@ class TestTheSingleApply:
             assert note["decoded_as"] == decoded
         else:
             assert "decoded_as" not in note
-        named = {"nec": "NEC", "samsung": "SAMSUNG32"}.get(candidate)
-        if named is not None:
-            assert note["decoded_as"] == named
+        # Samsung32 decodes on both legs; NEC only where the library's
+        # strict decoder is installed (see leg.py).
+        named = {"samsung": "SAMSUNG32"}
+        if strict_nec_available():
+            named["nec"] = "NEC"
+        if candidate in named:
+            assert note["decoded_as"] == named[candidate]
 
     @pytest.mark.asyncio
     async def test_the_real_off_at_the_off_row_needs_nothing(
@@ -398,7 +403,10 @@ class TestTheBatch:
             assert live[key].pronto == NEC, key
             note = read_repair(live[key])["reading_disagreed"]
             assert note["declined"] == field_readers.NO_MAP, key
-            assert note["decoded_as"] == "NEC", key
+            if strict_nec_available():
+                assert note["decoded_as"] == "NEC", key
+            else:
+                assert "decoded_as" not in note, key
 
     def test_both_handlers_ask_the_one_predicate(self):
         for handler in (websocket_api.ws_tangle_apply,
