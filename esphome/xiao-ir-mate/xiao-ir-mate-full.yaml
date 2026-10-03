@@ -133,7 +133,7 @@ remote_transmitter:
 
 # --- IR Receiver (RX) ---
 # Registered with HA through the infrared: platform below.
-# Why these numbers, and the alternatives: docs/receiver-timing.md
+# Why these numbers, and the alternatives: https://github.com/DAB-LABS/HAIR/blob/main/docs/receiver-timing.md
 remote_receiver:
   id: ir_rx
   pin:

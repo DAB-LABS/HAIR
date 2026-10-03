@@ -25,6 +25,10 @@ Prices checked from the linked shops around 2026-09-26 and can move.
 
 **IR hardware.** 3× high-power IR LEDs for **360°** coverage plus 1× high-sensitivity IR receiver. Also touch pad, vibration motor, status LED, reset. Ships as an ESPHome ready-made project (pre-flashed per Seeed's listing).
 
+<img src="../images/hardware/xiao-ir-mate-inside.jpg" alt="XIAO Smart IR Mate opened: XIAO ESP32C3 on its carrier board with three IR LEDs, the IR receiver, vibration motor and RGB LED, and the touch pad lead running to the lid" width="560">
+
+*Photo: DAB-LABS. The puck opened: XIAO ESP32C3 on the carrier, three IR LEDs, receiver, vibration motor, RGB LED, and the touch pad lead to the lid.*
+
 **Price / buy.** **$10.90** USD (qty 10+ **$10.50**), in stock when last checked.  
 https://www.seeedstudio.com/XIAO-Smart-IR-Mate-p-6492.html?c=qtEeMJf · SKU `109990586` · affiliate/coupon `qtEeMJf`
 
@@ -38,6 +42,14 @@ https://www.seeedstudio.com/XIAO-Smart-IR-Mate-p-6492.html?c=qtEeMJf · SKU `109
 
 **Form factor.** Compact commercial remote / Proxy enclosure with built-in IR LED, IR receiver, RF, status LED, and button.
 
+<img src="../images/hardware/athom-rf-ir-remote-board-front.jpg" alt="Athom RF IR Remote circuit board, component side: ESP32-WROOM-32E module, IR LEDs, two red LEDs, the RF coils and the USB-C port" width="420">
+
+*Photo: DAB-LABS. Component side: ESP32-WROOM-32E module, IR LEDs, two red LEDs and the RF coils, USB-C at the top.*
+
+<img src="../images/hardware/athom-rf-ir-remote-board-back.jpg" alt="Athom RF IR Remote circuit board, back side: silkscreen JW-IRREMOTE RF-PCB-V2.0 20260128 www.athom.tech, the BOOT GND RXD TXD 3V3 header and the RF pads" width="420">
+
+*Photo: DAB-LABS. Back side: the BOOT / GND / RXD / TXD / 3V3 header is where a USB serial adapter goes if you flash it by wire.*
+
 **Price / buy.** Listed around **$19.50** on Athom's product page (other price chips on the page may reflect bundles or options -- confirm at checkout).  
 https://www.athom.tech/blank-1/esphome-rf433-ir-remote-controller
 
@@ -50,6 +62,14 @@ https://www.athom.tech/blank-1/esphome-rf433-ir-remote-controller
 **Who it's for.** Power users who want a KinCony IR Controller with ESPHome / Home Assistant paths and optional RF hardware.
 
 **Form factor.** KinCony KC868-series controller board (see product photos on the marketing page); not the same SKU as the AG8 DIN 8-port board below.
+
+<img src="../images/hardware/kincony-kc868-agv3-angled.jpg" alt="KinCony KC868-AGv3 closed: a black rounded-square puck with a home button on top" width="360">
+
+*Photo: KinCony, from the product page (https://www.kincony.com/esp32s3-smart-ir-rf-controller.html).*
+
+<img src="../images/hardware/kincony-kc868-agv3-board.jpg" alt="KinCony KC868-AGv3 opened: blue KINCONY-AGV3-V10 board with the ESP32-S3 module, a ring of IR LEDs, RF modules and a buzzer" width="420">
+
+*Photo: KinCony, from the product page (https://www.kincony.com/esp32s3-smart-ir-rf-controller.html).*
 
 **Price / buy.** Shop bundles (when last checked): **Bundle A $45** (AGv3 + USB-C cable), **Bundle B $50** (AGv3 + USB-C + two IR cables).  
 Marketing: https://www.kincony.com/esp32s3-smart-ir-rf-controller.html  
@@ -66,6 +86,14 @@ A board without an in-repo config still needs the receiver values from [Receiver
 **Who it's for.** Multi-TV / multi-zone installs (bars, restaurants, whole-home emitter plants) where each zone needs its own IR lead.
 
 **Form factor.** **DIN-rail** PCB, about **83×100 mm**, removable screw terminals. Industrial board, not a consumer puck.
+
+<img src="../images/hardware/kincony-ag8-front.jpg" alt="KinCony AG8 straight on: DIN-rail case with Ethernet, RS232, RS485, GPIO and IR receiver terminals at the top and the eight IR sender terminals at the bottom" width="420">
+
+*Photo: KinCony, from the product page (https://www.kincony.com/esp32-s3-smart-ir-controller.html).*
+
+<img src="../images/hardware/kincony-ag8-angled.jpg" alt="KinCony AG8 at an angle with its Wi-Fi antenna fitted and the green IR sender terminal blocks in front" width="420">
+
+*Photo: KinCony, from the product page (https://www.kincony.com/esp32-s3-smart-ir-controller.html).*
 
 **I/O (from KinCony).**
 

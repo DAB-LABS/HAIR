@@ -167,7 +167,7 @@ remote_receiver:
 
   # IR receiver on GPIO33.
   # Registered with HA through the infrared: platform below.
-  # Why these numbers, and the alternatives: docs/receiver-timing.md
+  # Why these numbers, and the alternatives: https://github.com/DAB-LABS/HAIR/blob/main/docs/receiver-timing.md
   - id: ir_receiver
     pin:
       number: GPIO33
