@@ -17,13 +17,15 @@ ways, kept apart:
   index hears as a cell that is neither the pressed cell nor a member
   of its merged group.
 
-Beside them: ``wrong_key`` (presses or pieces whose read key another
-cell holds, in the pack outside the pressed cell's group, or in another
-pack outside the designed shared settings frame), which is 0 on every
-map and must stay 0; ``wrong_state`` (presses or pieces that read as
-the family with field values other than the file's); and ``glitched``
-(the model's glitched presses, and how many of them were still heard as
-their own cell or formed their own key).
+Beside them: ``wrong_key`` (presses or pieces whose read key names a
+state they are not: a key other than the cell's own that a cell outside
+the pressed cell's group holds, or that any cell of another pack holds;
+or the cell's own key held by another pack outside the designed shared
+settings frame), which is 0 on every map and must stay 0;
+``wrong_state`` (presses or pieces that read as the family with field
+values other than the file's); and ``glitched`` (the model's glitched
+presses, and how many of them were still heard as their own cell or
+formed their own key).
 
 THE MODEL IS DETERMINISTIC. ``_air`` seeds a string, and the salt is a
 sha256 of the normalized code, never ``hash()``, so every figure is an
@@ -48,6 +50,7 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import datetime
 import functools
 import gzip
 import hashlib
@@ -86,9 +89,13 @@ MODEL_DIGEST = (
     "ec52ad97b9847f00bc45d9cba77ef96b"
 )
 
-REMEASURE = (
-    "re-measure: a window patch moves this line and resets this "
-    "family's comb attestations"
+REMEASURE_MAP = (
+    "the map changed: re-measure, since a window patch moves this line "
+    "and resets this family's comb attestations"
+)
+REMEASURE_PACK = (
+    "the pack changed: re-measure, and check that the lattice is the one "
+    "you meant to measure"
 )
 
 
@@ -359,11 +366,11 @@ class Figures:
     heard_wrong: int = 0
 
     def line(self, pid: str) -> str:
-        """The literal to paste into ``FIGURES``."""
+        """The literal to paste into ``FIGURES``, dated today."""
         version, pack, read, key, glitched, *rest = dataclasses.astuple(self)
         tail = ", ".join(str(v) for v in rest)
         return (
-            f'    "{pid}": (\n'
+            f'    "{pid}": (  # measured {datetime.date.today().isoformat()}\n'
             f'        "{version}", "{pack}",\n'
             f"        {read}, {key}, {glitched}, {tail},\n"
             f"    ),"
@@ -515,14 +522,19 @@ def measure(pid: str) -> tuple[Figures, Audit]:
                         audit.stage_disagreements.append(
                             ("key", cell_key(cell), tx, press, shape, stage))
                     if key is not None:
-                        wrong = False
+                        packs = {p for p, _ in every_key.get(key, ())}
                         if key == own_key:
                             whole_key |= whole
                             split_key |= not whole
-                        elif holders.get(key, set()) - group:
-                            wrong = True
-                        if {p for p, _ in every_key.get(key, ())} - sharing:
-                            wrong = True
+                            # The cell's own key: another pack may hold it
+                            # only through the designed shared frame.
+                            wrong = bool(packs - sharing)
+                        else:
+                            # Any other key names another state: held
+                            # outside the cell's group, or by another pack,
+                            # shared frame or not, it is wrong.
+                            wrong = bool(holders.get(key, set()) - group
+                                         or packs - {pid})
                         fig.wrong_key += wrong
 
                     # What the pack's own index hears.
@@ -556,67 +568,67 @@ def measure(pid: str) -> tuple[Figures, Audit]:
     return fig, audit
 
 
-#: Measured 2026-10-03 on main eb27050b, one line per map:
+#: One line per map, each dated the day it was measured:
 #: (map version, pack sha256[:12], read, key, glitched, wrong_key,
 #: wrong_state, heard_wrong). See ``Figures`` for each figure.
 FIGURES: dict[str, tuple] = {
-    "AUX104": (
+    "AUX104": (  # measured 2026-10-03
         "d0935d54602a24a9", "b167a767d155",
         (480, 480, 240, 240), None, (240, 13), 0, 0, 0,
     ),
-    "CHIGO96B": (
+    "CHIGO96B": (  # measured 2026-10-03
         "6430185d13ab50a0", "ea9789e58b54",
         (240, 240, 111, 120), None, (120, 0), 0, 0, 0,
     ),
-    "DAIKIN152": (
+    "DAIKIN152": (  # measured 2026-10-03
         "ceb4988ec73d2731", "0a6885d0ca72",
         (240, 240, 115, 120), (240, 240, 115, 120), (120, 86), 0, 0, 0,
     ),
-    "DAIKIN216": (
+    "DAIKIN216": (  # measured 2026-10-03
         "5d703155104b885f", "98b4048ab976",
         (800, 800, 396, 400), (800, 800, 396, 400), (400, 254), 0, 0, 0,
     ),
-    "FUJITSU128": (
+    "FUJITSU128": (  # measured 2026-10-03
         "3170604d23b900ed", "ac0419b43ebb",
         (372, 480, 156, 240), None, (240, 108), 0, 0, 0,
     ),
-    "GREE": (
+    "GREE": (  # measured 2026-10-03
         "780b814d907167e3", "01d505d7b5e2",
         (320, 320, 160, 160), None, (160, 44), 0, 1, 3,
     ),
-    "MHI152": (
+    "MHI152": (  # measured 2026-10-03
         "fabd77ead6afc643", "0459b8c87dfd",
         (320, 320, 159, 160), None, (160, 76), 0, 0, 0,
     ),
-    "MHI160": (
+    "MHI160": (  # measured 2026-10-03
         "bba131b4bff3d00e", "8f5fe6835017",
         (192, 192, 47, 96), None, (96, 9), 0, 0, 0,
     ),
-    "MHI48": (
+    "MHI48": (  # measured 2026-10-03
         "2337b9c498fee532", "fad45f1c35d0",
         (192, 192, 77, 96), None, (96, 18), 0, 0, 0,
     ),
-    "MIDEA_COOLIX": (
+    "MIDEA_COOLIX": (  # measured 2026-10-03
         "d50eee7049af3556", "49009f52efca",
         (240, 240, 120, 120), None, (120, 33), 0, 0, 0,
     ),
-    "MITSUBISHI144": (
+    "MITSUBISHI144": (  # measured 2026-10-03
         "89dde7274a96b5b4", "c89d24ffa929",
         (960, 960, 470, 480), (960, 960, 470, 480), (480, 480), 0, 0, 0,
     ),
-    "OEM112": (
+    "OEM112": (  # measured 2026-10-03
         "337f06d3bbbc3305", "ec42e36360eb",
         (960, 960, 478, 480), None, (480, 225), 0, 0, 0,
     ),
-    "PANASONIC216": (
+    "PANASONIC216": (  # measured 2026-10-03
         "d2deab1e897d3667", "72d6013f1f7d",
         (155, 640, 96, 320), None, (320, 208), 0, 0, 0,
     ),
-    "TCL112": (
+    "TCL112": (  # measured 2026-10-03
         "d892bc53b040164d", "e760706aba0e",
         (800, 800, 395, 400), None, (400, 1), 0, 1, 0,
     ),
-    "ZHLT01": (
+    "ZHLT01": (  # measured 2026-10-03
         "6480fb092e637235", "06277c4470a8",
         (480, 480, 240, 240), None, (240, 0), 0, 0, 0,
     ),
@@ -627,13 +639,23 @@ def check(pid: str, measured: Figures, literal: tuple) -> None:
     """The one comparison. The map version and the pack come first: a
     line measured on another map or another lattice says nothing."""
     version, pack = literal[:2]
-    assert (measured.version, measured.pack) == (version, pack), (
-        f"{pid}: map version or pack changed ({measured.version}, "
-        f"{measured.pack}); {REMEASURE}. Measured:\n{measured.line(pid)}"
+    why = "; ".join(
+        text for moved, text in (
+            (measured.version != version, REMEASURE_MAP),
+            (measured.pack != pack, REMEASURE_PACK),
+        ) if moved
+    )
+    assert not why, (
+        f"{pid}: map version {measured.version}, pack {measured.pack}; "
+        f"{why}. Measured:\n{measured.line(pid)}"
     )
     assert dataclasses.astuple(measured) == tuple(literal), (
-        f"{pid} moved. If this PR changes {pid}'s map window, {REMEASURE}. "
-        f"Paste:\n{measured.line(pid)}"
+        f"{pid} moved with its map and pack unchanged: the reader, the "
+        "identity (READ_BYTES_VERIFIED included), the cell index or the air "
+        "model moved these counts. If test_the_model_is_the_model also "
+        "fails, the model moved; otherwise this is a reading change and a "
+        "regression unless the PR means it. Paste only with the cause "
+        f"named:\n{measured.line(pid)}"
     )
 
 
@@ -648,12 +670,27 @@ def test_the_figures_hold(pid):
 
 
 def test_every_map_has_a_pack_and_a_line():
-    assert set(_maps()) == set(_packs()) == set(FIGURES)
+    maps, packs, lines = set(_maps()), set(_packs()), set(FIGURES)
+    assert maps == packs == lines, (
+        f"maps without a pack: {sorted(maps - packs)}; maps without a "
+        f"line: {sorted(maps - lines)}; packs or lines without a map: "
+        f"{sorted((packs | lines) - maps)}. A new map needs its field pack "
+        "in fixtures/field-packs and a measured line in FIGURES (run "
+        "test_the_table with -rP and paste its line); a pack or line whose "
+        "map has gone goes with it"
+    )
 
 
 def test_every_listed_family_has_key_figures():
     listed = {pid for pid, line in FIGURES.items() if line[3] is not None}
-    assert listed == set(idm.READ_BYTES_VERIFIED)
+    verified = set(idm.READ_BYTES_VERIFIED)
+    assert listed == verified, (
+        f"on READ_BYTES_VERIFIED without key figures: "
+        f"{sorted(verified - listed)}; with key figures but off the list: "
+        f"{sorted(listed - verified)}. Joining or leaving the list moves "
+        "the family's key figures: re-measure its line (test_the_table "
+        "with -rP) and paste it"
+    )
 
 
 def test_a_raised_or_lowered_literal_fails():
@@ -678,13 +715,17 @@ def test_a_raised_or_lowered_literal_fails():
                     check(pid, measured, tuple(literal))
                 tried += 1
     assert tried == 2 * (4 + 2 + 3)
-    with pytest.raises(AssertionError, match="re-measure"):
+    with pytest.raises(AssertionError, match="the map changed: re-measure"):
         check(pid, measured, ("another version", *line[1:]))
+    with pytest.raises(AssertionError, match="the pack changed: re-measure"):
+        check(pid, measured, (line[0], "another pack", *line[2:]))
 
 
 def test_no_read_key_is_wrong():
-    """On every map, glitched presses included, in the pack and across
-    packs outside the designed shared settings frame."""
+    """On every map, glitched presses included: no press or piece forms
+    a key that names another state, in its own pack or in any other. The
+    designed shared settings frame lets another pack hold only the
+    cell's own key."""
     assert {pid: measure(pid)[0].wrong_key for pid in _packs()} == dict.fromkeys(
         _packs(), 0)
 
@@ -718,21 +759,46 @@ def _model_digest() -> str:
 
 
 def test_the_model_is_the_model():
-    assert _model_digest() == MODEL_DIGEST
+    assert _model_digest() == MODEL_DIGEST, (
+        "the air model moved (_air, the salt or PRESSES): every line moves "
+        "with it; re-measure them all and MODEL_DIGEST together, and say "
+        "in the PR why the model changed"
+    )
+
+
+def _ratios(pronto: str, press: int, transmitter: str) -> list[float]:
+    """The perturbation itself: heard over file, edge by edge, to one
+    decimal. The trailing zero word (the Pronto terminator) is left out."""
+    heard = _words(_press(pronto, press, transmitter)[0])[4:]
+    return [round(h / f, 1)
+            for h, f in zip(heard, _words(pronto)[4:], strict=True) if f]
+
+
+def _glitch_at(pronto: str, press: int) -> list[int]:
+    """The Broadlink edges the model glitched: no clean ratio leaves 0.47
+    to 1.40, a glitch lands near 0.24 (a mark) or 7.8 (a space)."""
+    return [i for i, r in enumerate(_ratios(pronto, press, "broadlink"))
+            if r < 0.4 or r > 5]
 
 
 def test_the_salt_takes_effect():
-    """Two codes of one length take different air: per-press seeding
-    would give them the same perturbation at the same edge."""
+    """Two codes of one length take different air. The ratio of heard to
+    file at each edge is the perturbation, whatever the edge's length:
+    per-press seeding, salted with a constant or not at all, gives both
+    codes the same ratios and the glitch at the same edge."""
     cells = _matrix("DAIKIN216").cells
     a, b = cells[0].pronto, cells[1].pronto
     assert len(a.split()) == len(b.split())
     for tx in PRESSES:
-        ra = _words(_press(a, 0, tx)[0])[4:]
-        rb = _words(_press(b, 0, tx)[0])[4:]
-        fa, fb = _words(a)[4:], _words(b)[4:]
-        assert [x - y for x, y in zip(ra, fa, strict=True)] != [
-            x - y for x, y in zip(rb, fb, strict=True)]
+        ra, rb = _ratios(a, 0, tx), _ratios(b, 0, tx)
+        same = sum(x == y for x, y in zip(ra, rb, strict=True))
+        assert same < 0.9 * len(ra), (
+            f"{tx}: {same} of {len(ra)} edge ratios coincide between two "
+            "codes: the presses are not seeded per code")
+    for press in (3, 7):
+        assert _glitch_at(a, press), press
+        assert _glitch_at(a, press) != _glitch_at(b, press), (
+            f"broadlink press {press}: both codes glitch at the same edge")
     assert _press(a, 3, "broadlink") != _air(a, 3, "broadlink")
 
 
