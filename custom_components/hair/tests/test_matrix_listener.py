@@ -902,8 +902,24 @@ async def test_invalidate_drops_the_stored_index_too(tmp_path):
 # no normalized fingerprint at all (nothing to find two levels in), so
 # these tests use the real lattice codes and the real captures from the
 # air-path run instead. See tests/fixtures/air-path/README.md.
+#
+# Those codes are MITSUBISHI144, which has since joined both identity
+# lists: listed, its captures are answered by the read key, above this
+# tier. The tests that are about the tier itself, on an unlisted
+# family's real captures, run with the family taken off the lists
+# (``m144_unlisted``); they are the only real-capture coverage of it.
 
 _AIR = _Path(__file__).parent / "fixtures" / "air-path"
+
+
+@pytest.fixture
+def m144_unlisted():
+    """The identity lists without MITSUBISHI144, as they shipped before
+    it joined."""
+    from .test_identity_round import _unlisted
+
+    with _unlisted("MITSUBISHI144"):
+        yield
 
 
 def _air_code(name: str) -> str:
@@ -959,7 +975,7 @@ def _air_matrix() -> ClimateMatrix:
     )
 
 
-def test_a_real_press_lands_on_its_cell_through_the_lowest_tier():
+def test_a_real_press_lands_on_its_cell_through_the_lowest_tier(m144_unlisted):
     """The whole point, on the bench's own captures.
 
     Every ESPHome press of C1 resolves to cool/auto/23, and none of them
@@ -1014,7 +1030,7 @@ def test_the_second_cell_is_not_confused_with_the_first():
             assert matched[0].cell_key == expected
 
 
-def test_a_capture_that_decoded_never_reaches_the_lowest_tier():
+def test_a_capture_that_decoded_never_reaches_the_lowest_tier(m144_unlisted):
     """A frame the library read is answered by tier 1 or not at all.
 
     If a decoded identity is not in this lattice, the honest answer is
@@ -1028,7 +1044,7 @@ def test_a_capture_that_decoded_never_reaches_the_lowest_tier():
     ) is None
 
 
-def test_a_lattice_that_spells_one_shape_twice_answers_neither():
+def test_a_lattice_that_spells_one_shape_twice_answers_neither(m144_unlisted):
     """Ambiguity is not a match.
 
     Two cells whose codes are different but whose normalized shape is
@@ -1056,6 +1072,38 @@ def test_a_lattice_that_spells_one_shape_twice_answers_neither():
     assert index.match(
         None, heard.sig_fp, heard.byte_hash, heard.norm_fp
     ) is None
+
+
+def test_listed_a_slower_copy_of_c1_is_one_group_with_it():
+    """The lattice above on the shipped lists, where MITSUBISHI144 is
+    listed. A KNOWN FOLLOW-UP, pinned so it is seen when it moves, not a
+    correct answer: for a listed family the whole-code discriminator's
+    frame identity is the read key, which cannot tell a code played 15%
+    slower from the original, so the two cells merge into one group and
+    every C1 press is named for it instead of being refused as
+    ambiguous. The Daikins have had this since they were listed; the
+    scale-blind frame identity of a listed family is its own round."""
+    matrix = _air_matrix()
+    words = _air_code("C1").split()
+    stretched = words[:4] + [
+        f"{round(int(w, 16) * 1.15):04X}" for w in words[4:]
+    ]
+    matrix.cells.append(
+        ClimateCell(
+            mode="cool", fan="auto", temp=24.0, pronto=" ".join(stretched)
+        )
+    )
+    index = build_cell_index(matrix)
+    rows = _air_captures("C1")
+    for row in rows:
+        heard = _heard(row)
+        hit, tier = index.match(
+            heard.decoded_fingerprint, heard.sig_fp, heard.byte_hash,
+            heard.norm_fp,
+        )
+        assert tier == TIER_BYTE_HASH
+        assert hit.cell_name == "cool / fan: auto / 23-24"
+        assert hit.spanned == (("temp", (23.0, 24.0)),)
 
 
 def test_the_stored_index_carries_the_lowest_tier(tmp_path):
@@ -1436,6 +1484,45 @@ def test_a_rebuilt_index_matches_a_capture_after_the_identity_move(tmp_path):
     )
     assert hit.cell_key == "cool/auto/23"
     assert tier == TIER_BYTE_HASH
+
+
+def test_a_rebuilt_mitsubishi144_index_matches_its_captures_on_the_read_key(
+    tmp_path,
+):
+    """The same pin for MITSUBISHI144, whose byte hash moved from the
+    timing hash to the read key when it joined the lists: once its
+    stored index is rebuilt, every real capture of the two bench cells
+    that reads is answered at the byte-hash tier with the cell it
+    indexes, ESPHome and Broadlink alike, rather than only at the
+    normalized tier: the 40 readable rows and the 2 injected ones. The
+    four Broadlink rows of C2 that read as nothing are left to that
+    tier, as before."""
+    from custom_components.hair.event_parser import EventParser
+    from custom_components.hair.matrix_listener import (
+        _build_and_store_index,
+        _load_stored_index,
+    )
+    from custom_components.hair.matrix_store import write_matrix
+
+    write_matrix(tmp_path, "r1", _air_matrix())
+    _build_and_store_index(str(tmp_path), "r1", _air_matrix(), "C")
+    index = _load_stored_index(str(tmp_path), "r1", "C")
+    assert index is not None
+    answered = 0
+    for code, expected in (("C1", "cool/auto/23"), ("C2", "heat/low/20")):
+        key = EventParser.pronto_read_key(_air_code(code))
+        assert key is not None
+        for row in _air_captures(code):
+            heard = _heard(row)
+            if heard.byte_hash != key:
+                continue
+            hit, tier = index.match(
+                heard.decoded_fingerprint, heard.sig_fp, heard.byte_hash,
+                heard.norm_fp,
+            )
+            assert (hit.cell_key, tier) == (expected, TIER_BYTE_HASH)
+            answered += 1
+    assert answered == 42
 
 
 # ---------------------------------------------------------------------------

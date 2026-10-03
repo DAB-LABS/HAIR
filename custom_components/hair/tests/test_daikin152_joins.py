@@ -78,7 +78,8 @@ def _key(code: str) -> str | None:
 class TestTheSharedFrame:
 
     def test_daikin152_is_listed_beside_daikin216(self):
-        assert frozenset({"DAIKIN216", "DAIKIN152"}) == (
+        """MITSUBISHI144 joined later; it shares no settings frame."""
+        assert frozenset({"DAIKIN216", "DAIKIN152", "MITSUBISHI144"}) == (
             idm.READ_BYTES_VERIFIED
         )
         assert "DAIKIN152" in idm.SETTING_IDENTITY_VERIFIED

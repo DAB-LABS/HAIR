@@ -197,6 +197,7 @@ class TestTheCoordinateKey:
             ("DAIKIN152", "swing_horizontal"): "swing",
             ("DAIKIN216", "swing_vertical"): "swing",
             ("DAIKIN216", "swing_horizontal"): "swing",
+            ("MITSUBISHI144", "temperature_fahrenheit"): "temp",
             ("TCL112", "quiet"): "fan",
         }
 

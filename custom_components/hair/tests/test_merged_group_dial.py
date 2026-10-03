@@ -740,9 +740,11 @@ async def test_an_extras_press_with_a_group_names_its_range_and_leaves_the_dial(
 @pytest.mark.parametrize(
     ("pack", "card", "press", "expected"),
     [
-        # MITSUBISHI144: dry stores one code across 16-31 per swing.
-        ("MITSUBISHI144.json", (HVACMode.COOL, "auto", "auto", 24.0),
-         ("dry", "auto", "auto", 20.0), ("auto", "auto", 24.0)),
+        # OEM112: dry stores one code across four fans and 16-31 per
+        # swing. (MITSUBISHI144 stood here until it joined the read-bytes
+        # list; its case is in test_mitsubishi144_joins.)
+        ("OEM112.json", (HVACMode.COOL, "low", "auto", 24.0),
+         ("dry", "auto", "auto", 20.0), ("low", "auto", 24.0)),
         # TCL112: dry stores one code across five fans and 16-31.
         ("TCL112.json", (HVACMode.COOL, "low", "static", 24.0),
          ("dry", "auto", "static", 20.0), ("low", "static", 24.0)),

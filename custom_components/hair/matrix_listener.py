@@ -68,13 +68,19 @@ their new lattice themselves so even that one rarely runs.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from .const import EVENT_STATE_HEARD, MATRIX_STATE_DEDUP_WINDOW_S
+from .const import (
+    EVENT_STATE_HEARD,
+    MATRIX_STATE_DEDUP_WINDOW_S,
+    PRONTO_BYTE_HASH_BIN,
+    PRONTO_GAP_THRESHOLD,
+)
 from .identity import (
     TIER_BYTE_HASH,
     TIER_DECODED,
@@ -623,6 +629,18 @@ def build_cell_index(
     # Every indexed code in the order it was added, for the merged
     # groups: see ``_merged_groups``.
     indexed: list[_Indexed] = []
+    # The plain-tier claims (``decoded``, ``fp_bytehash``, ``bytehash``)
+    # in the order the codes were added, each with the byte hash of a
+    # code that forms no read key (None otherwise). They are made
+    # after every code is added, in that same order, because whether
+    # such a cell may claim one depends on the whole lattice: see
+    # STRAY-BURST KEYS below.
+    plain: list[tuple[str, Any, Any, CellHit, str | None, str | None]] = []
+    # The timing keys the codes that form a read key would claim if
+    # their family were not listed: the keys it left behind.
+    left_behind: set[str] = set()
+    # The byte hashes of the codes the stray-burst floor took out.
+    floored: set[str] = set()
 
     def _add(
         pronto: str | None, hit_factory: Any, lattice: tuple | None,
@@ -659,17 +677,31 @@ def build_cell_index(
                 form=read[1], mode=hit.mode, lattice=lattice,
             )
         waveform = norm_fingerprint(identity.raw_timings)
+        unread = identity.byte_hash if read is None else None
+        if read is not None and words is not None:
+            behind = _timing_key(words)
+            if behind is not None:
+                left_behind.add(behind)
+        # A STRAY BURST IS NOT AN IDENTITY: see STRAY-BURST KEYS below.
+        stray = read is None and _stray_burst(
+            words, EventParser._pronto_identity_timings(canonical)
+        )
+        if stray and identity.byte_hash is not None:
+            floored.add(identity.byte_hash)
         # A DECODE THAT EXPLAINS PART OF THE CAPTURE IS NOT AN IDENTITY.
         # Indexing it would claim this cell IS that fingerprint, and on
         # a Daikin every cell would claim the same one.
-        if identity.decoded_fingerprint and identity.decode_covers is not False:
-            _claim("decoded", identity.decoded_fingerprint, code, hit,
-                   waveform)
-        if identity.fingerprint:
-            _claim("fp_bytehash", (identity.fingerprint, identity.byte_hash),
-                   code, hit, waveform)
-        if identity.byte_hash is not None:
-            _claim("bytehash", identity.byte_hash, code, hit, waveform)
+        if (not stray and identity.decoded_fingerprint
+                and identity.decode_covers is not False):
+            plain.append(("decoded", identity.decoded_fingerprint, code,
+                          hit, waveform, unread))
+        if not stray and identity.fingerprint:
+            plain.append(("fp_bytehash",
+                          (identity.fingerprint, identity.byte_hash),
+                          code, hit, waveform, unread))
+        if not stray and identity.byte_hash is not None:
+            plain.append(("bytehash", identity.byte_hash, code, hit,
+                          waveform, unread))
         if waveform:
             _claim("norm_fp", waveform, code, hit, waveform)
         indexed.append(_Indexed(
@@ -745,6 +777,49 @@ def build_cell_index(
             ),
             None,
         )
+    # STRAY-BURST KEYS. Several MITSUBISHI144 files open many codes with
+    # one stray mark and about 50 ms of silence, longer than the Pronto
+    # gap threshold, so the byte-hash identity walk stops after that one
+    # mark and every such code has the same one-word identity. Unlisted,
+    # every such cell claims that key with a different whole code and it
+    # answers nothing. Listed, every cell that reads moves to its read
+    # key, and a damaged cell (one that does not read) is left as the
+    # key's only claimant, so any capture that opens with that mark and
+    # fails the read is heard as that cell and its code is sent: a cool
+    # press heard as heat / 71 on SmartIR 1142. Two guards close it:
+    #
+    # - A code whose identity walk stopped at a gap after fewer values
+    #   than any AC frame has, with more of the code after it, claims no
+    #   plain-tier key (``_stray_burst``). This also closes the same key
+    #   where it is live today, on any family: a lattice with one such
+    #   cell heard every stray-mark capture as that cell, by luck when
+    #   it was right. Nor does any other code that forms no read key
+    #   claim a key the floor took out: a code that is the lead-in and
+    #   nothing else carries that same one-word identity, and with the
+    #   floored codes gone it would be left to answer alone.
+    # - A code that forms no read key claims no plain-tier key that a
+    #   code of the matrix which does form one (in any of its lattices,
+    #   or a power code: one remote is one family) would claim on its
+    #   timing identity if its family were not listed (``_timing_key``):
+    #   a key its family left behind when it moved to read keys, which
+    #   is how the damaged code came to answer alone. The same holds for
+    #   a key a long lead-in leaves behind, such as a Daikin preamble
+    #   every code of the file shares. This covers the power codes too:
+    #   a damaged Off left alone on such a key would hear a glitched
+    #   press as Off, send it, and turn the card off. A code whose
+    #   timing key is its own keeps it: a press of its own text was
+    #   heard as it, and still is.
+    #
+    # The normalized tier is claimed either way, so a press of such a
+    # code's own waveform can still be heard as it there. The claims are
+    # made here, in the order the codes were added, so every key that
+    # survives keeps the claimants and the representative it had.
+    #
+    # Neither guard moved ``INDEX_FORMAT``: see the note beside it.
+    for tier, key, code, hit, waveform, unread in plain:
+        if unread is not None and (unread in left_behind or unread in floored):
+            continue
+        _claim(tier, key, code, hit, waveform)
     # The keys that answer last, and for those on a plain tier, which
     # claimant answers each waveform: see ``CellIndex.held_back`` and
     # ``CellIndex.by_waveform``. Last claimant per waveform, as the
@@ -787,6 +862,52 @@ class _Indexed:
     lattice: tuple | None
     inner: Any
     power: bool
+
+
+#: Fewer byte-hash identity values than this is no setting frame of any
+#: AC protocol: the shortest frame a field map reads a setting from is
+#: 32 bits, over sixty values. What comes in under it ahead of a gap is
+#: a lead-in every code of the family shares (a stray mark, or
+#: DAIKIN152's five-bit leader). See STRAY-BURST KEYS in
+#: ``build_cell_index``.
+_FRAME_FLOOR = 16
+
+
+def _stray_burst(words: list[int] | None, timings: list[int] | None) -> bool:
+    """Is this code's byte-hash identity a stray burst ahead of the code?
+
+    True when the identity walk (``EventParser._pronto_identity_timings``)
+    kept fewer than ``_FRAME_FLOOR`` values and the code has marks after
+    them: the walk stopped at a gap, and what it hashed is the lead-in,
+    not a frame. A code that is short as a whole is its own identity,
+    which is how the tests' two-pair lattices are written."""
+    if words is None or timings is None or len(timings) >= _FRAME_FLOOR:
+        return False
+    marks = sum(1 for word in words[4::2] if word)
+    return marks > (len(timings) + 1) // 2
+
+
+def _timing_key(words: list[int]) -> str | None:
+    """The byte hash ``EventParser.pronto_byte_hash`` gives a code whose
+    family is on neither identity list: the timing words up to the
+    first end-of-signal gap, the tail stripped, binned and hashed. For a
+    code that forms a read key it is the key its family would claim
+    unlisted; see STRAY-BURST KEYS in ``build_cell_index``. Pinned
+    against ``pronto_byte_hash`` with the family taken off the lists."""
+    timings: list[int] = []
+    for word in words[4:]:
+        if word >= PRONTO_GAP_THRESHOLD:
+            break
+        timings.append(word)
+    while timings and timings[-1] == 0:
+        timings.pop()
+    if timings and len(timings) % 2 == 0:
+        timings.pop()
+    if not timings:
+        return None
+    n = PRONTO_BYTE_HASH_BIN
+    payload = ",".join(str(round(t / n) * n) for t in timings)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 def _same_before(held: Any, code: Any) -> bool:
@@ -1938,6 +2059,12 @@ def _cell_in_hit_lattice(
 # pre-migration hashes while captures arrived carrying post-migration
 # ones. Every climate lattice would silently stop recognizing its own
 # cells, with nothing in any log to say so.
+#
+# The stray-burst guards in ``build_cell_index`` (2026-10-02) changed the
+# build without a bump: they landed in the same change that put
+# MITSUBISHI144 on both identity lists, and ``field_map_digest`` hashes
+# the lists, so every index stored before them is refused by its digest
+# and rebuilt. A change to those guards on its own would need this bump.
 INDEX_FORMAT = "hair-cell-index/10"
 
 

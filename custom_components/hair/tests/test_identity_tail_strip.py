@@ -360,7 +360,14 @@ def test_the_extended_corpus_moves_seven():
     It is separated out rather than folded into the count, because the
     count is what pins the tail strip and conflating the two would
     retire that guarantee quietly.
+
+    MITSUBISHI144 joined the setting-frame list later (2026-10-02), and
+    the corpus holds 35 of its codes, all gap-tailed, which move onto
+    the setting path the same way. The tail movers are still seven.
     """
+    from collections import Counter
+
+    from custom_components.hair.field_readers import read_code
     from custom_components.hair.identity import setting_frame_spans
 
     def on_setting_path(code):
@@ -376,8 +383,10 @@ def test_the_extended_corpus_moves_seven():
     setting_movers = [c for c in moved if on_setting_path(c)]
     tail_movers = [c for c in moved if not on_setting_path(c)]
 
-    assert len(setting_movers) == 1
-    assert _tail_class(setting_movers[0]) == "gap"
+    assert Counter(
+        read_code(c).protocol_id for c in setting_movers
+    ) == {"DAIKIN152": 1, "MITSUBISHI144": 35}
+    assert {_tail_class(c) for c in setting_movers} == {"gap"}
     assert len(tail_movers) == 7
     assert {_tail_class(c) for c in tail_movers} == {"sub", "zero"}
 

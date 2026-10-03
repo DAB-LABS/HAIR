@@ -11,8 +11,9 @@ chatter minted 500 phantom remotes and 340MB of undecodable signals in
 Covered here:
 - Heal parity: the O(n) ``_heal_device_signals`` reproduces the old
   pairwise scan's outcome exactly (a verbatim copy of the old
-  algorithm lives in this file as the oracle), across crafted
-  truth-table cases and a seeded fuzz sweep.
+  algorithm lives in this file as the oracle, its alias merge since
+  moved to the rule that keeps every name), across crafted truth-table
+  cases and a seeded fuzz sweep.
 - Heal performance: a flood-scale store heals in well under a second.
 - Executor guard: ``async_load`` runs the payload transform via
   ``hass.async_add_executor_job``.
@@ -78,8 +79,10 @@ def _old_heal(device: UnknownDevice) -> bool:
                     break
         if best is not None:
             best.hit_count += sig.hit_count
-            if not best.alias and sig.alias:
-                best.alias = sig.alias
+            if sig.alias:
+                names = best.alias.split(" / ") if best.alias else []
+                names += [n for n in sig.alias.split(" / ") if n not in names]
+                best.alias = " / ".join(names)
             if sig.last_seen and (
                 not best.last_seen or sig.last_seen > best.last_seen
             ):
@@ -220,7 +223,8 @@ class TestHealParity:
         )
 
     def test_merge_metadata_semantics(self):
-        # Alias adopted only when the kept row has none; last_seen
+        # Alias adopted when the kept row has none, and every later
+        # duplicate's alias joined on rather than dropped; last_seen
         # max-merged; hits summed into the FIRST kept occurrence.
         day1 = "2026-07-01T00:00:00+00:00"
         day2 = "2026-07-02T00:00:00+00:00"
@@ -237,7 +241,7 @@ class TestHealParity:
         kept = dev.signals[0]
         assert kept.id == "s1"
         assert kept.hit_count == 7
-        assert kept.alias == "Named"
+        assert kept.alias == "Named / Ignored"
         assert kept.last_seen == "2026-07-03T00:00:00+00:00"
 
     def test_strongest_match_beats_earlier_weaker_match(self):
@@ -274,6 +278,42 @@ class TestHealParity:
                 for n in range(rng.randrange(2, 40))
             ]
             _assert_parity(signals)
+
+
+class TestHealAliasJoin:
+    """The names of collapsed rows are joined onto the kept row, each
+    once, and past a length cap counted rather than shown."""
+
+    def _healed(self, aliases: list[str]) -> str:
+        dev = _dev([
+            _sig(n, "SL", "b1", alias=alias) for n, alias in enumerate(aliases)
+        ])
+        assert _heal_device_signals(dev) is True
+        (kept,) = dev.signals
+        return kept.alias
+
+    def test_each_name_once_even_inside_one_alias(self):
+        assert self._healed(["A", "B / B", "A"]) == "A / B"
+
+    def test_an_alias_of_only_separators_adds_nothing(self):
+        assert self._healed(["X", " / ", ""]) == "X"
+
+    def test_a_long_join_counts_what_it_does_not_show(self):
+        names = [f"Setting number {n:02d}" for n in range(40)]
+        alias = self._healed(names)
+        shown, more = alias.rsplit(" / ", 1)
+        assert len(shown) <= 120
+        assert shown.split(" / ") == names[:len(shown.split(" / "))]
+        assert more == f"... {40 - len(shown.split(' / '))} more"
+
+    def test_a_first_name_is_shown_whole(self):
+        long = "x" * 150
+        assert self._healed([long, "B"]) == f"{long} / ... 1 more"
+
+    def test_a_later_join_adds_to_the_count(self):
+        assert self._healed(["A / ... 3 more", "B", "C / ... 2 more"]) == (
+            "A / B / C / ... 5 more"
+        )
 
 
 class TestHealPerformance:
