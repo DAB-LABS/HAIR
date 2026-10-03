@@ -1,6 +1,7 @@
 """Test fixtures for the HAIR integration."""
 from __future__ import annotations
 
+import os
 import sys
 import types
 from unittest.mock import AsyncMock, MagicMock
@@ -114,3 +115,30 @@ def _reset_tx_gate():
     tx_gate.reset_for_test()
     yield
     tx_gate.reset_for_test()
+
+
+# ---------------------------------------------------------------------------
+# The real-air harness cannot be switched off in CI
+# ---------------------------------------------------------------------------
+# ``real_air`` is registered so a developer can deselect the harness
+# locally (``-m 'not real_air'``). A run on GitHub Actions that selected
+# none of it has lost the floors without failing anything, so it fails
+# here instead, after every deselection has been applied.
+
+
+def real_air_missing(items, environ=os.environ) -> str | None:
+    """Why this selection is not allowed to run, or None."""
+    if environ.get("GITHUB_ACTIONS") != "true":
+        return None
+    if any(item.get_closest_marker("real_air") for item in items):
+        return None
+    return (
+        "this CI run selected no real_air test: the real-air harness "
+        "is the only floor on read rates and must run in CI"
+    )
+
+
+def pytest_collection_finish(session):
+    why = real_air_missing(session.items)
+    if why is not None:
+        raise pytest.UsageError(why)
