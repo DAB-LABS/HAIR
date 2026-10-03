@@ -506,3 +506,32 @@ class TestTheWitnessComparisonHasTheKeysItNeeds:
                 cluster.field in FIELD_COORDINATE
                 or cluster.field == POWER_FIELD
             )
+
+    @pytest.mark.parametrize("pack", [
+        "DAIKIN216.defects.json", "DAIKIN152.defects.json"])
+    def test_no_witness_card_names_a_field_the_bridge_cannot_cross(
+        self, pack
+    ):
+        """The other half of the bridge. A map may place a field by its
+        own coordinate (DAIKIN216's vanes, DAIKIN152's powerful), and
+        such a field can name a card. It must never name a WITNESS card:
+        the frontend matches the press to its target through its mirror
+        of the name table, and a correct press on a field outside it
+        would go to the ladder every time."""
+        from .test_field_sweep import _pack_wig
+        from .test_tangles_map_axes import _d183
+
+        lattices = [_pack_wig(pack).climate]
+        if pack.startswith("DAIKIN152"):
+            lattices.append(_d183({"cool/powerful/off/24": (0x7, {})}))
+        off_table = 0
+        for matrix in lattices:
+            device = IRDevice(name=pack, climate_matrix=True)
+            for cluster in list_tangles(device, matrix).clusters:
+                if cluster.field in (None, POWER_FIELD, *FIELD_COORDINATE):
+                    continue
+                off_table += 1
+                assert cluster.mechanic != "witness", cluster.id
+        # Not vacuous: each set of lattices carries a card on such a
+        # field, and it is a fresh capture.
+        assert off_table >= 1
