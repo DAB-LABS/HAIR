@@ -585,26 +585,87 @@ def _mismatched_fields(findings: list[dict[str, Any]]) -> list[str]:
     return names
 
 
-def _coordinate_of(cell: ClimateCell, field_name: str) -> Any:
+#: The four label coordinates every lattice cell carries. These, and
+#: only these, are what a field can be said to answer.
+_CELL_AXES = ("mode", "fan", "swing", "temp")
+
+
+def _axis_of(spec: Any) -> str | None:
+    """Which of the cell's four label axes a map field answers, or None.
+
+    The field's own ``coordinate`` wins where the map states one, and
+    the comb's name table answers the rest -- the same reading the comb
+    files its findings by, so a finding the comb raised on DAIKIN216's
+    ``swing_vertical`` or DAIKIN152's ``powerful`` is searched on the
+    axis it was raised on rather than on none at all.
+
+    Power answers no axis. It is the difference between the cells and
+    the off code, not a dimension of the lattice, and every caller
+    treats it on its own. A coordinate outside the four is None as
+    well: the schema takes any string, and a field that named
+    ``pronto`` would otherwise anchor a search on the code itself.
+    """
+    if spec is None or spec.name == POWER_FIELD:
+        return None
+    axis = spec.coordinate or FIELD_COORDINATE.get(spec.name)
+    return axis if axis in _CELL_AXES else None
+
+
+def _cell_coords(cell: ClimateCell) -> dict[str, Any]:
+    return {
+        "mode": cell.mode, "fan": cell.fan,
+        "swing": cell.swing, "temp": cell.temp,
+    }
+
+
+def _coordinate_of(
+    cell: ClimateCell, field_name: str, lattice: LatticeReading | None = None
+) -> Any:
+    """The label a cell claims for one field.
+
+    Given the lattice, the field is resolved through its map, so a
+    field the map places by its own coordinate answers that axis. The
+    donor search, the read-back and the sibling check ask this way.
+
+    Without one, only the name table answers, and that is deliberate.
+    The witness road asks without a lattice: it rewrites ONE field, and
+    on an axis two fields answer (DAIKIN216's two vanes) or four do
+    (DAIKIN152's fan), whatever the sibling carries in the others
+    would ride into the built code unchecked. So a field outside the
+    table computes no value there and the road refuses it, as it always
+    has, until the road can rewrite a whole axis at once.
+    """
     if field_name == POWER_FIELD:
         return "on"
-    axis = FIELD_COORDINATE.get(field_name)
+    if lattice is None:
+        axis = FIELD_COORDINATE.get(field_name)
+    else:
+        spec = lattice.spec_for(field_name)
+        axis = (_axis_of(spec) if spec is not None
+                else FIELD_COORDINATE.get(field_name))
     return None if axis is None else getattr(cell, axis, None)
 
 
-def _elsewhere(cell: ClimateCell, exclude: set[str]) -> tuple:
+def _elsewhere(cell: ClimateCell, exclude_axes: set[str]) -> tuple:
     """The cell's coordinates on every axis the search is NOT varying.
 
     A donor has to be the same cell in every respect except the thing
     that is wrong with the target. Without this the search would happily
     offer a cooling frame to repair a heating one, because the only
     field it can compare is the one they agree on.
+
+    Always the cell's four label axes, never the axes a map happens to
+    have fields for. A map with no swing field (PANASONIC216) still
+    sends a swing in bytes it does not read, and an anchor built from
+    the map would let a cell at another swing donate for a temperature
+    finding -- a repair that reads right and sends the wrong vane. What
+    is excluded is an AXIS, so a finding on ``swing_vertical`` frees the
+    swing axis, which excluding it by name never did.
     """
-    axes = [
-        axis for name, axis in FIELD_COORDINATE.items()
-        if name not in exclude
-    ]
-    return tuple(getattr(cell, axis, None) for axis in sorted(axes))
+    return tuple(
+        getattr(cell, axis, None) for axis in _CELL_AXES
+        if axis not in exclude_axes
+    )
 
 
 def find_trim(
@@ -756,6 +817,28 @@ def find_donor(
     sends what this cell is supposed to send, that frame is the repair.
     If none does, the search says so and stops -- which is the whole
     reason the witnessed-capture road exists.
+
+    THE SEARCH VARIES AXES, NOT FIELDS. A finding names one field, but
+    a donor is another cell, and another cell differs on a whole label
+    axis. DAIKIN216 answers swing with two vanes and DAIKIN152 answers
+    the fan with a speed and three flags, so a donor found by the one
+    field the comb named could send the right vertical vane and the
+    wrong horizontal one. Every field answering a varying axis is
+    therefore held to what the target's label implies wherever the map
+    can compute it, provisional fields included: a provisional economy
+    flag is still a setting the unit acts on, and a high cell offered
+    an economy code would send economy. Only where the map cannot
+    compute a value (a label outside a field's vocabulary) is the
+    target's own reading held instead, which is no worse than the map
+    can know.
+
+    WHAT THE MAP SAYS APPLIES. A field the map says carries nothing at
+    the target (the fan in dry, where the unit forces it) is not
+    compared, so a dry cell can donate whatever its fan bits hold. But
+    the donor must be judged by the same fields as the target: a
+    Fahrenheit label and a Celsius one share a byte on MITSUBISHI144,
+    and a 76 F cell carrying 24.5 C would otherwise pass for a 24 C
+    target because only the Celsius field applies there.
     """
     if not lattice.readable:
         return None, ABSTAIN_UNREADABLE
@@ -766,24 +849,61 @@ def find_donor(
     if not fields:
         return None, ABSTAIN_NOT_A_FIELD
 
-    wanted: dict[str, int] = {}
+    wanted: dict[str, int | None] = {}
+    varying: set[str] = set()
     for name in fields:
         spec = lattice.spec_for(name)
         if spec is None or not spec.ratified:
             return None, ABSTAIN_NOT_RATIFIED
-        expected = field_readers.expected_value(
-            spec, _coordinate_of(target, name)
-        )
-        if expected is None:
+        if name == POWER_FIELD:
+            # Required at "on" and varying nothing: every cell is an on
+            # code, so a cell that reads off is wrong wherever it sits.
+            expected = field_readers.expected_value(spec, "on")
+            if expected is None:
+                return None, ABSTAIN_NOT_RATIFIED
+            wanted[name] = expected
+            continue
+        axis = _axis_of(spec)
+        if axis is None:
+            # A field the map vouches for that answers no label axis has
+            # no other cell to come from: nothing about a neighbour's
+            # label says what it would carry.
+            return None, ABSTAIN_NOT_A_FIELD
+        if field_readers.expected_value(
+                spec, getattr(target, axis, None)) is None:
             return None, ABSTAIN_NOT_RATIFIED
-        wanted[name] = expected
+        varying.add(axis)
 
-    varying = set(fields)
+    # Resolved once per search, not once per candidate: the listing runs
+    # this for every row, and a large lattice has a thousand cells.
+    field_map = lattice.field_map
+    mode_spec = field_map.field_named("mode")
+    on_axis = [spec for spec in field_map.fields
+               if _axis_of(spec) in varying]
+
+    def _applies(coordinates: dict[str, Any]) -> tuple[bool, ...]:
+        return tuple(
+            field_readers.field_skip_reason(
+                spec, mode_spec, coordinates) is None
+            for spec in on_axis
+        )
+
+    shape = _applies(_cell_coords(target))
+    for spec, applies in zip(on_axis, shape, strict=True):
+        if not applies:
+            continue
+        expected = field_readers.expected_value(
+            spec, getattr(target, _axis_of(spec), None))
+        wanted[spec.name] = (
+            expected if expected is not None else lattice.reads(key, spec))
+
     anchor = _elsewhere(target, varying)
     for candidate_key, candidate in lattice.cells.items():
         if candidate_key == key:
             continue
         if _elsewhere(candidate, varying) != anchor:
+            continue
+        if _applies(_cell_coords(candidate)) != shape:
             continue
         if any(
             lattice.reads(candidate_key, lattice.spec_for(name)) != value
@@ -804,10 +924,12 @@ def find_donor(
             "reasoning": {
                 "fields": list(fields),
                 "labelled": {
-                    name: _coordinate_of(candidate, name) for name in fields
+                    name: _coordinate_of(candidate, name, lattice)
+                    for name in fields
                 },
                 "reads_as": {
-                    name: _coordinate_of(target, name) for name in fields
+                    name: _coordinate_of(target, name, lattice)
+                    for name in fields
                 },
             },
         }, None
@@ -942,7 +1064,22 @@ def pre_read(
             reading, rule
         )
 
+    # Every ratified field is compared on the axis it answers, by the
+    # field's own coordinate where the map states one -- the reading the
+    # comb files its findings by -- so a code that sends the wrong vane
+    # on DAIKIN216 no longer reads True for a swing label. And nowhere
+    # the map says the field carries nothing, so a dry code is not
+    # refused for a fan the unit forces in dry. This is the check a
+    # donor, a trim and a pasted or captured code all pass before they
+    # are written.
+    #
+    # A field outside the name table is compared but not NAMED: its
+    # bytes are a share of a setting another field also answers, and
+    # naming them on their own (a powerful flag of 0 read as "economy")
+    # says something the code does not send. Its claim and its reading
+    # stay out of the verdict's labels until a combination can be named.
     comparable = []
+    mode_spec = field_map.field_named("mode")
     for spec in field_map.fields:
         if not spec.ratified:
             continue
@@ -956,17 +1093,21 @@ def pre_read(
             verdict.reads_as[spec.name] = label
         if coordinates is None:
             continue
-        axis = FIELD_COORDINATE.get(spec.name)
+        axis = _axis_of(spec)
         claimed = (
             coordinates.get(POWER_FIELD, "on") if spec.name == POWER_FIELD
             else (None if axis is None else coordinates.get(axis))
         )
         if claimed is None:
             continue
+        if spec.name != POWER_FIELD and field_readers.field_skip_reason(
+                spec, mode_spec, coordinates) is not None:
+            continue
         expected = field_readers.expected_value(spec, claimed)
         if expected is None:
             continue
-        verdict.claims[spec.name] = claimed
+        if spec.name == POWER_FIELD or spec.name in FIELD_COORDINATE:
+            verdict.claims[spec.name] = claimed
         verdict.raw_expected[spec.name] = expected
         comparable.append(spec.name)
         if expected != value:
@@ -2168,21 +2309,43 @@ def _healthy_siblings(
     A sibling that is itself lying would carry its lie into every cell
     built from it, so the check is not "same coordinates" but "same
     coordinates AND telling the truth".
+
+    TRUTH IS JUDGED WHERE THE BUILT CODE WILL LIVE. A field the map
+    says carries nothing at the sibling is still copied into the code
+    built from it, and if that field matters at the target the copy is
+    what the target will send. So a field is let off only when it
+    applies at NEITHER cell. A dry sibling is healthy for a dry target
+    whatever its forced fan bits hold, and is not healthy for a cool
+    target: its frozen temperature byte would be built into a cool code.
     """
-    axis = FIELD_COORDINATE.get(field_name)
+    rewritten = lattice.spec_for(field_name)
+    axis = (_axis_of(rewritten) if rewritten is not None
+            else FIELD_COORDINATE.get(field_name))
     if axis is None:
         return []
-    anchor = _elsewhere(target, {field_name})
+    anchor = _elsewhere(target, {axis})
+    mode_spec = lattice.field_map.field_named("mode")
+    applies_at_target = {
+        spec.name: field_readers.field_skip_reason(
+            spec, mode_spec, _cell_coords(target)) is None
+        for spec in lattice.field_map.fields
+    }
     out = []
     for key, candidate in lattice.cells.items():
-        if candidate is target or _elsewhere(candidate, {field_name}) != anchor:
+        if candidate is target or _elsewhere(candidate, {axis}) != anchor:
             continue
+        here = _cell_coords(candidate)
         healthy = True
         for spec in lattice.field_map.fields:
             if not spec.ratified:
                 continue
-            claimed = _coordinate_of(candidate, spec.name)
+            claimed = _coordinate_of(candidate, spec.name, lattice)
             if claimed is None:
+                continue
+            if (spec.name != POWER_FIELD
+                    and not applies_at_target[spec.name]
+                    and field_readers.field_skip_reason(
+                        spec, mode_spec, here) is not None):
                 continue
             expected = field_readers.expected_value(spec, claimed)
             read = lattice.reads(key, spec)
@@ -2195,10 +2358,10 @@ def _healthy_siblings(
             out.append(candidate)
     # Nearest on the rewritten axis first, then by key, so the choice is
     # deterministic and a card built twice is built the same way.
-    target_value = _coordinate_of(target, field_name)
+    target_value = _coordinate_of(target, field_name, lattice)
 
     def _distance(cell: ClimateCell) -> tuple:
-        value = _coordinate_of(cell, field_name)
+        value = _coordinate_of(cell, field_name, lattice)
         if isinstance(value, int | float) and isinstance(
                 target_value, int | float):
             return (abs(float(value) - float(target_value)), cell_key(cell))
@@ -2710,10 +2873,20 @@ def _mechanic(row: TangleRow, lattice: LatticeReading) -> str:
         row.target.kind == TARGET_CELL
         and row.donor_abstain == ABSTAIN_NO_READING
         and lattice.readable
+        and all(name in FIELD_COORDINATE or name == POWER_FIELD
+                for name in _mismatched_fields(row.findings))
     ):
         # The search reached the end of a readable lattice on a field
         # the map vouches for and found nothing. That is exactly the
         # case a witnessed capture answers.
+        #
+        # Only for a field the card can aim. The card matches a press to
+        # its target through its own mirror of the name table, and a
+        # field the map places by its own coordinate (DAIKIN216's vanes,
+        # DAIKIN152's powerful) is not in it, so a witness card on one
+        # could never accept the right press. The road could not build
+        # one either: it rewrites one field of an axis other fields
+        # answer too. Such a row is asked for a fresh capture instead.
         return MECHANIC_WITNESS
     return MECHANIC_RECAPTURE
 
