@@ -1147,7 +1147,40 @@ def expected_value(spec: FieldSpec, coordinate: Any) -> int | None:
     encoding the map did not state. Every None is coverage, never a
     finding, because a check nobody can compute is not a check that
     passed (coding plan: partial maps are legal and useful).
+
+    A value the field's bits cannot carry is None too, whatever the
+    encoding: a Fahrenheit label on a Celsius field computes to a
+    number no nibble holds, and a comparison against it fails on every
+    code there is. Checked once, here, at the one exit, so an encoding
+    added later is covered without being named.
     """
+    value = _computed_value(spec, coordinate)
+    if value is None or not fits(spec, value):
+        return None
+    return value
+
+
+def fits(spec: FieldSpec, value: int) -> bool:
+    """Can this field's bits carry ``value`` at all?"""
+    try:
+        mask, shift = _bit_selector(spec.bits)
+    except ValueError:
+        return False
+    return value >= 0 and (value << shift) & ~mask == 0
+
+
+def uncomputable_reason(spec: FieldSpec, coordinate: Any) -> str:
+    """Why ``expected_value`` said None for a coordinate it was given:
+    the map computed a value its bits cannot carry, or it computed
+    nothing (a label outside its vocabulary)."""
+    value = _computed_value(spec, coordinate)
+    if value is not None and not fits(spec, value):
+        return OUT_OF_DOMAIN
+    return UNKNOWN_LABEL
+
+
+def _computed_value(spec: FieldSpec, coordinate: Any) -> int | None:
+    """The encoding's arithmetic, before asking whether the bits fit."""
     if spec.encoding is None or coordinate is None:
         return None
     params = spec.params
