@@ -8734,7 +8734,9 @@ async def ws_tangle_apply(
         APPLY_DISAGREEMENT_UNDECLARED,
         APPLY_NO_FINDING,
         APPLY_NOT_TESTED,
+        DECLARE_UNREAD,
         build_provenance,
+        declaration_needed,
         holders_for_target,
         list_tangles,
         pre_read,
@@ -8777,9 +8779,12 @@ async def ws_tangle_apply(
     row, lattice, verdict = prepared
 
     declared = bool(msg.get("reading_disagreed"))
-    if verdict.matches is False and not declared:
+    needed = declaration_needed(lattice, row.target, verdict.as_dict())
+    if needed is not None and not declared:
         connection.send_error(
             msg["id"], APPLY_DISAGREEMENT_UNDECLARED,
+            "The map does not read these bytes at all; say so to apply "
+            "anyway" if needed == DECLARE_UNREAD else
             "These bytes read as something else; say so to apply anyway",
         )
         return
@@ -9042,6 +9047,7 @@ async def ws_tangle_apply_batch(
         TIER_AIR_TESTED,
         TIER_RULE_DERIVED,
         build_provenance,
+        declaration_needed,
         holders_for_target,
         list_tangles,
         plan_batch,
@@ -9096,12 +9102,14 @@ async def ws_tangle_apply_batch(
     declared = bool(msg.get("reading_disagreed"))
     disagreeing = [
         member for member, candidate in plan.candidates.items()
-        if candidate["verdict"]["matches"] is False
+        if declaration_needed(
+            lattice, rows[member].target, candidate["verdict"]) is not None
     ]
     if disagreeing and not declared:
         connection.send_error(
             msg["id"], APPLY_DISAGREEMENT_UNDECLARED,
-            "Some of these read as something else; say so to apply anyway",
+            "Some of these read as something else, or the map does not "
+            "read them at all; say so to apply anyway",
         )
         return
 

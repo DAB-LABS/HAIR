@@ -750,6 +750,12 @@ def find_trim(
         verdict = pre_read(lattice, trimmed, coordinates)
         if verdict.matches is False:
             return None, TRIM_READS_WRONG
+        if verdict.protocol is None:
+            # The map that reads this lattice does not read the trimmed
+            # bytes at all, so nothing vouches for them, and the apply
+            # gates would hold them for a declaration the card cannot
+            # ask for. A fix the listing offers is one apply accepts.
+            return None, TRIM_UNREAD
 
     return {
         "key": key,
@@ -1171,6 +1177,41 @@ APPLY_BAD_CANDIDATE = "bad_candidate"
 APPLY_DISAGREEMENT_UNDECLARED = "reading_disagreed_required"
 APPLY_NOTHING_TO_REVERT = "nothing_to_revert"
 
+#: Why a candidate needs USE IT ANYWAY before it is written.
+DECLARE_READS_OTHERWISE = "reads-otherwise"
+DECLARE_UNREAD = "unread"
+
+
+def declaration_needed(
+    lattice: LatticeReading, target: TangleTarget, verdict: dict[str, Any]
+) -> str | None:
+    """Does writing this candidate at this target need a declaration?
+
+    ONE PREDICATE FOR EVERY APPLY GATE, on the verdict as a dict, which
+    is the form both the single apply and the batch plan carry. Two
+    answers. The bytes read as something other than the target claims
+    (``matches`` False). Or the target is a lattice cell, the lattice
+    has a map, and the map does not read the bytes at all (no
+    ``protocol``): a code from another remote, or a capture cut short.
+    That is the verdict's own word for a failed reading, keyed on no
+    reason string, so a reason renamed or added later cannot open it,
+    and compared with the lattice's own map rather than with None, so a
+    verdict that one day names a decoder's protocol cannot open it
+    either.
+
+    Not for a flat command, which has no label to read against, nor for
+    the matrix's Off and On: several families send an Off frame their
+    map does not read (every Fujitsu 128-bit file on record), so a
+    correct Off would otherwise be held as a foreign code.
+    """
+    if verdict.get("matches") is False:
+        return DECLARE_READS_OTHERWISE
+    if (lattice.readable and target.kind == TARGET_CELL
+            and not is_power_key(target.key)
+            and verdict.get("protocol") != lattice.field_map.protocol_id):
+        return DECLARE_UNREAD
+    return None
+
 
 def _now() -> str:
     from datetime import datetime
@@ -1265,6 +1306,15 @@ def build_provenance(
             note["claims"] = claims
         if mismatches:
             note["mismatches"] = mismatches
+        # A press the map could not read at all has no claim or reading
+        # to record, but WHY it could not is what there was to say, and
+        # what a decoder made of it tells a foreign remote from the
+        # family's own press the map's windows missed.
+        if disagreed.get("protocol") is None and disagreed.get("declined"):
+            note["declined"] = disagreed["declined"]
+            decoded = disagreed.get("decoded") or {}
+            if decoded.get("protocol"):
+                note["decoded_as"] = decoded["protocol"]
         # A field the map places by its own coordinate (a DAIKIN216
         # vane, DAIKIN152's powerful flag) is compared but never named,
         # so it has no claim or reading label above. Its raw values are
@@ -2064,6 +2114,9 @@ TRIM_READS_WRONG = "trimmed-bytes-read-wrong"
 #: every pair as once-only. Trimming would have to rewrite the sequence
 #: split, which is a re-encode and not a deletion.
 TRIM_HAS_REPEAT_SEQUENCE = "code-has-repeat-sequence"
+#: The map that reads this lattice does not read the trimmed bytes at
+#: all. Not "read wrong": there is no reading to be wrong.
+TRIM_UNREAD = "trimmed-bytes-unread"
 
 
 class SynthesisBug(RuntimeError):
