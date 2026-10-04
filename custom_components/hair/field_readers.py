@@ -708,6 +708,30 @@ def read_frames(
     return frames, unreadable
 
 
+@dataclass(frozen=True)
+class WalkRefusal:
+    """Where and why the walk refused a train. Reading only.
+
+    ``pair`` is the pulse pair's index in the trailing-zero-stripped
+    train; ``frame`` the number of frames the walk had closed before it
+    (empty ones included); ``bit`` the bits of the open frame already
+    read. ``window`` is ``"unit"`` when the half of the pair that does
+    not carry the bit fell outside ``timing.unit``, and ``"carrier"``
+    when the half that does fell outside both ``zero`` and ``one``.
+
+    The walk has no header rule of its own to refuse at: a pair outside
+    the header windows is tested as a bit, so a header the map does not
+    accept surfaces here as ``bit == 0`` with the pair's own values.
+    """
+
+    pair: int
+    frame: int
+    bit: int
+    window: str
+    mark_us: int
+    space_us: int
+
+
 def read_frames_positioned(
     timing: FrameTiming, timings: list[int]
 ) -> tuple[list[list[int]], list[list[int]], bool]:
@@ -724,9 +748,28 @@ def read_frames_positioned(
     asserted by test. Whoever builds something with these positions
     does it somewhere else.
 
-    ``read_frames`` is this function with the positions dropped, so
-    there is one walk and it cannot drift from itself.
+    ``read_frames`` is this function with the positions dropped, and
+    ``walk_refusal`` is this walk's reason for refusing, so there is one
+    walk and it cannot drift from itself.
     """
+    frames, places, refused = _walk(timing, timings)
+    if refused is not None:
+        return [], [], True
+    return frames, places, False
+
+
+def walk_refusal(
+    timing: FrameTiming, timings: list[int]
+) -> WalkRefusal | None:
+    """Why ``read_frames_positioned`` refuses this train, or None when it
+    reads it. The same walk, so the two cannot disagree."""
+    return _walk(timing, timings)[2]
+
+
+def _walk(
+    timing: FrameTiming, timings: list[int]
+) -> tuple[list[list[int]], list[list[int]], WalkRefusal | None]:
+    """The walk itself: (frames, positions, None), or ([], [], why)."""
     # A zero at the end of the train is Pronto saying "nothing more", not
     # a pulse of no length. Leaving it in makes the last pair of every
     # code that carries one fall outside every window, which would fail
@@ -756,7 +799,9 @@ def read_frames_positioned(
             where = []
             continue
         if not timing.unit.holds(other):
-            return [], [], True
+            return [], [], WalkRefusal(
+                index, len(frames), len(bits), "unit", mark_us, space_us
+            )
         if timing.zero.holds(carrier):
             bits.append(0)
             where.append(index)
@@ -767,7 +812,10 @@ def read_frames_positioned(
             # Outside every window the map states. Guessing here would
             # be a reading nobody can check, and skipping would shift
             # every bit after it.
-            return [], [], True
+            return [], [], WalkRefusal(
+                index, len(frames), len(bits), "carrier", mark_us,
+                space_us,
+            )
     if bits:
         frames.append(bits)
         places.append(where)
@@ -775,7 +823,7 @@ def read_frames_positioned(
     return (
         [frames[i] for i in kept],
         [places[i] for i in kept],
-        False,
+        None,
     )
 
 
