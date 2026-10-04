@@ -1140,5 +1140,6 @@
     "tangles.listen_mismatch_1_noread": "Esse pressionamento não corresponde. Verifique o visor do controle remoto e tente de novo.",
     "tangles.listen_mismatch_2_noread": "Esse pressionamento novamente não corresponde.",
     "tangles.listen_mismatch_3_noread": "Continuamos ouvindo um pressionamento diferente. Talvez a errada seja a nossa leitura, não o seu controle remoto. Usar esse pressionamento mesmo assim?",
+    "tangles.paste_mismatch_noread": "Este código é lido como uma definição diferente, ou o mapa deste controle remoto não consegue lê-lo. Usar este código mesmo assim?",
     "tangles.listen_timeout": "A escuta terminou. Pressione Ouvir novamente."
 }

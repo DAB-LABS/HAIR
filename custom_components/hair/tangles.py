@@ -750,6 +750,12 @@ def find_trim(
         verdict = pre_read(lattice, trimmed, coordinates)
         if verdict.matches is False:
             return None, TRIM_READS_WRONG
+        if verdict.protocol != lattice.field_map.protocol_id:
+            # The map that reads this lattice does not read the trimmed
+            # bytes at all, so nothing vouches for them, and the apply
+            # gates would hold them for a declaration the card cannot
+            # ask for. A fix the listing offers is one apply accepts.
+            return None, TRIM_UNREAD
 
     return {
         "key": key,
@@ -1171,6 +1177,41 @@ APPLY_BAD_CANDIDATE = "bad_candidate"
 APPLY_DISAGREEMENT_UNDECLARED = "reading_disagreed_required"
 APPLY_NOTHING_TO_REVERT = "nothing_to_revert"
 
+#: Why a candidate needs USE IT ANYWAY before it is written.
+DECLARE_READS_OTHERWISE = "reads-otherwise"
+DECLARE_UNREAD = "unread"
+
+
+def declaration_needed(
+    lattice: LatticeReading, target: TangleTarget, verdict: dict[str, Any]
+) -> str | None:
+    """Does writing this candidate at this target need a declaration?
+
+    ONE PREDICATE FOR EVERY APPLY GATE, on the verdict as a dict, which
+    is the form both the single apply and the batch plan carry. Two
+    answers. The bytes read as something other than the target claims
+    (``matches`` False). Or the target is a lattice cell, the lattice
+    has a map, and the map does not read the bytes at all (no
+    ``protocol``): a code from another remote, or a capture cut short.
+    That is the verdict's own word for a failed reading, keyed on no
+    reason string, so a reason renamed or added later cannot open it,
+    and compared with the lattice's own map rather than with None, so a
+    verdict that one day names a decoder's protocol cannot open it
+    either.
+
+    Not for a flat command, which has no label to read against, nor for
+    the matrix's Off and On: several families send an Off frame their
+    map does not read (every Fujitsu 128-bit file on record), so a
+    correct Off would otherwise be held as a foreign code.
+    """
+    if verdict.get("matches") is False:
+        return DECLARE_READS_OTHERWISE
+    if (lattice.readable and target.kind == TARGET_CELL
+            and not is_power_key(target.key)
+            and verdict.get("protocol") != lattice.field_map.protocol_id):
+        return DECLARE_UNREAD
+    return None
+
 
 def _now() -> str:
     from datetime import datetime
@@ -1265,6 +1306,18 @@ def build_provenance(
             note["claims"] = claims
         if mismatches:
             note["mismatches"] = mismatches
+        # A press the map could not read at all has no claim or reading
+        # to record, but WHY it could not is what there was to say, and
+        # what a decoder made of it tells a foreign remote from the
+        # family's own press the map's windows missed. Keyed on the
+        # gate's own predicate, so the record says a reading failed
+        # exactly where the refusal did and nowhere else.
+        if (declaration_needed(lattice, row.target, disagreed)
+                == DECLARE_UNREAD and disagreed.get("declined")):
+            note["declined"] = disagreed["declined"]
+            decoded = disagreed.get("decoded") or {}
+            if decoded.get("protocol"):
+                note["decoded_as"] = decoded["protocol"]
         # A field the map places by its own coordinate (a DAIKIN216
         # vane, DAIKIN152's powerful flag) is compared but never named,
         # so it has no claim or reading label above. Its raw values are
@@ -2064,6 +2117,9 @@ TRIM_READS_WRONG = "trimmed-bytes-read-wrong"
 #: every pair as once-only. Trimming would have to rewrite the sequence
 #: split, which is a re-encode and not a deletion.
 TRIM_HAS_REPEAT_SEQUENCE = "code-has-repeat-sequence"
+#: The map that reads this lattice does not read the trimmed bytes at
+#: all. Not "read wrong": there is no reading to be wrong.
+TRIM_UNREAD = "trimmed-bytes-unread"
 
 
 class SynthesisBug(RuntimeError):
@@ -2257,7 +2313,9 @@ def rewrite_field(
     member of the family it came from rather than an idealised drawing
     of one.
 
-    Returns None when the capture will not parse under the map.
+    Returns None when the capture will not parse under the map, or when
+    the field's bits cannot carry ``value`` (masking it in would write
+    some other value and call it this one).
     """
     words = _pronto_words(pronto)
     if words is None:
@@ -2284,6 +2342,8 @@ def rewrite_field(
     try:
         mask, shift = field_readers.bit_selector(spec.bits)
     except ValueError:
+        return None
+    if not field_readers.fits(spec, value):
         return None
 
     before = [
@@ -2736,6 +2796,18 @@ def _label_for(spec: Any, domain: list[Any], value: int) -> Any:
     return None
 
 
+def _comb_byte(text: Any) -> int | None:
+    """A byte value as the comb wrote it ("0x1A"), or None when the text
+    is not one. Both readers of a finding's ``expected`` and ``read`` go
+    through here, so a value the comb should never have written costs a
+    label rather than the whole listing."""
+    try:
+        value = int(str(text), 16)
+    except ValueError:
+        return None
+    return value if 0 <= value <= 0xFF else None
+
+
 def _stamp_mismatch_labels(
     rows: list[TangleRow], lattice: LatticeReading
 ) -> None:
@@ -2764,8 +2836,11 @@ def _stamp_mismatch_labels(
             if spec is None or expected is None or read is None:
                 continue
             domain = _axis_domain(lattice, name)
-            claimed = _label_for(spec, domain, int(str(expected), 16))
-            actual = _label_for(spec, domain, int(str(read), 16))
+            claimed_byte, read_byte = _comb_byte(expected), _comb_byte(read)
+            if claimed_byte is None or read_byte is None:
+                continue
+            claimed = _label_for(spec, domain, claimed_byte)
+            actual = _label_for(spec, domain, read_byte)
             if claimed is not None:
                 params["claimed"] = claimed
             if actual is not None:
@@ -2849,10 +2924,11 @@ def _cause_of(
         )
         expected, read = params.get("expected"), params.get("read")
         spec = lattice.spec_for(name) if name else None
-        if spec is not None and expected is not None and read is not None:
+        if (spec is not None and _comb_byte(expected) is not None
+                and _comb_byte(read) is not None):
             domain = _axis_domain(lattice, name)
-            claimed = _label_for(spec, domain, int(str(expected), 16))
-            actual = _label_for(spec, domain, int(str(read), 16))
+            claimed = _label_for(spec, domain, _comb_byte(expected))
+            actual = _label_for(spec, domain, _comb_byte(read))
             step = _ring_step(
                 _ring_domain(lattice, name), claimed, actual)
             if step is not None:

@@ -1274,5 +1274,6 @@
     "tangles.listen_mismatch_1_noread": "To naciśnięcie nie pasowało. Sprawdź wyświetlacz pilota i spróbuj ponownie.",
     "tangles.listen_mismatch_2_noread": "To naciśnięcie znowu nie pasowało.",
     "tangles.listen_mismatch_3_noread": "Wciąż słyszymy inne naciśnięcie. To nasz odczyt może być błędny, a nie pilot. Użyć tego naciśnięcia mimo to?",
+    "tangles.paste_mismatch_noread": "Ten kod jest odczytywany jako inne ustawienie albo mapa tego pilota nie potrafi go odczytać. Użyć tego kodu mimo to?",
     "tangles.listen_timeout": "Nasłuchiwanie zakończone. Naciśnij ponownie Słuchaj."
 }

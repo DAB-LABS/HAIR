@@ -609,8 +609,13 @@ export class IrSignalEditor extends LitElement {
             // reports, and "Your wig has been updated." still lands.
             this._afterTangleApply(result, 0, 0);
         } catch (err) {
+            // The websocket client rejects with the server's plain
+            // { code, message } object, so the refusal's code is on
+            // err.code and not inside the message text.
             const message = (err as Error).message || String(err);
-            if (message.includes("reading_disagreed_required")) {
+            const code = (err as { code?: unknown } | null)?.code;
+            if (code === "reading_disagreed_required"
+                    || message.includes("reading_disagreed_required")) {
                 this._raiseTangleLadder(this._pronto, "paste");
             } else {
                 this._error = message;
@@ -628,7 +633,13 @@ export class IrSignalEditor extends LitElement {
      * or the remote is wrong. Saying yes re-sends the SAME bytes with
      * the declaration attached, which is what turns an accident into a
      * decision, so the bytes and the source both have to be remembered
-     * rather than re-derived from whatever is in the box by then. */
+     * rather than re-derived from whatever is in the box by then.
+     *
+     * The sentence is the road's own. "We keep hearing a different
+     * press" is true after three presses and false after one paste,
+     * and a pasted code may be from another remote altogether, so the
+     * paste is told what the server found: the code reads as another
+     * setting, or this remote's map cannot read it. */
     private _raiseTangleLadder(
         pronto: string,
         source: "paste" | "capture",
@@ -636,7 +647,9 @@ export class IrSignalEditor extends LitElement {
         this._tangleLadder = true;
         this._tangleLadderPronto = pronto;
         this._tangleLadderSource = source;
-        this._error = t("tangles.listen_mismatch_3_noread");
+        this._error = source === "paste"
+            ? t("tangles.paste_mismatch_noread")
+            : t("tangles.listen_mismatch_3_noread");
     }
 
     private async _useTangleAnyway(): Promise<void> {
@@ -886,7 +899,9 @@ export class IrSignalEditor extends LitElement {
             // read and leave the popup usable, instead of pulsing at
             // something that has stopped (issue 4).
             const message = IrSignalEditor._tangleError(err);
-            if (message.includes("reading_disagreed_required")) {
+            const code = (err as { code?: unknown } | null)?.code;
+            if (code === "reading_disagreed_required"
+                    || message.includes("reading_disagreed_required")) {
                 this._raiseTangleLadder(pronto, "capture");
             } else {
                 this._error = message;

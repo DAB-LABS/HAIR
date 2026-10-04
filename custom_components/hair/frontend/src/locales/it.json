@@ -1140,5 +1140,6 @@
     "tangles.listen_mismatch_1_noread": "Quella pressione non corrispondeva. Controlla il display del telecomando e riprova.",
     "tangles.listen_mismatch_2_noread": "Quella pressione non ha corrisposto di nuovo.",
     "tangles.listen_mismatch_3_noread": "Continuiamo a sentire una pressione diversa. Potrebbe essere sbagliata la nostra lettura, non il telecomando. Usare comunque questa pressione?",
+    "tangles.paste_mismatch_noread": "Questo codice viene letto come un'impostazione diversa, oppure la mappa di questo telecomando non riesce a leggerlo. Usare comunque questo codice?",
     "tangles.listen_timeout": "L'ascolto è terminato. Premi di nuovo Ascolta."
 }
