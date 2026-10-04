@@ -221,6 +221,24 @@ class TestEveryStatedValueFitsItsSelector:
                         checked += 1
         assert checked > 50
 
+    def test_every_selector_parses_and_stays_inside_its_byte(self):
+        """``fits`` trusts the selector to address one byte. A selector
+        past bit 7 (``bit:8``, ``mask:0x100``, ``[6,4]``) would let it
+        say a value fits that no byte can carry, and ``read_field``
+        would read 0 there. Bounding ``fits`` instead would turn such a
+        typo into quiet coverage, so the selector is linted here, where
+        it fails out loud."""
+        checked = 0
+        for field_map in fr.library():
+            for spec in field_map.fields:
+                where = (field_map.protocol_id, spec.name, spec.bits)
+                mask, shift = fr.bit_selector(spec.bits)
+                assert 0 < mask <= 0xFF, where
+                assert 0 <= shift <= 7, where
+                assert (mask >> shift) & 1, where
+                checked += 1
+        assert checked > 50
+
 
 # ---------------------------------------------------------------------------
 # T4: both readers of a comb byte, on a byte the comb should never write
