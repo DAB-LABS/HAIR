@@ -53,4 +53,4 @@ Generate an API encryption key with: `python3 -c "import secrets,base64; print(b
 
 ## Variants
 
-Only the minimal variant is provided. It includes IR TX, IR RX with the HAIR event bridge, the GPIO21 power enable switch, and the HA infrared platform entries. Nothing else.
+Only the minimal variant is provided. It includes IR TX, IR RX, the GPIO21 power enable switch, and the HA infrared platform entries. Nothing else.

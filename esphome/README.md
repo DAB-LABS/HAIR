@@ -6,20 +6,29 @@ Curated, HAIR-tested ESPHome configurations for common IR hardware. Each config 
 
 | Device | Board | Variant | HAIR | HA Core | ESPHome | Contributor | Path |
 |---|---|---|---|---|---|---|---|
-| Athom RF IR Remote | esp32dev | minimal | 0.2.0 | 2026.5.2 | 2026.5.1 | DAB-LABS | [athom-rf-ir-remote/](athom-rf-ir-remote/) |
-| Athom RF IR Remote | esp32dev | full | 0.2.0 | 2026.5.2 | 2026.5.1 | DAB-LABS | [athom-rf-ir-remote/](athom-rf-ir-remote/) |
-| Generic ESP32-C3 dev kit | esp32-c3-devkitm-1 | minimal | 0.1.2 | 2026.5.2 | 2026.4.5 | DAB-LABS | [generic-esp32-c3/](generic-esp32-c3/) |
-| Generic ESP32 doit dev kit | esp32doit-devkit-v1 | minimal | 0.1.2 | 2026.5.2 | 2026.4.5 | DAB-LABS | [generic-esp32-doit/](generic-esp32-doit/) |
-| M5Stack IR Unit | esp32-s3-devkitc-1 | minimal | 0.3.4 | 2026.6.1 | 2026.5.3 | JenSte | [m5stack-ir-unit/](m5stack-ir-unit/) |
-| M5Stack IR Unit | esp32-s3-devkitc-1 | full | 0.3.4 | 2026.6.1 | 2026.5.3 | JenSte | [m5stack-ir-unit/](m5stack-ir-unit/) |
-| XIAO Smart IR Mate | seeed_xiao_esp32c3 | minimal | 0.1.2 | 2026.5.2 | 2026.4.5 | DAB-LABS | [xiao-ir-mate/](xiao-ir-mate/) |
-| XIAO Smart IR Mate | seeed_xiao_esp32c3 | full | 0.1.2 | 2026.5.2 | 2026.4.5 | @Didgeridrew | [xiao-ir-mate/](xiao-ir-mate/) |
+| Athom RF IR Remote | esp32dev | minimal | 0.2.0 | 2026.5.2 | 2026.9.1 | DAB-LABS | [athom-rf-ir-remote/](athom-rf-ir-remote/) |
+| Athom RF IR Remote | esp32dev | full | 0.2.0 | 2026.5.2 | 2026.9.1 | DAB-LABS | [athom-rf-ir-remote/](athom-rf-ir-remote/) |
+| Generic ESP32-C3 dev kit | esp32-c3-devkitm-1 | minimal | 0.1.2 | 2026.5.2 | 2026.9.1 | DAB-LABS | [generic-esp32-c3/](generic-esp32-c3/) |
+| Generic ESP32 doit dev kit | esp32doit-devkit-v1 | minimal | 0.1.2 | 2026.5.2 | 2026.9.1 | DAB-LABS | [generic-esp32-doit/](generic-esp32-doit/) |
+| KinCony KC868-AGv3 | esp32-s3-devkitc-1 | minimal | pending | pending | 2026.9.1 | DAB-LABS | [kincony-kc868-agv3/](kincony-kc868-agv3/) |
+| M5Stack IR Unit | esp32-s3-devkitc-1 | minimal | 0.3.4 | 2026.6.1 | 2026.9.1 | JenSte | [m5stack-ir-unit/](m5stack-ir-unit/) |
+| M5Stack IR Unit | esp32-s3-devkitc-1 | full | 0.3.4 | 2026.6.1 | 2026.9.1 | JenSte | [m5stack-ir-unit/](m5stack-ir-unit/) |
+| XIAO Smart IR Mate | seeed_xiao_esp32c3 | minimal | 0.1.2 | 2026.5.2 | 2026.9.1 | DAB-LABS | [xiao-ir-mate/](xiao-ir-mate/) |
+| XIAO Smart IR Mate | seeed_xiao_esp32c3 | full | 0.1.2 | 2026.5.2 | 2026.9.1 | @Didgeridrew | [xiao-ir-mate/](xiao-ir-mate/) |
 
 ## How to pick a config
 
 **I have a dev board and want to wire up IR LEDs:** Pick one of the generic configs. The ESP32-C3 and ESP32 doit configs are both DIY paths -- you supply the IR LED (with transistor driver) and IR receiver module.
 
 **I want commercial off-the-shelf with no soldering:** The [Athom RF IR Remote](https://www.athom.tech/) and [XIAO Smart IR Mate](https://www.seeedstudio.com/Seeed-XIAO-Smart-IR-Mate.html) are the easiest paths. Both have IR LED, receiver, and status LED built in. The Athom also has 433 MHz RF hardware. Start with the minimal variant.
+
+**I have not bought anything yet:** [Recommended IR hardware](../docs/recommended-hardware.md) compares the boards above and a few more, with prices and where to buy.
+
+## Receiver timing
+
+Every ESP32 config here sets `clock_resolution: 400000` and `idle: 80ms` on its `remote_receiver`. `idle` is how much silence ends a capture, and ESPHome's 10 ms default is shorter than the gaps inside one air-conditioner press, so a press arrives split into several codes; 80 ms clears the longest of those gaps we know of by more than double.
+
+The ESP32's receiver can only count so much silence, about 32 ms on the C3 and S3 at ESPHome's default clock, so a lower `clock_resolution` has to come with it, and 400000 is the value that converts timings exactly and works on every ESP32 chip. If you change either, or copy the receiver into a config of your own, read [Receiver timing](../docs/receiver-timing.md) first: it explains the numbers, lists the alternatives, and covers the values that pass validation but break on the device.
 
 ## Two-tier convention
 

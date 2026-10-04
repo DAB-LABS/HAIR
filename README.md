@@ -311,7 +311,7 @@ infrared:
 
 Reflash, and the Devices tab shows the emitter with a `TX-NATIVE` badge and the receiver with `RX-NATIVE`.
 
-For ready-made configs for common ESP32 boards (XIAO Smart IR Mate, Athom RF IR Remote, M5Stack IR Unit, generic ESP32s), see [`esphome/`](esphome/) in this repo.
+For ready-made configs for common ESP32 boards (XIAO Smart IR Mate, Athom RF IR Remote, M5Stack IR Unit, generic ESP32s), see [`esphome/`](esphome/) in this repo. Not sure what to buy? [Recommended IR hardware](docs/recommended-hardware.md) compares them, with prices and where to buy.
 
 <details>
 <summary><b>Starting from scratch? The complete minimal YAML (TX + RX + registration)</b></summary>
@@ -328,14 +328,15 @@ remote_transmitter:
 remote_receiver:
   id: ir_rx
   pin:
-    number: GPIO8   # your IR receiver data pin
-    inverted: true
+    number: GPIO8           # your IR receiver data pin
+    inverted: true          # most receiver modules idle high; flip this if nothing ever decodes
     mode:
       input: true
       pullup: true
-  dump: all
+  clock_resolution: 400000  # 2.5us ticks; exact conversion, and it keeps the RMT divider legal on every ESP32
+  idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 82ms is the cap on C3/S3
   tolerance: 25%
-  idle: 100ms
+  dump: all                 # chatty; remove once things work
 
 # --- Register both on HA's native infrared platform ---
 infrared:
@@ -356,32 +357,7 @@ infrared:
 
 The `idle` value above is how much silence ends a capture. ESPHome's own default is 10 ms, and that is shorter than the gaps inside a single air conditioner message: a Daikin press carries about 35 ms of silence in the middle of it. At 10 ms the receiver closes the capture in those gaps, so one press arrives as several codes, and because each piece looks like a different signal it can show up as several remotes in the Sniffer.
 
-100 ms is the value to use. It is field-proven on the units in this folder and it comfortably clears the longest in-message gap those protocols use. The trade-off at very high values is the opposite problem: hold a button down and the repeats start merging into one capture instead of arriving as separate presses. HAIR's decoders split a merged capture back into frames per protocol, and 100 ms is well inside the range where that works, so it is a safe place to sit.
-
-<details>
-<summary>Legacy bridge for HA 2026.4-2026.5 (only if you cannot upgrade)</summary>
-
-Before native `InfraredReceiverEntity` shipped in HA 2026.6, HAIR received signals over an event-bus bridge. If you are stuck on 2026.4 or 2026.5, add this to your ESPHome device's `remote_receiver` block:
-
-```yaml
-remote_receiver:
-  id: ir_receiver
-  pin:
-    number: GPIO5   # your IR receiver data pin
-    inverted: true
-  dump: pronto
-  on_pronto:
-    then:
-      - homeassistant.event:
-          event: esphome.remote_received
-          data:
-            protocol: "PRONTO"
-            code: !lambda 'return x.data;'
-```
-
-This fires every IR signal as a `homeassistant.event` on the HA bus, and the HAIR Sniffer subscribes automatically. The panel shows `RX-BRIDGE` on the receiver card while this path is in use. When you upgrade to 2026.6+, add the `infrared` platform receiver entry above and reflash; HAIR switches over automatically, and you can remove the `on_pronto:` block once `RX-NATIVE` appears.
-
-</details>
+80 ms is the value to use, with `clock_resolution: 400000` beside it. The ESP32's receiver counts silence in clock ticks and caps the count, which at ESPHome's default clock is about 32 ms on the C3 and S3 and 65 ms on the original ESP32, so a larger `idle` on its own fails validation with `config 'idle' exceeds the maximum value of 32767us`. The slower clock raises that ceiling to 82 ms on the C3 and S3 while keeping timings exact on every ESP32 chip, and 80 ms under it still clears the Daikin gap by more than double. The trade-off at high values is the opposite problem: hold a button down and the repeats start merging into one capture instead of arriving as separate presses. HAIR's decoders split a merged capture back into frames per protocol, so this is a safe place to sit. Why these two numbers, and the alternatives if your remotes need something else, are in [Receiver timing](docs/receiver-timing.md).
 
 ### Translations
 

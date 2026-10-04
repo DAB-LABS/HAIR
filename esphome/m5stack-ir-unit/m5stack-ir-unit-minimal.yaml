@@ -10,8 +10,8 @@
 # Tested against:
 #   HAIR:            0.3.4
 #   HA Core:         2026.6.1
-#   ESPHome:         2026.5.3
-# Last verified:     2026-06-09
+#   ESPHome:         2026.9.1
+# Last verified:     2026-10-03
 # Purpose:           RX+TX
 # Hardware purchase: https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit
 #                    https://shop.m5stack.com/products/ir-unit
@@ -23,6 +23,8 @@
 #     of the devices.
 #   - The AtomS3 Lite also has a tiny IR LED on-board (GPIO4), which is not used
 #     here. Instead, the transmitter LED of the IR Unit is used.
+#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-03.
+#     The HAIR and HA Core lines above record the last hardware run.
 # ============================================================================
 
 substitutions:
@@ -54,22 +56,20 @@ api:
     key: !secret ir_proxy_api_key
 
 # The infrared receiver of the M5Stack IR Unit.
+# Why these numbers, and the alternatives: https://github.com/DAB-LABS/HAIR/blob/main/docs/receiver-timing.md
 remote_receiver:
   id: ir_rx
   pin:
     number: GPIO1
-    inverted: true
+    inverted: true          # most receiver modules idle high; flip this if nothing ever decodes
     mode:
       input: true
       pullup: true
+  clock_resolution: 400000  # 2.5us ticks; exact conversion, and it keeps the RMT divider legal on every ESP32
+  idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 82ms is the cap on C3/S3
 
   # Uncomment to see what is received in the device's log.
   # dump: all
-
-  # How much silence ends a capture. ESPHome's default is 10ms, which
-  # is shorter than the gaps inside one air conditioner message, so a
-  # single press arrives split into several codes.
-  idle: 100ms
 
 # The infrared transmitter of the M5Stack IR Unit.
 remote_transmitter:
