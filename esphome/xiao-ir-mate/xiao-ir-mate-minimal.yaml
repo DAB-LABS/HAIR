@@ -10,8 +10,8 @@
 # Tested against:
 #   HAIR:            0.1.2
 #   HA Core:         2026.5.2
-#   ESPHome:         2026.4.5
-# Last verified:     2026-05-25
+#   ESPHome:         2026.9.1
+# Last verified:     2026-10-03
 # Purpose:           RX+TX
 # Hardware purchase: https://www.seeedstudio.com/Seeed-XIAO-Smart-IR-Mate.html
 # GPIO map:
@@ -21,6 +21,8 @@
 #   - Smallest config that gets IR TX + RX working with HAIR on the XIAO
 #     IR Mate. Touch sensor, RGB LED, and vibration motor are not configured.
 #   - For the full hardware config, see xiao-ir-mate-full.yaml.
+#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-03.
+#     The HAIR and HA Core lines above record the last hardware run.
 # ============================================================================
 
 substitutions:
@@ -64,33 +66,17 @@ remote_transmitter:
   non_blocking: true
 
 # --- IR Receiver (RX) ---
-# This hardware block defines the IR receiver pin and timing. The
-# infrared: platform below references its id to register the receiver
-# as a native HA InfraredReceiverEntity, which HAIR subscribes to via
-# infrared.async_subscribe_receiver() on HA 2026.6+.
-#
-# The legacy on_pronto event-bus bridge that HAIR used on HA
-# 2026.4-2026.5 is preserved below as commented-out historical
-# reference. It is no longer active and no longer needed on 2026.6+.
-# Uncomment it only if you are running an older HA version that
-# predates native InfraredReceiverEntity support.
+# Registered with HA through the infrared: platform below.
+# Why these numbers, and the alternatives: https://github.com/DAB-LABS/HAIR/blob/main/docs/receiver-timing.md
 remote_receiver:
   id: ir_rx
   pin:
     number: GPIO4
-    inverted: true
-  dump: all
+    inverted: true          # most receiver modules idle high; flip this if nothing ever decodes
+  clock_resolution: 400000  # 2.5us ticks; exact conversion, and it keeps the RMT divider legal on every ESP32
+  idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 82ms is the cap on C3/S3
   tolerance: 25%
-  idle: 100ms
-
-  # Legacy HAIR bridge (pre-2026.6). No longer needed on HA 2026.6+.
-  # on_pronto:
-  #   then:
-  #     - homeassistant.event:
-  #         event: esphome.remote_received
-  #         data:
-  #           protocol: "PRONTO"
-  #           code: !lambda 'return x.data;'
+  dump: all                 # chatty; remove once things work
 
 # --- HA Native Infrared Platform ---
 # These entries register the device as an infrared entity in HA, so HAIR

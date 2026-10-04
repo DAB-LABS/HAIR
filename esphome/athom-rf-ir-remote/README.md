@@ -6,19 +6,17 @@ HAIR uses the IR side only. The RF hardware is present in the config but is not 
 
 ## Variants
 
-**Minimal** (`athom-rf-ir-remote-minimal.yaml`): Uses the official Athom package import from GitHub. Shortest possible config -- the package provides all hardware setup, BLE proxy, climate IR, and diagnostics. Adds only the HAIR legacy bridge for pre-2026.6 HA.
+**Minimal** (`athom-rf-ir-remote-minimal.yaml`): IR transmitter and receiver only, with the board settings, pins and ids from Athom's own config. Nothing is pulled from Athom's package, so HAIR's receiver timing applies. RF, BLE proxy, climate IR, status LED and button are not configured.
 
-**Full** (`athom-rf-ir-remote-full.yaml`): Standalone config with no package import. Every component is laid out with comments so you can see and customize everything. Based on Athom's v3.0.1 package with the HAIR legacy bridge added.
+**Full** (`athom-rf-ir-remote-full.yaml`): Standalone config with no package import. Every component is laid out with comments so you can see and customize everything, including RF, BLE proxy, climate IR and diagnostics. Based on Athom's v3.0.1 config.
 
 ## Which variant to use
 
-Start with **minimal** unless you need to customize individual components. The Athom package is well maintained and tracks ESPHome releases. Use **full** if you want to remove BLE proxy, change the climate platform, or modify diagnostic sensors without fighting package merge behavior.
+Start with **minimal** if the box is only an IR proxy for HAIR. Use **full** if you also want the BLE proxy, the climate entity, RF, or the diagnostic sensors.
 
 ## HA version notes
 
-On **HA 2026.6+**, HAIR subscribes to the native `InfraredReceiverEntity` exposed by the `ir_rf_proxy` platform. The `on_pronto` legacy bridge in both configs is unused and can be removed.
-
-On **HA 2026.4-2026.5**, HAIR uses the `on_pronto` legacy bridge to receive signals via the HA event bus. Do not remove this block if you are on these versions.
+HAIR subscribes to the native `InfraredReceiverEntity` that the `ir_rf_proxy` platform exposes, which needs **HA 2026.6+**. Both configs set the receiver to `clock_resolution: 400000` and `idle: 80ms`; [Receiver timing](../../docs/receiver-timing.md) explains why.
 
 ## Hardware
 
