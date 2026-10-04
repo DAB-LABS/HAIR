@@ -135,12 +135,18 @@ def _code(settings: list[int]) -> str:
 # key forms.
 
 
-def _air(code: str, press: int, transmitter: str) -> tuple[str, bool]:
+def _air(
+    code: str, press: int, transmitter: str, *, salt: str = ""
+) -> tuple[str, bool]:
     """One press of ``code`` as the receiver would hand it over.
 
-    Returns (pronto, glitched). Deterministic per (press, transmitter).
+    Returns (pronto, glitched). Deterministic per (press, transmitter),
+    and per ``salt`` when one is given: the real-air harness salts with
+    a digest of the code, so codes of one length do not all take the
+    same perturbation at the same edge. No salt is exactly the seed this
+    always had, so every other caller sees the same air as before.
     """
-    rng = random.Random(f"{transmitter}:{press}")
+    rng = random.Random(f"{transmitter}:{press}" + (f"|{salt}" if salt else ""))
     raw = [abs(v) for v in ProntoCommand(code).get_raw_timings()]
     glitched = False
     if transmitter == "esphome":
