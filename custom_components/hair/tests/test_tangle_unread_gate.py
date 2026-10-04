@@ -23,13 +23,14 @@ pack, with codes that fail the map in each way it can be failed.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import inspect
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.hair import field_readers, websocket_api
+from custom_components.hair import field_readers, tangles, websocket_api
 from custom_components.hair.const import DOMAIN
 from custom_components.hair.models import (
     CommandCategory,
@@ -44,6 +45,7 @@ from custom_components.hair.tangles import (
     TARGET_CELL,
     TRIM_UNREAD,
     TangleTarget,
+    build_provenance,
     declaration_needed,
     find_trim,
     list_tangles,
@@ -250,6 +252,50 @@ class TestThePredicate:
         assert declaration_needed(
             read_lattice(None), target, {"matches": None, "protocol": None},
         ) is None
+
+
+class TestTheRecordAsksThePredicate:
+    """The record says a reading failed where the gate refused, and
+    nowhere else. Keyed on ``protocol is None`` it would go silent the
+    day a verdict names what a decoder made of the bytes, while the gate
+    (compared with the lattice's own map) still held them: the refusal
+    and the record disagreeing about the same code."""
+
+    def _note(self, matrix, key, disagreed):
+        lattice = read_lattice(matrix)
+        device = IRDevice(name="record", climate_matrix=True)
+        row = next(row for row in list_tangles(device, matrix).rows
+                   if row.target.key == key)
+        record = build_provenance(
+            source="paste", prior_pronto=row.pronto, lattice=lattice,
+            row=row, tested=True, disagreed=disagreed)
+        return record["reading_disagreed"]
+
+    def test_a_decoder_named_protocol_still_records_declined(self):
+        matrix = _wig(KOMECO).climate
+        key = _cell_row(list_tangles(
+            IRDevice(name="record", climate_matrix=True), matrix,
+        )).target.key
+        note = self._note(matrix, key, {
+            "matches": None, "protocol": "NEC",
+            "declined": field_readers.NO_MAP,
+            "decoded": {"protocol": "NEC"},
+        })
+        assert note == {"user_attested": True,
+                        "declined": field_readers.NO_MAP,
+                        "decoded_as": "NEC"}
+
+    def test_not_at_the_off_row_the_gate_leaves_alone(self):
+        """A declared write at Off needed no declaration, so the record
+        carries the attestation and nothing about a failed reading."""
+        matrix = _wig(KOMECO).climate
+        matrix.off = matrix.cells[0].pronto
+        note = self._note(matrix, "off", {
+            "matches": None, "protocol": None,
+            "declined": field_readers.NO_MAP,
+            "decoded": {"protocol": "KASEIKYO56"},
+        })
+        assert note == {"user_attested": True}
 
 
 # ---------------------------------------------------------------------------
@@ -513,3 +559,30 @@ class TestEveryOfferIsAcceptedUndeclared:
         assert why == TRIM_UNREAD
         cluster = next(c for c in listing.clusters if row.id in c.members)
         assert cluster.mechanic == "recapture"
+
+    def test_a_decoder_naming_the_trimmed_bytes_does_not_offer_it(
+            self, monkeypatch):
+        """The trim gate compares with the lattice's own map, as the
+        cell gate does, so a verdict that one day names what a decoder
+        made of the bytes still leaves the trim unoffered."""
+        matrix = _wig(KOMECO).climate
+        live = {cell_key(cell): cell for cell in matrix.cells}
+        key = "heat_cool/high/off/24"
+        live[key].pronto = _with_burst(_one_bad_timing(live[key].pronto))
+        listing = list_tangles(
+            IRDevice(name="trim", climate_matrix=True), matrix)
+        row = next(row for row in listing.rows if row.target.key == key)
+        real = tangles.pre_read
+
+        def named(*args, **kwargs):
+            verdict = real(*args, **kwargs)
+            if verdict.protocol is None:
+                verdict = dataclasses.replace(verdict, protocol="NEC")
+            return verdict
+
+        monkeypatch.setattr(tangles, "pre_read", named)
+        trimmed, why = find_trim(
+            row.pronto, copy.deepcopy(row.findings), read_lattice(matrix),
+            key, row.target.coordinates)
+        assert trimmed is None
+        assert why == TRIM_UNREAD

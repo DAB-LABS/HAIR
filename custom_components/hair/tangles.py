@@ -750,7 +750,7 @@ def find_trim(
         verdict = pre_read(lattice, trimmed, coordinates)
         if verdict.matches is False:
             return None, TRIM_READS_WRONG
-        if verdict.protocol is None:
+        if verdict.protocol != lattice.field_map.protocol_id:
             # The map that reads this lattice does not read the trimmed
             # bytes at all, so nothing vouches for them, and the apply
             # gates would hold them for a declaration the card cannot
@@ -1309,8 +1309,11 @@ def build_provenance(
         # A press the map could not read at all has no claim or reading
         # to record, but WHY it could not is what there was to say, and
         # what a decoder made of it tells a foreign remote from the
-        # family's own press the map's windows missed.
-        if disagreed.get("protocol") is None and disagreed.get("declined"):
+        # family's own press the map's windows missed. Keyed on the
+        # gate's own predicate, so the record says a reading failed
+        # exactly where the refusal did and nowhere else.
+        if (declaration_needed(lattice, row.target, disagreed)
+                == DECLARE_UNREAD and disagreed.get("declined")):
             note["declined"] = disagreed["declined"]
             decoded = disagreed.get("decoded") or {}
             if decoded.get("protocol"):
