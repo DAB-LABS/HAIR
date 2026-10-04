@@ -28,7 +28,7 @@ jobs:
           pip install -e ".[test]"
 
       - name: Run tests
-        run: pytest --tb=short -q
+        run: pytest --tb=short -q -n auto --durations=15
 
   lint:
     runs-on: ubuntu-latest
