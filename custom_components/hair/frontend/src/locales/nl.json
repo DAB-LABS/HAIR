@@ -1140,5 +1140,6 @@
     "tangles.listen_mismatch_1_noread": "Die druk kwam niet overeen. Controleer het display van de afstandsbediening en probeer het opnieuw.",
     "tangles.listen_mismatch_2_noread": "Die druk kwam opnieuw niet overeen.",
     "tangles.listen_mismatch_3_noread": "We horen steeds een andere druk. Misschien klopt onze lezing niet, niet uw afstandsbediening. Deze druk toch gebruiken?",
+    "tangles.paste_mismatch_noread": "Deze code wordt gelezen als een andere instelling, of de kaart van deze afstandsbediening kan hem niet lezen. Deze code toch gebruiken?",
     "tangles.listen_timeout": "Het luisteren is gestopt. Druk opnieuw op Luisteren."
 }

@@ -1140,5 +1140,6 @@
     "tangles.listen_mismatch_1_noread": "That press did not match. Check the remote's display and try again.",
     "tangles.listen_mismatch_2_noread": "That press did not match again.",
     "tangles.listen_mismatch_3_noread": "We keep hearing a different press. Our reading may be off, not your remote. Use this press anyway?",
+    "tangles.paste_mismatch_noread": "This code reads as a different setting, or this remote's map cannot read it. Use this code anyway?",
     "tangles.listen_timeout": "Listening ended. Press Listen again."
 }

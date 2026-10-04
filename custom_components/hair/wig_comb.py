@@ -1140,7 +1140,9 @@ def _field_findings(
                 continue
             expected = field_readers.expected_value(spec, coordinate)
             if expected is None:
-                coverage.field_declined(spec.name, field_readers.UNKNOWN_LABEL)
+                coverage.field_declined(
+                    spec.name,
+                    field_readers.uncomputable_reason(spec, coordinate))
                 continue
             value = field_readers.read_field(reading, spec)
             if value is None:

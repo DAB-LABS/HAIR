@@ -1140,5 +1140,6 @@
     "tangles.listen_mismatch_1_noread": "Esa pulsación no coincidió. Revise la pantalla del control remoto e inténtelo de nuevo.",
     "tangles.listen_mismatch_2_noread": "Esa pulsación volvió a no coincidir.",
     "tangles.listen_mismatch_3_noread": "Seguimos escuchando una pulsación distinta. Puede que nuestra lectura esté equivocada, no su control remoto. ¿Usar esta pulsación de todos modos?",
+    "tangles.paste_mismatch_noread": "Este código se lee como un ajuste distinto, o el mapa de este control remoto no puede leerlo. ¿Usar este código de todos modos?",
     "tangles.listen_timeout": "La escucha terminó. Pulse Escuchar de nuevo."
 }
