@@ -162,7 +162,24 @@ def pytest_collection_modifyitems(items):
     ]
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_finish(session):
     why = real_air_missing(session.items, collected=_REAL_AIR_COLLECTED)
-    if why is not None:
+    if why is None:
+        return
+    if not hasattr(session.config, "workerinput"):
         raise pytest.UsageError(why)
+    # Under pytest-xdist the controller collects nothing and every worker
+    # collects the whole suite, so this check runs on the workers. A
+    # UsageError raised here crashes the worker after xdist has sent its
+    # collection: the run still fails, but as an INTERNALERROR naming an
+    # unrelated test, and this message is lost. A failed collection
+    # report is forwarded to the controller and printed there, and an
+    # empty selection (cleared before xdist sends it, hence tryfirst)
+    # means no worker runs anything.
+    session.config.hook.pytest_collectreport(
+        report=pytest.CollectReport(
+            "real_air CI guard", "failed", longrepr=why, result=[]
+        )
+    )
+    session.items.clear()

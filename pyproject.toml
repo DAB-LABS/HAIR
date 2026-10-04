@@ -23,6 +23,7 @@ test = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
+    "pytest-xdist>=3.6",
     # PyYAML and voluptuous ship with Home Assistant at runtime (no manifest
     # pin). They are declared here so CI, which does not install Home
     # Assistant, gets the real packages: the pluckable registry loader imports
