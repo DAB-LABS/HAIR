@@ -1140,5 +1140,6 @@
     "tangles.listen_mismatch_1_noread": "Cette pression ne correspondait pas. Vérifiez l'écran de la télécommande et réessayez.",
     "tangles.listen_mismatch_2_noread": "Cette pression n'a de nouveau pas correspondu.",
     "tangles.listen_mismatch_3_noread": "Nous entendons toujours une pression différente. C'est peut-être notre lecture qui se trompe, pas votre télécommande. Utiliser cette pression quand même ?",
+    "tangles.paste_mismatch_noread": "Ce code est lu comme un autre réglage, ou la carte de cette télécommande ne peut pas le lire. Utiliser ce code quand même ?",
     "tangles.listen_timeout": "L'écoute est terminée. Appuyez de nouveau sur Écouter."
 }

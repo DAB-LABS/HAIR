@@ -1140,5 +1140,6 @@
     "tangles.listen_mismatch_1_noread": "Dieser Tastendruck passte nicht. Prüfen Sie die Anzeige der Fernbedienung und versuchen Sie es erneut.",
     "tangles.listen_mismatch_2_noread": "Dieser Tastendruck passte erneut nicht.",
     "tangles.listen_mismatch_3_noread": "Wir hören weiterhin einen anderen Tastendruck. Vielleicht liegt unsere Lesung daneben, nicht Ihre Fernbedienung. Diesen Tastendruck trotzdem verwenden?",
+    "tangles.paste_mismatch_noread": "Dieser Code wird als andere Einstellung gelesen, oder die Karte dieser Fernbedienung kann ihn nicht lesen. Diesen Code trotzdem verwenden?",
     "tangles.listen_timeout": "Das Mithören ist beendet. Drücken Sie erneut auf Hören."
 }

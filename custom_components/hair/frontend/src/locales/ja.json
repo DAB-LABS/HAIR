@@ -1140,5 +1140,6 @@
     "tangles.listen_mismatch_1_noread": "その操作は一致しませんでした。リモコンの表示を確認して、もう一度お試しください。",
     "tangles.listen_mismatch_2_noread": "その操作は再び一致しませんでした。",
     "tangles.listen_mismatch_3_noread": "別の操作が続けて聞こえています。リモコンではなく、こちらの読み取りが誤っている可能性があります。この操作をそのまま使いますか？",
+    "tangles.paste_mismatch_noread": "このコードは別の設定として読み取られるか、このリモコンのマップでは読み取れません。このコードをそのまま使いますか？",
     "tangles.listen_timeout": "受信待ちが終了しました。もう一度「受信」を押してください。"
 }

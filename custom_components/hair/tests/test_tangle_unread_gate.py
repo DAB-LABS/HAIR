@@ -25,6 +25,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import inspect
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -491,6 +492,26 @@ class TestOneRefusalCode:
             assert f'code === "{REFUSAL}"' in body
         assert 'this._raiseTangleLadder(this._pronto, "paste");' in paste
         assert 'this._raiseTangleLadder(pronto, "capture");' in capture
+
+    def test_a_refused_paste_is_told_it_is_a_paste(self):
+        """The press road's third rung says "we keep hearing a different
+        press", which is false after one paste and points the wrong way
+        for a code from another remote. Now that a refused paste raises
+        the ladder, it gets a sentence of its own, and the press keeps
+        the one it had."""
+        text = EDITOR.read_text(encoding="utf-8")
+        ladder = text.split("private _raiseTangleLadder(", 1)[1].split(
+            "\n    }\n", 1)[0]
+        squashed = " ".join(ladder.split())
+        assert ('this._error = source === "paste" '
+                '? t("tangles.paste_mismatch_noread") '
+                ': t("tangles.listen_mismatch_3_noread");') in squashed
+        locales = EDITOR.parent / "locales"
+        english = json.loads(
+            (locales / "en.json").read_text(encoding="utf-8"))
+        sentence = english["tangles.paste_mismatch_noread"]
+        assert "press" not in sentence.lower()
+        assert "\u2014" not in sentence
 
 
 # ---------------------------------------------------------------------------
