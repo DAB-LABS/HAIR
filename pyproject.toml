@@ -85,6 +85,9 @@ lint = [
 [tool.pytest.ini_options]
 testpaths = ["custom_components/hair/tests"]
 asyncio_mode = "auto"
+markers = [
+    "real_air: the real-air harness (minutes). Deselect locally with -m 'not real_air'; CI runs it, and a CI run that selects none of it fails.",
+]
 
 [tool.ruff]
 target-version = "py313"
