@@ -10,7 +10,7 @@ Use this page to choose what to buy. Ready-made ESPHome configs live under [`esp
 |---|---|---|---|---|---|---|---|
 | Low (~$10) | Seeed XIAO Smart IR Mate | Seeed Studio | Single room, DIY / close-proximity puck | $10.90 (10+ $10.50) | [seeedstudio.com](https://www.seeedstudio.com/XIAO-Smart-IR-Mate-p-6492.html?c=qtEeMJf) | Configs in-repo (minimal + full) | [`esphome/xiao-ir-mate/`](../esphome/xiao-ir-mate/) |
 | Medium (~$20) | Athom RF·IR Remote (Made for ESPHome) | Athom | Everyday Proxy (TX+RX in one box) | ~$19.50 | [athom.tech](https://www.athom.tech/blank-1/esphome-rf433-ir-remote-controller) | Configs in-repo (minimal + full); Athom's product page links to HAIR | [`esphome/athom-rf-ir-remote/`](../esphome/athom-rf-ir-remote/) |
-| High / prosumer | KinCony KC868-AGv3 | KinCony | Power user IR (+ RF hardware on board) | Bundle A $45 / Bundle B $50 | [Marketing](https://www.kincony.com/esp32s3-smart-ir-rf-controller.html) · [Shop](https://shop.kincony.com/products/esp32-s3-smart-ir-rf-controller-kincony-kc868-agv3) | "Works with HAIR" on KinCony's AGv3 page; no in-repo ESPHome config yet | None in-repo (use KinCony or community YAML for now) |
+| High / prosumer | KinCony KC868-AGv3 | KinCony | Power user IR (+ RF hardware on board) | Bundle A $45 / Bundle B $50 | [Marketing](https://www.kincony.com/esp32s3-smart-ir-rf-controller.html) · [Shop](https://shop.kincony.com/products/esp32-s3-smart-ir-rf-controller-kincony-kc868-agv3) | Config in repo, validated with `esphome config`, hardware verification pending | [`esphome/kincony-kc868-agv3/`](../esphome/kincony-kc868-agv3/) |
 | Earlier model | KinCony KC868-AG | KinCony | IR + 433 MHz RF in one puck, original ESP32 | $35 (sold out when checked 2026-10-03) | [Marketing](https://www.kincony.com/esp32-rf-ir-gateway.html) · [Shop](https://shop.kincony.com/products/kc868-ag-esp32-433mhz-rf-and-ir-gateway) | No in-repo config yet; the receiver values in `docs/receiver-timing.md` apply | None in-repo ([ESPHome YAML (forum)](https://www.kincony.com/forum/showthread.php?tid=2329)) |
 | Multi-zone | KinCony AG8 | KinCony | Restaurants / multi-TV: 8 independent IR sender ports | Bundle A $40 / Bundle B $41 (board + 8 IR tubes) | [Marketing](https://www.kincony.com/esp32-s3-smart-ir-controller.html) · [Shop](https://shop.kincony.com/products/kincony-ag8-esp32-s3-smart-ir-controller) | DIN-rail 8-TX board; ESPHome demo enables 4 TX (see caveat); full 8 independent via KinCony KCS | [ESPHome YAML (forum)](https://www.kincony.com/forum/showthread.php?tid=5889) |
 
@@ -76,9 +76,9 @@ https://www.athom.tech/blank-1/esphome-rf433-ir-remote-controller
 Marketing: https://www.kincony.com/esp32s3-smart-ir-rf-controller.html  
 Shop: https://shop.kincony.com/products/esp32-s3-smart-ir-rf-controller-kincony-kc868-agv3
 
-**HAIR status.** KinCony's AGv3 marketing page carries **"Works with HAIR"** plus the GitHub URL. No `esphome/kc868-agv3/` config in this repo yet -- use KinCony's published ESPHome / KCS docs until a HAIR-tested config lands.
+**HAIR status.** KinCony's AGv3 marketing page carries **"Works with HAIR"** plus the GitHub URL. Config in repo: [`esphome/kincony-kc868-agv3/`](../esphome/kincony-kc868-agv3/) (minimal), validated with `esphome config`, hardware verification pending.
 
-A board without an in-repo config still needs the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`); a KC868-AGv3 (ESP32-S3) user ran into the 32,767 us `idle` ceiling this week.
+The config carries the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`); a KC868-AGv3 (ESP32-S3) user ran into the 32,767 us `idle` ceiling this week without them.
 
 **Pins** (from KinCony's AGv3 pin definition, https://www.kincony.com/forum/showthread.php?tid=9468):
 
@@ -203,5 +203,6 @@ Upstream flash ideas (not HAIR-maintained): [esphome/infrared-proxies](https://g
 - KinCony KC868-AG marketing + shop + pin/YAML links: https://www.kincony.com/esp32-rf-ir-gateway.html · https://shop.kincony.com/products/kc868-ag-esp32-433mhz-rf-and-ir-gateway · forum tids 1667 / 2329
 - KinCony AG8 marketing + shop + pin/YAML/KCS links: https://www.kincony.com/esp32-s3-smart-ir-controller.html · https://shop.kincony.com/products/kincony-ag8-esp32-s3-smart-ir-controller · forum tids 5888 / 5889 · https://www.kincony.com/how-to-use-kcsv3-firmware-esp32-board.html
 - ESPHome `remote_transmitter` (RMT-backed TX on ESP32 variants): https://esphome.io/components/remote_transmitter/
+- KinCony KC868-AGv3 pin definition: https://www.kincony.com/forum/showthread.php?tid=9468
 - In-repo config index: [`esphome/README.md`](../esphome/README.md)
 - Receiver settings for any ESP32 board: [`receiver-timing.md`](receiver-timing.md)
