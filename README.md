@@ -335,6 +335,8 @@ remote_receiver:
       pullup: true
   clock_resolution: 400000  # 2.5us ticks; exact conversion, and it keeps the RMT divider legal on every ESP32
   idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 82ms is the cap on C3/S3
+  receive_symbols: 384      # room for the longest press HAIR reads (Daikin 152, 293 pairs); ESPHome's default 192 cuts it
+  # rmt_symbols: 384        # original ESP32 only: uncomment there; leave it out on the C3 and S3
   tolerance: 25%
   dump: all                 # chatty; remove once things work
 
@@ -358,6 +360,8 @@ infrared:
 The `idle` value above is how much silence ends a capture. ESPHome's own default is 10 ms, and that is shorter than the gaps inside a single air conditioner message: a Daikin press carries about 35 ms of silence in the middle of it. At 10 ms the receiver closes the capture in those gaps, so one press arrives as several codes, and because each piece looks like a different signal it can show up as several remotes in the Sniffer.
 
 80 ms is the value to use, with `clock_resolution: 400000` beside it. The ESP32's receiver counts silence in clock ticks and caps the count, which at ESPHome's default clock is about 32 ms on the C3 and S3 and 65 ms on the original ESP32, so a larger `idle` on its own fails validation with `config 'idle' exceeds the maximum value of 32767us`. The slower clock raises that ceiling to 82 ms on the C3 and S3 while keeping timings exact on every ESP32 chip, and 80 ms under it still clears the Daikin gap by more than double. The trade-off at high values is the opposite problem: hold a button down and the repeats start merging into one capture instead of arriving as separate presses. HAIR's decoders split a merged capture back into frames per protocol, so this is a safe place to sit. Why these two numbers, and the alternatives if your remotes need something else, are in [Receiver timing](docs/receiver-timing.md).
+
+The receiver also needs room for a whole press. A Daikin 152 press is 293 mark-and-space pairs and a Mitsubishi Electric one 292, while ESPHome keeps 192 by default, so the capture stops partway and the press never reaches HAIR whole. `receive_symbols: 384` fixes that on the C3 and S3. On the original ESP32 the capture also ends when the receiver's share of the RMT memory fills, so it needs `rmt_symbols: 384` as well, and that memory is shared with every transmitter and receiver on the board: on a board that also has a 433 MHz receiver, [Receiver timing](docs/receiver-timing.md) shows how to split it.
 
 ### Translations
 

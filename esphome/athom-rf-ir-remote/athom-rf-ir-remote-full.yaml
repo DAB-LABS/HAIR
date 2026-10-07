@@ -163,6 +163,13 @@ remote_receiver:
       inverted: true
     dump: rc_switch
     tolerance: 25%
+    # One block of RMT memory instead of ESPHome's three. This board's four
+    # RMT channels share 512 symbols: two transmitters at 64 each, this
+    # receiver, and the IR receiver below. At the defaults (64 + 64 + 192 +
+    # 192) there is nothing left to give IR the 320 a long air-conditioner
+    # press needs, so RF gives up two blocks: 64 + 64 + 64 + 320 = 512.
+    # A 433 MHz code is about 25 pairs, so 64 still holds it at least twice.
+    rmt_symbols: 64
     id: rf_receiver
 
   # IR receiver on GPIO33.
@@ -174,6 +181,8 @@ remote_receiver:
       inverted: true          # most receiver modules idle high; flip this if nothing ever decodes
     clock_resolution: 400000  # 2.5us ticks; exact conversion, and it keeps the RMT divider legal on every ESP32
     idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 82ms is the cap on C3/S3
+    receive_symbols: 320      # room for the longest press HAIR reads (Daikin 152, 293 pairs); ESPHome's default 192 cuts it
+    rmt_symbols: 320          # the capture ends when this RMT memory is full; 5 of the 8 shared blocks, the most left beside RF (see the RF receiver)
     tolerance: 25%
     dump: all                 # chatty; remove once things work
 

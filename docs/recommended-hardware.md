@@ -78,7 +78,7 @@ Shop: https://shop.kincony.com/products/esp32-s3-smart-ir-rf-controller-kincony-
 
 **HAIR status.** KinCony's AGv3 marketing page carries **"Works with HAIR"** plus the GitHub URL. Config in repo: [`esphome/kincony-kc868-agv3/`](../esphome/kincony-kc868-agv3/) (minimal), validated with `esphome config`, hardware verification pending.
 
-The config carries the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`); a KC868-AGv3 (ESP32-S3) user ran into the 32,767 us `idle` ceiling this week without them.
+The config carries the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`, and `receive_symbols: 384` so the longest air-conditioner presses arrive whole); a KC868-AGv3 (ESP32-S3) user ran into the 32,767 us `idle` ceiling this week without them.
 
 **Pins** (from KinCony's AGv3 pin definition, https://www.kincony.com/forum/showthread.php?tid=9468):
 
@@ -117,7 +117,7 @@ The receiver pin is active-low on this board, so `inverted: true` with a pullup 
 Marketing: https://www.kincony.com/esp32-rf-ir-gateway.html  
 Shop: https://shop.kincony.com/products/kc868-ag-esp32-433mhz-rf-and-ir-gateway
 
-**HAIR status.** No in-repo config yet; the receiver values in [Receiver timing](receiver-timing.md) apply (`clock_resolution: 400000` with `idle: 80ms`). KinCony's ESPHome YAML: https://www.kincony.com/forum/showthread.php?tid=2329 · Pin map: https://www.kincony.com/forum/showthread.php?tid=1667
+**HAIR status.** No in-repo config yet; the receiver values in [Receiver timing](receiver-timing.md) apply (`clock_resolution: 400000` with `idle: 80ms`, and a receive buffer for long presses, which on this original ESP32 with IR and RF means the IR and RF receivers share the RMT memory as on the Athom). KinCony's ESPHome YAML: https://www.kincony.com/forum/showthread.php?tid=2329 · Pin map: https://www.kincony.com/forum/showthread.php?tid=1667
 
 ---
 
@@ -174,7 +174,7 @@ The published ESPHome demo **enables transmitters 1-4** and leaves 5-8 commented
 
 Schematic: https://www.kincony.com/download/AG8-schematic.pdf
 
-No `esphome/kincony-ag8/` folder in this repo yet. A board without an in-repo config still needs the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`); a KC868-AGv3 (ESP32-S3) user ran into the 32,767 us `idle` ceiling this week.
+No `esphome/kincony-ag8/` folder in this repo yet. A board without an in-repo config still needs the receiver values from [Receiver timing](receiver-timing.md) (`clock_resolution: 400000` with `idle: 80ms`, and a receive buffer for long presses); a KC868-AGv3 (ESP32-S3) user ran into the 32,767 us `idle` ceiling this week.
 
 ---
 
