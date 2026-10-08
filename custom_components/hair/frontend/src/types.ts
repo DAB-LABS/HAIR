@@ -921,6 +921,10 @@ export interface IRDevice {
     power_sensor_entity_id: string | null;
     power_off_below_w: number | null;
     power_on_above_w: number | null;
+    // The settle window (0.17.2): seconds after a HAIR send before the
+    // power sensor can overrule the entity. null is the backend
+    // default (20), 0 is no window. Never treat null as 0.
+    power_settle_s: number | null;
     // Climate room sensors (climate-sensors.md, riding 0.9.8), commit
     // 1: which thermometer/hygrometer feeds this device's thermostat
     // card. Both null means "not configured" -- unlike power, the two

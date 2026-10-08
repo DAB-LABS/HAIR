@@ -938,6 +938,8 @@
     "devsettings.custom_sensor_label": "Sensor entity ID",
     "devsettings.off_below_label": "Off below (W)",
     "devsettings.on_above_label": "On above (W)",
+    "devsettings.settle_label": "Settle time (s)",
+    "devsettings.settle_help": "How long after HAIR sends a command before the power sensor can overrule it. At least the plug's reporting interval. 0 turns it off.",
     "devsettings.readout_unavailable": "Not available yet.",
     "devsettings.readout_now": "Now: {value}",
     "devsettings.override_note": "Readings override the device's assumed on/off state.",

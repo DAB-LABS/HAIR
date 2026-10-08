@@ -461,9 +461,12 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
     #
     # UNDER THE PLUG, NOT OVER IT. The 0.9.8 power monitor's rule is
     # unchanged: the sensor is evidence, assumed state is belief, so a
-    # threshold crossing still overrides whatever was last sent. A HAIR
-    # "on" the unit never received shows on for a moment and is
-    # corrected back to OFF by the plug's next crossing.
+    # power verdict still overrides whatever was last sent. A verdict is
+    # every plug report outside the hysteresis gap, held back only
+    # inside the settle window that follows each send (0.17.2,
+    # power_monitor.py). A HAIR "on" the unit never received shows on
+    # until that window ends and is then corrected back to OFF by the
+    # plug's current reading.
 
     @callback
     def _handle_device_sent(self, sent: DeviceSent) -> None:

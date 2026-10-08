@@ -938,6 +938,8 @@
     "devsettings.custom_sensor_label": "Entiteit-ID van de sensor",
     "devsettings.off_below_label": "Uit onder (W)",
     "devsettings.on_above_label": "Aan boven (W)",
+    "devsettings.settle_label": "Insteltijd (s)",
+    "devsettings.settle_help": "Hoe lang na een door HAIR verzonden commando de vermogenssensor het niet kan overrulen. Minstens het rapportage-interval van de stekker. 0 schakelt dit uit.",
     "devsettings.readout_unavailable": "Nog niet beschikbaar.",
     "devsettings.readout_now": "Nu: {value}",
     "devsettings.override_note": "Metingen overschrijven de aangenomen aan/uit-status van het apparaat.",

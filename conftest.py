@@ -59,12 +59,23 @@ _stub("homeassistant")
 
 
 class _State:
-    """Minimal stub of homeassistant.core.State (power_monitor.py)."""
+    """Minimal stub of homeassistant.core.State (power_monitor.py).
 
-    def __init__(self, entity_id="", state="unknown", attributes=None):
+    ``last_reported`` defaults to the moment the state is made, as Home
+    Assistant's does; the settle window's handback compares it with the
+    send.
+    """
+
+    def __init__(
+        self, entity_id="", state="unknown", attributes=None,
+        last_reported=None,
+    ):
         self.entity_id = entity_id
         self.state = state
         self.attributes = attributes or {}
+        self.last_reported = last_reported or datetime.datetime.now(
+            datetime.UTC
+        )
 
 
 _stub("homeassistant.core", {

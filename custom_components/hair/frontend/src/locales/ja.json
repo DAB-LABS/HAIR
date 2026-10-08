@@ -938,6 +938,8 @@
     "devsettings.custom_sensor_label": "センサーのエンティティID",
     "devsettings.off_below_label": "オフになる基準 (W)",
     "devsettings.on_above_label": "オンになる基準 (W)",
+    "devsettings.settle_label": "安定待ち時間 (秒)",
+    "devsettings.settle_help": "HAIR がコマンドを送信してから、電力センサーがその状態を上書きできるようになるまでの時間です。プラグの報告間隔以上にしてください。0 で無効になります。",
     "devsettings.readout_unavailable": "まだ利用できません。",
     "devsettings.readout_now": "現在: {value}",
     "devsettings.override_note": "読み取り値はデバイスの推定オン/オフ状態より優先されます。",

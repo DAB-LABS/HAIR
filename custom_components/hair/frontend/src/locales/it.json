@@ -938,6 +938,8 @@
     "devsettings.custom_sensor_label": "ID entità del sensore",
     "devsettings.off_below_label": "Spegni sotto (W)",
     "devsettings.on_above_label": "Accendi sopra (W)",
+    "devsettings.settle_label": "Tempo di assestamento (s)",
+    "devsettings.settle_help": "Quanto tempo dopo l'invio di un comando da parte di HAIR il sensore di potenza può smentirlo. Almeno l'intervallo di segnalazione della presa. 0 lo disattiva.",
     "devsettings.readout_unavailable": "Non ancora disponibile.",
     "devsettings.readout_now": "Ora: {value}",
     "devsettings.override_note": "Le letture sostituiscono lo stato presunto acceso/spento del dispositivo.",

@@ -938,6 +938,8 @@
     "devsettings.custom_sensor_label": "ID de entidad del sensor",
     "devsettings.off_below_label": "Apagar por debajo de (W)",
     "devsettings.on_above_label": "Encender por encima de (W)",
+    "devsettings.settle_label": "Tiempo de estabilización (s)",
+    "devsettings.settle_help": "Cuánto tiempo después de que HAIR envíe un comando puede el sensor de potencia contradecirlo. Al menos el intervalo de informe del enchufe. 0 lo desactiva.",
     "devsettings.readout_unavailable": "Aún no disponible.",
     "devsettings.readout_now": "Ahora: {value}",
     "devsettings.override_note": "Las lecturas anulan el estado asumido de encendido/apagado del dispositivo.",

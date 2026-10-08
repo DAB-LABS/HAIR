@@ -938,6 +938,8 @@
     "devsettings.custom_sensor_label": "ID de entidade do sensor",
     "devsettings.off_below_label": "Desligar abaixo de (W)",
     "devsettings.on_above_label": "Ligar acima de (W)",
+    "devsettings.settle_label": "Tempo de estabilização (s)",
+    "devsettings.settle_help": "Quanto tempo depois que o HAIR envia um comando o sensor de potência pode contrariá-lo. Pelo menos o intervalo de relatório da tomada. 0 desativa.",
     "devsettings.readout_unavailable": "Ainda não disponível.",
     "devsettings.readout_now": "Agora: {value}",
     "devsettings.override_note": "As leituras substituem o estado assumido de ligado/desligado do dispositivo.",

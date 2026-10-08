@@ -500,6 +500,138 @@ async def test_update_device_clearing_sensor_clears_thresholds(
     assert mock_device.power_on_above_w is None
 
 
+def _settle_rig(fake_hass, mock_device):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+    return manager, _make_connection()
+
+
+def _settle_msg(mock_device, **fields):
+    return {
+        "id": 4,
+        "type": "hair/device/update",
+        "device_id": mock_device.id,
+        **fields,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [0, 0.5, 20, 120])
+async def test_update_device_sets_power_settle(fake_hass, mock_device, value):
+    mock_device.power_sensor_entity_id = "sensor.ac_plug_power"
+    manager, conn = _settle_rig(fake_hass, mock_device)
+    await ws_update_device(
+        fake_hass, conn, _settle_msg(mock_device, power_settle_s=value)
+    )
+    conn.send_result.assert_called_once()
+    manager.async_update_device.assert_awaited_once()
+    assert mock_device.power_settle_s == value
+    # The opt-out is stored as 0, never folded into None (the default).
+    if value == 0:
+        assert mock_device.power_settle_s is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [-1, 120.5, 1e9, "nan"])
+async def test_update_device_power_settle_rejects_out_of_range(
+    fake_hass, mock_device, value
+):
+    mock_device.power_sensor_entity_id = "sensor.ac_plug_power"
+    mock_device.power_off_below_w = 5
+    mock_device.power_on_above_w = 10
+    manager, conn = _settle_rig(fake_hass, mock_device)
+    await ws_update_device(
+        fake_hass,
+        conn,
+        _settle_msg(
+            mock_device, power_off_below_w=1, power_settle_s=float(value)
+        ),
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+    manager.async_update_device.assert_not_called()
+    # Nothing half-written: the threshold in the same request is refused too.
+    assert mock_device.power_off_below_w == 5
+    assert mock_device.power_settle_s is None
+
+
+@pytest.mark.asyncio
+async def test_update_device_power_settle_none_returns_to_default(
+    fake_hass, mock_device
+):
+    mock_device.power_sensor_entity_id = "sensor.ac_plug_power"
+    mock_device.power_settle_s = 45
+    manager, conn = _settle_rig(fake_hass, mock_device)
+    await ws_update_device(
+        fake_hass, conn, _settle_msg(mock_device, power_settle_s=None)
+    )
+    conn.send_result.assert_called_once()
+    manager.async_update_device.assert_awaited_once()
+    assert mock_device.power_settle_s is None
+
+
+@pytest.mark.asyncio
+async def test_update_device_power_settle_without_sensor_is_cleared(
+    fake_hass, mock_device
+):
+    # Like the thresholds: meaningless without a sensor, so not kept.
+    manager, conn = _settle_rig(fake_hass, mock_device)
+    await ws_update_device(
+        fake_hass, conn, _settle_msg(mock_device, power_settle_s=30)
+    )
+    conn.send_result.assert_called_once()
+    manager.async_update_device.assert_awaited_once()
+    assert mock_device.power_settle_s is None
+
+
+@pytest.mark.asyncio
+async def test_update_device_clearing_sensor_clears_power_settle(
+    fake_hass, mock_device
+):
+    mock_device.power_sensor_entity_id = "sensor.ac_plug_power"
+    mock_device.power_settle_s = 0
+    manager, conn = _settle_rig(fake_hass, mock_device)
+    await ws_update_device(
+        fake_hass,
+        conn,
+        _settle_msg(mock_device, power_sensor_entity_id=None),
+    )
+    conn.send_result.assert_called_once()
+    manager.async_update_device.assert_awaited_once()
+    assert mock_device.power_settle_s is None
+
+
+@pytest.mark.asyncio
+async def test_update_device_other_power_fields_keep_power_settle(
+    fake_hass, mock_device
+):
+    mock_device.power_sensor_entity_id = "sensor.ac_plug_power"
+    mock_device.power_settle_s = 0
+    manager, conn = _settle_rig(fake_hass, mock_device)
+    await ws_update_device(
+        fake_hass,
+        conn,
+        _settle_msg(mock_device, power_off_below_w=3, power_on_above_w=9),
+    )
+    conn.send_result.assert_called_once()
+    manager.async_update_device.assert_awaited_once()
+    assert mock_device.power_settle_s == 0
+
+
+def test_device_summary_echoes_power_settle(fake_hass, mock_device):
+    from custom_components.hair.websocket_api import _device_summary
+
+    with patch(
+        "custom_components.hair.websocket_api._ha_device_id",
+        return_value=None,
+    ):
+        assert _device_summary(mock_device, fake_hass)["power_settle_s"] is None
+        mock_device.power_settle_s = 0
+        assert _device_summary(mock_device, fake_hass)["power_settle_s"] == 0
+
+
 @pytest.mark.asyncio
 async def test_update_device_sets_climate_sensors(fake_hass, mock_device):
     manager = MagicMock()

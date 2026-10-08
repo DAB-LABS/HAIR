@@ -1033,6 +1033,8 @@
     "devsettings.custom_sensor_label": "ID сущности датчика",
     "devsettings.off_below_label": "Выключать ниже (Вт)",
     "devsettings.on_above_label": "Включать выше (Вт)",
+    "devsettings.settle_label": "Время стабилизации (с)",
+    "devsettings.settle_help": "Сколько времени после отправки команды HAIR датчик мощности не может её отменить. Не меньше интервала отчётов розетки. 0 отключает.",
     "devsettings.readout_unavailable": "Пока недоступно.",
     "devsettings.readout_now": "Сейчас: {value}",
     "devsettings.override_note": "Показания датчика переопределяют предполагаемое состояние вкл/выкл устройства.",

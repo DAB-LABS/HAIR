@@ -938,6 +938,8 @@
     "devsettings.custom_sensor_label": "ID d'entité du capteur",
     "devsettings.off_below_label": "Éteindre en dessous de (W)",
     "devsettings.on_above_label": "Allumer au-dessus de (W)",
+    "devsettings.settle_label": "Délai de stabilisation (s)",
+    "devsettings.settle_help": "Délai après l'envoi d'une commande par HAIR avant que le capteur de puissance puisse la contredire. Au moins l'intervalle de rapport de la prise. 0 le désactive.",
     "devsettings.readout_unavailable": "Pas encore disponible.",
     "devsettings.readout_now": "Maintenant : {value}",
     "devsettings.override_note": "Les relevés remplacent l'état supposé allumé/éteint de l'appareil.",
