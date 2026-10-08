@@ -30,6 +30,8 @@ Every ESP32 config here sets `clock_resolution: 400000` and `idle: 80ms` on its 
 
 The ESP32's receiver can only count so much silence, about 32 ms on the C3 and S3 at ESPHome's default clock, so a lower `clock_resolution` has to come with it, and 400000 is the value that converts timings exactly and works on every ESP32 chip. If you change either, or copy the receiver into a config of your own, read [Receiver timing](../docs/receiver-timing.md) first: it explains the numbers, lists the alternatives, and covers the values that pass validation but break on the device.
 
+Each config also sets a receive buffer big enough for the longest air-conditioner press HAIR reads, a Daikin 152 at 293 mark-and-space pairs. ESPHome's default of 192 cuts it, and a cut press never reaches HAIR whole. On the S3 and C3 that is `receive_symbols: 384`, about 1.5 KB of RAM. The original ESP32 also needs `rmt_symbols: 384`, because there the capture ends when the receiver's share of the RMT memory is full, and that memory is shared with every other RMT channel on the board. The Athom full config, which also runs a 433 MHz receiver, gives IR 320 and RF 64. [Receiver timing](../docs/receiver-timing.md) has the per-chip limits.
+
 ## Two-tier convention
 
 Each device folder can have up to two config variants:

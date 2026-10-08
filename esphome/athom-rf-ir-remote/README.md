@@ -16,7 +16,7 @@ Start with **minimal** if the box is only an IR proxy for HAIR. Use **full** if 
 
 ## HA version notes
 
-HAIR subscribes to the native `InfraredReceiverEntity` that the `ir_rf_proxy` platform exposes, which needs **HA 2026.6+**. Both configs set the receiver to `clock_resolution: 400000` and `idle: 80ms`; [Receiver timing](../../docs/receiver-timing.md) explains why.
+HAIR subscribes to the native `InfraredReceiverEntity` that the `ir_rf_proxy` platform exposes, which needs **HA 2026.6+**. Both configs set the receiver to `clock_resolution: 400000` and `idle: 80ms`, and give it room for the longest air-conditioner presses: 384 symbols in the minimal config, 320 in the full one, where the four RMT channels (IR and RF, send and receive) share the original ESP32's 512 symbols and the RF receiver is cut to 64 to make room. [Receiver timing](../../docs/receiver-timing.md) explains why.
 
 ## Hardware
 

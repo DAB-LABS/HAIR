@@ -1,14 +1,16 @@
 # Receiver timing for ESPHome IR receivers
 
-Every ESP32 config in [`esphome/`](../esphome/) sets two values on its `remote_receiver`:
+Every ESP32 config in [`esphome/`](../esphome/) sets two timing values on its `remote_receiver`, and a receive buffer large enough for the longest air conditioner presses:
 
 ```yaml
 remote_receiver:
   clock_resolution: 400000
   idle: 80ms
+  receive_symbols: 384      # every ESP32
+  rmt_symbols: 384          # original ESP32 only; see "The receive buffer" below
 ```
 
-This page explains what they do, why these two numbers, and what else works if your remotes need something different.
+This page explains what they do, why these numbers, and what else works if your remotes or your board need something different.
 
 ## What `idle` does
 
@@ -49,6 +51,50 @@ Only multiples of 100,000 Hz divide evenly. At 250,000 Hz the first line gives 2
 
 80 ms sits under the lower of those, so one value works on every board, and it clears the longest air-conditioner gap we know of (Daikin, about 35 ms) by more than double. A 2.5 us tick is around 1 percent of the shortest pulses HAIR decodes.
 
+## The receive buffer: `rmt_symbols` and `receive_symbols`
+
+A capture is stored as RMT symbols, one mark and the space after it per symbol, so a capture can never hold more mark-and-space pairs than the receiver has room for. ESPHome's defaults hold 192, and that is not enough for several air conditioners. These are whole presses as HAIR's field packs store them; with `idle: 80ms` every frame of one press arrives in the same capture, so the whole press is what has to fit:
+
+| Family | Pairs in one press |
+|---|---|
+| Daikin 152 | 293 |
+| Mitsubishi Electric 144 | 292 |
+| TCL 112 | 228 |
+| Daikin 216, Panasonic 216 | 220 |
+| Mitsubishi Heavy 160 and every other family HAIR reads | 162 or fewer |
+
+Across 80,642 distinct air conditioner codes in the public SmartIR code collections, the longest press of any family HAIR reads is 294 pairs. 21,112 codes need more than 192, 395 need more than 320, and 1 needs more than 384.
+
+On a receiver that runs out of room, the capture simply stops: the rest of the press is lost, nothing shows in the log at ESPHome's default level, and HAIR receives a code that ends partway through a frame. A test receiver on an original ESP32 with ESPHome's defaults cut every capture at 193 pairs, so not one whole Daikin 152, Panasonic 216 or TCL 112 press arrived.
+
+Which setting decides the limit depends on the chip:
+
+- **On the original ESP32 and the S2, the limit is the receiver's share of the RMT memory, `rmt_symbols`.** These chips cannot move received symbols out of the RMT memory while a capture is still arriving, so a capture ends when that memory is full. `receive_symbols` has to be at least as large.
+- **On the S3, C3, C6 and H2, the limit is `receive_symbols`.** These chips copy the RMT memory into the receive buffer in halves while the capture arrives, so `rmt_symbols` only sets the size of those halves and the capture can be as long as the buffer. Leave `rmt_symbols` at its default there.
+
+`receive_symbols` is a slot in ordinary RAM, 4 bytes per symbol, so 384 takes about 1.5 KB. ESPHome carves it out of the receiver's existing capture buffer (`buffer_size`, 10,000 bytes on the ESP32), so the board does not need more memory unless that buffer was made smaller.
+
+`rmt_symbols` is different: it comes out of RMT memory every RMT channel on the chip shares, and it is the reason the original ESP32 needs care.
+
+| Chip | RMT memory | Receive limit | Room for a receiver |
+|---|---|---|---|
+| Original ESP32 | 512 symbols, 8 blocks of 64, shared by every transmitter, receiver and RMT LED strip | `rmt_symbols` | 448 with one IR transmitter; the configs use 384 |
+| ESP32-S2 | 256 symbols, 4 blocks of 64, shared | `rmt_symbols` | 192 with one transmitter, which cannot hold the longest presses at all |
+| ESP32-S3 | 4 receive blocks of 48 | `receive_symbols` | as large as `receive_symbols` |
+| ESP32-C3, C6, H2 | 2 receive blocks of 48 | `receive_symbols` | as large as `receive_symbols` |
+
+ESPHome's defaults give each transmitter 64 symbols on the original ESP32 and S2 (48 on the others), each receiver 192 (96 on the C3, C6 and H2), and an RMT LED strip 192 (96 on the C3, C6 and H2). A receiver takes whole blocks, and they have to be next to each other.
+
+**The cost on a board that does IR and RF.** The Athom RF IR Remote is an original ESP32 with two transmitters and two receivers, one each for IR and 433 MHz RF. At ESPHome's defaults those four channels already use all 512 symbols: 64 + 64 + 192 + 192. Its full config gives the IR receiver 320, which holds every family above, and pays for it by cutting the RF receiver to 64: 64 + 64 + 64 + 320 = 512. A 433 MHz remote's code is about 25 pairs, so 64 holds it at least twice over. On a board like this, the IR receiver can only grow by taking blocks from something else.
+
+**When it does not fit.** If the channels ask for more RMT memory than the chip has, `esphome config` still passes: the check happens on the device when it boots. The receiver that could not get its memory does not start, and its log line reads `Configuring RMT driver failed: ESP_ERR_NOT_FOUND (out of RMT symbol memory)`. On an original ESP32, `rmt_symbols` must also be even and at least 64.
+
+**The chosen values.**
+
+- 384 on every board that can afford it. It holds every family HAIR reads with room to spare, and all but one of the 80,642 codes above.
+- 320 on the IR receiver of the Athom full config, the most it can have while the RF receiver keeps one block. It still holds every family HAIR reads, and all but 395 of those codes.
+- On the original ESP32 both settings get the number. On the S3, C3, C6 and H2 only `receive_symbols` does.
+
 ## Alternatives
 
 | clock_resolution | idle up to | Boards | Use when |
@@ -75,4 +121,4 @@ esphome config your-device.yaml
 
 It reads the file the way a build would, without compiling or flashing anything, and ends with `INFO Configuration is valid!` when every value is accepted. It cannot see the two traps above, which only show on the device, so stay with the values on this page.
 
-These numbers were checked against the validator and source code of ESPHome 2026.9.1 and against ESP-IDF v5.5. They have not yet been run on a bench.
+The timing numbers were checked against the validator and source code of ESPHome 2026.9.1 and against ESP-IDF v5.5. The buffer numbers were checked against the same ESPHome release, its `remote_receiver`, `remote_transmitter` and `esp32_rmt_led_strip` defaults and receive code, and the RMT driver and per-chip limits of ESP-IDF v5.5.5, the version ESPHome 2026.9.1 builds with by default. On an original ESP32 they were also run on a bench: an Athom RF IR Remote with ESPHome's defaults cut every capture at 193 pairs, and the same board with the full config's split (IR 320, RF 64, two transmitters at 64) started all four channels, decoded a 433 MHz remote code on the RF receiver, and heard a whole 293-pair Daikin 152 press in one capture. The S3 and C3 behaviour is from the driver source and has not yet been run on a bench.

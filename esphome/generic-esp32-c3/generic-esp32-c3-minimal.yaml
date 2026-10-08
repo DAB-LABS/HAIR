@@ -78,6 +78,8 @@ remote_receiver:
       pullup: true
   clock_resolution: 400000  # 2.5us ticks; exact conversion, and it keeps the RMT divider legal on every ESP32
   idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 82ms is the cap on C3/S3
+  receive_symbols: 384      # room for the longest press HAIR reads (Daikin 152, 293 pairs); ESPHome's default 192 cuts it; ~1.5 KB of RAM
+                            # leave rmt_symbols at its default on this chip: it does not limit how long a capture can be
   tolerance: 25%
   dump: all                 # chatty; remove once things work
 
