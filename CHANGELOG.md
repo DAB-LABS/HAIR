@@ -5,6 +5,12 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Simplified Chinese (`zh-Hans`) for the panel and the config flow, drafted by a programming assistant, marked "reviewer wanted" in both files and shipping a truncated `README.zh.md` like the other translated READMEs. The dictionary carries every key `en.json` has, keeps HAIR's brand names in English, and gives HAIR's own words functional Chinese terms rather than the barbershop metaphor.
+
 ## [0.17.5] - 2026-10-12 -- Root Touch-Up
 
 ### Added

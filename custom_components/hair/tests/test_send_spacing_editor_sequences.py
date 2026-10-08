@@ -1048,7 +1048,7 @@ class TestTheWords:
 
     def test_the_note_is_true_in_every_case(self):
         """L5: one note for a shift, a widening and a cut to the cap, in
-        all ten dictionaries, and none of them still says the code changed
+        all eleven dictionaries, and none of them still says the code changed
         length."""
         en = json.loads((SRC / "locales" / "en.json").read_text())
         assert en["editor.spacing_restated"] == (
@@ -1058,7 +1058,7 @@ class TestTheWords:
         for path in sorted((SRC / "locales").glob("*.json")):
             note = json.loads(path.read_text())["editor.spacing_restated"]
             assert note and "\u2014" not in note, path.name
-        assert len(list((SRC / "locales").glob("*.json"))) == 10
+        assert len(list((SRC / "locales").glob("*.json"))) == 11
 
 
 # ---------------------------------------------------------------------------

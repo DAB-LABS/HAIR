@@ -33,7 +33,7 @@ Vereist Home Assistant 2026.4 of nieuwer; 2026.6+ aanbevolen voor native IR-ontv
 - **Test en polijst alles.** Vuur elk signaal door elke blaster om het te controleren voordat je erop vertrouwt, geef signalen bijnamen, bewerk een Pronto-code ter plekke, en laat HAIR herkende protocollen decoderen (NEC, Sony, RC-5, Samsung en meer) voor schonere overdracht.
 - **Pas hem.** Bewijs een pruik op echte hardware: adopteer hem als apparaat, leef ermee, en bevestig bij het opslaan in de kast signaal voor signaal wat werkte. Het ondertekende bewijs reist mee in het pruikbestand wanneer je hem deelt, en een volledig bewezen pruik draagt een groen vinkje in de kast.
 
-Het paneel spreekt jouw taal. Engels, Spaans, Frans, Japans, Duits, Pools, Portugees, Nederlands, Italiaans en Russisch, automatisch volgens de taal van je Home Assistant-profiel.
+Het paneel spreekt jouw taal. Engels, Spaans, Frans, Japans, Duits, Pools, Portugees, Nederlands, Italiaans, Russisch en Chinees, automatisch volgens de taal van je Home Assistant-profiel.
 
 > [!IMPORTANT]
 > Deze vertaling van het HAIR-paneel is opgesteld door een programmeerassistent en wacht op de controle van een moedertaalspreker. Als jij dat zou kunnen zijn: een controle past in één pull request en jouw naam komt in het bestand. Begin hier: [Adding a language](CONTRIBUTING.md#adding-a-language).

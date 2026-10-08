@@ -275,7 +275,7 @@ On a state-matrix climate device the same dialog also takes a temperature sensor
 ### A few more things
 
 - **Emitter routing** -- each device can be pinned to one emitter or broadcast through several, so an AC command stays in one room while a TV Power command reaches every room at once.
-- **Ten languages** -- the panel and setup wizard follow your Home Assistant profile language automatically; see [Translations](#translations) below.
+- **Eleven languages** -- the panel and setup wizard follow your Home Assistant profile language automatically; see [Translations](#translations) below.
 - **Glossary** -- the words HAIR uses (Device, Remote, wig, fitting, pin, comb) are defined in [docs/glossary.md](docs/glossary.md).
 
 ### Entity platforms
@@ -365,7 +365,7 @@ The receiver also needs room for a whole press. A Daikin 152 press is 293 mark-a
 
 ### Translations
 
-HAIR speaks ten languages, and eight of them need a native-speaker review. Spanish has one already (thanks @Waterbrain). French, Japanese, German, Polish, Portuguese, Dutch, Italian, and Russian were drafted by a programming assistant and are marked "reviewer wanted" inside each dictionary file. A native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. See [Adding a language](CONTRIBUTING.md#adding-a-language).
+HAIR speaks eleven languages, and nine of them need a native-speaker review. Spanish has one already (thanks @Waterbrain). French, Japanese, German, Polish, Portuguese, Dutch, Italian, Russian, and Chinese were drafted by a programming assistant and are marked "reviewer wanted" inside each dictionary file. A native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. See [Adding a language](CONTRIBUTING.md#adding-a-language).
 
 <details><summary>See the panel translated -- the same device detail in Spanish, the one translation with a native-speaker review</summary>
 
