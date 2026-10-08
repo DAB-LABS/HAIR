@@ -1032,6 +1032,8 @@
     "devsettings.custom_sensor_label": "Identyfikator encji czujnika",
     "devsettings.off_below_label": "Wyłącz poniżej (W)",
     "devsettings.on_above_label": "Włącz powyżej (W)",
+    "devsettings.settle_label": "Czas stabilizacji (s)",
+    "devsettings.settle_help": "Jak długo po wysłaniu polecenia przez HAIR czujnik mocy nie może go podważyć. Co najmniej interwał raportowania gniazdka. 0 wyłącza tę funkcję.",
     "devsettings.readout_unavailable": "Jeszcze niedostępne.",
     "devsettings.readout_now": "Teraz: {value}",
     "devsettings.override_note": "Odczyty nadpisują zakładany stan włączenia/wyłączenia urządzenia.",

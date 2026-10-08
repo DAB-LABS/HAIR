@@ -483,11 +483,41 @@ class EntityConfig:
         ), data, _KNOWN_ENTITY_CONFIG)
 
 
+# The settle window's default and ceiling, in seconds (0.17.2). The
+# default is a ceiling on the wait, not the wait: the monitor ends a
+# window early as soon as the plug agrees with the send.
+DEFAULT_POWER_SETTLE_S = 20.0
+MAX_POWER_SETTLE_S = 120.0
+
+
+def _settle_or_none(value: Any) -> float | None:
+    """A stored settle value, or None for absent or unreadable.
+
+    A hand-edited or damaged record falls back to the default rather
+    than to 0: reading garbage as 0 would quietly turn the window off.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not 0 <= value <= MAX_POWER_SETTLE_S:
+        return None
+    return float(value)
+
+
+def power_settle_seconds(device: IRDevice) -> float:
+    """The settle window a device gets after a send, in seconds.
+
+    The one place a stored None becomes the default. 0 means none.
+    """
+    if device.power_settle_s is None:
+        return DEFAULT_POWER_SETTLE_S
+    return float(device.power_settle_s)
+
+
 # Keys IRDevice.from_dict consumes (0.10.1 item 2).
 _KNOWN_DEVICE = frozenset({
     "id", "name", "device_type", "manufacturer", "model",
     "emitter_entity_ids", "power_sensor_entity_id", "power_off_below_w",
-    "power_on_above_w", "temperature_sensor_entity_id",
+    "power_on_above_w", "power_settle_s", "temperature_sensor_entity_id",
     "humidity_sensor_entity_id", "capture_device_id",
     "capture_provider_type", "commands", "entity_config", "database_id",
     "climate_matrix", "source_wig_id", "source_file", "source_remote_id",
@@ -513,6 +543,14 @@ class IRDevice:
     power_sensor_entity_id: str | None = None
     power_off_below_w: float | None = None
     power_on_above_w: float | None = None
+    # Seconds after a HAIR send during which the power sensor cannot
+    # overrule the entity (the settle window, 0.17.2). None is the
+    # default, read as DEFAULT_POWER_SETTLE_S, and is what every device
+    # stored before this field existed carries: those are the devices
+    # that flickered, so they get the window without a store rewrite.
+    # 0 is the opt-out and means no window at all. Never read None as
+    # 0; use ``power_settle_seconds`` below.
+    power_settle_s: float | None = None
     # Climate room sensors (climate-sensors.md, riding 0.9.8). Same
     # install-wiring status as power_sensor_entity_id above -- which
     # thermometer/hygrometer feeds this device's thermostat card, not
@@ -711,6 +749,7 @@ class IRDevice:
             power_sensor_entity_id=self.power_sensor_entity_id,
             power_off_below_w=self.power_off_below_w,
             power_on_above_w=self.power_on_above_w,
+            power_settle_s=self.power_settle_s,
             temperature_sensor_entity_id=self.temperature_sensor_entity_id,
             humidity_sensor_entity_id=self.humidity_sensor_entity_id,
             capture_device_id=self.capture_device_id,
@@ -762,7 +801,7 @@ class IRDevice:
         self.updated_at = _now_iso()
 
     def to_dict(self) -> dict[str, Any]:
-        return _with_extra({
+        data: dict[str, Any] = {
             "id": self.id,
             "name": self.name,
             "device_type": str(self.device_type),
@@ -787,7 +826,14 @@ class IRDevice:
             "origin": self.origin,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-        }, self._extra)
+        }
+        # Written only once someone has set it. A device that never had
+        # the field keeps a record without the key, so the default stays
+        # a default (a later change to it reaches those devices too)
+        # rather than being frozen into every record at the next save.
+        if self.power_settle_s is not None:
+            data["power_settle_s"] = self.power_settle_s
+        return _with_extra(data, self._extra)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IRDevice:
@@ -809,6 +855,9 @@ class IRDevice:
             power_sensor_entity_id=data.get("power_sensor_entity_id") or None,
             power_off_below_w=data.get("power_off_below_w"),
             power_on_above_w=data.get("power_on_above_w"),
+            # Absent on every device made before the settle window
+            # (0.17.2): stays None, which reads as the default.
+            power_settle_s=_settle_or_none(data.get("power_settle_s")),
             # Absent on every device made before this field existed
             # (and on every non-matrix device); resolves to "no room
             # sensor configured", same as the power sensor above.

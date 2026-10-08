@@ -114,6 +114,10 @@ interface SensorStateShape {
 
 const DEFAULT_OFF_BELOW_W = 5;
 const DEFAULT_ON_ABOVE_W = 10;
+// The settle window (0.17.2). Mirrors models.py DEFAULT_POWER_SETTLE_S
+// and MAX_POWER_SETTLE_S; the backend is the one that enforces them.
+const DEFAULT_SETTLE_S = 20;
+const MAX_SETTLE_S = 120;
 
 @customElement("ir-device-settings-dialog")
 export class IrDeviceSettingsDialog extends LitElement {
@@ -125,6 +129,7 @@ export class IrDeviceSettingsDialog extends LitElement {
     @state() private _sensorChoice = "";
     @state() private _offBelow = "";
     @state() private _onAbove = "";
+    @state() private _settle = "";
     // Climate room sensors (climate-sensors.md, riding 0.9.8). Same ""
     // = none convention as the power picker above, but independent of
     // it and of each other -- either can be picked, changed, or
@@ -142,6 +147,10 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._onAbove =
             this.device.power_on_above_w?.toString() ??
             String(DEFAULT_ON_ABOVE_W);
+        // ?? and not ||: a stored 0 is the opt-out and must show as 0.
+        this._settle =
+            this.device.power_settle_s?.toString() ??
+            String(DEFAULT_SETTLE_S);
         this._temperatureChoice = this.device.temperature_sensor_entity_id ?? "";
         this._humidityChoice = this.device.humidity_sensor_entity_id ?? "";
     }
@@ -286,6 +295,22 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._humidityChoice = (e.target as HTMLSelectElement).value;
     }
 
+    /** What the settle field saves as. A device still on the default
+     * that nobody changed stays on the default (null), so it keeps
+     * following it; an empty field also means the default. Anything
+     * else is clamped into the range the backend accepts. */
+    private _settleForSave(): number | null {
+        const value = parseFloat(this._settle);
+        if (Number.isNaN(value)) return null;
+        if (
+            this.device.power_settle_s == null &&
+            value === DEFAULT_SETTLE_S
+        ) {
+            return null;
+        }
+        return Math.min(MAX_SETTLE_S, Math.max(0, value));
+    }
+
     private async _save(): Promise<void> {
         if (this._busy) return;
         const validation = this._validationError;
@@ -302,6 +327,7 @@ export class IrDeviceSettingsDialog extends LitElement {
             patch.power_sensor_entity_id = sensorId;
             patch.power_off_below_w = sensorId ? parseFloat(this._offBelow) : null;
             patch.power_on_above_w = sensorId ? parseFloat(this._onAbove) : null;
+            patch.power_settle_s = sensorId ? this._settleForSave() : null;
         }
         if (sections.includes("climate")) {
             patch.temperature_sensor_entity_id = this._temperatureChoice || null;
@@ -495,6 +521,25 @@ export class IrDeviceSettingsDialog extends LitElement {
                                       ?disabled=${this._busy}
                                   />
                               </div>
+                          </div>
+
+                          <div class="field">
+                              <label>${t("devsettings.settle_label")}</label>
+                              <input
+                                  type="number"
+                                  min="0"
+                                  max=${MAX_SETTLE_S}
+                                  step="1"
+                                  .value=${this._settle}
+                                  @input=${(e: Event) =>
+                                      (this._settle = (
+                                          e.target as HTMLInputElement
+                                      ).value)}
+                                  ?disabled=${this._busy}
+                              />
+                              <p class="section-explainer">
+                                  ${t("devsettings.settle_help")}
+                              </p>
                           </div>
                       `
                     : ""}

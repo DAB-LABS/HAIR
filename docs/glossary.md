@@ -304,9 +304,11 @@ the Mirror to what you are chasing.
 **Power sensor.** Any Device that plausibly draws current can be pointed at a
 power reading, such as a smart plug's wattage. Set two thresholds and the
 Device counts as off at or below the lower one and on at or above the higher
-one. A reading that crosses a threshold overrides what HAIR assumed from the
+one. A reading past either threshold overrides what HAIR assumed from the
 last command sent, so a device switched off with its original remote stops
-claiming to be on.
+claiming to be on. After each HAIR send the sensor waits out a settle time
+(20 seconds by default, 0 for none) before it can overrule the command, so
+a plug that has not reported the new draw yet cannot flip the device back.
 
 **Room sensors.** On a state-matrix climate Device, a temperature sensor, a
 humidity sensor, or both, shown live under the thermostat card. Display only.

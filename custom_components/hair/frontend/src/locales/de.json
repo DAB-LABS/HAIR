@@ -938,6 +938,8 @@
     "devsettings.custom_sensor_label": "Sensor-Entitäts-ID",
     "devsettings.off_below_label": "Aus unter (W)",
     "devsettings.on_above_label": "Ein ab (W)",
+    "devsettings.settle_label": "Einschwingzeit (s)",
+    "devsettings.settle_help": "Wie lange nach einem von HAIR gesendeten Befehl der Leistungssensor ihn nicht überstimmen kann. Mindestens das Meldeintervall der Steckdose. 0 schaltet sie aus.",
     "devsettings.readout_unavailable": "Noch nicht verfügbar.",
     "devsettings.readout_now": "Jetzt: {value}",
     "devsettings.override_note": "Messwerte überschreiben den angenommenen Ein-/Aus-Zustand des Geräts.",

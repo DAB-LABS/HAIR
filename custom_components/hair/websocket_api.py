@@ -49,7 +49,7 @@ from .identity import (
     canonical_byte_hash,
     canonical_fingerprint,
 )
-from .models import IRDevice, IRTrigger, TriggerRemote
+from .models import MAX_POWER_SETTLE_S, IRDevice, IRTrigger, TriggerRemote
 from .pronto_validator import validate_pronto
 from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
@@ -236,6 +236,10 @@ def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
         "power_sensor_entity_id": device.power_sensor_entity_id,
         "power_off_below_w": device.power_off_below_w,
         "power_on_above_w": device.power_on_above_w,
+        # The stored value, None included: the panel shows the default
+        # for None, and a save of an untouched dialog sends None back
+        # so the device keeps following the default.
+        "power_settle_s": device.power_settle_s,
         "temperature_sensor_entity_id": device.temperature_sensor_entity_id,
         "humidity_sensor_entity_id": device.humidity_sensor_entity_id,
         "command_count": len(device.commands),
@@ -249,6 +253,10 @@ async def _device_full(
     hass: HomeAssistant, device: IRDevice
 ) -> dict[str, Any]:
     full = device.to_dict()
+    # The store record omits an unset settle time (models.py, so the
+    # default stays a default); the panel always gets the key, null
+    # meaning the default, the same as the list summary sends.
+    full["power_settle_s"] = device.power_settle_s
     full["command_count"] = len(device.commands)
     full["ha_device_id"] = _ha_device_id(hass, device)
     # The matrix summary rides the full payload (owner ruling
@@ -663,6 +671,9 @@ async def ws_create_device(
     vol.Optional("power_sensor_entity_id"): vol.Any(str, None),
     vol.Optional("power_off_below_w"): vol.Any(vol.Coerce(float), None),
     vol.Optional("power_on_above_w"): vol.Any(vol.Coerce(float), None),
+    # Range-checked in the handler, with the other power fields, so a
+    # bad value is refused before anything on the device is touched.
+    vol.Optional("power_settle_s"): vol.Any(vol.Coerce(float), None),
     vol.Optional("temperature_sensor_entity_id"): vol.Any(str, None),
     vol.Optional("humidity_sensor_entity_id"): vol.Any(str, None),
 })
@@ -721,6 +732,7 @@ async def ws_update_device(
             "power_sensor_entity_id",
             "power_off_below_w",
             "power_on_above_w",
+            "power_settle_s",
         )
     ):
         new_sensor = msg.get(
@@ -734,9 +746,11 @@ async def ws_update_device(
             )
             return
         if new_sensor is None:
-            # Thresholds without a sensor are meaningless.
+            # Thresholds without a sensor are meaningless, and so is a
+            # settle time: all three clear with the sensor.
             new_off_below = None
             new_on_above = None
+            new_settle = None
         else:
             new_off_below = msg.get(
                 "power_off_below_w", device.power_off_below_w
@@ -744,6 +758,19 @@ async def ws_update_device(
             new_on_above = msg.get(
                 "power_on_above_w", device.power_on_above_w
             )
+            # None is the default (DEFAULT_POWER_SETTLE_S); 0 is no
+            # window at all. The two are different and stay different.
+            new_settle = msg.get("power_settle_s", device.power_settle_s)
+        if new_settle is not None and not (
+            0 <= new_settle <= MAX_POWER_SETTLE_S
+        ):
+            connection.send_error(
+                msg["id"],
+                "invalid_format",
+                "power_settle_s must be from 0 to "
+                f"{MAX_POWER_SETTLE_S:g} seconds",
+            )
+            return
         if (
             new_off_below is not None
             and new_on_above is not None
@@ -758,6 +785,7 @@ async def ws_update_device(
         device.power_sensor_entity_id = new_sensor
         device.power_off_below_w = new_off_below
         device.power_on_above_w = new_on_above
+        device.power_settle_s = new_settle
 
     # Climate room sensors validate together too, same "nothing
     # half-mutated on a rejected request" reasoning as the power
