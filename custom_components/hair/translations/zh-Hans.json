@@ -1,0 +1,37 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "设置 HAIR",
+                "description": "HAIR 用一个面板管理你的全部红外设备。\n\n检测到的硬件：\n\n{hardware_summary}",
+                "data": {}
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "HAIR 已完成配置。",
+            "no_ir_hardware": "未检测到红外硬件。捕获信号需要一个带 remote_receiver 组件的 ESPHome 设备；发送信号需要一个接入 HA 原生 infrared 平台的集成（Broadlink、ESPHome 等）。详见[设置指南]({setup_url})。"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "HAIR 选项",
+                "description": "配置红外设备管理的全局设置。",
+                "data": {
+                    "capture_timeout": "捕获超时（秒）",
+                    "default_repeat_count": "默认红外重复次数"
+                },
+                "data_description": {
+                    "capture_timeout": "捕获时等待红外信号的时长（5-60 秒）。",
+                    "default_repeat_count": "每条红外指令的重复发送次数（1-10）。"
+                }
+            }
+        }
+    },
+    "device_automation": {
+        "trigger_type": {
+            "button_pressed": "按下 {subtype}",
+            "state_heard": "听到状态"
+        }
+    }
+}

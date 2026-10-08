@@ -398,7 +398,7 @@ class TestTheKindVocabulary:
 
     @pytest.mark.parametrize(
         "path", [LOCALES_DIR / f"{stem}.json" for stem in (
-            "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru",
+            "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru", "zh",
         )], ids=lambda p: p.stem,
     )
     def test_every_list_entry_has_a_label(self, path):

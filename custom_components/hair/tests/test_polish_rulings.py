@@ -19,7 +19,7 @@ import pytest
 SRC = Path(__file__).parent.parent / "frontend" / "src"
 LOCALES = SRC / "locales"
 LOCALE_NAMES = (
-    "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru",
+    "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru", "zh",
 )
 
 
@@ -998,7 +998,7 @@ class TestTheAdoptCopyIsUseCopy:
                 f"{lang}: clips.signpost_gone_hint still has {buggy!r}: "
                 f"{data['clips.signpost_gone_hint']!r}"
             )
-        for lang in ("de", "es", "fr", "it", "nl", "pl", "pt", "ru"):
+        for lang in ("de", "es", "fr", "it", "nl", "pl", "pt", "ru", "zh"):
             data = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
             assert data["comb.handoff_adopt"].strip(), f"{lang}: comb.handoff_adopt is empty"
         ja_data = json.loads((LOCALES / "ja.json").read_text(encoding="utf-8"))

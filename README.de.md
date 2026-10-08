@@ -33,7 +33,7 @@ Benötigt Home Assistant 2026.4 oder neuer; 2026.6+ empfohlen für native IR-Emp
 - **Teste und poliere alles.** Sende jedes Signal über jeden Blaster, um es zu prüfen, bevor du ihm vertraust, gib Signalen Spitznamen, bearbeite einen Pronto-Code direkt, und lass HAIR erkannte Protokolle dekodieren (NEC, Sony, RC-5, Samsung und mehr) für eine sauberere Übertragung.
 - **Probier sie an.** Beweise eine Perücke an echter Hardware: Übernimm sie als Gerät, lebe damit, und bestätige beim Speichern in den Schrank Signal für Signal, was funktioniert hat. Der signierte Nachweis reist beim Teilen in der Perückendatei mit, und eine vollständig bewiesene Perücke trägt im Schrank ein grünes Häkchen.
 
-Das Panel spricht deine Sprache. Englisch, Spanisch, Französisch, Japanisch, Deutsch, Polnisch, Portugiesisch, Niederländisch, Italienisch und Russisch, automatisch nach der Sprache deines Home-Assistant-Profils.
+Das Panel spricht deine Sprache. Englisch, Spanisch, Französisch, Japanisch, Deutsch, Polnisch, Portugiesisch, Niederländisch, Italienisch, Russisch und Chinesisch, automatisch nach der Sprache deines Home-Assistant-Profils.
 
 > [!IMPORTANT]
 > Diese Übersetzung des HAIR-Panels wurde von einem Programmier-Assistenten entworfen und wartet auf die Durchsicht eines Muttersprachlers. Falls das du sein könntest: eine Durchsicht passt in einen einzigen Pull Request, und dein Name kommt in die Datei. Starte hier: [Adding a language](CONTRIBUTING.md#adding-a-language).

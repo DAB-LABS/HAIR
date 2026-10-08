@@ -656,8 +656,8 @@ Supported device types and resulting HA entities:
 - Screen -> cover (open, close, stop)
 - Other -> remote (generic IR command sender)
 
-Localization (v0.6.8): the panel and the config flow ship in ten languages
-(en, es, fr, ja, de, pl, pt/pt-BR, nl, it, ru). The panel follows the HA user's
+Localization (v0.6.8): the panel and the config flow ship in eleven languages
+(en, es, fr, ja, de, pl, pt/pt-BR, nl, it, ru, zh-Hans). The panel follows the HA user's
 profile language with English fallback. Non-English locales are
 programming-assistant drafts, marked "reviewer wanted" inside each
 dictionary file (the Spanish panel translation is native-speaker
@@ -707,7 +707,8 @@ Receiver architecture:
   overview, why-HAIR rationale, entity platform reference, Devices tab and Sniffer
   tab walkthroughs, installation and setup, and architecture diagram. Truncated
   translated READMEs (README.es.md, README.fr.md, README.ja.md, README.de.md,
-  README.pl.md, README.pt.md, README.nl.md, README.it.md, README.ru.md) sit at the
+  README.pl.md, README.pt.md, README.nl.md, README.it.md, README.ru.md,
+  README.zh.md) sit at the
   repo root, each carrying the pitch, install steps, and a pointer back to the full
   English documentation; they are drafted by a programming assistant, refreshed
   each release, and open for native-speaker ownership.

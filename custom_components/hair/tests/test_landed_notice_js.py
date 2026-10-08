@@ -166,7 +166,7 @@ class TestTheGateIsGone:
 
     def test_every_locale_carries_the_three_keys(self):
         locales = sorted((SRC / "locales").glob("*.json"))
-        assert len(locales) == 10
+        assert len(locales) == 11
         for path in locales:
             data = json.loads(path.read_text(encoding="utf-8"))
             for key in (
