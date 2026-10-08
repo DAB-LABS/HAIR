@@ -89,7 +89,7 @@ remote_receiver:
     number: GPIO33
     inverted: true          # most receiver modules idle high; flip this if nothing ever decodes
   clock_resolution: 400000  # 2.5us ticks; exact conversion, and it keeps the RMT divider legal on every ESP32
-  idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 82ms is the cap on C3/S3
+  idle: 80ms                # silence that ends a capture; clears every air-conditioner gap we know (Daikin ~35ms); 81.9ms is the cap on C3/S3
   receive_symbols: 384      # room for the longest press HAIR reads (Daikin 152, 293 pairs); ESPHome's default 192 cuts it
   rmt_symbols: 384          # original ESP32 only: the capture ends when this RMT memory is full; 6 of the 8 shared blocks of 64
   tolerance: 25%
