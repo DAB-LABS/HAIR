@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-10-08 -- Deep Condition
+
 ### Added
 
 - A Mitsubishi Electric 144-bit handset press is recognized as the button you pressed, whether the receiver hands over the whole press or only the frame that carries the settings. These remotes join the Daikins among the families HAIR identifies by the settings their field map reads, so a press finds its own state even though the handset writes its own clock into every press and the air moves every edge. The field map was corrected first: it read fan only as cool and auto as i-feel, because it ignored one bit of the mode; it judged the Fahrenheit labels some of these remotes use as Celsius temperatures, and now reads them as Fahrenheit labels; and it said i-feel carries a temperature, which it does not. A press the file stores under several temperatures, such as dry or fan only, is named for what it pins down, and a pinned unit's card keeps its temperature, as for the Daikins. On a code file built from captures, a press may now be named for another capture of the same setting, and a pinned unit is sent that capture, which carries the same setting. Because the map now reads these codes differently, findings you had answered on a Mitsubishi Electric 144-bit remote come back once to be answered again. Stored state indexes rebuild once on upgrade. Existing commands and triggers keep matching without being re-learned, and a trigger learned from one press now fires on every press of that setting, including presses that did not fire it before. Sniffer rows of one setting that this makes one signal merge into the oldest row, which keeps every name the rows had, joined with " / ".
