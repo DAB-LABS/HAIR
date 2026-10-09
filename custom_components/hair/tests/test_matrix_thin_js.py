@@ -539,7 +539,7 @@ class TestTheSaveDialogPointer:
 
     def test_every_locale_carries_the_pointer_and_the_editor_keys(self):
         locales = sorted((SRC / "locales").glob("*.json"))
-        assert len(locales) == 10
+        assert len(locales) == 11
         for path in locales:
             data = json.loads(path.read_text(encoding="utf-8"))
             for key in ("wigs.save.reason_thin", "devices.matrix_trimmed",

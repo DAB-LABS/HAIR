@@ -33,7 +33,7 @@ Wymaga Home Assistant 2026.4 lub nowszego; 2026.6+ zalecane dla natywnych odbior
 - **Testuj i szlifuj wszystko.** Wystrzel dowolny sygnał przez dowolny nadajnik, aby go sprawdzić, zanim mu zaufasz, nadawaj sygnałom przydomki, edytuj kod Pronto na miejscu, a rozpoznane protokoły (NEC, Sony, RC-5, Samsung i inne) HAIR zdekoduje dla czystszej transmisji.
 - **Przymierz ją.** Udowodnij perukę na prawdziwym sprzęcie: przyjmij ją jako urządzenie, żyj z nią, a przy zapisie do szafy potwierdź sygnał po sygnale, co zadziałało. Podpisany dowód podróżuje w pliku peruki, gdy ją udostępniasz, a w pełni udowodniona peruka nosi w szafie zielony znacznik.
 
-Panel mówi w Twoim języku. Angielski, hiszpański, francuski, japoński, niemiecki, polski, portugalski, niderlandzki, włoski i rosyjski, automatycznie według języka Twojego profilu Home Assistant.
+Panel mówi w Twoim języku. Angielski, hiszpański, francuski, japoński, niemiecki, polski, portugalski, niderlandzki, włoski, rosyjski i chiński, automatycznie według języka Twojego profilu Home Assistant.
 
 > [!IMPORTANT]
 > To tłumaczenie panelu HAIR zostało przygotowane przez asystenta programistycznego i czeka na przegląd rodzimego użytkownika języka. Jeśli to możesz być Ty: przegląd mieści się w jednym pull requeście, a Twoje nazwisko trafia do pliku. Zacznij tutaj: [Adding a language](CONTRIBUTING.md#adding-a-language).

@@ -33,7 +33,7 @@ Nécessite Home Assistant 2026.4 ou plus récent ; 2026.6+ recommandé pour les 
 - **Testez et peaufinez tout.** Envoyez n'importe quel signal par n'importe quel blaster pour le vérifier avant de lui faire confiance, donnez des surnoms aux signaux, modifiez un code Pronto sur place, et laissez HAIR décoder les protocoles reconnus (NEC, Sony, RC-5, Samsung et d'autres) pour une transmission plus propre.
 - **Essayez-la.** Prouvez une perruque sur du vrai matériel : adoptez-la comme appareil, vivez avec, puis attestez signal par signal ce qui a marché au moment d'enregistrer dans le placard. La preuve signée voyage dans le fichier de la perruque quand vous la partagez, et une perruque entièrement prouvée porte une coche verte dans le placard.
 
-Le panneau parle votre langue. Anglais, espagnol, français, japonais, allemand, polonais, portugais, néerlandais, italien et russe, en suivant automatiquement la langue de votre profil Home Assistant.
+Le panneau parle votre langue. Anglais, espagnol, français, japonais, allemand, polonais, portugais, néerlandais, italien, russe et chinois, en suivant automatiquement la langue de votre profil Home Assistant.
 
 > [!IMPORTANT]
 > Cette traduction du panneau HAIR a été rédigée par un assistant de programmation et attend la relecture d'un locuteur natif. Si cela pouvait être vous, une relecture tient dans une seule pull request et votre nom entre dans le fichier. Commencez ici : [Adding a language](CONTRIBUTING.md#adding-a-language).

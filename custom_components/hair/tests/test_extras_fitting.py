@@ -872,7 +872,7 @@ class TestTheDialogSource:
 
     def test_every_locale_carries_the_main_heading(self):
         locales = sorted((FRONTEND / "src" / "locales").glob("*.json"))
-        assert len(locales) == 10
+        assert len(locales) == 11
         for path in locales:
             data = json.loads(path.read_text(encoding="utf-8"))
             assert data.get("wigs.save.peer_main", "").strip(), path.name

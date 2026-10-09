@@ -30,7 +30,7 @@ import pytest
 
 SRC = Path(__file__).parent.parent / "frontend" / "src"
 LOCALES = SRC / "locales"
-LOCALE_NAMES = ("en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru")
+LOCALE_NAMES = ("en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru", "zh")
 
 #: The owner walked section 4 of plucker-constant-tab-plan.md line by
 #: line and edited it, twice: round one, then round two after reviewing

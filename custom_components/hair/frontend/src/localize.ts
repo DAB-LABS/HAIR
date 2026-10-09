@@ -41,6 +41,7 @@ import nl from "./locales/nl.json";
 import pl from "./locales/pl.json";
 import pt from "./locales/pt.json";
 import ru from "./locales/ru.json";
+import zh from "./locales/zh.json";
 
 type Dictionary = Record<string, string>;
 
@@ -62,6 +63,11 @@ const DICTIONARIES: Record<string, Dictionary> = {
     // language choices; pt-BR resolves here via the base-language rule.
     pt: pt as Dictionary,
     ru: ru as Dictionary,
+    // One Simplified Chinese dictionary serves every Chinese tag:
+    // zh-Hans and zh-CN resolve here directly or via the base-language
+    // rule, and zh-Hant reads it too rather than falling back to
+    // English. Same trade-off as the single pt dictionary above.
+    zh: zh as Dictionary,
 };
 
 let _lang = "en";

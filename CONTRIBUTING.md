@@ -129,7 +129,7 @@ HAIR ships curated ESPHome IR configurations in [`esphome/`](esphome/). If you h
 
 ## Adding a language
 
-The HAIR panel is fully localizable. Adding a language is a two-file PR, and the test suite tells you when you are done.
+The HAIR panel is fully localizable. Adding a language starts with two dictionaries and touches a few more files so the new locale actually ships, and the test suite tells you when you are done.
 
 ### Translation status
 
@@ -145,6 +145,7 @@ The HAIR panel is fully localizable. Adding a language is a two-file PR, and the
 | Dutch (nl) | yes | yes | programming-assistant draft, native reviewer wanted |
 | Italian (it) | yes | yes | programming-assistant draft, native reviewer wanted |
 | Russian (ru) | yes | yes | programming-assistant draft, native reviewer wanted |
+| Chinese, Simplified (zh-Hans) | yes | yes | programming-assistant draft, native reviewer wanted |
 
 Assistant-drafted locales ship live on purpose: imperfect French beats English for a French user, and visible strings are the best way to find the person who will polish them. If that person is you, open a PR that corrects the values and flips the file's `_meta.review` marker to `reviewed by @yourhandle, <date>`. That marker is a real key in every panel dictionary (never rendered), so the parity tests force each locale to declare where it stands.
 
@@ -152,6 +153,9 @@ Assistant-drafted locales ship live on purpose: imperfect French beats English f
 2. Copy `custom_components/hair/translations/en.json` to `translations/<lang>.json` and translate it the same way. This file covers the config flow and follows Home Assistant's nested format.
 3. Wire the panel dictionary into `custom_components/hair/frontend/src/localize.ts`: add an import and a `DICTIONARIES` entry (two lines, the file header shows where).
 4. Run `pytest custom_components/hair/tests/test_locales.py`. It checks key parity, `{placeholder}` parity, and brand names.
+5. Rebuild the panel bundle so the new dictionary ships: `cd custom_components/hair/frontend && npm install && npm run build`, then commit the rebuilt `dist/ha-panel-ir-devices.js` together with its sources.
+6. Add a truncated `README.<lang>.md` at the repo root like the other translated READMEs: the pitch, the install steps, a pointer back to `README.md`, the `CONTRIBUTING.md#adding-a-language` link, and the current version stamp (`v<version from manifest.json>`). `test_locales.py` fails on a missing file or a stale stamp.
+7. Add your language everywhere the shipped set is listed: the status table above, `README.md`, `info.md`, `llms.txt`, the language line in the other translated READMEs, and the `len(locales)` assertions in `test_extras_fitting.py`, `test_landed_notice_js.py`, `test_matrix_thin_js.py` and `test_matrix_lattice_js.py`.
 
 Rules that the tests enforce:
 

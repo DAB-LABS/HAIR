@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Simplified Chinese (`zh-Hans`) for the panel and the config flow, drafted by a programming assistant and marked "reviewer wanted" in both files. The panel dictionary carries every key `en.json` has, brand names ride through verbatim, and a truncated `README.zh.md` sits at the repo root like the other translated READMEs. `zh-Hans` resolves directly and `zh-CN` via the base-language rule; `zh-Hant` readers get the Simplified dictionary rather than English, the same trade-off the single `pt` dictionary makes for `pt-BR`. HAIR's own words use functional terms rather than the barbershop metaphor -- a Wig is a 码组, the Closet is the 码库柜, a Fitting is 实机验证, the Comb is 自检 -- and `Blaster` stays English, as it does in the German, French and Dutch dictionaries, because it names a device class that every Chinese candidate collides with (`遥控器` is the handset, `发射器` is the emitter entity). Every one of the 1145 rows was reviewed against the English, and the review found real errors: `wigs.kind.receiver` had rendered the AV receiver as `接收器`, this project's word for the IR receiver entity; `vocab.fan_*` labelled fan speeds `送风`, which is the fan-only mode; and `mirror.unknown_hint` rendered `fired` as `已触发`, colliding with `trigger`. The `vocab.*` collision CONTRIBUTING warns about came back clean -- no two keys share a Chinese value, checked with `vocabulary.py`'s own algorithm across all eleven locales.
+
+### Changed
+
+- The docs now say eleven languages instead of ten: `README.md`, `info.md`, `llms.txt`, the language line in each translated README, and the status table in `CONTRIBUTING.md`.
+- The four tests that pin the shipped locale count -- `test_extras_fitting.py`, `test_landed_notice_js.py`, `test_matrix_thin_js.py` and `test_matrix_lattice_js.py` -- move from ten to eleven. Their `len(locales)` assertion is a tripwire for a dictionary going missing, so adding a language has to move it with the file.
+- `CONTRIBUTING.md`'s "Adding a language" section no longer calls the job a two-file PR. It now lists the bundle rebuild, the truncated `README.<lang>.md`, and the places that enumerate the shipped languages, which is what the eleven-language addition actually touched.
+- Six more places enumerated the shipped languages, and no test kept them in step with the directory, so a new dictionary landed outside every per-locale loop in them: the `LOCALE_NAMES` tuples in `test_fitting_two_names.py`, `test_kind_list.py`, `test_plucker_constant_tab.py` and `test_polish_rulings.py`; the `KIND_LIST` label parametrize in `test_locales.py`; and the "`comb.handoff_adopt` is not empty" loop in `test_polish_rulings.py`. All six now include `zh`. The count assertions moved because a dictionary went missing would break them; these moved because a dictionary arrived and they silently kept checking ten.
+
 ## [0.17.2] - 2026-10-08 -- Deep Condition
 
 ### Added
