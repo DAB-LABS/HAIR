@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A page toolbar's tagline no longer breaks mid-phrase on a phone. `.toolbar-title` is a flex row holding the icon, title, count and tagline, and it had no wrap, so the tagline was squeezed into a narrow column and wrapped inside it: on a 390px viewport the Closet tagline occupied two lines inside 246px and the title beside it was squeezed with it. The six `.toolbar-title` rules now wrap, the reasoning `.toolbar` directly above already records -- a no-op wherever the row already fits, and elsewhere the tagline drops to a line of its own. Measured at 358px of content: the Closet tagline is one line at 285px, an English air-conditioner tagline goes from four lines to two, every row that already fit is unchanged, and desktop is untouched.
+
 ## [0.17.2] - 2026-10-08 -- Deep Condition
 
 ### Added
