@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A lone Daikin settings frame closed by a receiver's short idle time is now recognized by its settings. A receiver ends every capture with its own idle as the last silence, and at ESPHome's default of 10 ms that silence is shorter than the gap a Daikin 216 frame ends with, so the settings identity took it for one more pulse, refused the frame, and the press was recognized only by the shape of its waveform. HAIR's settings identity now treats the last silence of a capture as its end, the way it already did for every stored code, so a press finds its state from its settings whether the receiver idles 10 ms or 80 ms.
+
 ## [0.17.2] - 2026-10-08 -- Deep Condition
 
 ### Added

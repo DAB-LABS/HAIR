@@ -166,7 +166,9 @@ implement, in order:**
    as coverage rather than as a field reading.
 
 `classify: mark` inverts steps 4 and 5 for pulse-width families. None of the maps
-in this directory need it yet; it is in the schema because the shape exists.
+in this directory need it yet; it is in the schema because the shape exists. A map that uses it
+needs identity's trailing-space strip revisited first: identity drops a capture's last
+space as its terminator, which is only safe while the bit is in the space.
 
 Windows are stated as observed, not as nominal plus a tolerance: they come from
 measuring every cell of every file in the family and padding the 1st and 99th

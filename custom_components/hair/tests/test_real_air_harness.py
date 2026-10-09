@@ -27,6 +27,21 @@ values other than the file's); and ``glitched`` (the model's glitched
 presses, and how many of them were still heard as their own cell or
 formed their own key).
 
+THE CLOSING SPACE. A receiver closes every capture with its own idle
+time, whatever gap the code had. The model's presses and pieces keep the
+file code's own closing (its trailing word, or the gap a piece was cut
+at), so every press and piece is also counted re-closed at each idle in
+``CLOSINGS``: ``closed_read`` (whole unglitched presses ``read_code``
+reads), ``closed_key`` (listed families, the ``key`` figure again) and
+``closed_heard_wrong``. This re-closes each variant; it does not model a
+receiver's own split or join (a 10 ms receiver also cuts DAIKIN216 at
+its 29.7 ms gap, which the pieces already cover; an 80 ms receiver joins
+every two-frame press, which ``RECEIVER_BUFFER`` counts). The
+dimension exists because a 10 ms closing space under DAIKIN216's 11 ms
+``gap_min`` once kept every lone Daikin settings frame from keying on
+the air while the model, closing at the file's own gap, saw nothing
+(fake-remote air bench, 2026-10-05).
+
 THE MODEL IS DETERMINISTIC. ``_air`` seeds a string, and the salt is a
 sha256 of the normalized code, never ``hash()``, so every figure is an
 exact count, the same on every run, every ``PYTHONHASHSEED``, both
@@ -55,6 +70,7 @@ import functools
 import gzip
 import hashlib
 import json
+import types
 
 import pytest
 
@@ -62,6 +78,7 @@ from custom_components.hair import field_readers as fr
 from custom_components.hair import identity as idm
 from custom_components.hair.event_parser import EventParser
 from custom_components.hair.matrix_listener import _coords, build_cell_index
+from custom_components.hair.signal_monitor import normalize
 from custom_components.hair.wig_format import ClimateCell, ClimateMatrix, cell_key
 
 from .conftest import real_air_missing
@@ -81,12 +98,19 @@ pytestmark = pytest.mark.real_air
 #: moves ``MODEL_DIGEST`` as well as the figures.
 PRESSES = {"esphome": (0, 3, 4, 19), "broadlink": (0, 2, 3, 7)}
 
+#: The receiver idles every press and piece is also closed at, in
+#: microseconds: ESPHome's default ``idle`` (10 ms, the stock Athom
+#: package) and the value the ESPHome configs ship since #196 (80 ms).
+#: Part of the model: changing it moves ``MODEL_DIGEST``.
+CLOSINGS = (10_000, 80_000)
+
 #: sha256 over ``_press`` for the first cell of every pack at every
-#: chosen press. A change to ``_air``, the salt or the press set fails
-#: here as a model change, never as fifteen map changes.
+#: chosen press, each also re-closed at every idle in ``CLOSINGS``. A
+#: change to ``_air``, the salt, the press set or the closing fails here
+#: as a model change, never as fifteen map changes.
 MODEL_DIGEST = (
-    "49dc07df1d52e9ce4051b1a98dc87929"
-    "ec52ad97b9847f00bc45d9cba77ef96b"
+    "3432b2d499b58f91e6f0af90f3622388"
+    "73902c5ddceaa359dcb933e8873dddd5"
 )
 
 REMEASURE_MAP = (
@@ -117,8 +141,27 @@ def _press(pronto: str, press: int, transmitter: str) -> tuple[str, bool]:
     return _air(pronto, press, transmitter, salt=_salt(pronto))
 
 
+def _closed(pronto: str, idle_us: int) -> str:
+    """``pronto`` with its closing space set to a receiver's idle: what a
+    receiver with that ``idle`` hands over for the same burst."""
+    words = pronto.split()
+    tick = int(words[1], 16) * fr._PRONTO_TICK_US
+    words[-1] = f"{round(idle_us / tick):04X}"
+    return " ".join(words)
+
+
 def _words(pronto: str) -> list[int]:
     return [int(w, 16) for w in pronto.split()]
+
+
+def _read_train(pronto: str) -> list[int]:
+    """The train ``read_code`` walks: trailing Pronto zeros removed and
+    nothing else. Not ``identity._stripped``, which also drops the
+    closing space (identity's rule, not the reader's)."""
+    train = fr.pronto_microseconds(pronto)
+    while train and train[-1] == 0:
+        train.pop()
+    return train
 
 
 def _cut_points(pronto: str, gap_us: float) -> frozenset[int]:
@@ -364,15 +407,25 @@ class Figures:
     wrong_key: int = 0
     wrong_state: int = 0
     heard_wrong: int = 0
+    # ``read`` again, every press re-closed at each idle in ``CLOSINGS``
+    # in turn: (accurate, blaster) per idle, in ``CLOSINGS`` order
+    closed_read: tuple[int, ...] = (0, 0, 0, 0)
+    # listed only: ``key`` again, re-closed, its four counts per idle
+    closed_key: tuple[int, ...] | None = None
+    # ``heard_wrong`` over every re-closed press and piece, every idle
+    closed_heard_wrong: int = 0
 
     def line(self, pid: str) -> str:
         """The literal to paste into ``FIGURES``, dated today."""
-        version, pack, read, key, glitched, *rest = dataclasses.astuple(self)
-        tail = ", ".join(str(v) for v in rest)
+        (version, pack, read, key, glitched, wrong_key, wrong_state,
+         heard_wrong, closed_read, closed_key,
+         closed_heard_wrong) = dataclasses.astuple(self)
         return (
             f'    "{pid}": (  # measured {datetime.date.today().isoformat()}\n'
             f'        "{version}", "{pack}",\n'
-            f"        {read}, {key}, {glitched}, {tail},\n"
+            f"        {read}, {key}, {glitched}, {wrong_key}, {wrong_state}, "
+            f"{heard_wrong},\n"
+            f"        {closed_read}, {closed_key}, {closed_heard_wrong},\n"
             f"    ),"
         )
 
@@ -471,6 +524,8 @@ def measure(pid: str) -> tuple[Figures, Audit]:
     read = collections.Counter()
     keyed = collections.Counter()
     heard_own = collections.Counter()
+    closed_read = collections.Counter()
+    closed_keyed = collections.Counter()
     glitched = glitched_found = 0
     for cell in matrix.cells:
         coords = _coords(cell)
@@ -489,7 +544,7 @@ def measure(pid: str) -> tuple[Figures, Audit]:
                 for shape, variant in _variants(cell.pronto, heard, gap):
                     audit.variants += 1
                     whole = shape == "whole"
-                    train = idm._stripped(fr.pronto_microseconds(variant))
+                    train = _read_train(variant)
                     own_why = None
                     for other in maps.values():
                         why = _walk_agrees(other, train, other is field_map, audit)
@@ -556,12 +611,45 @@ def measure(pid: str) -> tuple[Figures, Audit]:
                 elif listed:
                     keyed[(tx, "whole")] += whole_key
                     keyed[(tx, "split")] += split_key
+                # The same press and pieces, each re-closed at a
+                # receiver's idle: read, key and hearing only. The walk
+                # audit above runs on the file's own closing; these
+                # trains differ from it only in their last space.
+                for idle in CLOSINGS:
+                    whole_key = split_key = False
+                    for shape, variant in _variants(cell.pronto, heard, gap):
+                        whole = shape == "whole"
+                        variant = _closed(variant, idle)
+                        if whole and not is_glitched:
+                            closed_read[(idle, tx)] += (
+                                fr.read_code(variant).protocol_id == pid)
+                        key = EventParser.pronto_read_key(variant)
+                        if listed and key is not None and key == own_key:
+                            whole_key |= whole
+                            split_key |= not whole
+                        identity = press_identity(variant)
+                        hit = None if identity is None else index.match(*identity)
+                        if hit is not None:
+                            cell_hit = hit[0]
+                            fig.closed_heard_wrong += not (
+                                cell_hit.power is None and (
+                                    _hit_coords(cell_hit) == coords
+                                    or coords in cell_hit.members))
+                    if listed and not is_glitched:
+                        closed_keyed[(idle, tx, "whole")] += whole_key
+                        closed_keyed[(idle, tx, "split")] += split_key
 
     fig.read = (read[("esphome", "read")], read[("esphome", "n")],
                 read[("broadlink", "read")], read[("broadlink", "n")])
     if listed:
         fig.key = (keyed[("esphome", "whole")], keyed[("esphome", "split")],
                    keyed[("broadlink", "whole")], keyed[("broadlink", "split")])
+    fig.closed_read = tuple(
+        closed_read[(idle, tx)] for idle in CLOSINGS for tx in PRESSES)
+    if listed:
+        fig.closed_key = tuple(
+            closed_keyed[(idle, tx, shape)] for idle in CLOSINGS
+            for tx in PRESSES for shape in ("whole", "split"))
     fig.glitched = (glitched, glitched_found)
     audit.own_heard = (heard_own["esphome"], read[("esphome", "n")],
                        heard_own["broadlink"], read[("broadlink", "n")])
@@ -570,67 +658,87 @@ def measure(pid: str) -> tuple[Figures, Audit]:
 
 #: One line per map, each dated the day it was measured:
 #: (map version, pack sha256[:12], read, key, glitched, wrong_key,
-#: wrong_state, heard_wrong). See ``Figures`` for each figure.
+#: wrong_state, heard_wrong, closed_read, closed_key,
+#: closed_heard_wrong). See ``Figures`` for each figure.
 FIGURES: dict[str, tuple] = {
-    "AUX104": (  # measured 2026-10-03
+    "AUX104": (  # measured 2026-10-06
         "d0935d54602a24a9", "b167a767d155",
         (480, 480, 240, 240), None, (240, 13), 0, 0, 0,
+        (480, 240, 480, 240), None, 0,
     ),
-    "CHIGO96B": (  # measured 2026-10-03
+    "CHIGO96B": (  # measured 2026-10-06
         "6430185d13ab50a0", "ea9789e58b54",
         (240, 240, 111, 120), None, (120, 0), 0, 0, 0,
+        (240, 111, 240, 111), None, 0,
     ),
-    "DAIKIN152": (  # measured 2026-10-03
+    "DAIKIN152": (  # measured 2026-10-06
         "ceb4988ec73d2731", "0a6885d0ca72",
         (240, 240, 115, 120), (240, 240, 115, 120), (120, 86), 0, 0, 0,
+        (240, 115, 240, 115), (240, 240, 115, 120, 240, 240, 115, 120), 0,
     ),
-    "DAIKIN216": (  # measured 2026-10-03
+    # closed_read at 10 ms is (0, 0): read_code walks the closing space
+    # (the option A follow-up, left as is by ruling). No receiver hands
+    # over this train: a 10 ms idle splits the press at its 29.7 ms gap,
+    # and the pieces' keys are the closed_key figures.
+    "DAIKIN216": (  # measured 2026-10-06
         "5d703155104b885f", "98b4048ab976",
         (800, 800, 396, 400), (800, 800, 396, 400), (400, 254), 0, 0, 0,
+        (0, 0, 800, 396), (800, 800, 396, 400, 800, 800, 396, 400), 0,
     ),
-    "FUJITSU128": (  # measured 2026-10-03
+    "FUJITSU128": (  # measured 2026-10-06
         "3170604d23b900ed", "ac0419b43ebb",
         (372, 480, 156, 240), None, (240, 108), 0, 0, 0,
+        (372, 156, 372, 156), None, 0,
     ),
-    "GREE": (  # measured 2026-10-03
+    "GREE": (  # measured 2026-10-06
         "780b814d907167e3", "01d505d7b5e2",
         (320, 320, 160, 160), None, (160, 44), 0, 1, 3,
+        (320, 160, 320, 160), None, 6,
     ),
-    "MHI152": (  # measured 2026-10-03
+    "MHI152": (  # measured 2026-10-06
         "fabd77ead6afc643", "0459b8c87dfd",
         (320, 320, 159, 160), None, (160, 76), 0, 0, 0,
+        (320, 159, 320, 159), None, 0,
     ),
-    "MHI160": (  # measured 2026-10-03
+    "MHI160": (  # measured 2026-10-06
         "bba131b4bff3d00e", "8f5fe6835017",
         (192, 192, 47, 96), None, (96, 9), 0, 0, 0,
+        (192, 47, 192, 47), None, 0,
     ),
-    "MHI48": (  # measured 2026-10-03
+    "MHI48": (  # measured 2026-10-06
         "2337b9c498fee532", "fad45f1c35d0",
         (192, 192, 77, 96), None, (96, 18), 0, 0, 0,
+        (192, 77, 192, 77), None, 0,
     ),
-    "MIDEA_COOLIX": (  # measured 2026-10-03
+    "MIDEA_COOLIX": (  # measured 2026-10-06
         "d50eee7049af3556", "49009f52efca",
         (240, 240, 120, 120), None, (120, 33), 0, 0, 0,
+        (240, 120, 240, 120), None, 0,
     ),
-    "MITSUBISHI144": (  # measured 2026-10-03
+    "MITSUBISHI144": (  # measured 2026-10-06
         "89dde7274a96b5b4", "c89d24ffa929",
         (960, 960, 470, 480), (960, 960, 470, 480), (480, 480), 0, 0, 0,
+        (960, 470, 960, 470), (960, 960, 470, 480, 960, 960, 470, 480), 0,
     ),
-    "OEM112": (  # measured 2026-10-03
+    "OEM112": (  # measured 2026-10-06
         "337f06d3bbbc3305", "ec42e36360eb",
         (960, 960, 478, 480), None, (480, 225), 0, 0, 0,
+        (960, 478, 960, 478), None, 0,
     ),
-    "PANASONIC216": (  # measured 2026-10-03
+    "PANASONIC216": (  # measured 2026-10-06
         "d2deab1e897d3667", "72d6013f1f7d",
         (155, 640, 96, 320), None, (320, 208), 0, 0, 0,
+        (155, 96, 155, 96), None, 0,
     ),
-    "TCL112": (  # measured 2026-10-03
+    "TCL112": (  # measured 2026-10-06
         "d892bc53b040164d", "e760706aba0e",
         (800, 800, 395, 400), None, (400, 1), 0, 1, 0,
+        (800, 395, 800, 395), None, 0,
     ),
-    "ZHLT01": (  # measured 2026-10-03
+    "ZHLT01": (  # measured 2026-10-06
         "6480fb092e637235", "06277c4470a8",
         (480, 480, 240, 240), None, (240, 0), 0, 0, 0,
+        (480, 240, 480, 240), None, 0,
     ),
 }
 
@@ -683,6 +791,12 @@ def test_every_map_has_a_pack_and_a_line():
 
 def test_every_listed_family_has_key_figures():
     listed = {pid for pid, line in FIGURES.items() if line[3] is not None}
+    closed = {pid for pid, line in FIGURES.items() if line[9] is not None}
+    assert closed == listed, (
+        "key and closed_key go together: a listed family has both, any "
+        f"other family neither (key: {sorted(listed)}, closed_key: "
+        f"{sorted(closed)})"
+    )
     verified = set(idm.READ_BYTES_VERIFIED)
     assert listed == verified, (
         f"on READ_BYTES_VERIFIED without key figures: "
@@ -714,7 +828,7 @@ def test_a_raised_or_lowered_literal_fails():
                 with pytest.raises(AssertionError):
                     check(pid, measured, tuple(literal))
                 tried += 1
-    assert tried == 2 * (4 + 2 + 3)
+    assert tried == 2 * (4 + 2 + 3 + 2 * len(CLOSINGS) + 1)
     with pytest.raises(AssertionError, match="the map changed: re-measure"):
         check(pid, measured, ("another version", *line[1:]))
     with pytest.raises(AssertionError, match="the pack changed: re-measure"):
@@ -730,6 +844,106 @@ def test_no_read_key_is_wrong():
         _packs(), 0)
 
 
+def test_a_receivers_closing_space_keys_as_the_files_gap_does():
+    """A capture's last space is its terminator, not data. Every listed
+    family forms its key re-closed at each receiver idle in ``CLOSINGS``
+    exactly as often as at the file code's own gap, whole and split.
+    Before the closing-space round DAIKIN216 formed no key at 10 ms and
+    DAIKIN152's pieces none either, while the fake-remote air bench's
+    receiver (ESPHome's default idle) hands every capture over at 10 ms."""
+    for pid in sorted(idm.READ_BYTES_VERIFIED):
+        fig = measure(pid)[0]
+        per_idle = {
+            idle: fig.closed_key[4 * i:4 * i + 4]
+            for i, idle in enumerate(CLOSINGS)
+        }
+        assert per_idle == dict.fromkeys(CLOSINGS, fig.key), (
+            f"{pid}: key at the file's own gap {fig.key}, re-closed "
+            f"{per_idle}. A receiver's idle changed what the read key "
+            "sees: identity's train (identity._stripped) has to drop the "
+            "capture's closing space before any map walks it"
+        )
+
+
+def _capture_path_identity(pronto: str) -> tuple:
+    """A press as the box computes it: the receiver's timings, closing
+    space included, through the native receiver path
+    (``EventParser.parse_received_signal``) and ``normalize``. Not
+    through ``ProntoCommand``, whose constructor drops the closing space
+    the way every stored identity does."""
+    timings = fr.pronto_microseconds(pronto)
+    while timings and timings[-1] == 0:
+        timings.pop()  # a receiver reports no zero-length space
+    signal = types.SimpleNamespace(timings=timings, modulation=38000)
+    n = normalize(EventParser.parse_received_signal(signal))
+    return (n.decoded_fingerprint, n.sig_fp, n.byte_hash, n.norm_fp,
+            n.decode_covers)
+
+
+def test_the_harness_hears_as_the_capture_path_does():
+    """``press_identity`` reaches identity through the stored (canonical)
+    path; the box reaches it from the received Pronto, closing space and
+    all. The two once disagreed on exactly the closing-space class, so
+    every hearing figure here was blind to it. Over every press, piece
+    and closing of the first four cells of every pack they must agree,
+    or the harness measures a different road from the box's."""
+    checked = 0
+    for pid in _packs():
+        gap = _maps()[pid].timing.gap_min
+        for cell in _matrix(pid).cells[:4]:
+            for tx, presses in PRESSES.items():
+                for press in presses:
+                    heard, _glitched = _press(cell.pronto, press, tx)
+                    for _shape, variant in _variants(cell.pronto, heard, gap):
+                        for pronto in (variant, *(_closed(variant, idle)
+                                                  for idle in CLOSINGS)):
+                            assert _capture_path_identity(pronto) == (
+                                press_identity(pronto)), (pid, cell_key(cell),
+                                                          tx, press)
+                            checked += 1
+    assert checked > 4000
+
+
+#: Per map: how many of the pack's whole file codes run past 192 pulse
+#: pairs, and how many of the longest captures a receiver with each
+#: idle in ``CLOSINGS`` hands over do (a receiver splits a code at any
+#: space at least its idle long). A classic ESP32 receiving with
+#: ESPHome's default ``rmt_symbols: 192`` cuts every capture there: the
+#: fake-remote air bench's Athom delivered 193 pairs of every longer
+#: code. Measurement for the receiver docs, not an engine figure.
+RECEIVER_BUFFER: dict[str, tuple[int, int, int]] = {
+    "AUX104": (0, 0, 0),
+    "CHIGO96B": (0, 0, 0),
+    "DAIKIN152": (60, 60, 60),
+    "DAIKIN216": (200, 0, 200),
+    "FUJITSU128": (0, 0, 0),
+    "GREE": (0, 0, 0),
+    "MHI152": (0, 0, 0),
+    "MHI160": (0, 0, 0),
+    "MHI48": (0, 0, 0),
+    "MIDEA_COOLIX": (0, 0, 0),
+    "MITSUBISHI144": (240, 240, 240),
+    "OEM112": (0, 0, 0),
+    "PANASONIC216": (160, 160, 160),
+    "TCL112": (200, 200, 200),
+    "ZHLT01": (0, 0, 0),
+}
+
+
+def _receiver_buffer(pid: str) -> tuple[int, int, int]:
+    cells = _matrix(pid).cells
+    pairs = [sum(_words(c.pronto)[2:4]) for c in cells]
+    return (
+        sum(n > 192 for n in pairs),
+        *(sum(max(int(p.split()[2], 16) for p in map_split(c.pronto, idle))
+              > 192 for c in cells) for idle in CLOSINGS),
+    )
+
+
+def test_the_receiver_buffer_counts():
+    assert {pid: _receiver_buffer(pid) for pid in _packs()} == RECEIVER_BUFFER
+
+
 def test_the_wrong_hearings_and_states_are_the_known_ones():
     """Not an invariant: the base's measured defects, pinned so they can
     only move on purpose. GREE's three are glitched blaster presses the
@@ -738,8 +952,13 @@ def test_the_wrong_hearings_and_states_are_the_known_ones():
     bit that still fits its layout."""
     heard = {pid: measure(pid)[0].heard_wrong for pid in _packs()}
     state = {pid: measure(pid)[0].wrong_state for pid in _packs()}
+    closed = {pid: measure(pid)[0].closed_heard_wrong for pid in _packs()}
     assert {pid: n for pid, n in heard.items() if n} == {"GREE": 3}
     assert {pid: n for pid, n in state.items() if n} == {"GREE": 1, "TCL112": 1}
+    # The same three GREE presses, once at each receiver idle: a closing
+    # space neither causes a wrong hearing nor hides one.
+    assert {pid: n for pid, n in closed.items() if n} == {
+        "GREE": 3 * len(CLOSINGS)}
 
 
 # ---------------------------------------------------------------------------
@@ -755,14 +974,16 @@ def _model_digest() -> str:
             for press in presses:
                 heard, glitched = _press(first, press, tx)
                 digest.update(f"{pid}|{tx}|{press}|{glitched}|{heard}\n".encode())
+                for idle in CLOSINGS:
+                    digest.update(f"{idle}|{_closed(heard, idle)}\n".encode())
     return digest.hexdigest()
 
 
 def test_the_model_is_the_model():
     assert _model_digest() == MODEL_DIGEST, (
-        "the air model moved (_air, the salt or PRESSES): every line moves "
-        "with it; re-measure them all and MODEL_DIGEST together, and say "
-        "in the PR why the model changed"
+        "the air model moved (_air, the salt, PRESSES or CLOSINGS): every "
+        "line moves with it; re-measure them all and MODEL_DIGEST together, "
+        "and say in the PR why the model changed"
     )
 
 
@@ -908,7 +1129,7 @@ def test_the_air_path_rows(lattice):
                 assert fr.read_code(pronto).protocol_id is None
                 assert key is None, row["first_seen"]
                 why = fr.walk_refusal(
-                    timing, idm._stripped(fr.pronto_microseconds(pronto)))
+                    timing, _read_train(pronto))
                 assert (why.pair, why.window) == (139, "unit")
                 assert why.mark_us < timing.unit.minimum
                 assert heard == UNREAD_ROWS[row["first_seen"]][column]
@@ -995,8 +1216,9 @@ def table() -> str:
     rows = [
         "| map | read acc | read bl | key | glitched (found) | wrong key "
         "| wrong state | heard wrong | heard own acc | heard own bl "
-        "| clean whole refused: walk / after |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| clean whole refused: walk / after | closed read | closed key "
+        "| closed heard wrong | over 192 pairs: whole / at each idle |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for pid in _packs():
         fig, audit = measure(pid)
@@ -1010,7 +1232,9 @@ def table() -> str:
             f"| {pid} | {a}/{n} | {b}/{m} | {fig.key or '-'} | "
             f"{fig.glitched[0]} ({fig.glitched[1]}) | {fig.wrong_key} | "
             f"{fig.wrong_state} | {fig.heard_wrong} | {ha}/{n} | {hb}/{m} | "
-            f"{walk} / {after} |"
+            f"{walk} / {after} | {fig.closed_read} | {fig.closed_key or '-'} | "
+            f"{fig.closed_heard_wrong} | "
+            f"{' / '.join(map(str, _receiver_buffer(pid)))} |"
         )
     return "\n".join(rows)
 

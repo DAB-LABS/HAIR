@@ -573,7 +573,11 @@ class TestTheIndexComparesStates:
 
 class TestEveryOtherFamilyHoldsStill:
     """The byte hash moves only where a read key exists, and a read key
-    exists only for a code that reads as a listed family."""
+    exists only for a code that reads as a listed family, or for a lone
+    frame the shared-frame answer keys (a settings frame two listed
+    families share, which no layout attributes to either, so
+    ``read_code`` declines it). None of those was in the corpus until
+    the closing-space round's bench captures (fixtures/air-path)."""
 
     @staticmethod
     def _codes():
@@ -607,7 +611,10 @@ class TestEveryOtherFamilyHoldsStill:
                 ), source
                 unmoved += 1
             else:
-                assert read_code(code).protocol_id in READ_BYTES_VERIFIED
+                if read_code(code).protocol_id not in READ_BYTES_VERIFIED:
+                    timings = EventParser._pronto_us(
+                        EventParser._parse_pronto_words(code))
+                    assert idm._read_bytes(timings)[1] is None, source
                 moved += 1
         assert unmoved > moved > 0
 
