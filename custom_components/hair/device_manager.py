@@ -803,6 +803,7 @@ class DeviceManager:
             build_decoded_command,
             carrier_or_default,
         )
+        from .protocol_decode import carrier_allows_rebuild
 
         # Prefer canonical encode-from-decoded when the command carries a
         # decoded protocol identity and the user has not pinned it to the
@@ -855,6 +856,9 @@ class DeviceManager:
             and not command.tx_force_raw
             and not is_matrix_state
             and command.decode_covers is not False
+            and carrier_allows_rebuild(
+                command.decoded_protocol, command.frequency
+            )
         ):
             ir_cmd = build_decoded_command(
                 command.decoded_protocol,
