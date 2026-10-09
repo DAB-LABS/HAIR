@@ -1936,9 +1936,17 @@ export class IrSignalMonitor extends LitElement {
         .toolbar-title-group {
             display: flex;
         }
+        /* Unconditional wrap, for the reason .toolbar above gives: a
+           no-op wherever the icon, title, count and tagline fit on one
+           line, and elsewhere the tagline drops to a line of its own
+           rather than being squeezed into a narrow column beside the
+           title. Measured at 358px of content (a 390px phone): the
+           Closet tagline occupied two lines inside 246px before this,
+           and one line at 285px after it. */
         .toolbar-title {
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 8px;
             font-size: 1.1rem;
             font-weight: 500;
