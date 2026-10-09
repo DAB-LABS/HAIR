@@ -648,9 +648,37 @@ def read_bytes_families() -> tuple[str, ...]:
 
 
 def _stripped(timings: list[int] | None) -> list[int]:
-    """The train ``field_readers`` walks: trailing Pronto zeros removed."""
+    """The train identity hands ``field_readers``: trailing Pronto zeros
+    removed, then a trailing space. The ``canonical_edges`` rule, kept
+    here with the values and signs as given.
+
+    A CAPTURE'S LAST SPACE IS ITS TERMINATOR, NOT DATA. A receiver
+    closes every capture with its own idle time, and a file closes a
+    code with whatever gap its source wrote, so the space after the last
+    mark says how the code was handed over, never what it carries: every
+    map here classifies by the space of a pair, so the last pair is a
+    stop mark and that terminator, with no bit in it. Walked as data, a
+    receiver's idle that falls between two maps' frame gaps reads as one
+    more bit pair under the longer gap's timing and refuses. ESPHome's
+    default 10 ms idle sits under DAIKIN216's 11 ms gap, so before this
+    every lone Daikin settings frame from such a receiver formed no read
+    key, while the same frame from a file formed it: stored identities
+    come through ``canonical_byte_hash``, which always dropped this
+    space, and a live capture did not (fake-remote air bench,
+    2026-10-05: 0 of 2,300 lone Daikin settings frames keyed; all 2,300
+    after this change, with no other identity moving).
+
+    Position, not sign, says mark or space: an even-length train ends on
+    a space. Every identity read goes through here (``_read_bytes`` and
+    its three answers, ``lone_frame_candidates``, the setting-frame
+    spans and edges), so the capture path and the stored path strip one
+    way. ``field_readers`` itself is untouched: ``read_code`` still walks
+    what it is given.
+    """
     train = [int(v) for v in (timings or [])]
     while train and train[-1] == 0:
+        train.pop()
+    if len(train) % 2 == 0 and train:
         train.pop()
     return train
 
@@ -1175,9 +1203,10 @@ def setting_frame_spans(
 ) -> list[tuple[int, int]] | None:
     """``[(start, end), ...]`` for each setting frame, or None.
 
-    Word indices into the trailing-zero-stripped train, so a caller
-    holding Pronto words and a caller holding microseconds slice the
-    same boundary from one definition. In map order.
+    Word indices into identity's train (``_stripped``), which only ever
+    drops from the end, so they index the Pronto words and the
+    microseconds alike: a caller holding either slices the same boundary
+    from one definition. In map order.
 
     EACH SPAN IS ITS HEADER PAIR THROUGH ITS STOP MARK (review finding
     3). ``read_frames_positioned`` records bit pairs only; a frame's

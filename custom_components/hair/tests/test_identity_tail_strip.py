@@ -221,8 +221,12 @@ def test_the_corpus_is_the_one_the_measurement_was_taken_on():
     does, and every one of them ends in a real trailing gap. 927 since
     the thinning corpus pin landed (fixtures/thinning, WigShop PR #19's
     after file): its 834 cells are the Komeco fixture's own codes except
-    four repaired ones, three of them new to the tree."""
-    assert len(JSON_CORPUS) == 927
+    four repaired ones, three of them new to the tree. 935 since the
+    closing-space round's air-bench captures landed
+    (fixtures/air-path/closing-space.json): two lone Daikin settings
+    frames and three GREE presses with their captures, eight codes new
+    to the tree."""
+    assert len(JSON_CORPUS) == 935
     assert len(EXT_CORPUS) == 80
 
 
@@ -334,15 +338,18 @@ def test_only_the_tail_class_moves():
     ]
 
     # 841 until the thinning corpus pin's three new codes, all
-    # zero-tailed like the Komeco codes they replaced.
-    assert len(moved) == 844
+    # zero-tailed like the Komeco codes they replaced; 852 since the
+    # closing-space round's eight air-bench codes: the three GREE model
+    # presses zero-tailed, the five receiver captures closed by the
+    # receiver's short idle ("sub").
+    assert len(moved) == 852
     # 12 at v0.12.0, plus the 71 gap-tailed codes the phase 1 adapter
     # fixtures added. A gap tail is exactly the class that must not
     # move, so the new codes land on the holding side by construction.
     assert len(still) == 83
     assert {_tail_class(c) for c in still} == {"gap"}
     assert sorted(_tail_class(c) for c in set(moved)) == (
-        sorted(["zero"] * 841 + ["sub"] * 3)
+        sorted(["zero"] * 844 + ["sub"] * 8)
     )
     # Every mover lands on the value canonicalization already computed:
     # the two layers converge, they do not both drift somewhere new.

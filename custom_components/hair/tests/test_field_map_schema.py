@@ -283,3 +283,15 @@ class TestAnOptionalLeaderIsAFrameNothingReads:
     def test_the_parser_keeps_it(self, name, raw):
         parsed = fr.parse_map(raw)
         assert parsed is not None and parsed.optional_leader, name
+
+
+def test_every_map_reads_its_bits_from_the_space():
+    """Identity drops a capture's last space as its terminator
+    (``identity._stripped``, ``canonical_edges``). That is only safe while
+    every map carries its bit in the space of a pair, so the last pair is
+    a stop mark with no bit in it. A ``classify: mark`` map would lose its
+    last bit to the strip; this fails first, before any key quietly stops
+    forming."""
+    for field_map in fr.library():
+        assert field_map.timing.classify == "space", field_map.protocol_id
+
