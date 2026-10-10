@@ -1,0 +1,54 @@
+{
+ "source": "TDC-38 air bench on the test box, 2026-10-09: the 43 distinct GH #206 codes played through a Broadlink RM by legacy remote.send_command, two rounds, into an Athom IR-RF running ESPHome with idle 80 ms; the Sniffer's code for each capture. These are the seven captures whose first mark arrived longer than the short window (Pronto words 0x10 to 0x12, 421 to 474 us) and did not decode before the leading-mark rule.",
+ "captures": [
+  {
+   "button": "Back",
+   "round": 0,
+   "heard_at": "2026-10-09T17:30:48.797+00:00",
+   "first_mark_word": "0010",
+   "received": "0000 006D 000D 0000 0010 0018 000C 000A 001A 000B 000B 0018 000C 000A 0019 0018 0019 0017 000C 000B 0018 000B 000C 000A 000C 0018 0019 0017 000D 0BE2"
+  },
+  {
+   "button": "CursorUp",
+   "round": 0,
+   "heard_at": "2026-10-09T17:31:06.529+00:00",
+   "first_mark_word": "0010",
+   "received": "0000 006D 000D 0000 0010 0018 000C 000A 0019 000B 000B 0018 000C 000A 0019 0018 0019 0017 000C 000B 000B 000B 0019 000A 000C 0018 000C 000A 0019 0BE2"
+  },
+  {
+   "button": "Digit4",
+   "round": 0,
+   "heard_at": "2026-10-09T17:31:21.795+00:00",
+   "first_mark_word": "0010",
+   "received": "0000 006D 000D 0000 0010 0018 000C 000A 0019 000B 000B 0018 000C 000B 0019 0018 0019 0017 000C 000B 000C 000B 000C 000B 0019 0018 000C 000A 0019 0BE2"
+  },
+  {
+   "button": "PreviousChannel",
+   "round": 0,
+   "heard_at": "2026-10-09T17:32:12.434+00:00",
+   "first_mark_word": "0010",
+   "received": "0000 006D 000D 0000 0010 0018 000C 000A 001A 000B 000B 0018 000C 000B 0019 0018 0019 0017 000C 000B 0018 000B 000C 0017 000D 000B 000C 000A 0019 0BE2"
+  },
+  {
+   "button": "MuteToggle",
+   "round": 1,
+   "heard_at": "2026-10-09T17:33:51.300+00:00",
+   "first_mark_word": "0011",
+   "received": "0000 006D 000C 0000 0011 0017 000D 000A 001B 0009 000E 0016 000F 0009 001B 0016 001B 0016 001C 0015 001C 0015 000E 000A 001B 0015 000F 0BE2"
+  },
+  {
+   "button": "Options",
+   "round": 1,
+   "heard_at": "2026-10-09T17:33:53.868+00:00",
+   "first_mark_word": "0012",
+   "received": "0000 006D 000C 0000 0012 0016 000E 000A 001B 0009 000E 0016 000F 0009 001B 0015 001B 0016 001C 0015 001C 0015 001C 000A 000E 0015 000F 0BE2"
+  },
+  {
+   "button": "VolumeDown",
+   "round": 1,
+   "heard_at": "2026-10-09T17:34:21.794+00:00",
+   "first_mark_word": "0010",
+   "received": "0000 006D 000C 0000 0010 0018 000D 000A 0019 000B 000B 0018 000B 000B 0019 0018 0019 0017 000C 000B 0018 0018 001A 0017 001A 0017 000C 0BE2"
+  }
+ ]
+}

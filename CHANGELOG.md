@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- TDC-38 remotes now decode. These are the remotes of the Telekom Media Receivers, such as the MR401, and of Magenta boxes. HAIR had no decoder for them, and the way it tells undecoded codes apart could not see the difference between their buttons, so buttons whose codes had the same length shared one identity: the Clipper accepted one code of each length and refused the rest as already on the remote, the Sniffer would merge those buttons into one row, and a trigger fired on any of them. Each button is now its own signal, including a capture that the receiver cut off partway through its last frame. A trigger made on one of these remotes before this release now fires only on its own button, and a Sniffer row that had collected several buttons keeps the button of its stored code. Existing TDC-38 commands are sent from their decoded value after the upgrade, except one stored at a carrier other than about 38 kHz, which is still sent as captured. A press that does not decode at all is still matched the old way. Reported by @MaxRower (GH #206).
+
 ### Fixed
 
 - A command or catalog signal recognized as Symphony, such as a Dreo fan button, now sends the signal that was captured instead of one HAIR rebuilt from the decoded button. The rebuilt signal sent one or two frames where the remote sends four to ten, dropped the lead-in frames some of these remotes send first, and ended each frame in a way some emitters, including Broadlink, play as a 7 ms burst of signal rather than a pause. The button is still recognized as before; only what goes out on the air changes. Commands already set to use the captured timings are unaffected.

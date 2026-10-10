@@ -323,7 +323,13 @@ def would_send_decoded(row: Any) -> bool:
         or getattr(row, "source", None) == CommandSource.MATRIX
     ):
         return False
-    return getattr(row, "decode_covers", None) is not False
+    if getattr(row, "decode_covers", None) is False:
+        return False
+    from .protocol_decode import carrier_allows_rebuild
+
+    return carrier_allows_rebuild(
+        getattr(row, "decoded_protocol", None), getattr(row, "frequency", None)
+    )
 
 
 def build_like_send_path(row: Any) -> Any:

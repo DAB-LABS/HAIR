@@ -79,7 +79,7 @@ from .ir_command import carrier_or_default, raw_to_pronto
 from .learned_code_stores import SHAPE_CODE_LIST, SHAPE_PACKET_MAP
 from .models import CaptureResult, UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
-from .protocol_decode import try_decode_identity
+from .protocol_decode import carrier_allows_rebuild, try_decode_identity
 from .signal_store import SignalStore
 from .storage import HAIRStore
 
@@ -2599,6 +2599,9 @@ class SignalMonitor:
             signal.decoded_fingerprint
             and not signal.tx_force_raw
             and signal.decode_covers is not False
+            and carrier_allows_rebuild(
+                signal.decoded_protocol, signal.frequency
+            )
         ):
             ir_cmd = build_decoded_command(
                 signal.decoded_protocol,

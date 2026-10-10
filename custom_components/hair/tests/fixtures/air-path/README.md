@@ -15,6 +15,7 @@ they are here so the claim can be re-checked rather than believed.
 | `sg15h-matrix.json.gz` | The 34 distinct codes of that 64-cell lattice (the unit ignores temperature in dry and fan_only, so sixteen cells share one code twice over), plus its off frame. |
 | `acer-rc-17de0.json.gz` | The 16 signals of the ACER wig. |
 | `closing-space.json` | From the fake-remote air bench of 2026-10-05 (pack file codes played through a Broadlink by legacy `remote.send_command` into an Athom receiver at ESPHome's default 10 ms idle): one lone DAIKIN216 and one lone DAIKIN152 settings frame as the Sniffer received them, each closed by the receiver's 10 ms idle, and the three glitched GREE model presses with the capture each was heard wrong from. `test_closing_space.py` reads it. |
+| `tdc38-stretched-lead.json` | From the TDC-38 air bench of 2026-10-09 (the GH #206 codes played through a Broadlink by legacy `remote.send_command` into an Athom receiver at `idle: 80ms`): the seven captures whose first mark arrived at 421 to 474 us, above the short window, so they did not decode until the first mark of a frame was read as the single half-bit it always is. `test_tdc38_decoder.py` reads it. |
 
 The two transmitters are the extremes we can reach: `esphome` is a
 microsecond-accurate ESP32 raw transmit, `broadlink` is a consumer

@@ -378,6 +378,19 @@ def _construct_geac(cls: type, label: str, address: int, command: int,
     return None
 
 
+def _extract_tdc38(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    # D and S pack into one address (D high), F is the command. Frozen:
+    # stored rows carry this packing in their fingerprint, so changing it
+    # would orphan every one of them.
+    address = (int(cmd.device) << 5) | int(cmd.subdevice)
+    return ("TDC38", address, int(cmd.function), None)
+
+
+def _construct_tdc38(cls: type, label: str, address: int, command: int,
+                     extras: Any) -> Any:
+    return cls(device=address >> 5, subdevice=address & 0x1F, function=command)
+
+
 # --- fingerprint suffixes (identity-bearing extras) --------------------------
 
 # Per-protocol identity suffix appended to the base fingerprint. Toggle
@@ -503,6 +516,18 @@ _REGISTRATIONS: tuple[tuple, ...] = (
      _extract_nec42ext, _construct_nec42ext, ("NEC42EXT",)),
     ("geac", "infrared_protocols.commands.general_electric", "GEACCommand",
      None, False, _extract_geac, _construct_geac, ("GEAC",)),
+    # TDC-38 (Telekom Media Receivers and Magenta boxes) has no
+    # checksum, so it probes in the checksum-free tail. It goes ahead of
+    # Dyson and Symphony because its frame is the more constrained of the
+    # three: exactly 18 Manchester cells, and half-bit windows that leave
+    # Symphony's 460us pulse in their dead zone. LOCAL ONLY, like Dyson
+    # and Symphony: no upstream module is registered, so a TDC class a
+    # future library might ship, with field names this adapter cannot
+    # know, can never take over decoding and strand the rows already
+    # stored under this label.
+    ("tdc38", None, "TDC38Command",
+     "custom_components.hair.decoders.tdc38", True,
+     _extract_tdc38, _construct_tdc38, ("TDC38",)),
     # Upstream's DysonCoolCommand (7.3.0+) is encode-only with the
     # rolling counter frozen into enum constants, so no upstream
     # fallback is registered -- the local class serves both directions
@@ -1043,3 +1068,32 @@ def build_protocol_command(
         return spec.construct(spec.command_cls, protocol, address, command, extras)
     except (TypeError, ValueError, OverflowError):
         return None
+
+
+# How far a row's stored carrier may sit from a protocol's rebuild
+# carrier and still be rebuilt. A Pronto at 38kHz carries 38,029Hz; one
+# at 36kHz carries 36,032Hz.
+_REBUILD_CARRIER_SLACK_HZ = 1000
+
+
+def carrier_allows_rebuild(protocol: str | None, frequency: Any) -> bool:
+    """May a row decoded as ``protocol`` be rebuilt at its stored carrier?
+
+    Detected, never listed: a class that declares ``REBUILD_CARRIER_HZ``
+    rebuilds only a row whose stored carrier is within the slack of it,
+    and every other row is replayed as captured. A class that declares
+    nothing, which is every protocol but TDC-38 today, is unaffected, and
+    so is a row with no stored carrier. Zero is a carrier ("none") and is
+    far from any declared one, so an unmodulated row is replayed.
+    """
+    spec = get_spec(protocol)
+    if spec is None:
+        return True
+    nominal = getattr(spec.command_cls, "REBUILD_CARRIER_HZ", None)
+    if not nominal or frequency is None:
+        return True
+    try:
+        carrier = int(frequency)
+    except (TypeError, ValueError):
+        return True
+    return abs(carrier - int(nominal)) <= _REBUILD_CARRIER_SLACK_HZ
