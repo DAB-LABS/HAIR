@@ -377,14 +377,14 @@ class TestTheStoredIndex:
         )
         write_matrix(tmp_path, "r1", matrix)
         _build_and_store_index(str(tmp_path), "r1", matrix, "C")
-        assert INDEX_FORMAT == "hair-cell-index/10"
+        assert INDEX_FORMAT == "hair-cell-index/11"
         assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
         path = index_path(tmp_path, "r1")
         payload = _json.loads(path.read_text())
         assert payload["unit"] == "C"
         assert payload["matrix"]
-        payload["format"] = "hair-cell-index/9"
+        payload["format"] = "hair-cell-index/10"
         path.write_text(_json.dumps(payload))
         assert _load_stored_index(str(tmp_path), "r1", "C") is None
 

@@ -231,9 +231,12 @@ def test_the_corpus_is_the_one_the_measurement_was_taken_on():
     to the tree. 81 on the external side since the GH #206 air capture
     landed (2026-10-08). 942 on the JSON side since the TDC-38 bench's
     seven stretched-lead captures landed (fixtures/air-path/
-    tdc38-stretched-lead.json, 2026-10-09)."""
+    tdc38-stretched-lead.json, 2026-10-09). 186 on the external side since
+    the normalized-tier air captures landed (fixtures/air-path/
+    normalized-tier.json.gz, 2026-10-08): 105 real receiver captures,
+    MITSUBISHI144, PANASONIC216 and TCL112."""
     assert len(JSON_CORPUS) == 942
-    assert len(EXT_CORPUS) == 81
+    assert len(EXT_CORPUS) == 186
 
 
 def test_every_fixture_pronto_hashes_the_same_wire_or_canonical():
@@ -379,6 +382,11 @@ def test_the_extended_corpus_moves_seven():
     MITSUBISHI144 joined the setting-frame list later (2026-10-02), and
     the corpus holds 35 of its codes, all gap-tailed, which move onto
     the setting path the same way. The tail movers are still seven.
+
+    The normalized-tier air captures (2026-10-08) add 40 PANASONIC216
+    and 18 TCL112 receiver captures that the setting-frame walk reads
+    and that move with it, not with the tail; the tail movers are still
+    seven.
     """
     from collections import Counter
 
@@ -400,7 +408,8 @@ def test_the_extended_corpus_moves_seven():
 
     assert Counter(
         read_code(c).protocol_id for c in setting_movers
-    ) == {"DAIKIN152": 1, "MITSUBISHI144": 35}
+    ) == {"DAIKIN152": 1, "MITSUBISHI144": 35, "PANASONIC216": 40,
+          "TCL112": 18}
     assert {_tail_class(c) for c in setting_movers} == {"gap"}
     assert len(tail_movers) == 7
     assert {_tail_class(c) for c in tail_movers} == {"sub", "zero"}

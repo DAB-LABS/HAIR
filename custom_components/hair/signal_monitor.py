@@ -1838,6 +1838,10 @@ class SignalMonitor:
                 # its identity, and the lattice has to know that before
                 # it trusts the decoded tier (owner bench 2026-09-25).
                 n.decode_covers,
+                # The train as received, on every receiver path: the
+                # normalized tier asks the heard cell's own map what it
+                # says (2026-10-08).
+                n.raw_timings,
             )
 
         # The v0.4.0 known-command suppression is GONE (v0.6.6, "heard

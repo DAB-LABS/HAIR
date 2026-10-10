@@ -825,7 +825,9 @@ def pairing(matrix: ClimateMatrix, name: str):
 
 
 def press_identity(pronto: str):
-    """A press, as the capture path hands it to ``CellIndex.match``."""
+    """A press, as the capture path hands it to ``CellIndex.match``: the
+    five identity values, then the press's own code, which the
+    normalized tier reads with the heard cell's map."""
     from custom_components.hair.identity import norm_fingerprint
     from custom_components.hair.wig_identity import wig_signal_identity
 
@@ -835,7 +837,7 @@ def press_identity(pronto: str):
     return (
         identity.decoded_fingerprint, identity.fingerprint,
         identity.byte_hash, norm_fingerprint(identity.raw_timings),
-        identity.decode_covers,
+        identity.decode_covers, pronto,
     )
 
 

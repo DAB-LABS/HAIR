@@ -365,7 +365,7 @@ def _first_key(index, identity):
     the first held-back key's representative. The decoded tier holds no
     listed family's code here (DAIKIN216's decode never covers,
     MITSUBISHI144 does not decode)."""
-    _decoded, fingerprint, byte_hash, waveform, _covers = identity
+    _decoded, fingerprint, byte_hash, waveform, _covers = identity[:5]
     reached = [
         (tier, key, store.get(key))
         for tier, key, store in (
