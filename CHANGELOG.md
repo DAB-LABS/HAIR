@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A command or catalog signal recognized as Symphony, such as a Dreo fan button, now sends the signal that was captured instead of one HAIR rebuilt from the decoded button. The rebuilt signal sent one or two frames where the remote sends four to ten, dropped the lead-in frames some of these remotes send first, and ended each frame in a way some emitters, including Broadlink, play as a 7 ms burst of signal rather than a pause. The button is still recognized as before; only what goes out on the air changes. Commands already set to use the captured timings are unaffected.
 - A lone Daikin settings frame closed by a receiver's short idle time is now recognized by its settings. A receiver ends every capture with its own idle as the last silence, and at ESPHome's default of 10 ms that silence is shorter than the gap a Daikin 216 frame ends with, so the settings identity took it for one more pulse, refused the frame, and the press was recognized only by the shape of its waveform. HAIR's settings identity now treats the last silence of a capture as its end, the way it already did for every stored code, so a press finds its state from its settings whether the receiver idles 10 ms or 80 ms.
 
 ## [0.17.2] - 2026-10-08 -- Deep Condition

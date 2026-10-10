@@ -267,8 +267,8 @@ class IRCommand:
     #
     # THREE STATES, AND THE THIRD IS NOT FALSE. None means not yet
     # computed, or computed and not answerable (an unregistered
-    # protocol, an identity-only tier, an upstream decoder whose vote
-    # count this repo cannot see). None is TRUSTED and is never
+    # protocol, an upstream decoder whose vote count this repo cannot
+    # see). None is TRUSTED and is never
     # persisted, so a row that could not be judged today gets judged
     # the day the decoder that can judge it arrives.
     decode_covers: bool | None = None
@@ -1581,8 +1581,8 @@ class UnknownSignal:
     #
     # THREE STATES, AND THE THIRD IS NOT FALSE. None means not yet
     # computed, or computed and not answerable (an unregistered
-    # protocol, an identity-only tier, an upstream decoder whose vote
-    # count this repo cannot see). None is TRUSTED and is never
+    # protocol, an upstream decoder whose vote count this repo cannot
+    # see). None is TRUSTED and is never
     # persisted, so a row that could not be judged today gets judged
     # the day the decoder that can judge it arrives.
     decode_covers: bool | None = None

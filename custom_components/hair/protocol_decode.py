@@ -538,8 +538,10 @@ _REGISTRATIONS: tuple[tuple, ...] = (
     ("dyson", None, "DysonCommand",
      "custom_components.hair.decoders.dyson", True,
      _extract_dyson, _construct_dyson, ("DYSON",)),
+    # Identity-only for transmit, like GE-AC: the rebuild is not yet
+    # faithful on the air, so a Symphony send replays what was captured.
     ("symphony", None, "SymphonyCommand",
-     "custom_components.hair.decoders.symphony", True,
+     "custom_components.hair.decoders.symphony", False,
      _extract_symphony, _construct_symphony, ("SYMPHONY",)),
 )
 
@@ -781,10 +783,13 @@ def _coverage(
 
     THE RULING SET, in order (GH #134 review 2):
 
-    1. Identity-only tiers are skipped entirely. GE-AC transmit always
-       replays the captured raw, so there is nothing for a verdict to
-       protect and computing one would only invite somebody to persist
-       it.
+    1. Every tier is judged, identity-only ones included. A verdict
+       gates matching as well as transmit: a non-covering decode is
+       not a matching tier (owner ruling 2026-09-29, see
+       ``identity.SignalIdentity.match_tier``), so an identity-only
+       tier that replays its capture still needs one. Rule 2 decides
+       whether there is anything to judge; GE-AC's upstream class
+       carries no census, so it stays unjudged there.
     2. A decoder that declares no frame gap, or that returns an
        instance carrying no census, has accounting this repo cannot
        verify. That is the upstream NEC strict path today. Unknown, not
@@ -801,8 +806,6 @@ def _coverage(
     4. Otherwise the base rule: every frame explained, or the decode
        does not cover the capture.
     """
-    if not spec.tx_rebuild:
-        return (0, 0, None)
     gap = getattr(spec.command_cls, "FRAME_GAP_US", None)
     explained = getattr(cmd, "frames_explained", None)
     if not gap or explained is None:
@@ -1002,11 +1005,10 @@ def decode_coverage(raw_timings: list[int] | None) -> bool | None:
     """Does the decode of this capture explain the whole capture?
 
     The public read of the verdict, for the stores and the mint doors.
-    ``None`` means there is nothing to say -- no decode, an
-    identity-only tier, or a decoder whose accounting this repo cannot
-    verify -- and None is never persisted, so a row that could not be
-    judged stays judgeable later rather than being stamped trusted
-    forever.
+    ``None`` means there is nothing to say -- no decode, or a decoder
+    whose accounting this repo cannot verify -- and None is never
+    persisted, so a row that could not be judged stays judgeable later
+    rather than being stamped trusted forever.
     """
     identity = try_decode_identity(raw_timings)
     return None if identity is None else identity.covers_capture
