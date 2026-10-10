@@ -264,6 +264,8 @@
     "editor.burst_pair.one": "{count} burstpaar",
     "editor.burst_pair.other": "{count} burstparen",
     "editor.recognized_as": "Herkend als {protocol}",
+    "editor.converted_from_tuya": "Omgezet vanuit een Tuya-code; 38 kHz aangenomen (het formaat legt geen draaggolf vast). Controleer of de code volledig is gekopieerd.",
+    "editor.converted_from_broadlink": "Omgezet vanuit een Broadlink-code; 38 kHz aangenomen (het formaat legt geen draaggolf vast).",
     "editor.snap_notice": "De draaggolf is {khz} kHz, buiten de IR-standaarden. Sommige ontvangers wijzen hem af.",
     "editor.snapping": "Aanpassen...",
     "editor.snap_to": "Aanpassen naar {khz} kHz",
