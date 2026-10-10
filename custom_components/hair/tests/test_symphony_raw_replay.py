@@ -25,6 +25,8 @@ from unittest.mock import AsyncMock, patch
 import homeassistant.components.infrared as _infrared_mod
 import pytest
 
+from custom_components.hair.decoders.symphony import SymphonyCommand
+from custom_components.hair.identity import TIER_DECODED, SignalIdentity
 from custom_components.hair.ir_command import (
     ProntoCommand,
     RawTimingsCommand,
@@ -32,6 +34,7 @@ from custom_components.hair.ir_command import (
 )
 from custom_components.hair.models import IRCommand, IRDevice, UnknownSignal
 from custom_components.hair.protocol_decode import (
+    _REGISTRATIONS,
     _coverage,
     build_protocol_command,
     decode_coverage,
@@ -42,6 +45,7 @@ from custom_components.hair.send_plan import build_like_send_path
 from custom_components.hair.wig_format import parse_wig
 
 from .test_capture_dittos import _monitor as _make_monitor
+from .test_decode_coverage import junk_state_frame
 from .test_multi_emitter_resilience import manager  # noqa: F401  (fixture)
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -63,15 +67,33 @@ def _alternates(timings: list[int]) -> bool:
 
 
 def _decoded_fields(timings: list[int]) -> dict:
+    """The fields a mint door stamps, verdict included.
+
+    The Dreo capture covers, so every send-path row below carries
+    ``decode_covers=True`` and passes the send gate's verdict clause:
+    what stops the rebuild is the tier, not the verdict.
+    """
     identity = try_decode_identity(timings)
     assert identity is not None
     assert identity.protocol == "SYMPHONY12"
+    assert identity.covers_capture is True
     return {
         "decoded_protocol": identity.protocol,
         "decoded_address": identity.address,
         "decoded_command": identity.command,
         "decoded_fingerprint": identity.fingerprint,
+        "decode_covers": identity.covers_capture,
     }
+
+
+def _two_good_frames_beside_junk() -> list[int]:
+    """Two good Symphony frames beside two state-blob frames: the shape
+    the coverage carve-out refuses (test_decode_coverage)."""
+    good = SymphonyCommand(
+        data=0x555, nbits=12, repeat_count=1).get_raw_timings()
+    return [
+        *good, -9000, *junk_state_frame(), -9000, *junk_state_frame(),
+    ]
 
 
 class TestTheRegistry:
@@ -102,32 +124,108 @@ class TestTheIdentityIsUnchanged:
 
 
 class TestTheCoverageHelper:
-    """Identity-only tiers are skipped by the coverage check, so a
-    Symphony decode reports the same unjudged result GE-AC does."""
+    """Symphony is still judged, identity-only or not.
 
-    def test_decode_coverage_is_unjudged(self):
+    A verdict gates matching as well as transmit: a non-covering decode
+    is not a matching tier (owner ruling 2026-09-29). Replaying the
+    capture on the air does not change what a press is heard as, so the
+    coverage check judges every tier whose decoder carries a census.
+    """
+
+    def test_a_covering_capture_is_judged_true(self):
         timings = ProntoCommand(_dreo()).get_raw_timings()
-        assert decode_coverage(timings) is None
-
-    def test_the_identity_carries_no_census(self):
-        identity = try_decode_identity(
-            ProntoCommand(_dreo()).get_raw_timings()
-        )
+        identity = try_decode_identity(timings)
         assert identity is not None
-        assert identity.frames_total == 0
-        assert identity.frames_explained == 0
-        assert identity.covers_capture is None
+        assert identity.covers_capture is True
+        assert identity.frames_total == identity.frames_explained == 8
+        assert decode_coverage(timings) is True
 
-    def test_coverage_returns_the_identity_only_result(self):
-        spec = get_spec("SYMPHONY12")
+    def test_two_good_frames_beside_junk_are_judged_false(self):
+        blob = _two_good_frames_beside_junk()
+        identity = try_decode_identity(blob)
+        assert identity is not None
+        assert identity.protocol.startswith("SYMPHONY")
+        assert identity.frames_explained == 2
+        assert identity.frames_total == 4
+        assert identity.covers_capture is False
+
+    def test_a_non_covering_decode_is_not_a_matching_tier(self):
+        """The trigger a real press minted, and a capture that holds the
+        same two frames beside a state blob. They share a decoded
+        fingerprint, and the decoded tier must not answer for it."""
+        good = SymphonyCommand(data=0x555, nbits=12, repeat_count=3)
+        press = try_decode_identity(good.get_raw_timings())
+        blob = try_decode_identity(_two_good_frames_beside_junk())
+        assert press is not None and blob is not None
+        assert press.covers_capture is True
+        assert blob.fingerprint == press.fingerprint
+        trigger = SignalIdentity(
+            press.fingerprint, "bh-press", "fp-press",
+            decode_covers=press.covers_capture,
+        )
+        heard = SignalIdentity(
+            blob.fingerprint, "bh-blob", "fp-blob",
+            decode_covers=blob.covers_capture,
+        )
+        assert heard.match_tier(trigger) is None
+        # The same capture with a covering verdict would have matched
+        # on the decoded tier: the verdict is what keeps it out.
+        trusted = dataclasses.replace(heard, decode_covers=None)
+        assert trusted.match_tier(trigger) == TIER_DECODED
+
+    def test_the_verdict_never_brings_the_rebuild_back(self):
+        for timings in (
+            ProntoCommand(_dreo()).get_raw_timings(),
+            _two_good_frames_beside_junk(),
+        ):
+            identity = try_decode_identity(timings)
+            assert identity is not None
+            assert identity.covers_capture in (True, False)
+            assert build_protocol_command(
+                identity.protocol, identity.address, identity.command,
+            ) is None
+            assert build_decoded_command(
+                identity.protocol, identity.address, identity.command,
+            ) is None
+
+
+class TestAnIdentityOnlyTierWithoutACensusStaysUnjudged:
+    """GE-AC, the other identity-only tier, is served only by the
+    upstream library's class, and only HAIR's local decoders record how
+    many frames they explained. An instance with no census is rule 2's
+    case whatever its tier, so judging identity-only tiers leaves GE-AC
+    exactly where it was."""
+
+    def test_geac_has_no_local_decoder(self):
+        row = next(r for r in _REGISTRATIONS if r[0] == "geac")
+        assert row[3] is None  # no local module: upstream class only
+        assert row[4] is False  # identity-only
+
+    def test_an_instance_without_a_census_is_unjudged(self):
+        class _UpstreamShape:
+            FRAME_GAP_US = 8000  # even a declared gap is not enough
+
+        spec = dataclasses.replace(
+            get_spec("SYMPHONY12"), key="no-census",
+            command_cls=_UpstreamShape, tx_rebuild=False,
+        )
         timings = ProntoCommand(_dreo()).get_raw_timings()
-        cmd = spec.command_cls.from_raw_timings(timings)
-        assert cmd is not None
-        assert _coverage(spec, cmd, timings) == (0, 0, None)
-        # The rule that answer comes from is the tier, nothing else: the
-        # same spec on the rebuild tier is still judged.
-        rebuild = dataclasses.replace(spec, tx_rebuild=True)
-        assert _coverage(rebuild, cmd, timings)[2] is True
+        assert _coverage(spec, _UpstreamShape(), timings) == (0, 0, None)
+
+    @pytest.mark.skipif(
+        get_spec("GEAC") is None,
+        reason="GE-AC needs an upstream library that ships it",
+    )
+    def test_the_live_geac_spec_is_unjudged(self):
+        spec = get_spec("GEAC")
+        assert spec.tx_rebuild is False
+        cmd = spec.construct(spec.command_cls, "GEAC", 0x01, 0x02, None)
+        if cmd is None:
+            pytest.skip("GE-AC class does not construct from a triple")
+        timings = list(cmd.get_raw_timings())
+        decoded = spec.command_cls.from_raw_timings(timings)
+        assert decoded is not None
+        assert _coverage(spec, decoded, timings) == (0, 0, None)
 
 
 class TestTheSendPathReplaysTheCapture:
