@@ -67,10 +67,16 @@ class TestRegistryContents:
         # the bundled library decodes them (none as of 7.5.0), local
         # polyfill otherwise -- including on the no-library CI leg.
         for key in ("samsung32", "sony", "sharp", "rca", "marantz", "rc5",
-                    "rc6", "kaseikyo", "symphony"):
+                    "rc6", "kaseikyo"):
             assert key in listing, f"{key} missing from registry"
             assert listing[key]["source"] == "local"
             assert listing[key]["tx_rebuild"] is True
+
+        # Symphony is local and identity-only: its rebuild is not yet
+        # faithful on the air, so a send replays the captured signal.
+        assert "symphony" in listing, "symphony missing from registry"
+        assert listing["symphony"]["source"] == "local"
+        assert listing["symphony"]["tx_rebuild"] is False
 
         # NEC is upstream-only (no local polyfill; the library has
         # decoded it since v0.4.0) so it registers only with the library.
@@ -280,7 +286,6 @@ class TestTxRebuild:
             ("SHARP", 1, 0x68, {"extension": 1}),
             ("MARANTZ", 0x10, 0x0C, {"extension": 0x20, "toggle": 0}),
             ("KASEIKYO48", 0x2002, 0x40040100, None),
-            ("SYMPHONY12", 0, 0xC00, None),
             ("RCA", 0xF, 0x2A, None),
         ],
     )
@@ -288,11 +293,6 @@ class TestTxRebuild:
         cmd = build_protocol_command(protocol, address, command, extras=extras)
         assert cmd is not None, f"{protocol} must rebuild"
         rebuilt = try_decode_identity(cmd.get_raw_timings())
-        # Symphony's single rebuilt frame is (correctly) below the
-        # decoder's two-frame evidence bar; re-send once to decode.
-        if rebuilt is None and protocol.startswith("SYMPHONY"):
-            doubled = cmd.get_raw_timings() * 2
-            rebuilt = try_decode_identity(doubled)
         assert rebuilt is not None
         assert rebuilt.protocol == protocol
         assert rebuilt.address == address
@@ -307,6 +307,10 @@ class TestTxRebuild:
     @pytest.mark.skipif(not _HAS_GEAC, reason="GE-AC needs upstream 6.x+")
     def test_geac_is_identity_only(self):
         assert build_protocol_command("GEAC", 0x01, 0x02) is None
+
+    def test_symphony_is_identity_only(self):
+        assert build_protocol_command("SYMPHONY12", 0, 0xC00) is None
+        assert build_decoded_command("SYMPHONY12", 0, 0xC00) is None
 
     def test_build_decoded_command_threads_repeats_and_extras(self):
         cmd = build_decoded_command(

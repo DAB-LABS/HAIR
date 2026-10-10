@@ -14,6 +14,7 @@ salvage, the two load backfills, the two transmit sites and the mint.
 """
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import json
 from pathlib import Path
@@ -34,7 +35,9 @@ from custom_components.hair.models import (
     UnknownSignal,
 )
 from custom_components.hair.protocol_decode import (
+    _coverage,
     decode_coverage,
+    get_spec,
     try_decode_identity,
 )
 from custom_components.hair.wig_format import parse_wig
@@ -67,6 +70,24 @@ def junk_state_frame(pairs: int = 60) -> list[int]:
         out.append(600 if i % 3 else 500)
         out.append(-(1600 if i % 2 else 700))
     return out
+
+
+def symphony_verdict(timings: list[int]) -> tuple[int, int, bool | None]:
+    """The coverage check's ruling on a Symphony capture, on the rebuild tier.
+
+    Symphony transmits what was captured (identity-only, like GE-AC),
+    and the coverage check skips identity-only tiers, so the live
+    registry reports no verdict for it. The voting carve-out pinned
+    below is still the coverage check's own rule, and Symphony is still
+    the only voting decoder it reaches, so it is judged here on a copy
+    of the spec with the rebuild flag set. When the encoder is fixed
+    and the flag comes back, these pins are already the right ones.
+    """
+    spec = get_spec("SYMPHONY12")
+    assert spec is not None
+    cmd = spec.command_cls.from_raw_timings(timings)
+    assert cmd is not None
+    return _coverage(dataclasses.replace(spec, tx_rebuild=True), cmd, timings)
 
 
 def kaseikyo_frame(data: bytes = b"\x20\x80\x00\x00") -> list[int]:
@@ -172,9 +193,7 @@ class TestTheCarveOutIsBounded:
         identity = try_decode_identity(blob)
         assert identity is not None
         assert identity.protocol.startswith("SYMPHONY")
-        assert identity.frames_explained == 2
-        assert identity.frames_total == 4
-        assert identity.covers_capture is False
+        assert symphony_verdict(blob) == (4, 2, False)
 
     def test_a_vendor_preamble_is_still_forgiven(self):
         """The carve-out's whole reason for existing, from the decoder's
@@ -183,10 +202,12 @@ class TestTheCarveOutIsBounded:
         preamble_b = SymphonyCommand(data=0xFFF, nbits=12).get_raw_timings()
         button = SymphonyCommand(
             data=0xC00, nbits=12, repeat_count=4).get_raw_timings()
-        identity = try_decode_identity(preamble_a + preamble_b + button)
+        capture = preamble_a + preamble_b + button
+        identity = try_decode_identity(capture)
         assert identity is not None
-        assert identity.frames_explained < identity.frames_total
-        assert identity.covers_capture is True
+        total, explained, covers = symphony_verdict(capture)
+        assert explained < total
+        assert covers is True
 
 
 class TestFramesExplainedIsVotesNotFramesThatDecoded:
@@ -302,7 +323,7 @@ class TestTheRepeatTrainCorporaStillCover:
             if identity is None:
                 continue
             seen += 1
-            assert identity.covers_capture is True, signal.alias
+            assert symphony_verdict(timings)[2] is True, signal.alias
         assert seen >= 5
 
     def test_the_boundary_row_is_the_one_that_would_break_first(self):
@@ -320,9 +341,7 @@ class TestTheRepeatTrainCorporaStillCover:
         timings = ProntoCommand(code).get_raw_timings()
         identity = try_decode_identity(timings)
         assert identity is not None
-        assert identity.frames_explained == 2
-        assert identity.frames_total == 4
-        assert identity.covers_capture is True
+        assert symphony_verdict(timings) == (4, 2, True)
         # And the reason it is the boundary: the discarded frames carry
         # MORE marks than the winners, so an edge-count bound alone
         # would have refused them.
@@ -739,15 +758,17 @@ class TestTheMirrorDoorRepairsWhatItCopies:
     derived."""
 
     def test_all_five_are_derived_from_the_code(self):
-        """A real code off a real wig, so the derivation is the one the
-        send path would do rather than a shape built for the test."""
+        """A real capture off a real receiver, so the derivation is the
+        one the send path would do rather than a shape built for the
+        test. An RCA forum capture rather than the Dreo wig this used to
+        read: Symphony is identity-only for transmit now, and an
+        identity-only decode carries no verdict for this door to stamp."""
         from custom_components.hair.mint import mint_from_code
 
-        wig = parse_wig(
-            (FIXTURES / "wigs"
-             / "dreo-fan-dr-haf004s-perfect-fit.wig.json").read_text()
-        ).wig
-        code = next(s.pronto for s in wig.signals if s.alias == "Power")
+        fixture = json.loads(
+            (FIXTURES / "rca" / "forum-captures.json").read_text()
+        )
+        code = fixture["captures"][0]["pronto"]
         command = mint_from_code(
             name="Trigger 1", code=code, protocol="PRONTO",
             byte_hash="from-the-trigger",

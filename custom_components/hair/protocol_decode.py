@@ -513,8 +513,10 @@ _REGISTRATIONS: tuple[tuple, ...] = (
     ("dyson", None, "DysonCommand",
      "custom_components.hair.decoders.dyson", True,
      _extract_dyson, _construct_dyson, ("DYSON",)),
+    # Identity-only for transmit, like GE-AC: the rebuild is not yet
+    # faithful on the air, so a Symphony send replays what was captured.
     ("symphony", None, "SymphonyCommand",
-     "custom_components.hair.decoders.symphony", True,
+     "custom_components.hair.decoders.symphony", False,
      _extract_symphony, _construct_symphony, ("SYMPHONY",)),
 )
 
