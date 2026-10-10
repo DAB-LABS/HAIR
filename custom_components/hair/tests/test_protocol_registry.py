@@ -67,7 +67,7 @@ class TestRegistryContents:
         # the bundled library decodes them (none as of 7.5.0), local
         # polyfill otherwise -- including on the no-library CI leg.
         for key in ("samsung32", "sony", "sharp", "rca", "marantz", "rc5",
-                    "rc6", "kaseikyo", "symphony"):
+                    "rc6", "kaseikyo", "tdc38", "symphony"):
             assert key in listing, f"{key} missing from registry"
             assert listing[key]["source"] == "local"
             assert listing[key]["tx_rebuild"] is True
@@ -106,6 +106,13 @@ class TestRegistryContents:
                 f"RCA must probe before {checksum_free}"
             )
         assert keys.index("rc6") < keys.index("rc5")
+        # TDC-38 has no checksum: it probes in the tail, after every
+        # Manchester and checksum-validated format, ahead of Dyson and
+        # Symphony.
+        for earlier in ("rca", "nokia32", "marantz", "rc6", "rc5",
+                        "kaseikyo", "nec42ext"):
+            assert keys.index(earlier) < keys.index("tdc38")
+        assert keys.index("tdc38") < keys.index("dyson")
 
     def test_get_spec_resolves_variant_labels(self):
         assert get_spec("SONY15") is not None
@@ -115,6 +122,7 @@ class TestRegistryContents:
         assert get_spec("RC5").key == "rc5"
         assert get_spec("RCA").key == "rca"
         assert get_spec("RC6").key == "rc6"
+        assert get_spec("TDC38").key == "tdc38"
         assert get_spec("UNKNOWN99") is None
         assert get_spec(None) is None
 
@@ -282,6 +290,7 @@ class TestTxRebuild:
             ("KASEIKYO48", 0x2002, 0x40040100, None),
             ("SYMPHONY12", 0, 0xC00, None),
             ("RCA", 0xF, 0x2A, None),
+            ("TDC38", 0xCA, 0x16, None),
         ],
     )
     def test_rebuild_round_trips_identity(self, protocol, address, command, extras):

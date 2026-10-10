@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- TDC-38 remotes now decode. These are the remotes of the Telekom Media Receivers, such as the MR401, and of Magenta boxes. HAIR had no decoder for them, and the way it tells undecoded codes apart could not see the difference between their buttons, so buttons whose codes had the same length shared one identity: the Clipper accepted one code of each length and refused the rest as already on the remote, the Sniffer would merge those buttons into one row, and a trigger fired on any of them. Each button is now its own signal, including a capture that the receiver cut off partway through its last frame. A trigger made on one of these remotes before this release now fires only on its own button, and a Sniffer row that had collected several buttons keeps the button of its stored code. Existing TDC-38 commands are sent from their decoded value after the upgrade, except one stored at a carrier other than about 38 kHz, which is still sent as captured. A press that does not decode at all is still matched the old way. Reported by @MaxRower (GH #206).
+
 ### Fixed
 
 - A lone Daikin settings frame closed by a receiver's short idle time is now recognized by its settings. A receiver ends every capture with its own idle as the last silence, and at ESPHome's default of 10 ms that silence is shorter than the gap a Daikin 216 frame ends with, so the settings identity took it for one more pulse, refused the frame, and the press was recognized only by the shape of its waveform. HAIR's settings identity now treats the last silence of a capture as its end, the way it already did for every stored code, so a press finds its state from its settings whether the receiver idles 10 ms or 80 ms.

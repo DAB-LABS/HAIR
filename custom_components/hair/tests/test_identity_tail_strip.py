@@ -105,7 +105,7 @@ def _ext_corpus() -> list[str]:
 
     ``.pronto`` files, the ``<ccf>`` elements of the Girr adapters (which
     are line-wrapped in the source and must be whitespace-joined before
-    they parse), and the gzipped air-path captures. 80 unique, and mostly
+    they parse), and the gzipped air-path captures. 81 unique, and mostly
     gap-tailed where the JSON corpus is mostly zero-tailed -- which is
     exactly why both are measured.
 
@@ -113,6 +113,9 @@ def _ext_corpus() -> list[str]:
     fixtures/field-captures/ (2026-09-12). A real 293-pair Daikin press
     is exactly the kind of code this corpus exists to sweep, so it
     joining is the guard below working rather than a break.
+
+    Was 80 until the GH #206 air capture of a TDC-38 Power press landed
+    beside it (2026-10-08), for the same reason.
     """
     found: list[str] = []
     for path in sorted(FIXTURES.rglob("*.pronto")):
@@ -225,9 +228,12 @@ def test_the_corpus_is_the_one_the_measurement_was_taken_on():
     closing-space round's air-bench captures landed
     (fixtures/air-path/closing-space.json): two lone Daikin settings
     frames and three GREE presses with their captures, eight codes new
-    to the tree."""
-    assert len(JSON_CORPUS) == 935
-    assert len(EXT_CORPUS) == 80
+    to the tree. 81 on the external side since the GH #206 air capture
+    landed (2026-10-08). 942 on the JSON side since the TDC-38 bench's
+    seven stretched-lead captures landed (fixtures/air-path/
+    tdc38-stretched-lead.json, 2026-10-09)."""
+    assert len(JSON_CORPUS) == 942
+    assert len(EXT_CORPUS) == 81
 
 
 def test_every_fixture_pronto_hashes_the_same_wire_or_canonical():
@@ -346,7 +352,9 @@ def test_only_the_tail_class_moves():
     # 12 at v0.12.0, plus the 71 gap-tailed codes the phase 1 adapter
     # fixtures added. A gap tail is exactly the class that must not
     # move, so the new codes land on the holding side by construction.
-    assert len(still) == 83
+    # 90 since the TDC-38 bench's seven captures, each closed by the
+    # receiver's 80 ms idle, which is a gap tail.
+    assert len(still) == 90
     assert {_tail_class(c) for c in still} == {"gap"}
     assert sorted(_tail_class(c) for c in set(moved)) == (
         sorted(["zero"] * 844 + ["sub"] * 8)
