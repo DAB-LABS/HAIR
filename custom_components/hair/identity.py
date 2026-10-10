@@ -1302,6 +1302,12 @@ def field_map_digest() -> str:
     # so a family joining it rebuilds every stored index, the same way
     # a map edit does.
     hasher.update(("|read:" + "|".join(read_bytes_families())).encode())
+    # What the reader makes of a map, which no YAML byte records: the
+    # stored index keeps settings it read (``norm_readings``), so a change
+    # to what the reader returns for the same map has to rebuild it too.
+    from .field_readers import READER_VERSION
+
+    hasher.update(f"|reader:{READER_VERSION}".encode())
     try:
         paths = sorted(maps_dir().glob("*.yaml"))
     except OSError:  # pragma: no cover - a missing directory is not a crash

@@ -181,10 +181,10 @@ class _Pair:
 
     async def press(self, pronto: str):
         """A handset press, heard and sent; the send, or None."""
-        decoded, fp, bh, norm, covers = press_identity(pronto)
+        decoded, fp, bh, norm, covers, capture = press_identity(pronto)
         self.tm.dispatch_cell_retransmit.reset_mock()
         await self.listener.on_signal_captured(
-            fp, bh, decoded, None, norm, covers,
+            fp, bh, decoded, None, norm, covers, capture,
         )
         await self.drain()
         self.listener._recent_hits.clear()  # past the window: a new press
@@ -593,10 +593,12 @@ async def test_a_coalesced_send_reads_the_state_at_send_time():
     matrix = shapes.daikin_dry()
     pair = await _pair(matrix)
     pair.card(HVACMode.COOL, "auto", "off", 24.0)
-    decoded, fp, bh, norm, covers = press_identity(
+    decoded, fp, bh, norm, covers, capture = press_identity(
         shapes.daikin_dry_press("auto")
     )
-    await pair.listener.on_signal_captured(fp, bh, decoded, None, norm, covers)
+    await pair.listener.on_signal_captured(
+        fp, bh, decoded, None, norm, covers, capture,
+    )
     await pair.drain()
     key = pair.tm.dispatch_cell_retransmit.call_args.args[2]
 

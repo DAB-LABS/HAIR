@@ -297,7 +297,10 @@ class TestALoneFrameMustBeJudged:
     def test_no_unmapped_census_row_gets_a_verdict(self):
         """The two survivors are real MITSUBISHI144 air captures: that
         family repeats its frame and its setting frame IS frame 0, so a
-        lone frame 0 is the whole state and the verdict is right.
+        lone frame 0 is the whole state and the verdict is right. Twenty
+        more since the normalized-tier air captures landed (2026-10-08):
+        real PANASONIC216 setting frames, each its press's frame 1 heard
+        alone, which the verdict names as that frame, rightly.
         Pinned as a number so a rule change that starts handing
         verdicts out cannot pass quietly."""
         from custom_components.hair.field_readers import (
@@ -328,7 +331,7 @@ class TestALoneFrameMustBeJudged:
                 continue
             if reads_whole([abs(v) for v in edges]) is None:
                 unmapped += 1
-        assert unmapped == 2
+        assert unmapped == 22
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +385,7 @@ class TestTheGroupingKeyHoldsStill:
 
 class TestTheStoredIndex:
 
-    def test_the_format_is_10_and_a_9_is_rejected(self, tmp_path):
+    def test_the_format_is_11_and_a_10_is_rejected(self, tmp_path):
         from custom_components.hair.matrix_listener import (
             _build_and_store_index,
             _load_stored_index,
@@ -392,12 +395,12 @@ class TestTheStoredIndex:
         matrix = _pack_matrix("DAIKIN216.json")
         write_matrix(tmp_path, "r1", matrix)
         _build_and_store_index(str(tmp_path), "r1", matrix, "C")
-        assert INDEX_FORMAT == "hair-cell-index/10"
+        assert INDEX_FORMAT == "hair-cell-index/11"
         assert _load_stored_index(str(tmp_path), "r1", "C") is not None
 
         path = index_path(tmp_path, "r1")
         payload = _json.loads(path.read_text())
-        payload["format"] = "hair-cell-index/9"
+        payload["format"] = "hair-cell-index/10"
         path.write_text(_json.dumps(payload))
         assert _load_stored_index(str(tmp_path), "r1", "C") is None
 

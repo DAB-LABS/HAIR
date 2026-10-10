@@ -915,7 +915,7 @@ def test_an_index_stored_under_the_old_digest_is_rebuilt(tmp_path):
     _ml._build_and_store_index(str(tmp_path), "r1", matrix, "C")
     assert _ml._load_stored_index(str(tmp_path), "r1", "C") is not None
     payload = load_cell_index(tmp_path, "r1")
-    assert payload["format"] == _ml.INDEX_FORMAT == "hair-cell-index/10"
+    assert payload["format"] == _ml.INDEX_FORMAT == "hair-cell-index/11"
     assert payload["maps"] == idm.field_map_digest()
     for old in ("29bdf2fb7ca60ddd", "3e8806340146580d"):
         assert old != idm.field_map_digest()

@@ -877,7 +877,7 @@ def _capture_path_identity(pronto: str) -> tuple:
     signal = types.SimpleNamespace(timings=timings, modulation=38000)
     n = normalize(EventParser.parse_received_signal(signal))
     return (n.decoded_fingerprint, n.sig_fp, n.byte_hash, n.norm_fp,
-            n.decode_covers)
+            n.decode_covers, n.raw_timings)
 
 
 def test_the_harness_hears_as_the_capture_path_does():
@@ -886,7 +886,11 @@ def test_the_harness_hears_as_the_capture_path_does():
     all. The two once disagreed on exactly the closing-space class, so
     every hearing figure here was blind to it. Over every press, piece
     and closing of the first four cells of every pack they must agree,
-    or the harness measures a different road from the box's."""
+    or the harness measures a different road from the box's.
+
+    The capture each hands ``CellIndex.match`` differs in form, the
+    harness's Pronto against the box's received train, so for it the
+    two must read as the same settings."""
     checked = 0
     for pid in _packs():
         gap = _maps()[pid].timing.gap_min
@@ -897,9 +901,12 @@ def test_the_harness_hears_as_the_capture_path_does():
                     for _shape, variant in _variants(cell.pronto, heard, gap):
                         for pronto in (variant, *(_closed(variant, idle)
                                                   for idle in CLOSINGS)):
-                            assert _capture_path_identity(pronto) == (
-                                press_identity(pronto)), (pid, cell_key(cell),
-                                                          tx, press)
+                            box = _capture_path_identity(pronto)
+                            harness = press_identity(pronto)
+                            where = (pid, cell_key(cell), tx, press)
+                            assert box[:5] == harness[:5], where
+                            assert fr.read_settings(box[5]) == (
+                                fr.read_settings(harness[5])), where
                             checked += 1
     assert checked > 4000
 

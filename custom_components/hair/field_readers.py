@@ -42,6 +42,7 @@ SCHEMA.md` (v0.2) and the three derivation reports beside it.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -1074,6 +1075,28 @@ def read_code(
     timings = pronto_microseconds(pronto)
     if not timings:
         return Reading(declined=UNREADABLE)
+    return _read_timings(timings, candidates, prefer)
+
+
+def read_train(
+    timings: Sequence[int], maps: list[FieldMap] | None = None,
+    prefer: str | None = None,
+) -> Reading:
+    """``read_code`` for a train already in signed microseconds, as a
+    receiver hands it over: no Pronto rounding between the air and the
+    map."""
+    candidates = maps if maps is not None else library()
+    if not candidates:
+        return Reading(declined=NO_MAP)
+    if not timings:
+        return Reading(declined=UNREADABLE)
+    return _read_timings(list(timings), candidates, prefer)
+
+
+def _read_timings(
+    timings: list[int], candidates: list[FieldMap], prefer: str | None
+) -> Reading:
+    """The two passes of ``read_code``, on signed microseconds."""
     ordered = candidates
     if prefer:
         ordered = sorted(candidates, key=lambda m: m.protocol_id != prefer)
@@ -1161,8 +1184,22 @@ def _bit_selector(bits: str) -> tuple[int, int]:
 bit_selector = _bit_selector
 
 
+#: What this reader makes of a map, as a number. The stored cell index
+#: keeps the settings ``read_settings`` returned when it was built
+#: (``matrix_listener.CellIndex.norm_readings``), and nothing in a map's
+#: YAML moves when the code reading it does, so BUMP THIS whenever a
+#: change here alters what ``read_code``, ``read_train``, ``read_field``
+#: or ``read_settings`` return for the same map and code.
+#: ``identity.field_map_digest`` folds it in, and every stored index
+#: built under another value rebuilds once.
+READER_VERSION = 1
+
+
 def read_field(reading: Reading, spec: FieldSpec) -> int | None:
-    """The raw value this frame carries in that field, or None."""
+    """The raw value this frame carries in that field, or None.
+
+    What this returns is stored in the cell index; see
+    ``READER_VERSION`` before changing it."""
     if spec.frame >= len(reading.frames):
         return None
     frame = reading.frames[spec.frame]
@@ -1173,6 +1210,63 @@ def read_field(reading: Reading, spec: FieldSpec) -> int | None:
     except ValueError:
         return None
     return (frame[spec.byte] & mask) >> shift
+
+
+#: A code's settings as its family's map reads them: the family, and the
+#: raw value of every field of that map in the map's own order, None for
+#: a field the reading does not carry.
+Settings = tuple[str, tuple[int | None, ...]]
+
+
+def read_settings(
+    code: str | Sequence[int], family: str | None = None,
+    prefer: str | None = None,
+) -> Settings | None:
+    """What a code's family map reads as its settings, or None.
+
+    ``code`` is a Pronto, or a received train in signed microseconds.
+    What this returns is stored in the cell index; see
+    ``READER_VERSION`` before changing it.
+    With ``family``, that map alone is asked, which is how a capture is
+    judged on the terms of the cell it was heard as. Without it, every
+    map is asked, ``prefer`` first, and the one that reads the code
+    names its family. None when no map asked reads the code, including
+    a family the library no longer holds.
+    """
+    if family is None:
+        maps = library()
+    else:
+        maps = [m for m in library() if m.protocol_id == family]
+        if not maps:
+            return None
+    if isinstance(code, str):
+        reading = read_code(code, maps, prefer=prefer)
+    else:
+        reading = read_train(code, maps, prefer=prefer)
+    if reading.protocol_id is None:
+        return None
+    field_map = next(m for m in maps if m.protocol_id == reading.protocol_id)
+    return reading.protocol_id, tuple(
+        read_field(reading, spec) for spec in field_map.fields
+    )
+
+
+def settings_differ(
+    a: tuple[int | None, ...], b: tuple[int | None, ...]
+) -> bool:
+    """Do two readings of one map name different settings?
+
+    Only a field both readings carry can say so. A lone frame read on
+    the map's repeat terms can carry fewer frames than the whole code,
+    and a field one side never read contradicts nothing. Two readings of
+    different lengths are not readings of one map, and say nothing.
+    """
+    if len(a) != len(b):
+        return False
+    return any(
+        x is not None and y is not None and x != y
+        for x, y in zip(a, b, strict=True)
+    )
 
 
 def _reverse_bits4(value: int) -> int:

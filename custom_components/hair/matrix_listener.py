@@ -71,6 +71,8 @@ import asyncio
 import hashlib
 import logging
 import time
+from array import array
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -92,12 +94,17 @@ from .identity import (
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+    from .field_readers import Settings
     from .models import TriggerRemote
     from .storage import HAIRStore
     from .trigger_manager import TriggerManager
     from .wig_format import ClimateMatrix
 
 _LOGGER = logging.getLogger(__name__)
+
+#: A capture as ``CellIndex.match`` reads it: the received train in
+#: signed microseconds (the capture path), or a Pronto (a stored code).
+Capture = str | Sequence[int]
 
 # One capture's identity, in ``CellIndex.match`` order: decoded
 # fingerprint, S/L fingerprint, byte hash, normalized fingerprint, and
@@ -106,12 +113,33 @@ _LOGGER = logging.getLogger(__name__)
 # spells the same state with different words -- and so it can be asked
 # with the same tolerance, and the same scepticism, the hearing had.
 #: One capture's identity as ``CellIndex.match`` takes it: the four
-#: tier values, then whether the decode explained the whole capture.
-#: The last field joined the tuple on 2026-09-25; a decode that covers
-#: only part of a capture is not that capture's identity.
+#: tier values, then whether the decode explained the whole capture,
+#: then the capture itself, as the receiver handed it over. The fifth
+#: field joined the tuple on 2026-09-25; a decode that covers only part
+#: of a capture is not that capture's identity. The sixth joined on
+#: 2026-10-08, so the normalized tier can ask the heard cell's field map
+#: what the capture says, on the device's index as on the remote's
+#: (``CellIndex.match``).
 _Identity = tuple[
-    str | None, str | None, str | None, str | None, bool | None
+    str | None, str | None, str | None, str | None, bool | None,
+    Capture | None,
 ]
+
+def _packed(identity: _Identity) -> _Identity:
+    """The identity with a received train held as an int array.
+
+    ``read_train`` reads any sequence of ints, so the packed train reads
+    exactly as the list did. A value outside a C int (none is, for a
+    receiver's microseconds) keeps the 64-bit form."""
+    capture = identity[5] if len(identity) > 5 else None
+    if capture is None or isinstance(capture, (str, array)):
+        return identity
+    try:
+        packed = array("i", capture)
+    except OverflowError:
+        packed = array("q", capture)
+    return (*identity[:5], packed)
+
 
 #: "No cell has claimed this key yet", distinct from a cell that
 #: claimed it with a discriminator of None.
@@ -354,6 +382,14 @@ class CellIndex:
     by_waveform: dict[tuple[str, Any], dict[str, CellHit]] = field(
         default_factory=dict
     )
+    # WHAT THE NORMALIZED TIER'S CELLS READ AS (2026-10-08). For each
+    # normalized key whose every claimant's code a field map reads: the
+    # settings that map reads from each claimant, all of one family. A
+    # key with a claimant no map reads has no entry, and answers as it
+    # always did. See ``match``.
+    norm_readings: dict[str, tuple[Settings, ...]] = field(
+        default_factory=dict
+    )
 
     def __bool__(self) -> bool:
         return bool(
@@ -367,6 +403,7 @@ class CellIndex:
         byte_hash: str | None,
         norm_fp: str | None = None,
         decode_covers: bool | None = None,
+        capture: Capture | None = None,
     ) -> tuple[CellHit, int] | None:
         """The cell this capture is and the tier that said so, or None.
 
@@ -413,6 +450,21 @@ class CellIndex:
         of the first held-back key it reached; a composite key reached
         first can hold none of the press's waveform while a later key
         names it.
+
+        THE NORMALIZED TIER DOES NOT CONTRADICT THE MAP (2026-10-08). That
+        tier quantizes a waveform to a few levels, so a receiver's drift
+        across one level boundary makes a press's fingerprint its
+        neighbour's, and the neighbour answers: on the 2026-10-08 air
+        bench, TCL112 ``heat_cool/level1/83`` was heard as ``level1/72``,
+        and the capture's own bytes said 83. So when that tier would
+        answer and ``capture`` (the capture itself) is given, the map
+        that reads the cell's code reads the capture too, and a capture
+        it reads as other settings than every claimant of the key is not
+        answered there. A capture that map cannot read is answered as
+        before: the tier exists to hear glitched presses and lone pieces
+        the map declines, and on the harness model and both air benches
+        refusing those would have cost thousands of correct hearings to
+        cut three wrong ones. Without ``capture`` nothing is compared.
         """
         skipped_decode = decode_covers is False
         tiers: list[tuple[str, Any, CellHit | None, int]] = []
@@ -438,6 +490,11 @@ class CellIndex:
         for tier, key, hit, number in tiers:
             if hit is None:
                 continue
+            # Here rather than on the answer: a held-back normalized key
+            # answers through ``own`` or ``first`` below, and a vetoed
+            # hit must not win either way.
+            if tier == "norm_fp" and self._contradicted(key, capture):
+                continue
             if (tier, key) not in self.held_back:
                 return (hit, number)
             if own is None:
@@ -447,6 +504,19 @@ class CellIndex:
             if first is None:
                 first = (hit, number)
         return own or first
+
+    def _contradicted(self, key: str, capture: Capture | None) -> bool:
+        """Does the capture's family map read it as other settings than
+        every cell under this normalized key?"""
+        readings = self.norm_readings.get(key)
+        if not readings or not capture:
+            return False
+        from .field_readers import read_settings, settings_differ
+
+        got = read_settings(capture, readings[0][0])
+        if got is None:
+            return False
+        return all(settings_differ(got[1], values) for _f, values in readings)
 
     def _waveform(
         self, tier: str, key: Any, norm_fp: str | None
@@ -555,6 +625,7 @@ def build_cell_index(
     the rules.
     """
     from .event_parser import EventParser
+    from .field_readers import read_settings
     from .identity import (
         canonical_pronto,
         norm_fingerprint,
@@ -641,6 +712,12 @@ def build_cell_index(
     left_behind: set[str] = set()
     # The byte hashes of the codes the stray-burst floor took out.
     floored: set[str] = set()
+    # What each indexed code's family map reads from it, by the hit it
+    # was indexed as (None when no map reads it), and the family the last
+    # code read as: a lattice is one family, so asking that map first
+    # makes the sweep one map per cell. See ``CellIndex.norm_readings``.
+    settings_of: dict[int, Settings | None] = {}
+    last_family: list[str | None] = [None]
 
     def _add(
         pronto: str | None, hit_factory: Any, lattice: tuple | None,
@@ -677,6 +754,11 @@ def build_cell_index(
                 form=read[1], mode=hit.mode, lattice=lattice,
             )
         waveform = norm_fingerprint(identity.raw_timings)
+        if waveform:
+            settings = read_settings(canonical, prefer=last_family[0])
+            settings_of[id(hit)] = settings
+            if settings is not None:
+                last_family[0] = settings[0]
         unread = identity.byte_hash if read is None else None
         if read is not None and words is not None:
             behind = _timing_key(words)
@@ -836,6 +918,46 @@ def build_cell_index(
                 if waveform:
                     waveforms[waveform] = hit
             index.by_waveform[(tier, key)] = waveforms
+    # What every claimant of each surviving normalized key reads as. All
+    # or nothing: a claimant no map reads, or one another family's map
+    # reads, could be what the capture is, so such a key compares nothing.
+    #
+    # ONLY A FIELD THE FILE VARIES IS COMPARED. The question is which of
+    # the file's cells a press is, and a field every code of the family
+    # carries with one value cannot tell two cells apart; it can only
+    # refuse a press that sets it otherwise. GREE's fingerprint covers
+    # its first frame and its map reads swing in the second, so a
+    # handset with swing on, pressed against a file stored with swing
+    # off, matches a cell on that tier and would be refused on a field
+    # that names no cell. Such a field is kept as None, which compares
+    # nothing (``settings_differ``).
+    varies: dict[str, list[bool]] = {}
+    seen: dict[str, tuple] = {}
+    for settings in settings_of.values():
+        if settings is None:
+            continue
+        family, values = settings
+        if family not in seen:
+            seen[family] = values
+            varies[family] = [False] * len(values)
+            continue
+        for i, (a, b) in enumerate(zip(seen[family], values, strict=True)):
+            if a != b:
+                varies[family][i] = True
+    for key, held in claims["norm_fp"].items():
+        readings = [settings_of.get(id(hit)) for hit, _code, _wave in held]
+        if not readings or any(r is None for r in readings):
+            continue
+        if len({family for family, _values in readings}) != 1:
+            continue
+        family = readings[0][0]
+        index.norm_readings[key] = tuple(dict.fromkeys(
+            (family, tuple(
+                value if varies[family][i] else None
+                for i, value in enumerate(values)
+            ))
+            for _family, values in readings
+        ))
     claimed, hit_group = _merged_groups(indexed, claims)
     _attach_groups(
         index, matrix, claimed, hit_group,
@@ -1335,6 +1457,7 @@ class MatrixListener:
         receiver_entity_id: str | None = None,
         norm_fp: str | None = None,
         decode_covers: bool | None = None,
+        capture: Capture | None = None,
     ) -> list[str]:
         """Match one capture against every matrix remote's lattice.
 
@@ -1354,6 +1477,11 @@ class MatrixListener:
         capture's identity and the decoded tier is skipped. None is
         trusted, matching ``protocol_decode``'s own rule that an
         unverifiable census is unknown rather than false.
+
+        ``capture`` is the capture's train as received. The normalized
+        tier reads it with the heard cell's field map and does not
+        answer for a press that map reads as other settings
+        (``CellIndex.match``). Absent means nothing is compared.
         """
         heard: list[str] = []
         for remote in self._store.get_all_trigger_remotes():
@@ -1370,7 +1498,7 @@ class MatrixListener:
                 continue
             matched = index.match(
                 decoded_fingerprint, signal_fingerprint, byte_hash, norm_fp,
-                decode_covers,
+                decode_covers, capture,
             )
             if matched is None:
                 continue
@@ -1403,7 +1531,7 @@ class MatrixListener:
                 hit,
                 receiver_entity_id,
                 (decoded_fingerprint, signal_fingerprint, byte_hash,
-                 norm_fp, decode_covers),
+                 norm_fp, decode_covers, capture),
             )
             heard.append(remote.id)
         return heard
@@ -1515,7 +1643,7 @@ class MatrixListener:
         remote: TriggerRemote,
         hit: CellHit,
         receiver_entity_id: str | None,
-        identity: _Identity = (None, None, None, None, None),
+        identity: _Identity = (None, None, None, None, None, None),
     ) -> None:
         """Stamp the heard state, fire the event, push, and dispatch.
 
@@ -1641,7 +1769,13 @@ class MatrixListener:
         """
         if self._trigger_manager is None or not remote.pinned_device_ids:
             return
-        self._heard_frames[hit.cell_key] = (hit, identity)
+        # The send resolves again, later, against the device's current
+        # lattice, and needs the capture for the normalized tier's check
+        # (``CellIndex.match``); without it a pinned unit could be sent
+        # the neighbour. Packed: a receiver's train as a list is 11 to
+        # 20 KB per heard state, as an int array about a tenth of that.
+        # Kept in memory only, never stored.
+        self._heard_frames[hit.cell_key] = (hit, _packed(identity))
         self._hass.async_create_task(
             self._async_dispatch_pinned_cell(remote, hit, identity)
         )
@@ -2046,9 +2180,11 @@ def _cell_in_hit_lattice(
 # to read, and to /10 when a read-bytes key learned to merge one state
 # held as several captures, answering only presses nothing else hears
 # (``held_back``, ``by_waveform``): a /9 index refuses those keys and
-# has nothing to say which keys answer last. A stored index of an
-# older format is
-# simply not read, so every lattice rebuilds once and gains the new map;
+# has nothing to say which keys answer last, and to /11 when the
+# normalized tier learned what its cells read as (``norm_readings``): a
+# /10 index carries no readings, so read back it would never compare a
+# capture with its cell, and nothing would say so. A stored index of an
+# older format is simply not read, so every lattice rebuilds once and gains the new map;
 # the rebuild is the same seconds-of-work the first build was.
 #
 # WHY THE VERSION IS THE ONLY LEVER HERE. ``_load_stored_index`` checks
@@ -2065,7 +2201,7 @@ def _cell_in_hit_lattice(
 # MITSUBISHI144 on both identity lists, and ``field_map_digest`` hashes
 # the lists, so every index stored before them is refused by its digest
 # and rebuilt. A change to those guards on its own would need this bump.
-INDEX_FORMAT = "hair-cell-index/10"
+INDEX_FORMAT = "hair-cell-index/11"
 
 
 def _hit_to_row(hit: CellHit, group: int | None = None) -> list:
@@ -2225,6 +2361,13 @@ def _index_to_payload(
             ),
             key=repr,
         ),
+        # ``{norm key: [[family, [value, ...]], ...]}``: what each
+        # normalized key's cells read as. Derived from the field maps,
+        # which ``maps`` above already pins.
+        "norm_readings": {
+            key: [[family, list(values)] for family, values in readings]
+            for key, readings in index.norm_readings.items()
+        },
     }
 
 
@@ -2266,6 +2409,12 @@ def _payload_to_index(payload: dict) -> CellIndex | None:
             if isinstance(key, list):
                 key = tuple(key)
             index.held_back.add((tier, key))
+        for key, readings in payload["norm_readings"].items():
+            # Tuples, as the build makes them: a list never equals one,
+            # and ``dict.fromkeys`` above needs them hashable.
+            index.norm_readings[key] = tuple(
+                (str(family), tuple(values)) for family, values in readings
+            )
     except (KeyError, IndexError, TypeError, ValueError):
         return None
     return index or None
