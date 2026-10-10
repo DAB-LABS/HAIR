@@ -264,6 +264,8 @@
     "editor.burst_pair.one": "{count} par de pulsos",
     "editor.burst_pair.other": "{count} pares de pulsos",
     "editor.recognized_as": "Reconhecido como {protocol}",
+    "editor.converted_from_tuya": "Convertido de um código Tuya; 38 kHz assumidos (o formato não registra a portadora).",
+    "editor.converted_from_broadlink": "Convertido de um código Broadlink; 38 kHz assumidos (o formato não registra a portadora).",
     "editor.snap_notice": "A portadora está em {khz} kHz, fora dos padrões IR. Alguns receptores a rejeitam.",
     "editor.snapping": "Ajustando...",
     "editor.snap_to": "Ajustar para {khz} kHz",

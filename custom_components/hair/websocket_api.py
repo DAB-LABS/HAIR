@@ -50,6 +50,12 @@ from .identity import (
     canonical_fingerprint,
 )
 from .models import MAX_POWER_SETTLE_S, IRDevice, IRTrigger, TriggerRemote
+from .pasted_code import (
+    CARRIER_NOTE,
+    SOURCE_BROADLINK,
+    SOURCE_TUYA,
+    coerce_pasted_code,
+)
 from .pronto_validator import validate_pronto
 from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
@@ -2740,6 +2746,8 @@ async def ws_clip_create_signal(
     msg: dict[str, Any],
 ) -> None:
     """Validate and add a pasted Pronto signal to a clipped remote."""
+    if not _coerce_paste(connection, msg):
+        return
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
@@ -2837,6 +2845,8 @@ async def ws_unknown_signal_edit_pronto(
     msg: dict[str, Any],
 ) -> None:
     """Edit a stored signal's Pronto in place, re-evaluated as a capture."""
+    if not _coerce_paste(connection, msg):
+        return
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
@@ -2889,8 +2899,26 @@ async def ws_clip_validate_pronto(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Validate a Pronto string and return live feedback (no save)."""
-    result = validate_pronto(msg["pronto"])
+    """Validate a Pronto string and return live feedback (no save).
+
+    Paste acceptance, slice 1: a Tuya or Broadlink base64 code is read
+    into Pronto first (``pasted_code``) and validated as that Pronto, so
+    the editor sees the carrier, the pair count and the decode the stored
+    code will have. Such a response carries ``source_format`` and a
+    warning naming the assumed carrier; a Pronto paste gets neither and
+    is answered exactly as before.
+    """
+    pasted = coerce_pasted_code(msg["pronto"])
+    result = validate_pronto(pasted.pronto)
+    if pasted.error:
+        result.valid = False
+        result.errors = [pasted.error]
+        result.warnings = []
+        result.frequency_khz = None
+        result.burst_pair_count = None
+    converted = pasted.source in (SOURCE_TUYA, SOURCE_BROADLINK)
+    if converted:
+        result.warnings.insert(0, CARRIER_NOTE[pasted.source])
     # Surface the recognized protocol (NEC today) during the paste scan, so
     # the dialog can show "Recognized as NEC". Decode lives here, not in the
     # pure validator. infrared-protocols is imported once at setup, so this
@@ -2913,7 +2941,37 @@ async def ws_clip_validate_pronto(
         "burst_pair_count": result.burst_pair_count,
         "normalized": result.normalized,
         "recognized_protocol": recognized,
+        **({"source_format": pasted.source} if converted else {}),
     })
+
+
+def _coerce_paste(
+    connection: websocket_api.ActiveConnection | None,
+    msg: dict[str, Any],
+    key: str = "pronto",
+) -> bool:
+    """Swap a pasted Tuya or Broadlink base64 code in ``msg`` for Pronto.
+
+    Every door that takes the code box's text runs this first, so the
+    rest of the handler, and whatever it stores, only ever sees Pronto:
+    the base64 text is not kept. Pronto, and text nothing can read, pass
+    through untouched and meet the door's own validation exactly as
+    before. The two refusals the helper owns (several codes in one
+    paste, a Broadlink RF packet) are sent as ``invalid_pronto`` and
+    return False; with no connection (an informational door) the text is
+    simply left as it was.
+    """
+    text = msg.get(key)
+    if not isinstance(text, str) or not text.strip():
+        return True
+    pasted = coerce_pasted_code(text)
+    if pasted.error:
+        if connection is None:
+            return True
+        connection.send_error(msg["id"], "invalid_pronto", pasted.error)
+        return False
+    msg[key] = pasted.pronto
+    return True
 
 
 @websocket_api.require_admin
@@ -2943,6 +3001,8 @@ async def ws_command_update(
     rebuilds and entity hooks fire; rewires a bound trigger on an S/L
     fingerprint change and cascades action mappings on a rename.
     """
+    if not _coerce_paste(connection, msg):
+        return
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
@@ -3058,6 +3118,9 @@ def ws_send_spacing_info(
     save doors and the send path use, so an estimate the editor shows
     and a refusal a door raises can never disagree (GH #151).
     """
+    # Informational only: a code that converts is measured as its
+    # Pronto, and anything else is left for the code below to judge.
+    _coerce_paste(None, msg)
     from .ir_command import block_duration_us
     from .send_plan import (
         SEND_SILENCE_FLOOR_US,
@@ -3157,6 +3220,8 @@ async def ws_unknown_signal_snap_preview(
     code, re-derive its timings, and re-encode at the requested standard. The
     user commits the staged result through the normal edit-pronto path.
     """
+    if not _coerce_paste(connection, msg):
+        return
     result = validate_pronto(msg["pronto"])
     if not result.valid:
         connection.send_error(
@@ -8340,6 +8405,8 @@ async def ws_tangle_pre_read(
     still read and reported, there is simply no claim to check them
     against and the verdict says so rather than inventing a failure.
     """
+    if not _coerce_paste(connection, msg):
+        return
     device, matrix = await _device_and_matrix(hass, msg["device_id"])
     if device is None:
         connection.send_error(msg["id"], "not_found", "Device not found")
@@ -8399,6 +8466,8 @@ async def ws_tangle_test_send(
     error. ``emitters`` stays, because the fix flow's own receipts
     already read it.
     """
+    if not _coerce_paste(connection, msg):
+        return
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
@@ -8751,6 +8820,8 @@ async def ws_tangle_apply(
     said so repeated off-by-ones in one family can accumulate into the
     map-defect report they are.
     """
+    if not _coerce_paste(connection, msg):
+        return
     device, matrix = await _device_and_matrix(hass, msg["device_id"])
     if device is None:
         connection.send_error(msg["id"], "not_found", "Device not found")

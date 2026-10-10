@@ -292,6 +292,8 @@
     "editor.burst_pair.many": "{count} par impulsów",
     "editor.burst_pair.other": "{count} pary impulsów",
     "editor.recognized_as": "Rozpoznano jako {protocol}",
+    "editor.converted_from_tuya": "Przekonwertowano z kodu Tuya; przyjęto 38 kHz (ten format nie zapisuje nośnej).",
+    "editor.converted_from_broadlink": "Przekonwertowano z kodu Broadlink; przyjęto 38 kHz (ten format nie zapisuje nośnej).",
     "editor.snap_notice": "Nośna wynosi {khz} kHz, poza standardami IR. Niektóre odbiorniki ją odrzucają.",
     "editor.snapping": "Dopasowywanie...",
     "editor.snap_to": "Dopasuj do {khz} kHz",

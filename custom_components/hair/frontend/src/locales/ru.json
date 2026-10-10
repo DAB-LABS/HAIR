@@ -292,6 +292,8 @@
     "editor.burst_pair.many": "{count} пар импульсов",
     "editor.burst_pair.other": "{count} пары импульсов",
     "editor.recognized_as": "Распознан как {protocol}",
+    "editor.converted_from_tuya": "Преобразовано из кода Tuya; предполагается 38 кГц (формат не хранит несущую).",
+    "editor.converted_from_broadlink": "Преобразовано из кода Broadlink; предполагается 38 кГц (формат не хранит несущую).",
     "editor.snap_notice": "Несущая {khz} кГц, вне ИК-стандартов. Некоторые приёмники её отвергают.",
     "editor.snapping": "Подгонка...",
     "editor.snap_to": "Подогнать к {khz} кГц",

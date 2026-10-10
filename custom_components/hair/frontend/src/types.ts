@@ -1287,6 +1287,10 @@ export interface ProntoValidation {
     burst_pair_count: number | null;
     normalized: string;
     recognized_protocol?: string | null;
+    /** Present only when the paste was a Tuya or Broadlink base64 code
+     *  that the server read into Pronto; ``normalized`` is then that
+     *  Pronto. Absent for every Pronto paste. */
+    source_format?: "tuya" | "broadlink";
 }
 
 export interface UnknownSignalEvent {

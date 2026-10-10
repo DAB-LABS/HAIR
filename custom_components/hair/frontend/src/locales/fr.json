@@ -264,6 +264,8 @@
     "editor.burst_pair.one": "{count} paire de rafales",
     "editor.burst_pair.other": "{count} paires de rafales",
     "editor.recognized_as": "Reconnu comme {protocol}",
+    "editor.converted_from_tuya": "Converti depuis un code Tuya ; 38 kHz supposés (le format n'enregistre pas de porteuse).",
+    "editor.converted_from_broadlink": "Converti depuis un code Broadlink ; 38 kHz supposés (le format n'enregistre pas de porteuse).",
     "editor.snap_notice": "La porteuse est à {khz} kHz, hors des standards IR. Certains récepteurs la rejettent.",
     "editor.snapping": "Ajustement...",
     "editor.snap_to": "Ajuster à {khz} kHz",

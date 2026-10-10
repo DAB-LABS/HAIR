@@ -264,6 +264,8 @@
     "editor.burst_pair.one": "{count} Impulspaar",
     "editor.burst_pair.other": "{count} Impulspaare",
     "editor.recognized_as": "Erkannt als {protocol}",
+    "editor.converted_from_tuya": "Aus einem Tuya-Code umgewandelt; 38 kHz angenommen (das Format speichert keine Trägerfrequenz).",
+    "editor.converted_from_broadlink": "Aus einem Broadlink-Code umgewandelt; 38 kHz angenommen (das Format speichert keine Trägerfrequenz).",
     "editor.snap_notice": "Der Träger liegt bei {khz} kHz, außerhalb der IR-Standards. Manche Empfänger lehnen ihn ab.",
     "editor.snapping": "Wird angepasst...",
     "editor.snap_to": "Auf {khz} kHz anpassen",
