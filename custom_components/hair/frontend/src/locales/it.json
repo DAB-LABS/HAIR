@@ -264,6 +264,8 @@
     "editor.burst_pair.one": "{count} coppia di impulsi",
     "editor.burst_pair.other": "{count} coppie di impulsi",
     "editor.recognized_as": "Riconosciuto come {protocol}",
+    "editor.converted_from_tuya": "Convertito da un codice Tuya; si assumono 38 kHz (il formato non registra la portante). Verifica che il codice sia stato copiato per intero.",
+    "editor.converted_from_broadlink": "Convertito da un codice Broadlink; si assumono 38 kHz (il formato non registra la portante).",
     "editor.snap_notice": "La portante è a {khz} kHz, fuori dagli standard IR. Alcuni ricevitori la rifiutano.",
     "editor.snapping": "Allineamento...",
     "editor.snap_to": "Allinea a {khz} kHz",

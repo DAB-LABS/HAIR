@@ -161,6 +161,12 @@ export class IrSignalEditor extends LitElement {
     private _tangleUnlisten: (() => Promise<void>) | null = null;
 
     @state() private _pronto = "";
+    /** Set when the box's text was a Tuya or Broadlink base64 code that
+     *  the server converted and this editor replaced with the Pronto
+     *  (paste acceptance, slice 1). It outlives the revalidation of that
+     *  Pronto, which no longer says where it came from, and clears only
+     *  when the person edits the text or a capture replaces it. */
+    @state() private _convertedFrom: "tuya" | "broadlink" | null = null;
     @state() private _alias = "";
     @state() private _sendCount = 1;
     @state() private _spacingMs: number | null = null;
@@ -515,6 +521,7 @@ export class IrSignalEditor extends LitElement {
 
     private _onProntoInput(e: Event): void {
         this._pronto = (e.target as HTMLTextAreaElement).value;
+        this._convertedFrom = null;
         this._syncPinToPronto();
         // Hand-edited text is no longer the capture the status line
         // described.
@@ -541,10 +548,38 @@ export class IrSignalEditor extends LitElement {
 
     private async _validate(): Promise<void> {
         const before = this._validation?.normalized ?? null;
+        const sent = this._pronto;
         try {
-            this._validation = await this.api.validatePronto(this._pronto);
+            this._validation = await this.api.validatePronto(sent);
         } catch {
             this._validation = null;
+        }
+        const v = this._validation;
+        // A pasted Tuya or Broadlink base64 code comes back as Pronto.
+        // Put that Pronto in the box once, so what is shown is what will
+        // be saved, and keep the note about where it came from. Only if
+        // the box still holds the text that was asked about: a person
+        // still typing must not have their text replaced under them.
+        if (v?.valid && v.source_format && this._pronto === sent) {
+            this._convertedFrom = v.source_format;
+            this._pronto = v.normalized;
+            this._syncPinToPronto();
+            // The server's first warning is the same carrier note the
+            // converted line shows; drop it rather than say it twice.
+            this._validation = {
+                ...v,
+                source_format: undefined,
+                warnings: v.warnings.slice(1),
+            };
+            await this._validate();
+            // The inner call compares against the converted Pronto it was
+            // handed, so it never sees the change. Compare against what the
+            // box held before this paste: pasting base64 over an existing
+            // command is a different code, and its spacing row is stale.
+            if ((this._validation?.normalized ?? null) !== before) {
+                void this._refreshSpacingInfo();
+            }
+            return;
         }
         // A different code is a different block, so every number on the
         // spacing row is stale until this comes back.
@@ -1113,6 +1148,7 @@ export class IrSignalEditor extends LitElement {
         repeats_disagree?: RepeatVote;
     }): void {
         this._pronto = event.pronto;
+        this._convertedFrom = null;
         this._syncPinToPronto();
         this._captured = {
             decoded: event.decoded,
@@ -1395,6 +1431,15 @@ export class IrSignalEditor extends LitElement {
                                     >`
                                   : ""}
                           </div>
+                          ${this._convertedFrom
+                              ? html`<div class="converted">
+                                    ${t(
+                                        this._convertedFrom === "tuya"
+                                            ? "editor.converted_from_tuya"
+                                            : "editor.converted_from_broadlink",
+                                    )}
+                                </div>`
+                              : ""}
                           ${sl
                               ? html`<div class="diamonds">
                                     ${sl.map((c) =>
@@ -2052,6 +2097,11 @@ export class IrSignalEditor extends LitElement {
         }
         .recognized {
             color: #2e7d32;
+        }
+        .converted {
+            margin-top: 4px;
+            font-size: 0.8rem;
+            color: var(--secondary-text-color);
         }
         .diamonds {
             display: flex;

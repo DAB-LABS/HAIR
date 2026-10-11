@@ -264,6 +264,8 @@
     "editor.burst_pair.one": "{count}バーストペア",
     "editor.burst_pair.other": "{count}バーストペア",
     "editor.recognized_as": "{protocol} として認識",
+    "editor.converted_from_tuya": "Tuya コードから変換しました。38 kHz を仮定しています (この形式はキャリア周波数を記録しません)。コードが最後までコピーされているか確認してください。",
+    "editor.converted_from_broadlink": "Broadlink コードから変換しました。38 kHz を仮定しています (この形式はキャリア周波数を記録しません)。",
     "editor.snap_notice": "キャリアは{khz} kHzで、IR標準から外れています。拒否するレシーバーもあります。",
     "editor.snapping": "スナップ中...",
     "editor.snap_to": "{khz} kHzにスナップ",

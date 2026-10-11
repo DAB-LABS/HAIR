@@ -264,6 +264,8 @@
     "editor.burst_pair.one": "{count} burst pair",
     "editor.burst_pair.other": "{count} burst pairs",
     "editor.recognized_as": "Recognized as {protocol}",
+    "editor.converted_from_tuya": "Converted from a Tuya code; 38 kHz assumed (the format does not record a carrier). Check the code was copied whole.",
+    "editor.converted_from_broadlink": "Converted from a Broadlink code; 38 kHz assumed (the format does not record a carrier).",
     "editor.snap_notice": "Carrier is {khz} kHz, off the IR standards. Some receivers reject it.",
     "editor.snapping": "Snapping...",
     "editor.snap_to": "Snap to {khz} kHz",
