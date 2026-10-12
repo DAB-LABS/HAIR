@@ -985,6 +985,25 @@ def _transform_loaded(
         if _heal_device_signals(device):
             dirty = True
 
+    # The block each spacing was set against (review M1). Filled once,
+    # for rows that have a spacing, a count above one and no record;
+    # a row whose spacing already leaves only the minimum gap is left
+    # unrecorded on purpose (``send_plan.fill_spacing_block``). A
+    # second load finds nothing to write.
+    from .send_plan import fill_spacing_block
+
+    spacing_filled = 0
+    for device in devices.values():
+        for sig in device.signals:
+            if fill_spacing_block(sig):
+                spacing_filled += 1
+    if spacing_filled:
+        dirty = True
+        _LOGGER.info(
+            "Recorded the send-spacing block on %d catalog signal(s)",
+            spacing_filled,
+        )
+
     # Signal caps (GH #72): trim an already-oversized store back to
     # bounds on the first load after upgrade, so a user sitting on a
     # noise-flooded store recovers without touching .storage by hand.

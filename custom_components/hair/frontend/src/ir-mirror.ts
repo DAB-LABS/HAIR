@@ -1254,6 +1254,8 @@ export class IrMirror extends LitElement {
                       .initialSendCount=${this._editSignal.send_count ?? 1}
                       .initialSendSpacingMs=${this._editSignal
                           .send_spacing_ms ?? null}
+                      .initialSendSpacingBlockUs=${this._editSignal
+                          .send_spacing_block_us ?? null}
                       .initialDitto=${this._editSignal.repeat_count ?? 1}
                       .initialObservedRepeatCount=${this._editSignal
                           .observed_repeat_count ?? 0}

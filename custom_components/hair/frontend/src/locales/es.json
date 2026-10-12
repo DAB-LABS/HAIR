@@ -286,6 +286,7 @@
     "editor.send_sentence.one": "Enviar {count} vez",
     "editor.send_sentence.other": "Enviar {count} veces, separadas {ms} ms",
     "editor.spacing_floor": "El código dura más que esta separación, así que los envíos salen seguidos.",
+    "editor.spacing_restated": "La separación se ha ajustado a este código para que haya una pausa real entre envíos. Guárdala para conservarla.",
     "editor.spacing_unsupported": "Ningún emisor de este dispositivo puede enviar una separación exacta.",
     "editor.spacing_approx": "{name} no puede mantener esta separación y envía a su propio ritmo.",
     "editor.spacing_air_time": "{air} ms de emisión superan el límite de {limit} ms. Reduce la separación o el número de envíos.",

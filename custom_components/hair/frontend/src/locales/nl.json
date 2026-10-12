@@ -286,6 +286,7 @@
     "editor.send_sentence.one": "{count} keer verzenden",
     "editor.send_sentence.other": "{count} keer verzenden, {ms} ms uit elkaar",
     "editor.spacing_floor": "De code duurt langer dan deze tussenruimte, dus de verzendingen gaan direct achter elkaar uit.",
+    "editor.spacing_restated": "De tussenruimte is aangepast aan deze code, zodat er een echte pauze tussen de verzendingen zit. Sla op om die te bewaren.",
     "editor.spacing_unsupported": "Geen enkele zender op dit apparaat kan een exacte tussenruimte verzenden.",
     "editor.spacing_approx": "{name} kan deze tussenruimte niet aanhouden en verzendt op eigen tempo.",
     "editor.spacing_air_time": "{air} ms zendtijd gaat over de limiet van {limit} ms. Verlaag de tussenruimte of het aantal verzendingen.",

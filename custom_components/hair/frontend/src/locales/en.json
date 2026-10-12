@@ -286,6 +286,7 @@
     "editor.send_sentence.one": "Send {count} time",
     "editor.send_sentence.other": "Send {count} times, {ms} ms apart",
     "editor.spacing_floor": "The code is longer than this spacing, so the sends go out back to back.",
+    "editor.spacing_restated": "The spacing has been adjusted to fit this code, so there is a real gap between sends. Save to keep it.",
     "editor.spacing_unsupported": "No emitter on this device can send an exact spacing.",
     "editor.spacing_approx": "{name} cannot hold this spacing and sends at its own pace.",
     "editor.spacing_air_time": "{air} ms of air is over the {limit} ms limit. Lower the spacing or the send count.",

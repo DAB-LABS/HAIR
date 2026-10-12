@@ -286,6 +286,7 @@
     "editor.send_sentence.one": "{count}回送信",
     "editor.send_sentence.other": "{count}回送信、間隔{ms}ミリ秒",
     "editor.spacing_floor": "コードの長さがこの間隔を超えているため、送信は連続して出ます。",
+    "editor.spacing_restated": "このコードに合わせて間隔を調整し、送信の間に実際の空きができるようにしました。保存するとこの値が保持されます。",
     "editor.spacing_unsupported": "このデバイスのどの発信機も正確な間隔で送信できません。",
     "editor.spacing_approx": "{name}はこの間隔を保てないため、独自のペースで送信します。",
     "editor.spacing_air_time": "送信時間{air}ミリ秒は上限の{limit}ミリ秒を超えています。間隔か送信回数を減らしてください。",

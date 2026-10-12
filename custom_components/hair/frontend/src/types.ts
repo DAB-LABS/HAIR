@@ -87,6 +87,9 @@ export interface IRCommand {
     // path exactly, and only a save through the editor gives it a
     // value. Delivery, not identity -- outside every digest.
     send_spacing_ms?: number | null;
+    // The planned block, in microseconds, the spacing was set against
+    // (review M1). Absent on an older row.
+    send_spacing_block_us?: number | null;
     // Decoded protocol identity (v0.4.0). Present when the command was
     // decoded as a known protocol; gates the canonical-TX toggle and labels
     // its button (e.g. NEC).
@@ -1041,6 +1044,9 @@ export interface UnknownSignal {
     // Null or absent means the signal has never been tuned and stays
     // on today's send path.
     send_spacing_ms?: number | null;
+    // The planned block, in microseconds, the spacing was set against
+    // (review M1). Absent on an older signal.
+    send_spacing_block_us?: number | null;
     // Send the captured Pronto verbatim instead of re-encoding from the
     // decoded identity (Highlights, GH #78). The third knob of the same
     // kind: set here, carried onto the command at assign, into a wig at
@@ -1258,6 +1264,14 @@ export interface PluckRunResult {
 export interface SendSpacingInfo {
     /** The stored value, echoed back. Null on an old row. */
     send_spacing_ms: number | null;
+    /** The value the send uses for the block it sends today. Differs
+     *  from the value asked about only when the request asked for a
+     *  restate and that value no longer fits the code: its length moved
+     *  since the number was worked out, or the gap was shorter than the
+     *  code itself. */
+    effective_ms: number | null;
+    /** True when effective_ms differs from the stored value. */
+    restated: boolean;
     /** What this code's repeats are spaced at today, near enough to
      *  show: the number the box is filled with when it is empty. */
     estimate_ms: number | null;
@@ -1265,6 +1279,9 @@ export interface SendSpacingInfo {
     max_ms: number;
     /** The stripped block's own length. Null when no code was given. */
     block_ms: number | null;
+    /** The same, exact: the length the box's number belongs to once it
+     *  has been read for this code. */
+    block_us: number | null;
     /** Real air time for the count and the value being shown. */
     air_ms: number | null;
     air_limit_ms: number;

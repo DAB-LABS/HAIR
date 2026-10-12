@@ -314,6 +314,7 @@
     "editor.send_sentence.one": "Wyślij {count} raz",
     "editor.send_sentence.other": "Wyślij {count} razy co {ms} ms",
     "editor.spacing_floor": "Kod trwa dłużej niż ten odstęp, więc wysłania idą jedno po drugim.",
+    "editor.spacing_restated": "Odstęp został dopasowany do tego kodu, aby między wysłaniami była prawdziwa przerwa. Zapisz, aby go zachować.",
     "editor.spacing_unsupported": "Żaden nadajnik tego urządzenia nie potrafi wysłać dokładnego odstępu.",
     "editor.spacing_approx": "{name} nie utrzyma tego odstępu i wyśle we własnym tempie.",
     "editor.spacing_air_time": "{air} ms nadawania przekracza limit {limit} ms. Zmniejsz odstęp lub liczbę wysłań.",

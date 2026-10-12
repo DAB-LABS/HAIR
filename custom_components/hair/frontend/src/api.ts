@@ -1079,6 +1079,7 @@ export class HairApi {
         send_count?: number;
         repeat_count?: number;
         send_spacing_ms?: number | null;
+        send_spacing_block_us?: number | null;
     }): Promise<{ signal: UnknownSignal }> {
         return this.hass.connection.sendMessagePromise<{ signal: UnknownSignal }>({
             type: "hair/clip/create-signal",
@@ -1094,6 +1095,7 @@ export class HairApi {
         send_count?: number;
         repeat_count?: number;
         send_spacing_ms?: number | null;
+        send_spacing_block_us?: number | null;
     }): Promise<{
         signal: UnknownSignal;
         triggers: { rewired: string[]; skipped: string[] };
@@ -1130,7 +1132,10 @@ export class HairApi {
         send_count?: number;
         repeat_count?: number;
         send_spacing_ms?: number | null;
+        send_spacing_block_us?: number | null;
+        restate?: boolean;
         device_id?: string | null;
+        command_id?: string | null;
     }): Promise<SendSpacingInfo> {
         return this.hass.connection.sendMessagePromise<SendSpacingInfo>({
             type: "hair/send_spacing_info",
@@ -1156,6 +1161,7 @@ export class HairApi {
         send_count?: number;
         repeat_count?: number;
         send_spacing_ms?: number | null;
+        send_spacing_block_us?: number | null;
     }): Promise<{
         command: IRCommand;
         triggers: { rewired: string[]; skipped: string[] };

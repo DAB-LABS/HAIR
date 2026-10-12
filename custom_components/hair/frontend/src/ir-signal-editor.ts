@@ -73,6 +73,12 @@ export class IrSignalEditor extends LitElement {
     @property({ attribute: false }) public initialSendSpacingMs:
         | number
         | null = null;
+    /** The planned block, in microseconds, the stored spacing was set
+     *  against, or null on an older row (review M1). Only ever sent
+     *  back to the server with the stored value it belongs to. */
+    @property({ attribute: false }) public initialSendSpacingBlockUs:
+        | number
+        | null = null;
     /** Current NEC ditto count (all modes). */
     @property({ attribute: false }) public initialDitto = 1;
     /** Read-only hint: dittos observed following this signal at capture. */
@@ -170,6 +176,19 @@ export class IrSignalEditor extends LitElement {
     @state() private _alias = "";
     @state() private _sendCount = 1;
     @state() private _spacingMs: number | null = null;
+    /** The box opened on the spacing the send now uses rather than the
+     *  stored one, because the code changed length since it was set. */
+    @state() private _spacingRestated = false;
+    /** The length, in microseconds, the box's number was worked out
+     *  against: the row's record when the editor opens, then the length
+     *  of each answer the number was read for. Null when nobody knows
+     *  it, and Save then says so, so the door records nothing. */
+    private _spacingBlockUs: number | null = null;
+    /** The person has typed in the box: the number is theirs, for the
+     *  code as it is when they typed it. */
+    private _spacingTyped = false;
+    /** Only the newest spacing answer may touch the box. */
+    private _spacingAsk = 0;
     /** The server's answer about this code: bounds, estimate, air time,
      *  and what each of the device's emitters can actually do. Every
      *  number the spacing row shows comes from here rather than from a
@@ -256,6 +275,14 @@ export class IrSignalEditor extends LitElement {
         return this._spacingMs;
     }
 
+    /** The length to save with the spacing: the one its number was
+     *  worked out against, or null when that is not known (saved before
+     *  the first answer, or typed with no answer since). Always sent, so
+     *  the door never measures behind the box. */
+    private get _spacingBlockForSave(): number | null {
+        return this._spacingPayload === null ? null : this._spacingBlockUs;
+    }
+
     /** Which refusal the current combination would earn, or null.
      *
      * Only ever one, and the refusals come first: a person cannot act
@@ -299,6 +326,7 @@ export class IrSignalEditor extends LitElement {
                 });
         }
         if (this._spacingPayload === null) return null;
+        if (this._spacingRestated) return t("editor.spacing_restated");
         if (this._spacingInfo?.floor_hit) return t("editor.spacing_floor");
         const slow = this._approximateEmitter;
         return slow === null
@@ -375,6 +403,7 @@ export class IrSignalEditor extends LitElement {
         this._alias = this.initialAlias;
         this._sendCount = this.initialSendCount;
         this._spacingMs = this.initialSendSpacingMs;
+        this._spacingBlockUs = this.initialSendSpacingBlockUs;
         this._ditto = this.initialDitto;
         this._bypass = this.initialTxForceRaw;
         if (this._pronto.trim()) {
@@ -448,6 +477,12 @@ export class IrSignalEditor extends LitElement {
             const raw = parseInt(value, 10);
             this._spacingMs = Number.isNaN(raw) ? null : raw;
         }
+        // A number the person typed is theirs, for the code as it is
+        // now. It takes its length from the answer this asks for, and
+        // until that arrives nobody knows it.
+        this._spacingRestated = false;
+        this._spacingTyped = true;
+        this._spacingBlockUs = null;
         void this._refreshSpacingInfo();
     }
 
@@ -461,16 +496,57 @@ export class IrSignalEditor extends LitElement {
      */
     private async _refreshSpacingInfo(): Promise<void> {
         if (this._isTangle) return;
+        const ask = ++this._spacingAsk;
+        const payload = this._spacingPayload;
+        const boxBefore = this._spacingMs;
+        // The box's number is read for the code as it now stands, exactly
+        // as the send reads it, whenever the length it was worked out
+        // against is known, or it is the row's untouched stored value (an
+        // older row with no record, which rule 2 may widen). A changed
+        // code, ditto count or Bypass therefore moves the box the way it
+        // moves the send. A number typed before any answer goes through
+        // as typed and takes this answer's length.
+        const untouched =
+            !this._spacingTyped &&
+            payload !== null &&
+            payload === this.initialSendSpacingMs;
+        const restate =
+            payload !== null && (this._spacingBlockUs !== null || untouched);
         try {
             const info = await this.api.sendSpacingInfo({
                 pronto: this._pronto || null,
-                repeat_count: this._dittoCountDisabled ? 0 : this._ditto,
+                // With the knob off, Save leaves the row's own ditto count
+                // in place and the send builds with it (a Sony row repeats
+                // its frame by it), so the length is measured with it too.
+                repeat_count: this._dittoCountDisabled
+                    ? this.initialDitto
+                    : this._ditto,
                 tx_force_raw: this._bypass,
                 send_count: this._sendCount,
-                send_spacing_ms: this._spacingPayload,
+                send_spacing_ms: payload,
+                send_spacing_block_us: restate ? this._spacingBlockUs : null,
+                restate,
                 device_id: this._isCommand ? this.deviceId : null,
+                // The command being edited, so the length is measured for
+                // that row as the save will leave it (a matrix row is
+                // replayed at send, not rebuilt).
+                command_id: this._isCommand ? this.commandId : null,
             });
+            // A newer question has been asked since; its answer decides.
+            if (ask !== this._spacingAsk) return;
             this._spacingInfo = info;
+            if (
+                payload !== null &&
+                this._spacingMs === boxBefore &&
+                info.block_us !== null
+            ) {
+                if (restate && info.restated && info.effective_ms !== null) {
+                    this._spacingMs = info.effective_ms;
+                    this._spacingRestated = true;
+                }
+                // The box's number now belongs to this code.
+                this._spacingBlockUs = info.block_us;
+            }
             // Fill an empty box the moment the row starts repeating, so
             // the number a person adjusts is the cadence the row already
             // has rather than a blank they have to guess at.
@@ -480,15 +556,18 @@ export class IrSignalEditor extends LitElement {
                 info.estimate_ms !== null
             ) {
                 this._spacingMs = info.estimate_ms;
+                this._spacingBlockUs = info.block_us;
             }
         } catch {
-            this._spacingInfo = null;
+            if (ask === this._spacingAsk) this._spacingInfo = null;
         }
     }
 
     private _onDittoInput(e: Event): void {
         const raw = parseInt((e.target as HTMLInputElement).value, 10);
         this._ditto = Number.isNaN(raw) ? 0 : Math.max(0, Math.min(raw, 20));
+        // More dittos are a longer block: the box moves with it.
+        void this._refreshSpacingInfo();
     }
 
     /**
@@ -1018,6 +1097,7 @@ export class IrSignalEditor extends LitElement {
                     // and omitting the key would silently keep the old
                     // cadence on a row that no longer repeats.
                     send_spacing_ms: this._spacingPayload,
+                    send_spacing_block_us: this._spacingBlockForSave,
                     repeat_count: ditto,
                 });
                 // The pin rides its own command, so it is written after
@@ -1047,6 +1127,7 @@ export class IrSignalEditor extends LitElement {
                     alias: this._alias.trim(),
                     send_count: this._sendCount,
                     send_spacing_ms: this._spacingPayload,
+                    send_spacing_block_us: this._spacingBlockForSave,
                     repeat_count: ditto,
                 });
                 this.dispatchEvent(
@@ -1064,6 +1145,7 @@ export class IrSignalEditor extends LitElement {
                         alias: this._alias.trim() || undefined,
                         send_count: this._sendCount,
                         send_spacing_ms: this._spacingPayload,
+                        send_spacing_block_us: this._spacingBlockForSave,
                         repeat_count: ditto,
                     });
                 this.dispatchEvent(
@@ -1398,6 +1480,8 @@ export class IrSignalEditor extends LitElement {
                     ?disabled=${this._busy}
                     @toggle-bypass=${(e: CustomEvent) => {
                         this._bypass = e.detail.bypass;
+                        // Replay and rebuild are different lengths.
+                        void this._refreshSpacingInfo();
                     }}
                 ></ir-protocol-chip>
             </div>

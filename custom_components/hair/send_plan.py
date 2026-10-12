@@ -302,6 +302,206 @@ def estimate_spacing_ms(inner: Any) -> int:
     return max(SEND_SPACING_MIN_MS, min(SEND_SPACING_MAX_MS, rounded))
 
 
+# A recorded block may differ from today's by this much before the
+# spacing is re-based on it. Two builds of one row agree exactly; this
+# only absorbs rounding between two ways of measuring the same bytes.
+SPACING_BLOCK_DRIFT_US = 2_000
+
+
+def _largest_fitting_spacing_ms(block_us: int, count: int) -> int | None:
+    """The longest spacing whose burst still fits the air-time cap.
+
+    The largest whole millisecond in the stored range for which
+    ``realised_air_ms`` stays within the cap, by that function's own
+    arithmetic and rounding, so the answer can never stop short of a
+    spacing the cap would accept. None when not even the shortest
+    spacing fits, which is a burst the cap refuses whatever the spacing.
+    Air time never falls as the spacing grows, so a bisection finds it.
+    """
+    if count <= 1:
+        return SEND_SPACING_MAX_MS
+
+    def fits(spacing: int) -> bool:
+        total_us = count * block_us + (count - 1) * silence_us(block_us, spacing)
+        return round(total_us / 1000) <= SEND_AIR_TIME_MAX_MS
+
+    if not fits(SEND_SPACING_MIN_MS):
+        return None
+    low, high = SEND_SPACING_MIN_MS, SEND_SPACING_MAX_MS
+    while low < high:
+        middle = (low + high + 1) // 2
+        if fits(middle):
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
+def effective_spacing_ms(
+    spacing_ms: int | None,
+    inner: Any,
+    send_count: int,
+    recorded_block_us: int | None,
+) -> int | None:
+    """The spacing a send actually uses, for the block it actually sends.
+
+    A stored spacing was decided against the block the row built when
+    it was minted or saved. When the block has changed since (a tier
+    moving between rebuild and replay, a decoder arriving, the carrier
+    rule, the raw pin, a ditto count), the number alone no longer means
+    what it meant, and the three rules below decide what it means now.
+    They never touch the stored value; this is computed at the point of
+    use, by both send sites and by the editor, so all three agree.
+
+    1. A row that recorded its block keeps its SILENCE: the spacing
+       moves by exactly as much as the block did. That holds whether
+       the number was estimated or typed, since the store cannot tell
+       the two apart.
+    2. A row with no record (older than this field, and not filled at
+       load because of the next clause) has only one safe signal: a
+       send that would be clamped to the minimum gap, meaning the
+       stored spacing is no longer than block plus 10 ms. No one set
+       that for this block, so the estimate for this block is used. A
+       row squeezed but not down to the floor is left alone.
+    3. The count is never changed. When the new spacing would push the
+       burst over the air-time cap, it is cut to the largest spacing
+       that fits, and never below the stored value: no row is sent
+       tighter than it was.
+    """
+    if spacing_ms is None:
+        return None
+    stored = int(spacing_ms)
+    count = max(1, int(send_count or 1))
+    if count <= 1:
+        return stored
+    block_us = block_duration_us(inner.get_raw_timings())
+    if recorded_block_us is not None:
+        delta_us = block_us - int(recorded_block_us)
+        if abs(delta_us) <= SPACING_BLOCK_DRIFT_US:
+            return stored
+        wanted = stored + round(delta_us / 1000)
+    elif silence_us(block_us, stored) == SEND_SILENCE_FLOOR_US:
+        wanted = estimate_spacing_ms(inner)
+    else:
+        return stored
+    wanted = max(SEND_SPACING_MIN_MS, min(SEND_SPACING_MAX_MS, wanted))
+    if wanted > stored and realised_air_ms(inner, count, wanted) > (
+        SEND_AIR_TIME_MAX_MS
+    ):
+        fits = _largest_fitting_spacing_ms(block_us, count)
+        wanted = stored if fits is None else max(stored, min(wanted, fits))
+    return wanted
+
+
+def record_spacing_block(row: Any) -> None:
+    """Write the block ``row``'s spacing is being set against, or None.
+
+    Called by every door that mints or saves a spacing, after the row's
+    other knobs are in place, so the block measured is the one the send
+    path will build for exactly this row. A row that sends once, or has
+    no spacing, records nothing.
+    """
+    spacing = getattr(row, "send_spacing_ms", None)
+    if spacing is None or int(getattr(row, "send_count", 1) or 1) <= 1:
+        row.send_spacing_block_us = None
+        return
+    try:
+        row.send_spacing_block_us = block_duration_us(
+            build_like_send_path(row).get_raw_timings()
+        )
+    except Exception:  # a code that will not build has no block to record
+        row.send_spacing_block_us = None
+
+
+def plausible_block_us(value: Any) -> int | None:
+    """A length a client says its spacing was worked out against, or None.
+
+    Taken only as a positive whole number of microseconds no longer than
+    the air-time cap, since one send longer than the cap could never go
+    out. Anything else (a string, a bool, a float, zero, a negative, an
+    impossible length) is unknown, never trusted.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value <= 0 or value > SEND_AIR_TIME_MAX_MS * 1000:
+        return None
+    return value
+
+
+def store_spacing_block(
+    row: Any,
+    previous_spacing_ms: int | None,
+    *,
+    block_us: Any = None,
+    block_given: bool = False,
+) -> None:
+    """Record the length for a spacing a save door has just stored.
+
+    The length belongs with the number it was worked out against, so a
+    door never measures it again behind the editor's back:
+
+    - A row that sends once, or has no spacing, records nothing.
+    - ``block_given``: the caller's word. A plausible length is recorded.
+      Null, or anything implausible, means the caller does not know, and
+      nothing is recorded: a number saved before the editor's first
+      answer is never stamped with today's length, and rule 2 still
+      reaches the row at send time.
+    - Not given, spacing unchanged: the record stays, so a save that only
+      moved another knob leaves rule 1 to keep the gap at send time.
+    - Not given, spacing changed (an API caller, or a panel from before
+      the editor carried the length): measured on the row as this save
+      leaves it.
+    """
+    spacing = getattr(row, "send_spacing_ms", None)
+    if spacing is None or int(getattr(row, "send_count", 1) or 1) <= 1:
+        row.send_spacing_block_us = None
+        return
+    if block_given:
+        row.send_spacing_block_us = plausible_block_us(block_us)
+        return
+    if previous_spacing_ms is not None and int(spacing) == int(
+        previous_spacing_ms
+    ):
+        return
+    record_spacing_block(row)
+
+
+def clear_block_for_single_send(row: Any) -> None:
+    """A row that sends once, or has no spacing, records no length."""
+    if (
+        getattr(row, "send_spacing_ms", None) is None
+        or int(getattr(row, "send_count", 1) or 1) <= 1
+    ):
+        row.send_spacing_block_us = None
+
+
+def fill_spacing_block(row: Any) -> bool:
+    """The load-time fill for one older row. True when it wrote.
+
+    Only a row with a spacing, a count above one and no record. The
+    block recorded is the one THIS release builds, so a change shipping
+    in the same release is caught by rule 2, not rule 1. A row whose
+    spacing already leaves only the minimum gap is skipped and stays on
+    rule 2: recording today's block for it would make today's clamp
+    look intended. Never writes ``send_spacing_ms``.
+    """
+    if getattr(row, "send_spacing_block_us", None) is not None:
+        return False
+    spacing = getattr(row, "send_spacing_ms", None)
+    if spacing is None or int(getattr(row, "send_count", 1) or 1) <= 1:
+        return False
+    try:
+        block_us = block_duration_us(
+            build_like_send_path(row).get_raw_timings()
+        )
+    except Exception:
+        return False
+    if silence_us(block_us, int(spacing)) == SEND_SILENCE_FLOOR_US:
+        return False
+    row.send_spacing_block_us = block_us
+    return True
+
+
 def would_send_decoded(row: Any) -> bool:
     """Whether the send path would re-encode this row from its decode.
 
