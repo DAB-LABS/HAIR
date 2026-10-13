@@ -105,7 +105,7 @@ To turn a set of codes into a Device or Remote:
 3. Choose **Make a Device** or **Make a Remote**, name it, and pick hardware -- emitters for a Device, receivers for a Remote.
 4. Click Create.
 
-The Clipper is for pasting a Pronto code by hand; the Plucker pulls codes already learned into a vendor blaster, such as a Tuya Local IR blaster, without transmitting anything over the air.
+The Clipper is for pasting a code by hand (Pronto, or a Tuya or Broadlink base64 code); the Plucker pulls codes already learned into a vendor blaster, such as a Tuya Local IR blaster, without transmitting anything over the air.
 
 For a Device, open it afterward and click **ACTIONS** on a command to map it to an entity action, such as `turn_on` or `volume_up`; only mapped actions show up as controls, so an entity never claims a feature your remote does not have.
 
@@ -203,7 +203,7 @@ To fit a wig:
 
 A Perfect Fit is one person's work. If somebody else proved half the wig before you, your checklist still starts empty: the green tick says one person found the whole thing working on their own hardware, and two half-fittings do not add up to that. The closet still counts what everybody proved between them, because that is worth knowing on its own.
 
-Fix flagged codes under **Needs attention** before you fit. A fitting waits until that block is empty, because a claim about codes nobody has answered the doubts on is not a claim worth signing. To fix a code the comb did not catch, open the command, paste in a corrected Pronto code or press **LISTEN**, then save. A repaired wig is a different wig, so any change starts a brand new fitting with only your signature on it.
+Fix flagged codes under **Needs attention** before you fit. A fitting waits until that block is empty, because a claim about codes nobody has answered the doubts on is not a claim worth signing. To fix a code the comb did not catch, open the command, paste in a corrected code or press **LISTEN**, then save. A repaired wig is a different wig, so any change starts a brand new fitting with only your signature on it.
 
 Give the device a beat between presses so you can watch it react before marking a row. Fittings are what make a shared wig trustworthy, and only perfect-fit wigs can graduate into generated Home Assistant integrations.
 
@@ -260,7 +260,7 @@ The tab splits into two sections. **DEVICES** holds the things HAIR sends codes 
 
 ### Editing signals and commands
 
-Every signal and command has a copy/edit glyph that opens a single editor: read the raw Pronto code, copy it, or replace it by pasting a new code or pressing **LISTEN** to capture it fresh off the remote. Editing updates the fingerprint and decoded identity, and moves any trigger bound to that signal along with it. Renaming a command updates any action mapping that pointed at the old name. A device command is a copy of the signal it was assigned from, so editing a catalog signal in the Sniffer or Clipper does not change commands already assigned from it; edit the command on the device itself to change what that device transmits. If a signal's carrier reads off the common IR standards, the editor offers a "Snap to N kHz" button that re-encodes it to the nearest standard (30, 33, 36, 38, 40, or 56 kHz) before you save.
+Every signal and command has a copy/edit glyph that opens a single editor: read the raw Pronto code, copy it, or replace it by pasting a new code or pressing **LISTEN** to capture it fresh off the remote. The box takes one code at a time, as Pronto or as a Tuya or Broadlink base64 code; a base64 code is converted to Pronto and the editor says which format it came from. A file of many codes goes to the Closet instead. Editing updates the fingerprint and decoded identity, and moves any trigger bound to that signal along with it. Renaming a command updates any action mapping that pointed at the old name. A device command is a copy of the signal it was assigned from, so editing a catalog signal in the Sniffer or Clipper does not change commands already assigned from it; edit the command on the device itself to change what that device transmits. If a signal's carrier reads off the common IR standards, the editor offers a "Snap to N kHz" button that re-encodes it to the nearest standard (30, 33, 36, 38, 40, or 56 kHz) before you save.
 
 The same editor carries the two transmit knobs. **Send times** is how many times the whole code goes out as independent presses, for gear that needs a repeat to register. **Spacing** is the gap between those presses, measured from the start of one to the start of the next, and it turns on as soon as send times rises above 1. The box opens on what the code is spaced at today, so the number you adjust is the cadence the command already has rather than a blank.
 

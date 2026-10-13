@@ -81,9 +81,9 @@ automations.
 your receiver, press a button, and it appears here. Signals are grouped by
 which remote they seem to have come from.
 
-**Clipper.** Build a remote by pasting Pronto codes, for when you have codes
-but no way to capture them live. Also where a remote built from your installed
-code library lands.
+**Clipper.** Build a remote by pasting codes one at a time (Pronto, or a Tuya
+or Broadlink base64 code), for when you have codes but no way to capture them
+live. Also where a remote built from your installed code library lands.
 
 **Plucker.** Pull codes that already live inside a vendor blaster into HAIR,
 without re-learning each one at a receiver. Nothing is broadcast over the air
@@ -150,9 +150,10 @@ handset over the air.
 
 ## Codes and identity
 
-**Pronto.** The text format HAIR stores every code in. It describes the raw
-on and off timings of the signal plus its carrier frequency. Pronto is the
-only paste format the Clipper accepts.
+**Pronto.** The text format HAIR stores every code in. It describes the raw on
+and off timings of the signal plus its carrier frequency. A Tuya or Broadlink
+base64 code pasted into the Clipper or the editor is converted to Pronto as it
+is pasted.
 
 **Carrier frequency.** The rate the infrared LED pulses, usually around 38 kHz.
 Most remotes use one of a handful of standard values, and HAIR can snap a
