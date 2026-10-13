@@ -5,12 +5,11 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.17.5] - 2026-10-12 -- Root Touch-Up
 
 ### Added
 
 - TDC-38 remotes now decode. These are the remotes of the Telekom Media Receivers, such as the MR401, and of Magenta boxes. HAIR had no decoder for them, and the way it tells undecoded codes apart could not see the difference between their buttons, so buttons whose codes had the same length shared one identity: the Clipper accepted one code of each length and refused the rest as already on the remote, the Sniffer would merge those buttons into one row, and a trigger fired on any of them. Each button is now its own signal, including a capture that the receiver cut off partway through its last frame. A trigger made on one of these remotes before this release now fires only on its own button, and a Sniffer row that had collected several buttons keeps the button of its stored code. Existing TDC-38 commands are sent from their decoded value after the upgrade, except one stored at a carrier other than about 38 kHz, which is still sent as captured. A press that does not decode at all is still matched the old way. Reported by @MaxRower (GH #206).
-
 - The paste box in the Clipper, the code editor and Needs attention now accepts a Tuya base64 code (the `ir_code_to_send` value from Zigbee2MQTT) or a Broadlink base64 code and converts it to Pronto. The converted Pronto is what is stored and sent, and it is the same code a SmartIR import of it produces. Neither format records a carrier, so 38 kHz is assumed and the editor says so. A code copied with line breaks, or in the URL-safe base64 alphabet, is read as one code. A paste that holds several codes is refused with a pointer to the Closet, and a Broadlink RF code is named as one, since HAIR sends infrared only. Pronto pastes behave exactly as before.
 
 ### Fixed

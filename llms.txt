@@ -33,7 +33,12 @@ Key components:
   signals per remote, 20,000 total, oldest evicted first) so a noisy receiver
   cannot grow the store without bound.
 - Clipper: a manual-entry surface (a third panel tab) for building virtual remotes by
-  pasting Pronto hex codes, for cases where a live signal cannot be sniffed. Each
+  pasting codes, for cases where a live signal cannot be sniffed. Since 0.17.5
+  the paste box also takes a Tuya base64 code (Zigbee2MQTT ir_code_to_send) or
+  a Broadlink base64 code: pasted_code.coerce_pasted_code converts it to Pronto
+  at every door that takes the code box (Clipper, command editor, Needs
+  attention), the base64 text is not kept, and several codes in one paste or a
+  Broadlink RF packet are refused with a pointer to the Closet. Each
   pasted code is validated (hex shape, four-digit words, a learned-code 0000 or
   0100 header, burst-pair length math, and a carrier-frequency sanity warning
   that is skipped on the unmodulated 0100 form) and then behaves
@@ -283,6 +288,15 @@ Key components:
   AST test in test_mirror.py fails if one stops. A Mirror row records the
   counts the send actually used, last-send semantics, defaulting to None so
   the echo-heard path cannot erase them.
+  send_spacing_ms (start of one send to start of the next) is stored with
+  send_spacing_block_us (0.17.5), the block length it was worked out
+  against. send_plan.effective_spacing_ms reads it at the point of use
+  (device send, catalog Test, the editor's read): a recorded row whose
+  block has changed moves by the difference, an unrecorded row whose sends
+  would run together gets today's estimate, the send count never changes,
+  and a raised spacing stops at the 3 s air-time cap but never below the
+  stored value. The editor asks hair/send_spacing_info (with command_id
+  on a command) and saves the length its number belongs to.
 - Decode trust (v0.14.2): every decoded identity carries a coverage
   verdict computed where the decode is minted (protocol_decode). A label
   must account for every frame of its capture -- the winning decoder's
@@ -540,6 +554,9 @@ Key components:
   successful send. GE-AC registers identity-only (tx_rebuild=False): decoded
   identity matches/collapses signals, but TX always replays the captured
   raw, since re-encoding AC state risks transmitting wrong state.
+  Symphony is identity-only for TX too since 0.17.5: the rebuild sent one
+  or two frames where the remote sends four to ten and dropped lead-in
+  frames, so a Symphony send replays what was captured.
   The protocol pack added the NEC1-shaped tier: APPLE (address pinned to
   0x87EE plus a parity bit over the last two bytes; the pairing id is
   identity and rides the fingerprint suffix :p<xx>) and NEC42 / NEC42EXT
@@ -562,6 +579,12 @@ Key components:
   HAIR keeps device+button as the signal's identity (rotating presses
   collapse to one signal) and advances the counter on every send, from
   device commands and catalog Test presses alike.
+  A TDC-38 decoder followed (v0.17.5), local only like Dyson and
+  Symphony: the remotes of Telekom Media Receivers (MR401 and others) and
+  Magenta boxes, 18 Manchester cells with no checksum, probing in the
+  checksum-free tail ahead of Dyson and Symphony. Rows decode at load and
+  send from their decoded value, except one stored at a carrier other
+  than about 38 kHz, which still sends as captured.
   Recovery passes (v0.6.1): registry specs can carry optional seek and
   salvage hooks, wired for NEC today. Seek trims junk ahead of the main
   leader (stray repeat markers, partial bursts) before the strict decode;
