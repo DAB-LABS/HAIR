@@ -1,5 +1,5 @@
 /**
- * Clips tab -- build "clipped" remotes by pasting Pronto codes.
+ * Clips tab -- build "clipped" remotes by pasting codes.
  *
  * Mirrors the Sniffer (ir-signal-monitor) card + dialog structure but
  * without the live-capture, flash, and dismiss-glow machinery, since

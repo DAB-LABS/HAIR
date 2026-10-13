@@ -442,3 +442,30 @@ class TestPseudoLocale:
             for brand in BRAND_NAMES:
                 if re.search(rf"\b{brand}\b", value):
                     assert brand in pseudo[key]
+
+
+class TestQuotedButtonNames:
+    """A hint that names a button quotes that button's own label.
+
+    The Clipper's empty states tell a person which button to click. The
+    quoted text must be the label the button actually shows in the same
+    locale, or the hint points at a button that does not exist.
+    """
+
+    # (hint key, button key)
+    PAIRS: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("clips.no_signals", "clips.add_signal"),
+        ("clips.empty_hint", "clips.add_remote"),
+    )
+    _QUOTED = re.compile(r'"([^"]+)"|「([^」]+)」')
+
+    @pytest.mark.parametrize(
+        "path",
+        [LOCALES_DIR / "en.json", *_frontend_locales()],
+        ids=lambda p: p.stem,
+    )
+    def test_quoted_button_is_the_button_label(self, path):
+        data = _load(path)
+        for hint_key, button_key in self.PAIRS:
+            quoted = [a or b for a, b in self._QUOTED.findall(data[hint_key])]
+            assert quoted == [data[button_key]], (path.stem, hint_key, quoted)
