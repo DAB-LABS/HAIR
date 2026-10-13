@@ -146,6 +146,7 @@ def _optional_bool(value: Any) -> bool | None:
 _KNOWN_COMMAND = frozenset({
     "id", "name", "category", "source", "protocol", "code", "raw_timings",
     "frequency", "repeat_count", "send_count", "send_spacing_ms",
+    "send_spacing_block_us",
     "byte_hash",
     "decoded_protocol", "decoded_address", "decoded_command",
     "decoded_fingerprint", "decoded_extras", "decode_covers",
@@ -238,6 +239,16 @@ class IRCommand:
     # scheduler produced (GH #151). Written at mint, at an editor
     # save, and by a wig that carries one; never by a migration.
     send_spacing_ms: int | None = None
+    # The planned block, in microseconds, that ``send_spacing_ms`` was
+    # set against: recorded whenever a spacing is minted or saved, and
+    # filled once at load for an older row that has a spacing but no
+    # record. When the block the send path builds later differs (a
+    # tier moving between rebuild and replay, a decoder arriving, the
+    # raw pin, a ditto count), the send keeps the silence this record
+    # implies instead of the number alone. None on a row that sends
+    # once or has no spacing, and on an older row whose spacing already
+    # leaves only the minimum gap (see ``send_plan.effective_spacing_ms``).
+    send_spacing_block_us: int | None = None
     # Quantized byte hash carried over from the source signal on assign
     # (the v0.3.4 duplicate-guard tiebreaker). Optional; None for commands
     # created before 0.3.4 or from sources without a Pronto code.
@@ -348,6 +359,10 @@ class IRCommand:
                 {"send_spacing_ms": self.send_spacing_ms}
                 if self.send_spacing_ms is not None else {}
             ),
+            **(
+                {"send_spacing_block_us": self.send_spacing_block_us}
+                if self.send_spacing_block_us is not None else {}
+            ),
             "byte_hash": self.byte_hash,
             "decoded_protocol": self.decoded_protocol,
             "decoded_address": self.decoded_address,
@@ -384,6 +399,9 @@ class IRCommand:
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
             send_count=int(data.get("send_count", 1)),
             send_spacing_ms=_optional_int(data.get("send_spacing_ms")),
+            send_spacing_block_us=_optional_int(
+                data.get("send_spacing_block_us")
+            ),
             byte_hash=data.get("byte_hash"),
             decoded_protocol=data.get("decoded_protocol"),
             decoded_address=data.get("decoded_address"),
@@ -1483,7 +1501,7 @@ _KNOWN_SIGNAL = frozenset({
     "decoded_extras", "protocol", "code", "raw_timings", "frequency",
     "hit_count", "first_seen", "last_seen", "source", "alias",
     "plucked_command_name", "repeat_count", "send_count",
-    "send_spacing_ms", "tx_force_raw",
+    "send_spacing_ms", "send_spacing_block_us", "tx_force_raw",
     "decode_covers",
     # DERIVED (GH #144), for the reason the block below gives about
     # every other derived key here.
@@ -1558,6 +1576,9 @@ class UnknownSignal:
     # scheduler produced (GH #151). Written at mint, at an editor
     # save, and by a wig that carries one; never by a migration.
     send_spacing_ms: int | None = None
+    # The planned block the spacing was set against, in microseconds;
+    # see the same field on IRCommand.
+    send_spacing_block_us: int | None = None
     # Send the captured Pronto verbatim instead of re-encoding from the
     # decoded identity (Highlights, GH #78). The third knob of exactly
     # the same kind as the two above, and it exists because a capture
@@ -1633,6 +1654,10 @@ class UnknownSignal:
                 {"send_spacing_ms": self.send_spacing_ms}
                 if self.send_spacing_ms is not None else {}
             ),
+            **(
+                {"send_spacing_block_us": self.send_spacing_block_us}
+                if self.send_spacing_block_us is not None else {}
+            ),
             "decode_covers": self.decode_covers,
             "tx_force_raw": self.tx_force_raw,
             "observed_repeat_count": self.observed_repeat_count,
@@ -1686,6 +1711,9 @@ class UnknownSignal:
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
             send_count=int(data.get("send_count", 1)),
             send_spacing_ms=_optional_int(data.get("send_spacing_ms")),
+            send_spacing_block_us=_optional_int(
+                data.get("send_spacing_block_us")
+            ),
             decode_covers=_optional_bool(data.get("decode_covers")),
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             observed_repeat_count=int(data.get("observed_repeat_count", 0)),

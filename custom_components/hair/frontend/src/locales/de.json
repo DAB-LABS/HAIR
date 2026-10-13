@@ -286,6 +286,7 @@
     "editor.send_sentence.one": "{count}-mal senden",
     "editor.send_sentence.other": "{count}-mal senden, im Abstand von {ms} ms",
     "editor.spacing_floor": "Der Code ist länger als dieser Abstand, daher gehen die Sendungen direkt hintereinander raus.",
+    "editor.spacing_restated": "Der Abstand wurde an diesen Code angepasst, damit zwischen den Sendungen eine echte Pause bleibt. Speichern, um ihn zu übernehmen.",
     "editor.spacing_unsupported": "Kein Sender an diesem Gerät kann einen exakten Abstand senden.",
     "editor.spacing_approx": "{name} kann diesen Abstand nicht einhalten und sendet im eigenen Tempo.",
     "editor.spacing_air_time": "{air} ms Sendezeit überschreiten das Limit von {limit} ms. Verringern Sie den Abstand oder die Anzahl der Sendungen.",

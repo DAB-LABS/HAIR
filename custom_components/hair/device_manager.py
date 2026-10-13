@@ -234,6 +234,8 @@ class DeviceManager:
         repeat_count: int | None = None,
         send_spacing_ms: int | None = None,
         set_send_spacing: bool = False,
+        send_spacing_block_us: Any = None,
+        set_send_spacing_block: bool = False,
         trigger_manager: TriggerManager | None = None,
     ) -> dict[str, Any]:
         """Edit a device command's name and/or Pronto in place.
@@ -390,8 +392,22 @@ class DeviceManager:
         # value here: it is what puts the row back on the old path. The
         # websocket door has already validated the number against the
         # bounds, the air-time cap and the device's emitters.
+        # The length the spacing was worked out against comes with it
+        # (``send_plan.store_spacing_block`` says how each case is read).
+        # The editor sends it for the code, dittos and Bypass on screen,
+        # so the order it saves the pin in does not matter.
+        from .send_plan import clear_block_for_single_send, store_spacing_block
+
         if set_send_spacing:
+            previous_spacing = command.send_spacing_ms
             command.send_spacing_ms = send_spacing_ms
+            store_spacing_block(
+                command, previous_spacing,
+                block_us=send_spacing_block_us,
+                block_given=set_send_spacing_block,
+            )
+        else:
+            clear_block_for_single_send(command)
 
         await self.async_update_device(device)
         return {
@@ -877,6 +893,7 @@ class DeviceManager:
                 repeat_count=command.repeat_count or 0,
             )
 
+        from .send_plan import effective_spacing_ms
         from .send_signal import ORIGIN_MANAGER
 
         # Broadcast through the shared emitter path; raises when every
@@ -888,8 +905,14 @@ class DeviceManager:
             send_count=max(1, command.send_count or 1),
             # The field alone picks the path (GH #151). None here is a
             # row saved before this feature landed, and it transmits
-            # exactly as it always did.
-            send_spacing_ms=command.send_spacing_ms,
+            # exactly as it always did. A value is read for the block
+            # being sent now, not the one it was set against.
+            send_spacing_ms=effective_spacing_ms(
+                command.send_spacing_ms,
+                ir_cmd,
+                command.send_count,
+                command.send_spacing_block_us,
+            ),
             decoded_fingerprint=(
                 command.decoded_fingerprint
                 if not command.tx_force_raw else None

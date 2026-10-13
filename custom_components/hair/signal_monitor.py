@@ -327,6 +327,16 @@ def _apply_signal_provenance(
     # The raw pin is a user decision on the catalog signal, and this is
     # the only place it crosses onto a command (Highlights, GH #78).
     command.tx_force_raw = signal.tx_force_raw
+    # The length the spacing was set against travels with it. A payload
+    # that set a different spacing is measured on the command as it now
+    # stands; a command that sends once records nothing.
+    from .send_plan import clear_block_for_single_send, store_spacing_block
+
+    command.send_spacing_block_us = signal.send_spacing_block_us
+    if set_send_spacing:
+        store_spacing_block(command, signal.send_spacing_ms)
+    else:
+        clear_block_for_single_send(command)
     command.plucked_command_name = signal.plucked_command_name
     # WHERE THE BYTES CAME FROM (2026-08-18). A Clipper paste and a
     # Plucker pull never crossed the air, and the receiver-tolerant tier
@@ -2660,13 +2670,25 @@ class SignalMonitor:
         # A signal with no stored spacing gets no plan and runs the loop
         # below exactly as it always ran.
         from .ir_command import TERMINATOR_SPACE_US, block_duration_us
-        from .send_plan import emitter_platform, plan_send, silence_us
+        from .send_plan import (
+            effective_spacing_ms,
+            emitter_platform,
+            plan_send,
+            silence_us,
+        )
 
         block_us = block_duration_us(ir_cmd.get_raw_timings())
+        # Read for the block being sent now (see effective_spacing_ms).
+        spacing_ms = effective_spacing_ms(
+            signal.send_spacing_ms,
+            ir_cmd,
+            send_count,
+            signal.send_spacing_block_us,
+        )
         plan = plan_send(
             ir_cmd,
             send_count,
-            signal.send_spacing_ms,
+            spacing_ms,
             emitter_platform(self._hass, emitter_entity_id),
         )
         if plan is None:
@@ -2677,7 +2699,7 @@ class SignalMonitor:
             burst: tuple[int, int] | None = None
         else:
             air_s = plan.air_s
-            burst = (send_count, silence_us(block_us, signal.send_spacing_ms))
+            burst = (send_count, silence_us(block_us, spacing_ms))
         # The Mirror (v0.6.6): a catalog test is a send; audit it and arm
         # echo attribution BEFORE transmitting so the emitter's state
         # beacon and the loopback capture both attribute here.
@@ -2826,6 +2848,8 @@ class SignalMonitor:
         send_count: int | None = None,
         tx_force_raw: bool | None = None,
         send_spacing_ms: int | None = None,
+        send_spacing_block_us: Any = None,
+        set_send_spacing_block: bool = False,
     ) -> dict[str, Any]:
         """Add a manually-pasted Pronto signal to a clipped remote.
 
@@ -2933,6 +2957,13 @@ class SignalMonitor:
             # air-time cap and the install's emitters, and hands over None
             # for anything that should stay an old row (GH #151).
             signal.send_spacing_ms = send_spacing_ms
+            from .send_plan import store_spacing_block
+
+            store_spacing_block(
+                signal, None,
+                block_us=send_spacing_block_us,
+                block_given=set_send_spacing_block,
+            )
             # New signal goes on top so the just-added clip surfaces.
             device.signals.insert(0, signal)
             # Indexed but never consulted for a paste: the Clipper files
@@ -3234,6 +3265,8 @@ class SignalMonitor:
         send_count: int | None = None,
         send_spacing_ms: int | None = None,
         set_send_spacing: bool = False,
+        send_spacing_block_us: Any = None,
+        set_send_spacing_block: bool = False,
     ) -> dict[str, Any]:
         """Edit a stored signal's Pronto in place, re-evaluated as a capture.
 
@@ -3350,8 +3383,21 @@ class SignalMonitor:
             # Only a payload that CARRIED the field touches the spacing:
             # an editor that never showed the box must not clear a value
             # somebody set elsewhere (GH #151).
+            from .send_plan import (
+                clear_block_for_single_send,
+                store_spacing_block,
+            )
+
             if set_send_spacing:
+                previous_spacing = signal.send_spacing_ms
                 signal.send_spacing_ms = send_spacing_ms
+                store_spacing_block(
+                    signal, previous_spacing,
+                    block_us=send_spacing_block_us,
+                    block_given=set_send_spacing_block,
+                )
+            else:
+                clear_block_for_single_send(signal)
             signal.last_seen = datetime.now(UTC).isoformat()
 
             rewire: dict[str, list[str]] = {"rewired": [], "skipped": []}

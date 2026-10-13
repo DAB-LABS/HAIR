@@ -286,6 +286,7 @@
     "editor.send_sentence.one": "Invia {count} volta",
     "editor.send_sentence.other": "Invia {count} volte, distanziate di {ms} ms",
     "editor.spacing_floor": "Il codice dura più di questa distanza, quindi gli invii partono uno di seguito all'altro.",
+    "editor.spacing_restated": "La distanza è stata adattata a questo codice, così tra un invio e l'altro c'è una vera pausa. Salva per mantenerla.",
     "editor.spacing_unsupported": "Nessun emettitore di questo dispositivo può rispettare una distanza esatta.",
     "editor.spacing_approx": "{name} non riesce a mantenere questa distanza e invia al proprio ritmo.",
     "editor.spacing_air_time": "{air} ms di trasmissione superano il limite di {limit} ms. Riduci la distanza o il numero di invii.",

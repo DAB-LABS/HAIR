@@ -286,6 +286,7 @@
     "editor.send_sentence.one": "Envoyer {count} fois",
     "editor.send_sentence.other": "Envoyer {count} fois, espacées de {ms} ms",
     "editor.spacing_floor": "Le code dure plus longtemps que cet espacement, les envois partent donc à la suite.",
+    "editor.spacing_restated": "L'espacement a été ajusté à ce code pour laisser une vraie pause entre les envois. Enregistrez pour le conserver.",
     "editor.spacing_unsupported": "Aucun émetteur de cet appareil ne peut respecter un espacement exact.",
     "editor.spacing_approx": "{name} ne peut pas tenir cet espacement et envoie à son propre rythme.",
     "editor.spacing_air_time": "{air} ms d'émission dépassent la limite de {limit} ms. Réduisez l'espacement ou le nombre d'envois.",

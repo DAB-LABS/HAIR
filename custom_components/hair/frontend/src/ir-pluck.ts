@@ -1413,6 +1413,8 @@ export class IrPluck extends LitElement {
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
                       .initialSendSpacingMs=${this._editSignal.signal
                           .send_spacing_ms ?? null}
+                      .initialSendSpacingBlockUs=${this._editSignal.signal
+                          .send_spacing_block_us ?? null}
                       .initialDitto=${this._editSignal.signal.repeat_count ?? 1}
                       .initialObservedRepeatCount=${this._editSignal.signal
                           .observed_repeat_count ?? 0}

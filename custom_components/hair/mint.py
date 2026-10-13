@@ -55,6 +55,7 @@ def mint_command(
     frequency: int | None = None,
     send_count: int | None = None,
     send_spacing_ms: int | None = None,
+    send_spacing_block_us: int | None = None,
     estimate_spacing: bool = True,
     repeat_count: int | None = None,
     tx_force_raw: bool = False,
@@ -96,7 +97,9 @@ def mint_command(
     apply_identity(command, identity)
     if byte_hash is not None:
         command.byte_hash = byte_hash
-    _apply_send_spacing(command, send_spacing_ms, estimate_spacing)
+    _apply_send_spacing(
+        command, send_spacing_ms, estimate_spacing, send_spacing_block_us
+    )
     return command
 
 
@@ -104,6 +107,7 @@ def _apply_send_spacing(
     command: IRCommand,
     send_spacing_ms: int | None,
     estimate_spacing: bool,
+    send_spacing_block_us: int | None = None,
 ) -> None:
     """Decide the row's whole-frame spacing, once, at the one door.
 
@@ -122,11 +126,25 @@ def _apply_send_spacing(
     Called AFTER apply_identity: the estimate is measured on the block
     the send path will build, and for a decoded row that block does not
     exist until the decoded fields are stamped.
+
+    A value the caller passes comes with the length it was set against,
+    or none. A spacing that came from somewhere else (a wig, written by
+    an older release or another install) was not set against the block
+    this release builds, so it is never stamped with today's length: it
+    stays unrecorded, and rule 2 or the load-time fill handle it like any
+    other unrecorded row. Only the estimate below is measured here,
+    because it is worked out against that very block.
     """
+    from .send_plan import record_spacing_block, store_spacing_block
+
     if send_spacing_ms is not None:
         command.send_spacing_ms = int(send_spacing_ms)
+        store_spacing_block(
+            command, None, block_us=send_spacing_block_us, block_given=True
+        )
         return
     command.send_spacing_ms = None
+    command.send_spacing_block_us = None
     if not estimate_spacing:
         return
     if command.send_count <= 1 or not command.code:
@@ -159,6 +177,7 @@ def _apply_send_spacing(
         )
         return
     command.send_spacing_ms = estimate
+    record_spacing_block(command)
 
 
 def apply_identity(command: IRCommand, identity: Any) -> None:

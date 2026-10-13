@@ -286,6 +286,7 @@
     "editor.send_sentence.one": "Enviar {count} vez",
     "editor.send_sentence.other": "Enviar {count} vezes, com {ms} ms de intervalo",
     "editor.spacing_floor": "O código dura mais do que este intervalo, por isso os envios saem seguidos.",
+    "editor.spacing_restated": "O intervalo foi ajustado a este código para haver uma pausa real entre envios. Guarde para o manter.",
     "editor.spacing_unsupported": "Nenhum emissor deste dispositivo consegue enviar um intervalo exato.",
     "editor.spacing_approx": "{name} não consegue manter este intervalo e envia ao seu próprio ritmo.",
     "editor.spacing_air_time": "{air} ms de emissão ultrapassam o limite de {limit} ms. Reduza o intervalo ou o número de envios.",

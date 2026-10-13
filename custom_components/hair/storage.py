@@ -286,6 +286,7 @@ class HAIRStore:
         changed = self._backfill_canonical_identity() or changed
         changed = self._backfill_trigger_order() or changed
         changed = self._backfill_pin_bindings() or changed
+        changed = self._backfill_spacing_block() or changed
         self._rebuild_command_index()
         self._loaded = True
         if changed or migrated or ran:
@@ -392,6 +393,28 @@ class HAIRStore:
                     )
                 self._idx_bytehash[cmd.byte_hash] = ref
                 self._fps_with_hashed.add(fp)
+
+    def _backfill_spacing_block(self) -> bool:
+        """Record the block each stored spacing was set against (M1).
+
+        Once, for commands with a spacing, a count above one and no
+        record, and never for one whose spacing already leaves only the
+        minimum gap (``send_plan.fill_spacing_block`` says why). Writes
+        no spacing, so a second load finds nothing and saves nothing.
+        """
+        from .send_plan import fill_spacing_block
+
+        filled = 0
+        for device in self._data.values():
+            for cmd in device.commands:
+                if fill_spacing_block(cmd):
+                    filled += 1
+        if filled:
+            _LOGGER.info(
+                "Recorded the send-spacing block on %d device command(s)",
+                filled,
+            )
+        return filled > 0
 
     def _backfill_pin_bindings(self) -> bool:
         """Recompute every pinned remote's derived button map at load.

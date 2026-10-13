@@ -26,6 +26,7 @@ from .capture_orchestrator import (
 from .command_templates import get_action_options, get_templates_for_device_type
 from .const import (
     DEFAULT_CAPTURE_TIMEOUT,
+    DEFAULT_CARRIER_FREQUENCY,
     DOMAIN,
     EVENT_SIGNAL_UPDATED,
     FITTING_LISTEN_TIMEOUT_S,
@@ -406,11 +407,23 @@ def _check_send_spacing(
             block_ms = round(
                 block_duration_us(inner.get_raw_timings()) / 1000
             )
+            fits = max(
+                (
+                    n for n in range(1, count)
+                    if realised_air_ms(inner, n, value) <= SEND_AIR_TIME_MAX_MS
+                ),
+                default=0,
+            )
             return None, (
                 "spacing_air_time",
                 f"{count} sends of a {block_ms} ms code at {value} ms "
                 f"apart is {air_ms} ms on the air, over the "
-                f"{SEND_AIR_TIME_MAX_MS} ms limit",
+                f"{SEND_AIR_TIME_MAX_MS} ms limit; "
+                + (
+                    "even one send does not fit" if fits == 0
+                    else "at most 1 send fits at this spacing" if fits == 1
+                    else f"at most {fits} sends fit at this spacing"
+                ),
             )
     # Refused only when HAIR KNOWS the answer is no. An empty list means
     # nothing could be resolved, and a lookup that came back empty is not
@@ -427,11 +440,33 @@ def _check_send_spacing(
     return value, None
 
 
+def _pronto_frequency(pronto: str) -> int | None:
+    """The carrier a save door stores for this Pronto, or None.
+
+    The same reading every door makes when it takes a pasted or edited
+    code (``frequency_khz``, else the default carrier), so a stand-in
+    answers the carrier rule in ``would_send_decoded`` the way the
+    saved row will.
+    """
+    try:
+        result = validate_pronto(pronto)
+    except Exception:  # an unreadable code fails its own validator
+        return None
+    if not result.valid:
+        return None
+    return (
+        round(result.frequency_khz * 1000)
+        if result.frequency_khz
+        else DEFAULT_CARRIER_FREQUENCY
+    )
+
+
 def _spacing_row_for_pronto(
     pronto: str,
     *,
     repeat_count: int = 0,
     tx_force_raw: bool = False,
+    like: Any = None,
 ) -> Any:
     """A stand-in row for a code that has no stored row yet.
 
@@ -448,6 +483,17 @@ def _spacing_row_for_pronto(
     verdict comes from the same decode, so a code whose label does not
     describe every frame is measured raw here for the same reason it
     would transmit raw (GH #134).
+
+    The stand-in is the row as the save will leave it, because
+    ``would_send_decoded`` decides rebuild or replay from more than the
+    decode. ``frequency`` is the carrier the door will store for these
+    bytes, so the carrier rule answers as it will at send. ``like`` is
+    the stored row the code is replacing, when there is one: a door
+    keeps that row's ``source`` and ``matrix_cell`` through a code edit,
+    and a matrix row that decodes is replayed at send, so a stand-in
+    without them measured a rebuild the send never builds. Nothing else
+    comes from ``like``: the dittos and the raw pin are the caller's,
+    which is what is on screen.
     """
     from .ir_command import ProntoCommand
     from .protocol_decode import try_decode_identity
@@ -457,11 +503,12 @@ def _spacing_row_for_pronto(
         identity = try_decode_identity(ProntoCommand(pronto).get_raw_timings())
     except Exception:  # an unbuildable code fails its own validator
         identity = None
+    matrix_cell = getattr(like, "matrix_cell", None)
     return SimpleNamespace(
         protocol="PRONTO",
         code=pronto,
         raw_timings=None,
-        frequency=None,
+        frequency=_pronto_frequency(pronto),
         repeat_count=repeat_count,
         tx_force_raw=tx_force_raw,
         decoded_protocol=getattr(identity, "protocol", None),
@@ -473,8 +520,8 @@ def _spacing_row_for_pronto(
             if identity is not None and identity.extras else None
         ),
         decode_covers=getattr(identity, "covers_capture", None),
-        matrix_cell=None,
-        source=None,
+        matrix_cell=dict(matrix_cell) if matrix_cell else None,
+        source=getattr(like, "source", None),
     )
 
 
@@ -516,10 +563,11 @@ def _spacing_block(
     A door that is creating or replacing a code has no stored row for
     the new bytes, so the code is decoded into a stand-in first (see
     ``_spacing_row_for_pronto``); measuring the raw frame there was the
-    defect QA found on VM999. ``repeat_count`` and ``tx_force_raw`` are
-    the payload's values when it carries them, so a knob-only edit is
-    measured against the knobs it is setting rather than the stored
-    ones.
+    defect QA found on VM999. The stored row, when there is one, lends
+    the stand-in what a code edit keeps (its matrix provenance).
+    ``repeat_count`` and ``tx_force_raw`` are the payload's values when
+    it carries them, so a knob-only edit is measured against the knobs
+    it is setting rather than the stored ones.
     """
     try:
         from .send_plan import build_like_send_path
@@ -540,6 +588,7 @@ def _spacing_block(
                     pronto,
                     repeat_count=effective_repeat,
                     tx_force_raw=effective_raw,
+                    like=row,
                 )
             )
         if row is not None:
@@ -2737,6 +2786,9 @@ async def ws_clip_create_remote(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
     vol.Optional("send_spacing_ms"): vol.Any(None, int),
+    # The length the spacing was worked out against; null when the
+    # editor does not know it. Bound-checked, never trusted as sent.
+    vol.Optional("send_spacing_block_us"): object,
     vol.Optional("tx_force_raw"): bool,
 })
 @websocket_api.async_response
@@ -2775,6 +2827,8 @@ async def ws_clip_create_signal(
         send_count=msg.get("send_count"),
         tx_force_raw=msg.get("tx_force_raw"),
         send_spacing_ms=spacing,
+        send_spacing_block_us=msg.get("send_spacing_block_us"),
+        set_send_spacing_block="send_spacing_block_us" in msg,
     )
     if not result["success"]:
         connection.send_error(
@@ -2837,6 +2891,7 @@ async def ws_signal_set_tx_force_raw(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
     vol.Optional("send_spacing_ms"): vol.Any(None, int),
+    vol.Optional("send_spacing_block_us"): object,
 })
 @websocket_api.async_response
 async def ws_unknown_signal_edit_pronto(
@@ -2874,6 +2929,8 @@ async def ws_unknown_signal_edit_pronto(
         send_count=msg.get("send_count"),
         send_spacing_ms=spacing,
         set_send_spacing="send_spacing_ms" in msg,
+        send_spacing_block_us=msg.get("send_spacing_block_us"),
+        set_send_spacing_block="send_spacing_block_us" in msg,
     )
     if not result["success"]:
         connection.send_error(
@@ -2985,6 +3042,9 @@ def _coerce_paste(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
     vol.Optional("send_spacing_ms"): vol.Any(None, int),
+    # The length the spacing was worked out against; null when the
+    # editor does not know it. Bound-checked, never trusted as sent.
+    vol.Optional("send_spacing_block_us"): object,
     vol.Optional("repeat_count"): vol.All(
         int, vol.Range(min=0, max=MAX_DITTO_COUNT)
     ),
@@ -3069,6 +3129,8 @@ async def ws_command_update(
         repeat_count=msg.get("repeat_count"),
         send_spacing_ms=spacing,
         set_send_spacing="send_spacing_ms" in msg,
+        send_spacing_block_us=msg.get("send_spacing_block_us"),
+        set_send_spacing_block="send_spacing_block_us" in msg,
         trigger_manager=trigger_manager,
     )
     if not result["success"]:
@@ -3102,7 +3164,18 @@ async def ws_command_update(
     vol.Optional("send_count", default=1): int,
     vol.Optional("repeat_count", default=0): int,
     vol.Optional("send_spacing_ms"): vol.Any(None, int),
+    # The length the box's number was worked out against, and whether to
+    # read the number for the code as it now stands. The editor asks for
+    # that whenever it knows the length, or the number is the row's
+    # untouched stored value; a number typed for the code as it is goes
+    # through as typed. The length is bound-checked, never trusted.
+    vol.Optional("send_spacing_block_us"): object,
+    vol.Optional("restate", default=False): bool,
     vol.Optional("device_id"): vol.Any(None, str),
+    # The command the editor is on, looked up on ``device_id`` only. It
+    # lends the measurement its matrix provenance and nothing else; an
+    # unknown id measures as if none was sent.
+    vol.Optional("command_id"): vol.Any(None, str),
 })
 @callback
 def ws_send_spacing_info(
@@ -3124,7 +3197,9 @@ def ws_send_spacing_info(
     from .ir_command import block_duration_us
     from .send_plan import (
         SEND_SILENCE_FLOOR_US,
+        effective_spacing_ms,
         estimate_spacing_ms,
+        plausible_block_us,
         realised_air_ms,
         silence_us,
     )
@@ -3160,26 +3235,49 @@ def ws_send_spacing_info(
         # ditto-carrying NEC row by a factor of sixteen and let a
         # spacing through that the air-time cap exists to refuse (QA on
         # VM999, 2026-09-12).
+        #
+        # On an existing command the stand-in is that command as the
+        # save will leave it: a matrix row that decodes is replayed at
+        # send, so measuring it as a rebuild recorded a length the send
+        # never builds (round-3 review). Only the command's own device
+        # is searched, and an id that is not on it is ignored.
+        stored_command = None
+        if msg.get("command_id") and msg.get("device_id"):
+            stored_command = _command_by_ids(
+                _get_first_entry_data(hass),
+                msg["device_id"], msg["command_id"],
+            )
         row = _spacing_row_for_pronto(
-            code, repeat_count=repeat_count, tx_force_raw=tx_force_raw
+            code, repeat_count=repeat_count, tx_force_raw=tx_force_raw,
+            like=stored_command,
         )
     inner = _spacing_block(None, row)
     count = max(1, int(msg.get("send_count") or 1))
     stored = msg.get("send_spacing_ms")
     emitters = _spacing_emitters_for(hass, msg.get("device_id"))
 
+    block_us: int | None = None
     block_ms: int | None = None
     estimate: int | None = None
     air_ms: int | None = None
     floor_hit = False
+    effective = stored
     if inner is not None:
         block_us = block_duration_us(inner.get_raw_timings())
         block_ms = round(block_us / 1000)
         estimate = estimate_spacing_ms(inner)
-        # The figure the editor is about to show is the stored value when
-        # there is one and the estimate otherwise, because that is what
-        # the box will contain.
-        shown = stored if stored is not None else estimate
+        # A stored value is read for the block this row sends today,
+        # exactly as the send sites read it, so the box can open on the
+        # number that will actually be used (review M1).
+        if msg.get("restate") and stored is not None:
+            effective = effective_spacing_ms(
+                stored, inner, count,
+                plausible_block_us(msg.get("send_spacing_block_us")),
+            )
+        # The figure the editor is about to show is the effective value
+        # when there is one and the estimate otherwise, because that is
+        # what the box will contain.
+        shown = effective if effective is not None else estimate
         air_ms = realised_air_ms(inner, count, shown)
         # The floor bites when the code is simply longer than the number
         # asked for. Worth saying out loud: the frames still go out, just
@@ -3188,10 +3286,15 @@ def ws_send_spacing_info(
 
     connection.send_result(msg["id"], {
         "send_spacing_ms": stored,
+        "effective_ms": effective,
+        "restated": effective != stored,
         "estimate_ms": estimate,
         "min_ms": SEND_SPACING_MIN_MS,
         "max_ms": SEND_SPACING_MAX_MS,
         "block_ms": block_ms,
+        # Exact, so the editor can hand the save door the length its
+        # number now belongs to.
+        "block_us": block_us,
         "air_ms": air_ms,
         "air_limit_ms": SEND_AIR_TIME_MAX_MS,
         "floor_hit": floor_hit,
