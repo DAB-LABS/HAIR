@@ -35,7 +35,7 @@
  * `tangle/apply-batch` write for every member once that sample is in.
  */
 import { LitElement, html, css, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleTarget } from "./types.js";
 import { t, tp } from "./localize.js";

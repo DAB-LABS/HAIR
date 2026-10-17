@@ -32,7 +32,7 @@
  * undo in this round. A kept row leaves the list on the refetch.
  */
 import { LitElement, html, css, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleTarget } from "./types.js";
 import { t } from "./localize.js";
