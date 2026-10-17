@@ -57,6 +57,18 @@ export class HaPanelIrDevices extends LitElement {
     @state() private _triggerRemotes: TriggerRemoteInfo[] = [];
     @state() private _pluckSources: PluckSource[] = [];
     @state() private _pendingPluckEntity = "";
+    /** Whether the panel must draw its own menu button on a phone.
+     *  True only when HA's own <ha-menu-button> in the app bar has no
+     *  box on screen (see _measureMenuButton). */
+    @state() private _ownMenuNeeded = false;
+    /** Which edges of the scrolling tab row have more tabs past them;
+     *  drives the soft fade that says the row scrolls. */
+    @state() private _tabFade: { start: boolean; end: boolean } = {
+        start: false,
+        end: false,
+    };
+    private _resizeObserver?: ResizeObserver;
+    private _observedMenuButton: Element | null = null;
 
     private _api: HairApi | null = null;
     // Punch list item 7 (signpost 3 bench round, 2026-08-17): tracks
@@ -71,9 +83,101 @@ export class HaPanelIrDevices extends LitElement {
         if (this.hass) {
             this._init();
         }
+        if (typeof ResizeObserver !== "undefined") {
+            this._resizeObserver = new ResizeObserver(() => {
+                this._measureMenuButton();
+                this._measureTabFade();
+            });
+            this._resizeObserver.observe(this);
+            this._observedMenuButton = null;
+        }
+    }
+
+    disconnectedCallback(): void {
+        super.disconnectedCallback();
+        this._resizeObserver?.disconnect();
+        this._resizeObserver = undefined;
+        this._observedMenuButton = null;
+    }
+
+    /**
+     * Draw our own menu button only when HA's is not on screen.
+     *
+     * The panel renders <ha-top-app-bar-fixed> with HA's own
+     * <ha-menu-button> in it, and that is the hamburger a phone shows
+     * whenever HA decides the sidebar needs one. Our .mobile-nav-row
+     * exists for the case where that button is not there: HA chose not
+     * to draw it, or the header around it is hidden (the Companion app,
+     * kiosk setups). Both of those leave the element with no box, so
+     * the test is a measurement of an element in our own shadow root,
+     * not a guess about the shell. The ResizeObserver also watches the
+     * button itself, so it hearing back from HA after a hass update
+     * (it renders asynchronously) re-runs this.
+     */
+    private _measureMenuButton(): void {
+        const button = this.shadowRoot?.querySelector("ha-menu-button");
+        if (button && button !== this._observedMenuButton && this._resizeObserver) {
+            if (this._observedMenuButton) {
+                this._resizeObserver.unobserve(this._observedMenuButton);
+            }
+            this._resizeObserver.observe(button);
+            this._observedMenuButton = button;
+        }
+        let shown = false;
+        if (button) {
+            const rect = button.getBoundingClientRect();
+            shown =
+                button.getClientRects().length > 0 &&
+                rect.width > 0 &&
+                rect.height > 0;
+        }
+        if (this._ownMenuNeeded === shown) {
+            this._ownMenuNeeded = !shown;
+        }
+    }
+
+    private _tabScroller(): HTMLElement | null {
+        return (this.shadowRoot?.querySelector(".tab-scroll") as HTMLElement) ?? null;
+    }
+
+    /** Fade an edge of the tab row only while tabs are past it. */
+    private _measureTabFade(): void {
+        const s = this._tabScroller();
+        if (!s) return;
+        const start = s.scrollLeft > 1;
+        const end = s.scrollLeft + s.clientWidth < s.scrollWidth - 1;
+        if (start !== this._tabFade.start || end !== this._tabFade.end) {
+            this._tabFade = { start, end };
+        }
+    }
+
+    /** On a phone the tab row scrolls; bring the active tab into it.
+     *  Instant under reduced motion, smooth otherwise. Only the row
+     *  scrolls, never the page. */
+    private _scrollActiveTabIntoView(): void {
+        const s = this._tabScroller();
+        const a = s?.querySelector(".tab.active") as HTMLElement | null;
+        if (!s || !a || s.scrollWidth <= s.clientWidth) return;
+        const pad = 24;
+        let left: number | null = null;
+        if (a.offsetLeft - pad < s.scrollLeft) {
+            left = Math.max(0, a.offsetLeft - pad);
+        } else if (a.offsetLeft + a.offsetWidth + pad > s.scrollLeft + s.clientWidth) {
+            left = a.offsetLeft + a.offsetWidth + pad - s.clientWidth;
+        }
+        if (left === null) return;
+        const reduce =
+            typeof window.matchMedia === "function" &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        s.scrollTo({ left, behavior: reduce ? "auto" : "smooth" });
     }
 
     protected updated(changed: PropertyValues): void {
+        this._measureMenuButton();
+        if (changed.has("_activeTab")) {
+            this._scrollActiveTabIntoView();
+        }
+        this._measureTabFade();
         if (changed.has("hass") && this.hass) {
             // Follow the USER's profile language (server language can
             // differ). Cheap no-op when unchanged.
@@ -333,7 +437,8 @@ export class HaPanelIrDevices extends LitElement {
                     .hass=${this.hass}
                 ></ha-menu-button>
 
-            <div class="mobile-nav-row">
+            ${this._ownMenuNeeded
+                ? html`<div class="mobile-nav-row">
                 <button
                     class="mobile-nav-button"
                     title=${t("panel.open_menu")}
@@ -344,9 +449,17 @@ export class HaPanelIrDevices extends LitElement {
                         .path=${"M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"}
                     ></ha-svg-icon>
                 </button>
-            </div>
+            </div>`
+                : ""}
 
             <div class="tab-bar">
+                <div
+                    class="tab-scroll ${this._tabFade.start ? "fade-start" : ""} ${this
+                        ._tabFade.end
+                        ? "fade-end"
+                        : ""}"
+                    @scroll=${this._measureTabFade}
+                >
                 <button
                     class="tab devices-tab ${this._activeTab === "devices" ? "active" : ""}"
                     @click=${() => this._switchTab("devices")}
@@ -383,6 +496,7 @@ export class HaPanelIrDevices extends LitElement {
                 >
                     Mirror
                 </button>
+                </div>
                 <!-- Signpost 3 follow-up (2026-08-15): the brand block
                      now lives inside the tab row itself instead of on
                      its own line above it -- shrunk to 46px (matches
@@ -565,19 +679,13 @@ export class HaPanelIrDevices extends LitElement {
             display: block;
             margin: 5px 0;
         }
-        /* Below 400px the mascot is what forces a third row of tab bar.
-           Once .tab-bar wraps, the tabs pack two rows and .brand-block
-           cannot fit beside the second one, so it takes a line of its
-           own: measured 139px of bar at 320px against 98px at 390px.
-           Dropping it below 400px puts every phone width on two rows at
-           83px -- 56px back at 320px, and 15px even where the bar was
-           already two rows.
-
-           Owner ruling 2026-08-23: the banner carries page identity, so
-           the mark is redundant on a phone and 83px beats 139px. Scoped
-           to phones only; the mark is untouched from 400px up, where it
-           costs nothing. */
-        @media (max-width: 400px) {
+        /* Mobile pass (2026-10-17, owner kickoff): below the panel's
+           768px breakpoint the tab row is one line that scrolls, so
+           the mascot has no row to ride and the banner already says
+           which page this is. It was hidden below 400px before
+           (owner ruling 2026-08-23); the line now sits at the one
+           breakpoint the panel uses. */
+        @media (max-width: 768px) {
             .brand-block {
                 display: none;
             }
@@ -585,30 +693,75 @@ export class HaPanelIrDevices extends LitElement {
         /* .brand-name removed with the wordmark, punch list item 5
            (2026-08-17) -- the character-only image is .brand-mark's
            sole child now. */
-        /* flex-wrap is deliberately unconditional rather than parked in
-           the 768px query below. Six tabs plus the brand block need
-           625px; a phone gives the bar 379px at 390px viewport, so the
-           last two tabs (Closet, Mirror) rendered entirely off-screen
-           with no scroll affordance to hint they were there -- measured
-           246px of overflow on a real 390px viewport.
-
-           Wrap is a no-op at every width where the tabs already fit, so
-           it costs the desktop layout nothing and needs no breakpoint of
-           its own; it also keeps working if a seventh tab is ever added,
-           which a hard-coded query would not. The alternative,
-           overflow-x: auto, keeps one line but leaves those two tabs
-           reachable only by a horizontal swipe that nothing advertises
-           -- discoverability beat the 41px of extra bar height (57px ->
-           98px at 390px, a 3+3 grid with the brand riding the second
-           row). Switching to scrolling later is a one-line change. */
+        /* The tab row. On a desktop the six tabs fit with room to spare
+           and .tab-scroll keeps its old unconditional wrap, a no-op
+           there. Below 768px it is one row that scrolls sideways
+           (mobile pass, owner kickoff 2026-10-17), replacing the 3+3
+           wrap of 2026-08-15: that wrap was chosen because nothing
+           advertised a scroll, and the soft fade on whichever edge
+           has more tabs past it is now that advertisement. The active
+           tab is scrolled into view on every tab change
+           (_scrollActiveTabIntoView), and keyboard focus scrolls a
+           tab into view on its own. */
         .tab-bar {
             display: flex;
-            flex-wrap: wrap;
             align-items: flex-end;
             border-bottom: 1px solid var(--divider-color);
             padding: 0 16px;
             max-width: 1100px;
             margin: 0 auto;
+        }
+        .tab-scroll {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            position: relative;
+            min-width: 0;
+        }
+        @media (max-width: 768px) {
+            .tab-bar {
+                padding: 0;
+            }
+            .tab-scroll {
+                flex: 1 1 auto;
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                overscroll-behavior-x: contain;
+                scrollbar-width: none;
+                padding: 0 8px;
+            }
+            .tab-scroll::-webkit-scrollbar {
+                display: none;
+            }
+            .tab-scroll .tab {
+                flex: 0 0 auto;
+                padding: 12px 14px;
+                white-space: nowrap;
+            }
+            .tab-scroll.fade-end {
+                -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+                mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+            }
+            .tab-scroll.fade-start {
+                -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+                mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+            }
+            .tab-scroll.fade-start.fade-end {
+                -webkit-mask-image: linear-gradient(
+                    to right,
+                    transparent,
+                    #000 32px,
+                    #000 calc(100% - 32px),
+                    transparent
+                );
+                mask-image: linear-gradient(
+                    to right,
+                    transparent,
+                    #000 32px,
+                    #000 calc(100% - 32px),
+                    transparent
+                );
+            }
         }
         .tab-spacer {
             flex: 1;
@@ -696,7 +849,11 @@ export class HaPanelIrDevices extends LitElement {
             color: var(--secondary-text-color);
         }
 
-        /* Mobile-only navigation row.
+        /* Mobile-only navigation row, drawn only when HA's own
+           <ha-menu-button> above has no box on screen
+           (_measureMenuButton, mobile pass 2026-10-17). Before that it
+           showed on every phone, and where HA's header was visible the
+           phone had two hamburgers.
            Custom HA panels can have their system header hidden by the
            parent shell on the HA Companion app, especially on iOS where
            swipe-to-go-back does not exist as a platform gesture. Adding

@@ -3274,7 +3274,9 @@ class TestHeaderPinLayout:
         # back under it. A fixed-width label plus a flexible sibling
         # gives wrap-under-pills and colon alignment at once -- do not
         # let either revert to text-align or a margin on the label.
-        text = _read("ir-header-chip-group.ts")
+        # The CSS lives in ir-header-chip-styles.ts since BroadSniff
+        # Listen (2026-10-17), shared with the Listen row; read both.
+        text = _read("ir-header-chip-group.ts") + _read("ir-header-chip-styles.ts")
         row = text.split('<div class="hdr-row"', 1)[1].split("`;", 1)[0]
         assert 'class="hdr-row-label"' in row
         assert 'class="hdr-row-pills' in row

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Simplified Chinese (`zh-Hans`) for the panel and the config flow, drafted by a programming assistant, marked "reviewer wanted" in both files and shipping a truncated `README.zh.md` like the other translated READMEs. The dictionary carries every key `en.json` has, keeps HAIR's brand names in English, and gives HAIR's own words functional Chinese terms rather than the barbershop metaphor.
 
+### Changed
+
+- The panel works on a phone. Below 768px the tabs are one row that scrolls sideways, with the active tab brought into view and a soft fade on the edge that has more; the panel draws its own menu button only when Home Assistant's is not on screen, so a phone no longer shows two; every tab's header keeps its title and count on one line with the tagline under it; a Sniffer remote keeps its stats on the line under its name, with Hide and Delete moved into the open row; and a Mirror row is laid out for the width instead of folding into single words. The Mirror's filters, the Closet's filters and the Closet picker in Add Device now share one chip style with the device pages' chips, at the same size, with their search boxes at the chips' height, and the Mirror names an emitter once when its entity name already repeats the device's name ("KinCony AGv3 1 TX", not "KinCony AGv3 1 KinCony AGv3 1 TX"; rows already stored keep their text). The header wrap is @myml's, from #209.
+
 ### Fixed
 
 - The panel no longer breaks when a new version of HAIR loads over a page that is already open, as on a phone after an upgrade and restart.

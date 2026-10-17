@@ -38,6 +38,7 @@
  * Fires `wig-picked` with detail: { value: string | null, row: WigPickRow | null }
  */
 import { LitElement, html, css } from "lit";
+import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
@@ -239,7 +240,7 @@ export class IrWigPicker extends LitElement {
         return html`
             <div class="toolbar">
                 <input
-                    class="search"
+                    class="chip-search search"
                     type="text"
                     .value=${this._search}
                     placeholder=${t("wigpicker.search")}
@@ -249,26 +250,26 @@ export class IrWigPicker extends LitElement {
                 />
                 <div class="chip-row">
                     <button
-                        class="fchip ${this._filter === "all" ? "on" : ""}"
+                        class="chip filter fchip ${this._filter === "all" ? "on" : ""}"
                         ?disabled=${this.disabled}
                         @click=${() => (this._filter = "all")}
                     >
                         ${t("wigs.chip.all", { count: String(counts.all) })}
                     </button>
                     <button
-                        class="fchip ${this._filter === "library" ? "on" : ""}"
+                        class="chip filter fchip ${this._filter === "library" ? "on" : ""}"
                         ?disabled=${this.disabled}
                         @click=${() => (this._filter = "library")}
                     >
-                        <span class="chip-dot lib"></span
+                        <span class="dot lib"></span
                         >${t("wigs.chip.library", { count: String(counts.library) })}
                     </button>
                     <button
-                        class="fchip ${this._filter === "yours" ? "on" : ""}"
+                        class="chip filter fchip ${this._filter === "yours" ? "on" : ""}"
                         ?disabled=${this.disabled}
                         @click=${() => (this._filter = "yours")}
                     >
-                        <span class="chip-dot mine"></span
+                        <span class="dot mine"></span
                         >${t("wigs.chip.yours", { count: String(counts.yours) })}
                     </button>
                 </div>
@@ -316,7 +317,7 @@ export class IrWigPicker extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [headerChipStyles, css`
         :host {
             display: block;
         }
@@ -327,16 +328,15 @@ export class IrWigPicker extends LitElement {
             gap: 8px;
             margin-bottom: 10px;
         }
+        /* The search box and the filter chips are the header's
+           .chip-search and .chip (headerChipStyles), the same size and
+           look as the Closet tab's own filter row and the device pages'
+           chips (chip size pass, 2026-10-17). The closet's oxblood is
+           the tone; the library and yours dots keep their colours. */
         .search {
+            --tone: var(--origin-closet, #8e3b3b);
             flex: 1;
             min-width: 160px;
-            padding: 7px 10px;
-            border-radius: 6px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-            font-size: 0.85rem;
-            font-family: inherit;
         }
         .chip-row {
             display: flex;
@@ -344,33 +344,12 @@ export class IrWigPicker extends LitElement {
             flex-wrap: wrap;
         }
         .fchip {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            background: none;
-            border: 1px solid var(--divider-color);
-            border-radius: 12px;
-            padding: 4px 10px;
-            font-size: 0.75rem;
-            font-family: inherit;
-            color: var(--secondary-text-color);
-            cursor: pointer;
+            --tone: var(--origin-closet, #8e3b3b);
         }
-        .fchip.on {
-            border-color: var(--origin-closet, #8e3b3b);
-            color: var(--primary-text-color);
-            background: rgba(142, 59, 59, 0.1);
-        }
-        .chip-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-        .chip-dot.lib {
+        .fchip .dot.lib {
             background: #8e9aaf;
         }
-        .chip-dot.mine {
+        .fchip .dot.mine {
             background: #8e3b3b;
         }
         .list {
@@ -444,7 +423,7 @@ export class IrWigPicker extends LitElement {
             font-style: italic;
             color: var(--secondary-text-color);
         }
-    `;
+    `];
 }
 
 declare global {
