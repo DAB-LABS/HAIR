@@ -440,13 +440,18 @@ class TestTheSnifferWiring:
 
     def test_last_heard_is_a_faint_tint(self):
         """Round 2, owner: "I like the glow, but I don't like the
-        remaining stroke". A 7 percent wash of the arrival blue, no
-        border, no shadow."""
+        remaining stroke". A wash of the arrival blue, no border, no
+        shadow, toned per theme: 7 percent read as near-black on a dark
+        card and as nothing on white (owner, on the real box), so the
+        host carries ``dark`` from HA's theme and the alpha follows."""
         monitor = _src("ir-signal-monitor.ts")
         device = re.search(r"\.device-row\.last-heard \{([^}]*)\}", monitor).group(1)
         signal = re.search(r"\.signal-row\.last-heard \{([^}]*)\}", monitor).group(1)
-        assert "background: rgba(3, 169, 244, 0.07);" in device
-        assert "rgba(3, 169, 244, 0.07)" in signal
+        assert "background: rgba(3, 169, 244, var(--heard-alpha));" in device
+        assert "rgba(3, 169, 244, var(--heard-alpha))" in signal
+        assert re.search(r":host \{\s*--heard-alpha: 0\.14;", monitor)
+        assert re.search(r":host\(\[dark\]\) \{\s*--heard-alpha: 0\.12;", monitor)
+        assert 'this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));' in monitor
         # Layered over the row's own ground, so the row stays opaque.
         assert "var(--primary-background-color)" in signal
         for rule in (device, signal):

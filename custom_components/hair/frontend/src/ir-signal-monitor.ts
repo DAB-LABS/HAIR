@@ -286,6 +286,8 @@ export class IrSignalMonitor extends LitElement {
     protected willUpdate(changed: PropertyValues): void {
         super.willUpdate(changed);
         this._heard = lastHeardTarget(this._devices, this._expandedId, this._expandedDevice);
+        // The last-heard wash is toned per theme (see --heard-alpha).
+        this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));
         // A BroadSniff remote added or removed changes the entity
         // registry, and HA hands the panel a new ``hass.entities`` for
         // it. Re-read the Listen rows then, and only then: ordinary
@@ -2186,11 +2188,24 @@ export class IrSignalMonitor extends LitElement {
            the row stays opaque. Hover, declared further down, still
            shows over it. */
         .device-row.last-heard {
-            background: rgba(3, 169, 244, 0.07);
+            background: rgba(3, 169, 244, var(--heard-alpha));
         }
         .signal-row.last-heard {
-            background: linear-gradient(rgba(3, 169, 244, 0.07), rgba(3, 169, 244, 0.07)),
+            background: linear-gradient(
+                    rgba(3, 169, 244, var(--heard-alpha)),
+                    rgba(3, 169, 244, var(--heard-alpha))
+                ),
                 var(--primary-background-color);
+        }
+        /* How much of the blue the wash carries. One number does not
+           serve both themes: 7 percent read as near-black on a dark
+           card and as nothing on white (owner, on the real box,
+           2026-10-17). The host carries a "dark" attribute from HA's theme. */
+        :host {
+            --heard-alpha: 0.14;
+        }
+        :host([dark]) {
+            --heard-alpha: 0.12;
         }
         /* The row's own rounding, taken over from the card. A
            collapsed row IS the whole card, so it rounds all four
