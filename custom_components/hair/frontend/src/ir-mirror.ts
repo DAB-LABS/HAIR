@@ -32,6 +32,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
+import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
@@ -870,7 +871,7 @@ export class IrMirror extends LitElement {
                         <line x1="20" y1="20" x2="16" y2="16"></line>
                     </svg>
                     <input
-                        class="search-pill"
+                        class="chip-search search-pill"
                         type="text"
                         placeholder=${t("mirror.search")}
                         .value=${this._search}
@@ -880,24 +881,26 @@ export class IrMirror extends LitElement {
                     />
                 </div>
                 <button
-                    class="fchip all-chip ${this._filter === "all" ? "on" : ""}"
+                    class="chip filter fchip all-chip ${this._filter === "all" ? "on" : ""}"
                     @click=${() => this._setFilter("all")}
                 >
+                    <span class="dot"></span>
                     ${t("mirror.filter_all", { count: rows.length })}
                 </button>
                 ${this._hasReceivers
                     ? html`
                           <button
-                              class="fchip warnc ${this._filter === "notheard" ? "on" : ""}"
+                              class="chip filter fchip warnc ${this._filter === "notheard" ? "on" : ""}"
                               @click=${() => this._setFilter("notheard")}
                           >
+                              <span class="dot"></span>
                               ${t("mirror.filter_not_heard", { count: notHeard })}
                           </button>
                       `
                     : ""}
                 <div class="emitter-pill-wrap">
                     <button
-                        class="fchip emitter-chip ${picked ? "on" : ""} ${this
+                        class="chip filter fchip emitter-chip ${picked ? "on" : ""} ${this
                             ._emitterOpen
                             ? "open"
                             : ""}"
@@ -906,6 +909,7 @@ export class IrMirror extends LitElement {
                         aria-expanded=${this._emitterOpen ? "true" : "false"}
                         @click=${this._toggleEmitterMenu}
                     >
+                        <span class="dot"></span>
                         <span class="emitter-chip-label">${emitterLabel}</span>
                         ${emitterCount !== null ? html`(${emitterCount})` : ""}
                         <svg class="chev" viewBox="0 0 24 24" fill="none"
@@ -1281,6 +1285,7 @@ export class IrMirror extends LitElement {
     }
 
     static styles = [
+        headerChipStyles,
         actionChipStyles,
         trashButtonStyles,
         editButtonStyles,
@@ -1418,54 +1423,22 @@ export class IrMirror extends LitElement {
                 flex-wrap: wrap;
                 position: relative;
             }
-            /* The filter pills wear the header chip group's look
-               (ir-header-chip-group.ts: 14px radius, transparent off,
-               the tone's border and a 14 percent tint when on, a small
-               dot that glows when on), so the Mirror's filters, the
-               device pages' emitter and pin chips and the coming Listen
-               row read as one family (mobile pass, 2026-10-17). Taller
-               than the header's chips, 28px, because these are the
-               primary control on a phone. Behaviour is untouched. */
+            /* The filter chips are the header's .chip (headerChipStyles,
+               ir-header-chip-styles.ts): one size, one "on" state, one
+               dot, shared with the device pages' Emitters and Pin rows
+               and the Sniffer's Listen row (chip size pass,
+               2026-10-17). What stays here is the Mirror's own: the
+               tones (All and Emitter green, Not heard orange), the dot
+               showing its tone faintly while off, so Not heard reads as
+               a warning before it is picked, and the Emitter chip's
+               chevron and width cap. Behaviour is untouched. */
             .fchip {
                 --tone: #2e7d32;
-                font-size: 12px;
-                padding: 0 12px 0 10px;
-                height: 28px;
-                box-sizing: border-box;
-                border-radius: 14px;
-                border: 1px solid var(--divider-color);
-                background: none;
-                color: var(--secondary-text-color);
-                font-family: inherit;
-                cursor: pointer;
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
                 flex: none;
-                transition: background 140ms ease, border-color 140ms ease,
-                    color 140ms ease;
             }
-            .fchip::before {
-                content: "";
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
+            .fchip .dot {
                 background: color-mix(in srgb, var(--tone) 55%, #4d5359);
-                flex: none;
             }
-            .fchip:hover {
-                border-color: var(--tone);
-            }
-            .fchip.on {
-                border-color: var(--tone);
-                background: color-mix(in srgb, var(--tone) 14%, transparent);
-                color: var(--primary-text-color);
-            }
-            .fchip.on::before {
-                background: var(--tone);
-                box-shadow: 0 0 5px color-mix(in srgb, var(--tone) 65%, transparent);
-            }
-            .fchip:focus-visible,
             .emitter-option:focus-visible {
                 outline: 2px solid #4dabf7;
                 outline-offset: 2px;
@@ -1551,9 +1524,10 @@ export class IrMirror extends LitElement {
             .emitter-option.picked .rcount {
                 color: rgba(46, 125, 50, 0.7);
             }
-            /* Search is the same pill height and rounding as the other
-               three so all four read as one family, at a fixed width
-               that neither grows nor gets squeezed. */
+            /* Search is the shared .chip-search (headerChipStyles), the
+               chips' own height and rounding, so the row reads as one
+               height; here it keeps a fixed width that neither grows
+               nor gets squeezed, and room on the left for its icon. */
             .search-pill-wrap {
                 position: relative;
                 flex: 0 0 190px;
@@ -1563,26 +1537,15 @@ export class IrMirror extends LitElement {
                 left: 11px;
                 top: 50%;
                 transform: translateY(-50%);
-                width: 13px;
-                height: 13px;
+                width: 12px;
+                height: 12px;
                 color: var(--secondary-text-color);
                 pointer-events: none;
             }
-            .search-pill {
+            input.search-pill {
+                --tone: #607d8b;
                 width: 100%;
-                height: 28px;
-                box-sizing: border-box;
-                border-radius: 14px;
-                border: 1px solid var(--divider-color);
-                background: none;
-                color: var(--primary-text-color);
-                font-family: inherit;
-                font-size: 12.5px;
-                padding: 0 12px 0 30px;
-            }
-            .search-pill:focus {
-                outline: none;
-                border-color: #607d8b;
+                padding: 0 10px 0 28px;
             }
 
             /* Rows: each send is its own rounded card (owner bench note),

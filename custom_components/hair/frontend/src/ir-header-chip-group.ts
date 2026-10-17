@@ -97,8 +97,9 @@
  * already use, so a consumer wiring this in place of either dialog
  * picker can reuse its existing handler unchanged.
  */
-import { LitElement, html, css } from "lit";
+import { LitElement, html } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { t } from "./localize.js";
 
 export interface HeaderChipRow {
@@ -223,132 +224,7 @@ export class IrHeaderChipGroup extends LitElement {
         `;
     }
 
-    static styles = css`
-        /* The host fills the header's row column rather than shrinking
-           to its own content: the label's fixed width plus a flexible
-           chips column is the whole mechanism, and an inline-block host
-           would collapse the flexible half. */
-        :host {
-            display: block;
-        }
-        .hdr-row {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-        }
-        /* Fixed width comes from the consumer (labelWidth), so every row
-           on a header shares one colon line. Right-justified against
-           that width; padding-top lines the cap height up with the first
-           row of chips rather than their box tops. */
-        .hdr-row-label {
-            flex-shrink: 0;
-            text-align: right;
-            padding-top: 5px;
-            font-size: 0.66rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--secondary-text-color);
-            white-space: nowrap;
-        }
-        /* min-width: 0 is load-bearing -- without it the column takes a
-           content-based minimum from its own nowrap chips and overflows
-           sideways instead of wrapping in place. */
-        .hdr-row-pills {
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 7px;
-        }
-        .chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 3px 10px 3px 8px;
-            border: 1px solid var(--divider-color);
-            border-radius: 14px;
-            background: none;
-            font-family: inherit;
-            font-size: 11.5px;
-            color: var(--secondary-text-color);
-            cursor: default;
-            transition: border-color 140ms ease, background 140ms ease,
-                color 140ms ease;
-        }
-        .hdr-row-pills.expanded .chip {
-            cursor: pointer;
-        }
-        .hdr-row-pills.expanded .chip:hover:not(:disabled) {
-            border-color: var(--tone);
-        }
-        .chip:disabled {
-            cursor: default;
-            opacity: 0.55;
-        }
-        .chip.readonly {
-            opacity: 0.7;
-            cursor: default !important;
-        }
-        .chip-name {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 160px;
-        }
-        .dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: #4d5359;
-            flex: none;
-        }
-        .chip.on {
-            border-color: var(--tone);
-            background: color-mix(in srgb, var(--tone) 14%, transparent);
-            color: var(--primary-text-color);
-        }
-        .chip.on .dot {
-            background: var(--tone);
-            box-shadow: 0 0 5px color-mix(in srgb, var(--tone) 65%, transparent);
-        }
-        /* Assigned but unreachable (emitters only) -- amber, same
-         *  treatment ir-emitter-picker.ts uses, deliberately NOT the
-         *  group's own tone color (this state means "trouble", not
-         *  "on", regardless of which group it's in). */
-        .chip.down {
-            border-color: rgba(217, 164, 65, 0.45);
-            color: #e8dcc2;
-        }
-        .chip.down .dot {
-            background: #d9a441;
-            box-shadow: none;
-        }
-        .add-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            border: 1px dashed var(--divider-color);
-            background: none;
-            color: var(--secondary-text-color);
-            font-size: 13px;
-            line-height: 1;
-            cursor: pointer;
-            font-family: inherit;
-        }
-        .add-btn:hover:not(:disabled) {
-            border-color: var(--tone);
-            color: var(--tone);
-        }
-        .add-btn:disabled {
-            cursor: default;
-            opacity: 0.55;
-        }
-    `;
+    static styles = headerChipStyles;
 }
 
 declare global {

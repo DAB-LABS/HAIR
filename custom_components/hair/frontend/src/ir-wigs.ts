@@ -33,6 +33,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
+import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import {
@@ -1424,7 +1425,7 @@ export class IrWigs extends LitElement {
 
             <div class="toolbar">
                 <input
-                    class="search"
+                    class="chip-search search"
                     type="text"
                     .value=${this._search}
                     placeholder=${t("wigs.search")}
@@ -1432,27 +1433,27 @@ export class IrWigs extends LitElement {
                         (this._search = (e.target as HTMLInputElement).value)}
                 />
                 <button
-                    class="fchip ${this._filter === "all" ? "on" : ""}"
+                    class="chip filter fchip ${this._filter === "all" ? "on" : ""}"
                     @click=${() => (this._filter = "all")}
                 >
                     ${t("wigs.chip.all", { count: String(counts.all) })}
                 </button>
                 <button
-                    class="fchip ${this._filter === "library" ? "on" : ""}"
+                    class="chip filter fchip ${this._filter === "library" ? "on" : ""}"
                     @click=${() => (this._filter = "library")}
                 >
-                    <span class="chip-dot lib"></span>
+                    <span class="dot lib"></span>
                     ${t("wigs.chip.library", { count: String(counts.library) })}
                 </button>
                 <button
-                    class="fchip ${this._filter === "yours" ? "on" : ""}"
+                    class="chip filter fchip ${this._filter === "yours" ? "on" : ""}"
                     @click=${() => (this._filter = "yours")}
                 >
-                    <span class="chip-dot mine"></span>
+                    <span class="dot mine"></span>
                     ${t("wigs.chip.yours", { count: String(counts.yours) })}
                 </button>
                 <button
-                    class="fchip ${this._filter === "perfect" ? "on" : ""}"
+                    class="chip filter fchip ${this._filter === "perfect" ? "on" : ""}"
                     @click=${() => (this._filter = "perfect")}
                 >
                     <span class="chip-tick">&check;</span>
@@ -2051,7 +2052,7 @@ export class IrWigs extends LitElement {
         `;
     }
 
-    static styles = [dialogStyles, actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, downloadButtonStyles, css`
+    static styles = [dialogStyles, headerChipStyles, actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, downloadButtonStyles, css`
         /* Oxblood leather, the closet's accent (owner ruling 2026-07-20). */
         :host {
             --wigs-accent: #8e3b3b;
@@ -2186,61 +2187,25 @@ export class IrWigs extends LitElement {
             margin-bottom: 14px;
             flex-wrap: wrap;
         }
-        /* The filter row wears the header chip group's look
-           (ir-header-chip-group.ts), tinted with the closet's own
-           oxblood, so it reads as the same family as the Mirror's
-           filters and the device pages' chips (mobile pass,
-           2026-10-17). Behaviour is untouched. */
+        /* The filter row is the header's .chip and .chip-search
+           (headerChipStyles, ir-header-chip-styles.ts): one size, one
+           "on" state and one dot with the device pages' chips, the
+           Mirror's filters and the Sniffer's Listen row (chip size
+           pass, 2026-10-17). What stays here is the closet's own: the
+           oxblood tone, and the library and yours dots keeping their
+           own colours on or off, so a chip still says which shelf it
+           picks. Behaviour is untouched. */
         .search {
+            --tone: var(--wigs-accent);
             flex: 1 1 220px;
-            height: 28px;
-            box-sizing: border-box;
-            border: 1px solid var(--divider-color);
-            border-radius: 14px;
-            padding: 0 12px;
-            font-size: 12.5px;
-            background: none;
-            color: var(--primary-text-color);
-        }
-        .search:focus {
-            outline: none;
-            border-color: var(--wigs-accent);
         }
         .fchip {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            height: 28px;
-            box-sizing: border-box;
-            padding: 0 12px 0 10px;
-            border-radius: 14px;
-            border: 1px solid var(--divider-color);
-            background: none;
-            color: var(--secondary-text-color);
-            font-family: inherit;
-            cursor: pointer;
-            transition: background 140ms ease, border-color 140ms ease,
-                color 140ms ease;
+            --tone: var(--wigs-accent);
         }
-        .fchip:hover {
-            border-color: var(--wigs-accent);
-        }
-        .fchip.on {
-            border-color: var(--wigs-accent);
-            background: color-mix(in srgb, var(--wigs-accent) 22%, transparent);
-            color: var(--primary-text-color);
-        }
-        .chip-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            flex: none;
-        }
-        .chip-dot.lib {
+        .fchip .dot.lib {
             background: var(--wigs-lib);
         }
-        .chip-dot.mine {
+        .fchip .dot.mine {
             background: var(--wigs-accent);
         }
         .lib-ver {
