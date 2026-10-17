@@ -164,7 +164,7 @@ export class IrSignalMonitor extends LitElement {
     /** One row per BroadSniff remote, for the Listen row. Empty, and the
      *  row absent, when BroadSniff is not installed. */
     @state() private _listenRows: BroadSniffReceiverRow[] = [];
-    /** Where the "last heard" stroke goes this render; worked out once
+    /** Where the "last heard" tint goes this render; worked out once
      *  per update in willUpdate (see lastHeardTarget). */
     private _heard: { deviceId: string | null; signalId: string | null } = {
         deviceId: null,
@@ -1666,10 +1666,10 @@ export class IrSignalMonitor extends LitElement {
 
         return html`
             <ha-card
-                class="device ${d.dismissed ? "dismissed" : ""} ${this._heard.deviceId === d.id ? "card-last-heard" : ""}"
+                class="device ${d.dismissed ? "dismissed" : ""}"
             >
                 <div
-                    class="device-row ${blooming ? "bloom" : ""} ${
+                    class="device-row ${blooming ? "bloom" : ""} ${this._heard.deviceId === d.id ? "last-heard" : ""} ${
                         expanded ? "row-expanded" : ""
                     }"
                     @click=${() => this._toggleExpand(d.id)}
@@ -2174,15 +2174,23 @@ export class IrSignalMonitor extends LitElement {
             --bloom-peak: #03a9f4;
             --bloom-edge: #4fc3f7;
         }
-        /* Last heard: a thin, light blue stroke on the one row heard
-           most recently, kept until the next signal lands anywhere.
-           Inside an open remote it is the signal row's own border;
-           on a collapsed remote it is the card's border, brightened. */
-        .signal-row.last-heard {
-            border-color: rgba(79, 195, 247, 0.6);
+        /* Last heard: a faint wash of the arrival blue on the one row
+           heard most recently, kept until the next signal lands
+           anywhere. On a collapsed remote it is the header row, which
+           is the whole card; inside an open remote it is the signal
+           row. No border and no shadow (round 2, owner: "I like the
+           glow, but I don't like the remaining stroke"): it is the
+           only row with a different ground, which is enough, and it
+           leaves the Assign button the loudest thing on the row. The
+           signal row's wash is layered over the row's own ground, so
+           the row stays opaque. Hover, declared further down, still
+           shows over it. */
+        .device-row.last-heard {
+            background: rgba(3, 169, 244, 0.07);
         }
-        ha-card.device.card-last-heard {
-            border-color: rgba(79, 195, 247, 0.85);
+        .signal-row.last-heard {
+            background: linear-gradient(rgba(3, 169, 244, 0.07), rgba(3, 169, 244, 0.07)),
+                var(--primary-background-color);
         }
         /* The row's own rounding, taken over from the card. A
            collapsed row IS the whole card, so it rounds all four
@@ -2544,7 +2552,7 @@ export class IrSignalMonitor extends LitElement {
             display: flex;
             align-items: center;
             /* One pixel of the old 6px 8px padding is now a transparent
-               border, so the bloom and the last-heard stroke have an
+               border, so the bloom has an
                edge to colour without the row changing size. */
             padding: 5px 7px;
             border: 1px solid transparent;

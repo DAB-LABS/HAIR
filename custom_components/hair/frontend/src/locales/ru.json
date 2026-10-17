@@ -402,6 +402,7 @@
     "devlist.tx_badge": "TX: {count}",
     "devlist.no_tx": "Нет TX",
     "devlist.rx_native_title": "Принимает через родную инфракрасную платформу HA",
+    "devlist.rx_capture_title": "Принимает только пока открыто окно захвата",
     "devlist.rx_bridge_active": "Старый мост всё ещё активен. Родной приёмник его заменяет -- можно убрать блок on_pronto: из конфигурации ESPHome.",
     "devlist.rx_bridge_title": "Принимает через старый мост событий ESPHome",
     "devlist.rx_upgrade_title": "Обновитесь до HA 2026.6+ для родной поддержки приёмников",

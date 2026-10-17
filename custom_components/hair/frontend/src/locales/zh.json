@@ -369,6 +369,7 @@
     "devlist.tx_badge": "TX：{count}",
     "devlist.no_tx": "无发送记录",
     "devlist.rx_native_title": "通过 HA 原生红外平台接收",
+    "devlist.rx_capture_title": "仅在捕获窗口打开时接收",
     "devlist.rx_bridge_active": "旧版桥接仍处于活动状态。原生接收器已取代它 —— 你可以从 ESPHome 配置中移除 on_pronto: 配置块。",
     "devlist.rx_bridge_title": "经由旧版 ESPHome 事件总线桥接接收信号",
     "devlist.rx_upgrade_title": "升级到 HA 2026.6+ 即可获得原生接收器支持",

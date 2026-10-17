@@ -43,7 +43,7 @@ NOW = "2026-10-17T12:00:00.000Z"
 DRIVER = """
 import {
     arrivalBloomKey, lastHeardTarget, listenBlooms, listenLive, newestSeen,
-    planFill, windowMs,
+    planFill, rxCaptureMatch, windowMs,
 } from "./ir-listen-state.js";
 
 const NOW = Date.parse("__NOW__");
@@ -128,6 +128,15 @@ const out = {
         open: arrivalBloomKey("tv", "power", true),
         collapsed: arrivalBloomKey("tv", "power", false),
         open_without_signal: arrivalBloomKey("tv", "", true),
+    },
+    capture: {
+        attribute_and_row: rxCaptureMatch({ capturing: false, friendly_name: "x" }, true),
+        attribute_listening: rxCaptureMatch({ capturing: true }, true),
+        attribute_only: rxCaptureMatch({ capturing: false }, false),
+        row_only: rxCaptureMatch(undefined, true),
+        neither: rxCaptureMatch({ friendly_name: "Athom RX" }, false),
+        no_state: rxCaptureMatch(undefined, false),
+        not_a_boolean: rxCaptureMatch({ capturing: "yes" }, false),
     },
 };
 console.log(JSON.stringify(out));
@@ -252,8 +261,28 @@ class TestLastHeard:
         assert run["heard"]["open_still_loading"] == {"deviceId": "tv", "signalId": None}
         assert run["heard"]["open_with_no_signals"] == {"deviceId": "tv", "signalId": None}
 
-    def test_an_empty_sniffer_has_no_stroke(self, run):
+    def test_an_empty_sniffer_has_no_tint(self, run):
         assert run["heard"]["nothing_heard"] == {"deviceId": None, "signalId": None}
+
+
+class TestTheReceiverCardMatch:
+    """Round 2: which hardware cards say RX-CAPTURE, and whether as the
+    Listen chip or as a static badge."""
+
+    def test_a_broadsniff_receiver_gets_the_chip_keyed_on_its_attribute(self, run):
+        assert run["capture"]["attribute_and_row"] == {"kind": "chip", "by": "attribute"}
+        assert run["capture"]["attribute_listening"] == {"kind": "chip", "by": "attribute"}
+
+    def test_a_windowed_receiver_hair_cannot_open_gets_the_static_badge(self, run):
+        assert run["capture"]["attribute_only"] == {"kind": "static", "by": "attribute"}
+
+    def test_the_row_alone_covers_a_receiver_whose_state_has_not_arrived(self, run):
+        assert run["capture"]["row_only"] == {"kind": "chip", "by": "row"}
+
+    def test_an_ordinary_receiver_is_left_alone(self, run):
+        assert run["capture"]["neither"] == {"kind": None, "by": None}
+        assert run["capture"]["no_state"] == {"kind": None, "by": None}
+        assert run["capture"]["not_a_boolean"] == {"kind": None, "by": None}
 
 
 class TestTheArrivalBloom:
@@ -280,6 +309,10 @@ class TestTheListenRowWiring:
             r"catch \{\s*this\._listenRows = \[\];", monitor
         )
         assert "if (this.rows.length === 0) return nothing;" in _src("ir-listen-row.ts")
+        # One chip element per remote, the same element the Devices card uses.
+        assert re.search(
+            r"this\.rows\.map\(\s*\(row\) => html`<ir-listen-chip", _src("ir-listen-row.ts")
+        )
 
     def test_the_rows_are_reread_when_the_registry_changes(self):
         monitor = _src("ir-signal-monitor.ts")
@@ -290,34 +323,62 @@ class TestTheListenRowWiring:
         )
 
     def test_the_fill_is_keyed_on_broadsniffs_deadline_never_a_timer(self):
-        row = _src("ir-listen-row.ts")
-        assert re.search(r"keyed\(\s*fill\.endsAt,", row)
+        chip = _src("ir-listen-chip.ts")
+        assert re.search(r"keyed\(\s*fill\.endsAt,", chip)
         assert "attributes?.window_ends_at" in _src("ir-listen-state.ts")
-        assert "setTimeout" not in row and "setInterval" not in row
-        assert "listenBlooms(before, now)" in row
+        for name in ("ir-listen-chip.ts", "ir-listen-row.ts"):
+            assert "setTimeout" not in _src(name) and "setInterval" not in _src(name)
+        assert "listenBlooms(before, now)" in chip
 
     def test_a_tap_toggles_the_real_switch(self):
-        row = _src("ir-listen-row.ts")
-        assert "await this.api.broadsniffListen(id, !on);" in row
-        assert 'role="switch"' in row
+        chip = _src("ir-listen-chip.ts")
+        assert "await this.api.broadsniffListen(this.row.receiver_entity_id, !on);" in chip
+        assert 'role="switch"' in chip
         api = _src("api.ts")
         assert 'type: "hair/broadsniff/listen"' in api
         assert 'type: "hair/broadsniff/receivers"' in api
 
     def test_gold_idle_green_listening(self):
-        row = _src("ir-listen-row.ts")
-        assert 'LISTEN_GOLD = "#f5a623"' in row
-        assert 'LISTEN_GREEN = "#43a047"' in row
-        assert "--tone:${live.on ? LISTEN_GREEN : LISTEN_GOLD}" in row
+        chip = _src("ir-listen-chip.ts")
+        assert 'LISTEN_GOLD = "#f5a623"' in chip
+        assert 'LISTEN_GREEN = "#43a047"' in chip
+        assert "--tone:${live.on ? LISTEN_GREEN : LISTEN_GOLD}" in chip
 
     def test_the_glyph_opens_the_broadsniff_device_page(self):
         assert re.search(
             r"renderExitToEntityBtn\(\s*`/config/devices/device/\$\{row\.ha_device_id\}`",
-            _src("ir-listen-row.ts"),
+            _src("ir-listen-chip.ts"),
         )
+
+    def test_the_glyph_sits_inside_the_pill(self):
+        """Round 2: the chip's text size, secondary colour, brighter on
+        hover, and only inside the Listen chip."""
+        chip = _src("ir-listen-chip.ts")
+        assert re.search(
+            r"\.chip\.listen \.exit-to-entity-btn ha-svg-icon \{\s*--mdc-icon-size: 11px;", chip
+        )
+        assert re.search(
+            r"\.chip\.listen \.exit-to-entity-btn \{[^}]*color: var\(--secondary-text-color\);",
+            chip,
+        )
+        assert re.search(
+            r"\.chip\.listen \.exit-to-entity-btn:hover \{"
+            r"[^}]*color: var\(--primary-text-color\);",
+            chip,
+        )
+        # The shared button elsewhere keeps its own size.
+        assert "--mdc-icon-size: 14px;" in _src("ir-icons.ts")
+
+    def test_the_label_sits_hard_left(self):
+        """Round 2: no shared label column on the Sniffer."""
+        row = _src("ir-listen-row.ts")
+        assert "labelWidth" not in row
+        assert 'class="hdr-row-label listen-label"' in row
+        assert re.search(r"\.listen-label \{\s*width: auto;\s*text-align: left;", row)
 
     def test_the_row_looks_like_the_header_chip_group(self):
         assert "headerChipStyles" in _src("ir-listen-row.ts")
+        assert "headerChipStyles" in _src("ir-listen-chip.ts")
         assert "static styles = headerChipStyles;" in _src("ir-header-chip-group.ts")
 
     def test_the_panel_row_shape_matches_the_server(self):
@@ -362,26 +423,48 @@ class TestTheSnifferWiring:
         )
         # Worked out before every render, never stored or persisted.
         assert re.search(r"protected willUpdate\(.*?this\._heard = lastHeardTarget", monitor, re.S)
+        # The class goes on the one row lastHeardTarget names and on no
+        # other: the collapsed remote's header row, or the signal row.
         assert '${this._heard.signalId === sig.id ? "last-heard" : ""}' in monitor
-        assert '${this._heard.deviceId === d.id ? "card-last-heard" : ""}' in monitor
-        # No new stored state: nothing persisted in the browser either.
-        for name in ("ir-signal-monitor.ts", "ir-listen-row.ts", "ir-listen-state.ts"):
-            assert "localStorage" not in _src(name)
-
-    def test_the_stroke_is_thin_and_light_blue(self):
-        monitor = _src("ir-signal-monitor.ts")
         assert re.search(
-            r"\.signal-row\.last-heard \{\s*border-color: rgba\(79, 195, 247, 0\.6\);", monitor
-        )
-        assert re.search(
-            r"ha-card\.device\.card-last-heard \{\s*border-color: rgba\(79, 195, 247, 0\.85\);",
+            r'class="device-row \$\{blooming \? "bloom" : ""\} '
+            r'\$\{this\._heard\.deviceId === d\.id \? "last-heard" : ""\}',
             monitor,
         )
-        # The border the stroke colours costs the row no height.
+        assert monitor.count('"last-heard"') == 2
+        # No new stored state: nothing persisted in the browser either.
+        for name in (
+            "ir-signal-monitor.ts", "ir-listen-row.ts", "ir-listen-chip.ts", "ir-listen-state.ts",
+        ):
+            assert "localStorage" not in _src(name)
+
+    def test_last_heard_is_a_faint_tint(self):
+        """Round 2, owner: "I like the glow, but I don't like the
+        remaining stroke". A 7 percent wash of the arrival blue, no
+        border, no shadow."""
+        monitor = _src("ir-signal-monitor.ts")
+        device = re.search(r"\.device-row\.last-heard \{([^}]*)\}", monitor).group(1)
+        signal = re.search(r"\.signal-row\.last-heard \{([^}]*)\}", monitor).group(1)
+        assert "background: rgba(3, 169, 244, 0.07);" in device
+        assert "rgba(3, 169, 244, 0.07)" in signal
+        # Layered over the row's own ground, so the row stays opaque.
+        assert "var(--primary-background-color)" in signal
+        for rule in (device, signal):
+            assert "border" not in rule and "box-shadow" not in rule
+
+    def test_the_stroke_is_gone(self):
+        monitor = _src("ir-signal-monitor.ts")
+        for gone in ("card-last-heard", "rgba(79, 195, 247"):
+            assert gone not in monitor
+        # The row's invisible border stays, so the bloom never moves it.
         assert re.search(
             r"\.signal-row \{.*?padding: 5px 7px;\s*border: 1px solid transparent;",
             monitor, re.S,
         )
+
+    def test_hover_still_shows_over_the_tint(self):
+        monitor = _src("ir-signal-monitor.ts")
+        assert monitor.index(".device-row.last-heard {") < monitor.index(".device-row:hover {")
 
 
 class TestTheBroadlinkHint:
@@ -399,6 +482,89 @@ class TestTheBroadlinkHint:
         assert 'target="_blank"' in hint
         assert 'rel="noopener noreferrer"' in hint
         assert "@click=${stop}" in hint and "@keydown=${stop}" in hint
+
+
+class TestTheReceiverCard:
+    """Round 2: the Devices page's hardware card shows the Listen chip."""
+
+    def test_the_card_shows_the_same_chip_compact(self):
+        devlist = _src("ir-device-list.ts")
+        assert 'import "./ir-listen-chip.js";' in devlist
+        badge = devlist[devlist.index("private _renderNativeBadge"):]
+        badge = badge[: badge.index("/** Render TX/RX-NATIVE")]
+        assert re.search(r"<ir-listen-chip\s+compact\s+\.hass=", badge)
+        assert ".row=${capture.row}" in badge
+        # Not a fork: no second chip element anywhere.
+        assert "customElement(\"ir-listen-chip\")" in _src("ir-listen-chip.ts")
+        assert "listen-drain" not in devlist and "broadsniffListen" not in devlist
+
+    def test_rx_capture_replaces_rx_native(self):
+        """Owner, 2026-10-17: one receiver badge per card."""
+        devlist = _src("ir-device-list.ts")
+        badge = devlist[devlist.index("private _renderNativeBadge"):]
+        badge = badge[: badge.index("/** Render TX/RX-NATIVE")]
+        chip = badge.index("<ir-listen-chip")
+        static = badge.index('class="badge rx-capture"')
+        native = badge.index('class="badge rx-native"')
+        assert chip < native and static < native
+        assert badge.count("return html`") == 3
+        assert 'title=${t("devlist.rx_capture_title")}' in badge
+        rx = devlist[devlist.index("private _renderRxBadges"):]
+        assert rx.index("${this._renderNativeBadge(entry)}") < rx.index("${entry.has_bridge")
+
+    def test_the_match_is_read_from_the_attribute_then_the_row(self):
+        devlist = _src("ir-device-list.ts")
+        assert "this._listenRows.find((r) => r.ha_device_id === entry.device_id)" in devlist
+        assert "this.hass?.states?.[entry.native_entity_id]?.attributes" in devlist
+        assert "rxCaptureMatch(attributes, row !== undefined)" in devlist
+        assert 'typeof receiverAttributes?.capturing === "boolean"' in _src("ir-listen-state.ts")
+
+    def test_the_rows_are_read_on_registry_change_not_every_update(self):
+        devlist = _src("ir-device-list.ts")
+        assert re.search(
+            r"this\.hass\?\.entities !== this\._listenRowsFor\) \{\s*"
+            r"this\._listenRowsFor = this\.hass\?\.entities;\s*"
+            r"void this\._loadListenRows\(\);",
+            devlist,
+        )
+        assert re.search(r"catch \{\s*this\._listenRows = \[\];", devlist)
+
+    def test_the_chip_never_opens_the_card(self):
+        chip = _src("ir-listen-chip.ts")
+        assert "private _stop = (e: Event) => e.stopPropagation();" in chip
+        assert "@click=${this._stop}" in chip and "@keydown=${this._stop}" in chip
+
+    def test_the_compact_form_is_a_badge_without_the_glyph(self):
+        chip = _src("ir-listen-chip.ts")
+        assert 'RX_CAPTURE_LABEL = "RX-CAPTURE"' in chip
+        assert "${this.compact ? RX_CAPTURE_LABEL : row.name}" in chip
+        # Owner addendum 2026-10-17: like TX-NATIVE and RX-NATIVE, no dot.
+        # The dot stays on the Sniffer's chip.
+        assert '${this.compact ? nothing : html`<span class="dot"></span>`}' in chip
+        toggle = re.search(r":host\(\[compact\]\) \.listen-toggle \{([^}]*)\}", chip).group(1)
+        assert "padding: 2px 4px;" in toggle  # the .badge padding
+        assert re.search(r"\$\{this\.compact\s*\?\s*nothing\s*:\s*renderExitToEntityBtn", chip)
+        compact = re.search(r":host\(\[compact\]\) \.chip\.listen \{([^}]*)\}", chip).group(1)
+        for prop in ("border-radius: 4px;", "font-size: 0.72rem;", "white-space: nowrap;"):
+            assert prop in compact
+        assert "@property({ type: Boolean, reflect: true }) public compact = false;" in chip
+
+    def test_the_receivers_card_gets_the_finger_and_the_proxy_keeps_the_tower(self):
+        devlist = _src("ir-device-list.ts")
+        assert re.search(
+            r"\.path=\$\{this\._rxCapture\(entry\)\.kind !== null\s*\?\s*"
+            r"ICON_CAPTURE_RECEIVER\s*:\s*ICON_RECEIVER\}",
+            devlist,
+        )
+        assert devlist.count("ICON_CAPTURE_RECEIVER") == 2  # defined, used once
+        assert "<ha-svg-icon .path=${ICON_PROXY}></ha-svg-icon>" in devlist
+
+    def test_a_narrow_card_wraps_its_badges_instead_of_breaking_them(self):
+        devlist = _src("ir-device-list.ts")
+        footer = re.search(r"\.card-footer \{([^}]*)\}", devlist).group(1)
+        assert "flex-wrap: wrap;" in footer
+        badge = re.search(r"\n        \.badge \{([^}]*)\}", devlist).group(1)
+        assert "white-space: nowrap;" in badge
 
 
 class TestTheLearnDialog:
@@ -422,6 +588,7 @@ class TestTheStrings:
     KEYS = (
         "listen.label", "listen.on_title", "listen.off_title", "listen.open_title",
         "listen.failed", "capture.broadsniff_failed", "devlist.broadsniff_hint",
+        "devlist.rx_capture_title",
     )
 
     def test_every_new_key_is_in_english(self):
@@ -429,9 +596,12 @@ class TestTheStrings:
         for key in self.KEYS:
             assert key in en, key
         assert en["capture.broadsniff_failed"] == "The Broadlink could not start listening."
+        assert en["devlist.rx_capture_title"] == "Hears only while a capture window is open"
 
     def test_every_key_the_new_code_asks_for_exists(self):
         en = _en()
-        for name in ("ir-listen-row.ts", "ir-capture-dialog.ts", "ir-device-list.ts"):
+        for name in (
+            "ir-listen-row.ts", "ir-listen-chip.ts", "ir-capture-dialog.ts", "ir-device-list.ts",
+        ):
             for key in re.findall(r'\bt\("((?:listen|capture|devlist)\.[\w.]+)"', _src(name)):
                 assert key in en, (name, key)

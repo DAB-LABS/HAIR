@@ -369,6 +369,7 @@
     "devlist.tx_badge": "TX: {count}",
     "devlist.no_tx": "Nessun TX",
     "devlist.rx_native_title": "Riceve tramite la piattaforma a infrarossi nativa di HA",
+    "devlist.rx_capture_title": "Riceve solo mentre è aperta una finestra di cattura",
     "devlist.rx_bridge_active": "Il vecchio ponte è ancora attivo. Il ricevitore nativo lo sostituisce -- puoi rimuovere il blocco on_pronto: dalla tua configurazione ESPHome.",
     "devlist.rx_bridge_title": "Riceve tramite il vecchio ponte eventi ESPHome",
     "devlist.rx_upgrade_title": "Aggiorna a HA 2026.6+ per il supporto nativo dei ricevitori",

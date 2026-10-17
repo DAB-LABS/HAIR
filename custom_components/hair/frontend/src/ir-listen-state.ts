@@ -4,7 +4,7 @@
  *
  * They live apart from the components so a test can run them under
  * node: when a chip blooms, how much of a window its fill shows, and
- * which one row carries the "last heard" stroke are exactly what a
+ * which one row carries the "last heard" tint are exactly what a
  * source grep cannot see. Nothing here imports Lit or touches the DOM.
  */
 import type { BroadSniffReceiverRow } from "./types.js";
@@ -97,9 +97,9 @@ export function newestSeen<T extends { last_seen: string }>(items: readonly T[])
     return best;
 }
 
-/** Where the Sniffer's one "last heard" stroke goes. The remote heard
- *  most recently carries it on its card; when that remote is the open
- *  one, the stroke moves to its signal heard most recently instead.
+/** Where the Sniffer's one "last heard" tint goes. The remote heard
+ *  most recently carries it on its header row; when that remote is the open
+ *  one, the tint moves to its signal heard most recently instead.
  *  Derived from stored ``last_seen`` alone, so it survives a reload
  *  and moves the moment the next signal lands anywhere. At most one of
  *  the two ids is set. */
@@ -126,4 +126,33 @@ export function arrivalBloomKey(
     remoteOpen: boolean,
 ): string {
     return remoteOpen && signalId ? `sig:${signalId}` : `dev:${deviceId}`;
+}
+
+/** What a Devices-page hardware card shows for a receiver that hears
+ *  only while a capture window is open (round 2):
+ *  - ``"chip"``: the Listen chip itself, in its compact form, because
+ *    HAIR knows the switch that opens the window (a BroadSniff row);
+ *  - ``"static"``: a plain RX-CAPTURE badge, for a windowed receiver
+ *    whose switch HAIR does not know (a future one from another
+ *    integration);
+ *  - ``null``: an ordinary receiver, which keeps RX-NATIVE.
+ * Windowed is read from the receiver's own ``capturing`` attribute
+ * first (BroadSniff sets it on every receiver; any integration can),
+ * and from the BroadSniff row second, which covers a receiver whose
+ * state has not arrived yet. ``by`` says which of the two decided. */
+export interface RxCaptureMatch {
+    kind: "chip" | "static" | null;
+    by: "attribute" | "row" | null;
+}
+
+export function rxCaptureMatch(
+    receiverAttributes: Record<string, unknown> | undefined,
+    hasListenRow: boolean,
+): RxCaptureMatch {
+    const byAttribute = typeof receiverAttributes?.capturing === "boolean";
+    if (!byAttribute && !hasListenRow) return { kind: null, by: null };
+    return {
+        kind: hasListenRow ? "chip" : "static",
+        by: byAttribute ? "attribute" : "row",
+    };
 }

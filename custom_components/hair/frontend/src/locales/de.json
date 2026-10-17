@@ -369,6 +369,7 @@
     "devlist.tx_badge": "TX: {count}",
     "devlist.no_tx": "Kein TX",
     "devlist.rx_native_title": "Empfängt über HAs native Infrarot-Plattform",
+    "devlist.rx_capture_title": "Empfängt nur, solange ein Aufnahmefenster offen ist",
     "devlist.rx_bridge_active": "Die alte Brücke ist noch aktiv. Der native Empfänger ersetzt sie -- du kannst den on_pronto:-Block aus deiner ESPHome-Konfiguration entfernen.",
     "devlist.rx_bridge_title": "Empfängt über die alte ESPHome-Ereignisbus-Brücke",
     "devlist.rx_upgrade_title": "Aktualisiere auf HA 2026.6+ für native Empfängerunterstützung",

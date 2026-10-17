@@ -369,6 +369,7 @@
     "devlist.tx_badge": "TX: {count}",
     "devlist.no_tx": "Sin TX",
     "devlist.rx_native_title": "Recibe mediante la plataforma infrarroja nativa de Home Assistant",
+    "devlist.rx_capture_title": "Solo recibe mientras hay una ventana de captura abierta",
     "devlist.rx_bridge_active": "El puente heredado sigue activo. El receptor nativo lo sustituye; puedes eliminar el bloque on_pronto: de tu configuración de ESPHome.",
     "devlist.rx_bridge_title": "Recibe mediante el puente heredado de eventos de ESPHome",
     "devlist.rx_upgrade_title": "Actualiza a Home Assistant 2026.6 o posterior para disponer de compatibilidad nativa con receptores",

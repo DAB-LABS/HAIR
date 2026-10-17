@@ -369,6 +369,7 @@
     "devlist.tx_badge": "TX：{count}",
     "devlist.no_tx": "TXなし",
     "devlist.rx_native_title": "HAのネイティブ赤外線プラットフォーム経由で受信",
+    "devlist.rx_capture_title": "キャプチャウィンドウが開いている間だけ受信します",
     "devlist.rx_bridge_active": "レガシーブリッジがまだ有効です。ネイティブレシーバーが優先されるため、ESPHome設定から on_pronto: ブロックを削除できます。",
     "devlist.rx_bridge_title": "レガシーESPHomeイベントバスブリッジ経由で受信",
     "devlist.rx_upgrade_title": "ネイティブレシーバー対応にはHA 2026.6+へアップグレードしてください",

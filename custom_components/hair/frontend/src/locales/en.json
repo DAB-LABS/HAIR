@@ -369,6 +369,7 @@
     "devlist.tx_badge": "TX: {count}",
     "devlist.no_tx": "No TX",
     "devlist.rx_native_title": "Receives via HA's native infrared platform",
+    "devlist.rx_capture_title": "Hears only while a capture window is open",
     "devlist.rx_bridge_active": "Legacy bridge still active. Native receiver supersedes it -- you can remove the on_pronto: block from your ESPHome config.",
     "devlist.rx_bridge_title": "Receives via legacy ESPHome event-bus bridge",
     "devlist.rx_upgrade_title": "Upgrade to HA 2026.6+ for native receiver support",

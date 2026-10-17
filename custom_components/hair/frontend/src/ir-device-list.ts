@@ -49,6 +49,9 @@ import { PINNING_UI_ENABLED, PIN_BLUE } from "./ir-pin-flag.js";
 import type { HairApi } from "./api.js";
 import { landedManyNotice } from "./api.js";
 import { BROADSNIFF_URL } from "./types.js";
+import type { BroadSniffReceiverRow } from "./types.js";
+import "./ir-listen-chip.js";
+import { rxCaptureMatch } from "./ir-listen-state.js";
 import type { MatrixCardPick } from "./ir-matrix-card.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
@@ -132,6 +135,14 @@ const ICON_EMITTER =
 const ICON_RECEIVER =
     "M13,5V11H14.17L12,13.17L9.83,11H11V5H13M15,3H9V9H5L12,16L19,9H15V3M19,18H5V20H19V18Z";
 
+// MDI: gesture-tap-button for a receiver that hears only while a
+// capture window is open (a BroadSniff Broadlink): a finger pressing a
+// button, the gesture people know from the device itself (BroadSniff
+// Listen round 2). From @mdi/js 7.4.47, the same package and version as
+// the download and upload glyphs above (checked byte for byte).
+const ICON_CAPTURE_RECEIVER =
+    "M13 5C15.21 5 17 6.79 17 9C17 10.5 16.2 11.77 15 12.46V11.24C15.61 10.69 16 9.89 16 9C16 7.34 14.66 6 13 6S10 7.34 10 9C10 9.89 10.39 10.69 11 11.24V12.46C9.8 11.77 9 10.5 9 9C9 6.79 10.79 5 13 5M20 20.5C19.97 21.32 19.32 21.97 18.5 22H13C12.62 22 12.26 21.85 12 21.57L8 17.37L8.74 16.6C8.93 16.39 9.2 16.28 9.5 16.28H9.7L12 18V9C12 8.45 12.45 8 13 8S14 8.45 14 9V13.47L15.21 13.6L19.15 15.79C19.68 16.03 20 16.56 20 17.14V20.5M20 2H4C2.9 2 2 2.9 2 4V12C2 13.11 2.9 14 4 14H8V12L4 12L4 4H20L20 12H18V14H20V13.96L20.04 14C21.13 14 22 13.09 22 12V4C22 2.9 21.11 2 20 2Z";
+
 // MDI: radio-tower for proxies
 const ICON_PROXY =
     "M12,10A2,2 0 0,1 14,12C14,12.5 13.82,12.94 13.53,13.29L16.7,22H14.57L12,14.93L9.43,22H7.3L10.47,13.29C10.18,12.94 10,12.5 10,12A2,2 0 0,1 12,10M12,8A4,4 0 0,0 8,12C8,12.5 8.1,13 8.28,13.46L7.4,15.86C6.53,14.81 6,13.47 6,12A6,6 0 0,1 12,6A6,6 0 0,1 18,12C18,13.47 17.47,14.81 16.6,15.86L15.72,13.46C15.9,13 16,12.5 16,12A4,4 0 0,0 12,8M12,4A8,8 0 0,0 4,12C4,14.36 5,16.5 6.64,17.94L5.92,19.94C3.54,18.11 2,15.23 2,12A10,10 0 0,1 12,2A10,10 0 0,1 22,12C22,15.23 20.46,18.11 18.08,19.94L17.36,17.94C19,16.5 20,14.36 20,12A8,8 0 0,0 12,4Z";
@@ -207,6 +218,13 @@ export class IrDeviceList extends LitElement {
 
     @state() private _emitters: { entity_id: string; name: string }[] = [];
     @state() private _captureProviders: CaptureProviderInfo[] = [];
+    /** One row per BroadSniff remote (``hair/broadsniff/receivers``):
+     *  what the RX-CAPTURE chip on a hardware card toggles. */
+    @state() private _listenRows: BroadSniffReceiverRow[] = [];
+    /** The ``hass.entities`` the rows were read for. Re-read only when
+     *  the registry changes (a remote added or removed), not on every
+     *  state update, which is how often ``hass`` changes. */
+    private _listenRowsFor: unknown = Symbol("never read");
     @state() private _pluckBlasters: {
         integration: string;
         entity_id: string;
@@ -373,6 +391,10 @@ export class IrDeviceList extends LitElement {
     updated(changed: PropertyValues): void {
         if (changed.has("hass") || changed.has("api")) {
             this._discoverHardware();
+            if (this.api && this.hass?.entities !== this._listenRowsFor) {
+                this._listenRowsFor = this.hass?.entities;
+                void this._loadListenRows();
+            }
         }
         if (changed.has("api") && this.api && !this._triggerFiredSub) {
             void this._loadTriggers();
@@ -1826,17 +1848,60 @@ export class IrDeviceList extends LitElement {
         return { receivers: merged, proxies };
     }
 
+    /** Best-effort: without BroadSniff, or on a failed read, there are
+     *  no rows and every card keeps its RX-NATIVE badge. */
+    private async _loadListenRows(): Promise<void> {
+        try {
+            this._listenRows = (await this.api?.broadsniffReceivers()) ?? [];
+        } catch {
+            this._listenRows = [];
+        }
+    }
+
+    /** Whether a card's receiver hears only while a capture window is
+     *  open, and whether HAIR can open it (see rxCaptureMatch). */
+    private _rxCapture(entry: MergedHardwareEntry) {
+        const row = this._listenRows.find((r) => r.ha_device_id === entry.device_id);
+        const attributes = entry.native_entity_id
+            ? this.hass?.states?.[entry.native_entity_id]?.attributes
+            : undefined;
+        return { row, ...rxCaptureMatch(attributes, row !== undefined) };
+    }
+
+    /** The receiver badge. A windowed receiver (round 2) gets
+     *  RX-CAPTURE in place of RX-NATIVE (owner, 2026-10-17): as the
+     *  Listen chip itself when HAIR knows its switch, so a click here
+     *  starts it listening the way the Sniffer's chip does, or as a
+     *  static badge when it does not. */
+    private _renderNativeBadge(entry: MergedHardwareEntry) {
+        const capture = this._rxCapture(entry);
+        if (capture.kind === "chip" && capture.row && this.api) {
+            return html`<ir-listen-chip
+                compact
+                .hass=${this.hass}
+                .api=${this.api}
+                .row=${capture.row}
+            ></ir-listen-chip>`;
+        }
+        if (capture.kind !== null) {
+            return html`<span
+                class="badge rx-capture"
+                title=${t("devlist.rx_capture_title")}
+            >RX-CAPTURE</span>`;
+        }
+        if (!entry.has_native) return nothing;
+        return html`<span
+            class="badge rx-native"
+            title=${t("devlist.rx_native_title")}
+        >RX-NATIVE</span>`;
+    }
+
     /** Render TX/RX-NATIVE / RX-BRIDGE badges with a pre-2026.6 upgrade hint. */
     private _renderRxBadges(entry: MergedHardwareEntry) {
         const showGrayedNative =
             !entry.has_native && entry.has_bridge && this._isPre2026_6();
         return html`
-            ${entry.has_native
-                ? html`<span
-                      class="badge rx-native"
-                      title=${t("devlist.rx_native_title")}
-                  >RX-NATIVE</span>`
-                : nothing}
+            ${this._renderNativeBadge(entry)}
             ${entry.has_bridge
                 ? html`<span
                       class="badge rx-bridge"
@@ -2529,7 +2594,11 @@ export class IrDeviceList extends LitElement {
                                       }}
                                   >
                                       <div class="card-header">
-                                          <ha-svg-icon .path=${ICON_RECEIVER}></ha-svg-icon>
+                                          <ha-svg-icon
+                                              .path=${this._rxCapture(entry).kind !== null
+                                                  ? ICON_CAPTURE_RECEIVER
+                                                  : ICON_RECEIVER}
+                                          ></ha-svg-icon>
                                           <div class="card-name">${entry.name}</div>
                                       </div>
                                       <div class="card-meta">${entry.native_entity_id ?? entry.nav_type}</div>
@@ -2945,7 +3014,11 @@ export class IrDeviceList extends LitElement {
             margin-top: 8px;
             margin-left: 32px;
             display: flex;
-            gap: 6px;
+            /* A narrow card wraps its badge row rather than breaking a
+               badge at its hyphen (TX-/NATIVE at the grid's 200px
+               minimum, found on the BroadSniff Listen round 2 mock). */
+            flex-wrap: wrap;
+            gap: 4px 6px;
             align-items: center;
         }
         .broadsniff-hint {
@@ -2966,6 +3039,7 @@ export class IrDeviceList extends LitElement {
             font-size: 0.72rem;
             font-weight: 500;
             line-height: 1;
+            white-space: nowrap;
         }
 
         /* Command count badge (green) */
@@ -3009,6 +3083,12 @@ export class IrDeviceList extends LitElement {
         .rx-native {
             background: rgba(46, 125, 50, 0.15);
             color: #2e7d32;
+        }
+        /* RX-CAPTURE (round 2), when HAIR cannot open the window
+           itself: HAIR's gold, the Listen chip's idle colour. */
+        .rx-capture {
+            background: rgba(245, 166, 35, 0.15);
+            color: #f5a623;
         }
         /* RX-BRIDGE uses HAIR's existing orange. */
         .rx-bridge {

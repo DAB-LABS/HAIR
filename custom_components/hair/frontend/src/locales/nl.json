@@ -369,6 +369,7 @@
     "devlist.tx_badge": "TX: {count}",
     "devlist.no_tx": "Geen TX",
     "devlist.rx_native_title": "Ontvangt via het native infraroodplatform van HA",
+    "devlist.rx_capture_title": "Ontvangt alleen zolang er een opnamevenster open is",
     "devlist.rx_bridge_active": "De oude brug is nog actief. De native ontvanger vervangt hem -- je kunt het on_pronto:-blok uit je ESPHome-configuratie verwijderen.",
     "devlist.rx_bridge_title": "Ontvangt via de oude ESPHome-gebeurtenisbrug",
     "devlist.rx_upgrade_title": "Upgrade naar HA 2026.6+ voor native ontvangerondersteuning",

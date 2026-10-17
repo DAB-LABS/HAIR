@@ -369,6 +369,7 @@
     "devlist.tx_badge": "TX: {count}",
     "devlist.no_tx": "Sem TX",
     "devlist.rx_native_title": "Recebe pela plataforma infravermelha nativa do HA",
+    "devlist.rx_capture_title": "Só recebe enquanto uma janela de captura está aberta",
     "devlist.rx_bridge_active": "A ponte legada ainda está ativa. O receptor nativo a substitui -- você pode remover o bloco on_pronto: da sua configuração ESPHome.",
     "devlist.rx_bridge_title": "Recebe pela ponte legada de eventos do ESPHome",
     "devlist.rx_upgrade_title": "Atualize para o HA 2026.6+ para suporte nativo a receptores",
