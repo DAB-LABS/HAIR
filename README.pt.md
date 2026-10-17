@@ -33,7 +33,7 @@ Requer Home Assistant 2026.4 ou mais recente; 2026.6+ recomendado para receptore
 - **Teste e lapide tudo.** Dispare qualquer sinal por qualquer emissor para verificar antes de confiar, dê apelidos aos sinais, edite um código Pronto na hora, e deixe o HAIR decodificar os protocolos reconhecidos (NEC, Sony, RC-5, Samsung e mais) para uma transmissão mais limpa.
 - **Prove-a.** Comprove uma peruca em hardware real: adote-a como dispositivo, conviva com ela, e ao salvar no armário confirme sinal por sinal o que funcionou. A prova assinada viaja dentro do arquivo da peruca quando você a compartilha, e uma peruca totalmente comprovada leva uma marca verde no armário.
 
-O painel fala o seu idioma. Inglês, espanhol, francês, japonês, alemão, polonês, português, holandês, italiano e russo, seguindo automaticamente o idioma do seu perfil no Home Assistant.
+O painel fala o seu idioma. Inglês, espanhol, francês, japonês, alemão, polonês, português, holandês, italiano, russo e chinês, seguindo automaticamente o idioma do seu perfil no Home Assistant.
 
 > [!IMPORTANT]
 > Esta tradução do painel do HAIR foi redigida por um assistente de programação e aguarda a revisão de um falante nativo. Se esse alguém puder ser você: uma revisão cabe em um único pull request e seu nome fica no arquivo. Comece aqui: [Adding a language](CONTRIBUTING.md#adding-a-language).

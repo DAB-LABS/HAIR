@@ -33,7 +33,7 @@ Requiere Home Assistant 2026.4 o posterior; se recomienda 2026.6+ para receptore
 - **Prueba y pule todo.** Dispara cualquier señal por cualquier emisor para verificarla antes de fiarte de ella, ponles apodos a las señales, edita un código Pronto en el sitio, y deja que HAIR decodifique los protocolos reconocidos (NEC, Sony, RC-5, Samsung y más) para una transmisión más limpia.
 - **Pruébatela.** Demuestra una peluca con hardware real: adóptala como dispositivo, convive con ella, y al guardarla en el armario confirma señal por señal lo que funcionó. La prueba firmada viaja dentro del archivo de la peluca cuando la compartes, y una peluca totalmente demostrada lleva una marca verde en el armario.
 
-El panel habla tu idioma. Inglés, español, francés, japonés, alemán, polaco, portugués, neerlandés, italiano y ruso, siguiendo automáticamente el idioma de tu perfil de Home Assistant.
+El panel habla tu idioma. Inglés, español, francés, japonés, alemán, polaco, portugués, neerlandés, italiano, ruso y chino, siguiendo automáticamente el idioma de tu perfil de Home Assistant.
 
 > [!IMPORTANT]
 > La traducción del panel de HAIR fue revisada por un hablante nativo: gracias, [@Waterbrain](https://github.com/Waterbrain). Este resumen del README sigue siendo un borrador de asistente; si ves algo raro, una corrección cabe en una sola pull request.

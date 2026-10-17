@@ -398,7 +398,7 @@ class TestTheKindVocabulary:
 
     @pytest.mark.parametrize(
         "path", [LOCALES_DIR / f"{stem}.json" for stem in (
-            "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru",
+            "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru", "zh",
         )], ids=lambda p: p.stem,
     )
     def test_every_list_entry_has_a_label(self, path):
@@ -457,7 +457,8 @@ class TestQuotedButtonNames:
         ("clips.no_signals", "clips.add_signal"),
         ("clips.empty_hint", "clips.add_remote"),
     )
-    _QUOTED = re.compile(r'"([^"]+)"|「([^」]+)」')
+    # Straight quotes, Japanese corner brackets, and Chinese curly quotes.
+    _QUOTED = re.compile(r'"([^"]+)"|「([^」]+)」|“([^”]+)”')
 
     @pytest.mark.parametrize(
         "path",
@@ -467,5 +468,5 @@ class TestQuotedButtonNames:
     def test_quoted_button_is_the_button_label(self, path):
         data = _load(path)
         for hint_key, button_key in self.PAIRS:
-            quoted = [a or b for a, b in self._QUOTED.findall(data[hint_key])]
+            quoted = [a or b or c for a, b, c in self._QUOTED.findall(data[hint_key])]
             assert quoted == [data[button_key]], (path.stem, hint_key, quoted)

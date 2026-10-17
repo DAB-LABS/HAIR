@@ -33,7 +33,7 @@ Richiede Home Assistant 2026.4 o successivo; consigliato 2026.6+ per i ricevitor
 - **Prova e rifinisci tutto.** Spara qualsiasi segnale da qualsiasi trasmettitore per verificarlo prima di fidarti, dai soprannomi ai segnali, modifica un codice Pronto sul posto, e lascia che HAIR decodifichi i protocolli riconosciuti (NEC, Sony, RC-5, Samsung e altri) per una trasmissione più pulita.
 - **Provala.** Dimostra una parrucca su hardware reale: adottala come dispositivo, convivici, e al salvataggio nell'armadio conferma segnale per segnale cosa ha funzionato. La prova firmata viaggia dentro il file della parrucca quando la condividi, e una parrucca del tutto dimostrata porta una spunta verde nell'armadio.
 
-Il pannello parla la tua lingua. Inglese, spagnolo, francese, giapponese, tedesco, polacco, portoghese, olandese, italiano e russo, seguendo automaticamente la lingua del tuo profilo Home Assistant.
+Il pannello parla la tua lingua. Inglese, spagnolo, francese, giapponese, tedesco, polacco, portoghese, olandese, italiano, russo e cinese, seguendo automaticamente la lingua del tuo profilo Home Assistant.
 
 > [!IMPORTANT]
 > Questa traduzione del pannello HAIR è stata redatta da un assistente di programmazione e attende la revisione di un madrelingua. Se quella persona potessi essere tu: una revisione sta in una sola pull request e il tuo nome finisce nel file. Comincia qui: [Adding a language](CONTRIBUTING.md#adding-a-language).

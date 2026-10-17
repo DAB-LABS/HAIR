@@ -47,7 +47,7 @@ from custom_components.hair.wig_store import ensure_wigs_dir, wigs_dir
 SRC = Path(__file__).parent.parent / "frontend" / "src"
 LOCALES = SRC / "locales"
 LOCALE_NAMES = (
-    "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru",
+    "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru", "zh",
 )
 
 PRONTO_A = "0000 006D 0002 0000 0020 0040 0020 0040"
