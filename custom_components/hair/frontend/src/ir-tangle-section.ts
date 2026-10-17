@@ -58,7 +58,7 @@
  * about to retire AND that last write reported `written: true`.
  */
 import { LitElement, html, css, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleBatchPlan } from "./types.js";
 import { t, tp } from "./localize.js";

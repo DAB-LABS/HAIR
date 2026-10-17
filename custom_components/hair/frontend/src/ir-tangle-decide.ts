@@ -29,7 +29,7 @@
  *   a bespoke inline bar.
  */
 import { LitElement, html, css, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import type { HairApi } from "./api.js";
 import type { TangleRow, TangleTarget } from "./types.js";
 import { t } from "./localize.js";
