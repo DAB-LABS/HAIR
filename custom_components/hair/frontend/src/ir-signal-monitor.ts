@@ -4,6 +4,7 @@
  * new signals appear in real time without polling.
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
+import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
@@ -1314,7 +1315,7 @@ export class IrSignalMonitor extends LitElement {
                             ? html`<span class="toolbar-count"
                                   >(${tp("sniffer.remotes", this._devices.length)})</span
                               ><span class="toolbar-tagline"
-                                  >- ${t("panel.tagline.sniffer")}</span
+                                  ><span class="toolbar-dash">- </span>${t("panel.tagline.sniffer")}</span
                               >`
                             : ""}
                     </span>
@@ -1723,10 +1724,58 @@ export class IrSignalMonitor extends LitElement {
                     </button>
                 </div>
 
+                ${expanded ? this._renderNarrowActions(d) : ""}
                 ${expanded && this._expandedDevice
                     ? this._renderExpanded(this._expandedDevice)
                     : ""}
             </ha-card>
+        `;
+    }
+
+    /**
+     * The row's X and hide eye, for a phone (mobile pass, 2026-10-17).
+     *
+     * Below 768px the two corner controls leave the row so the name and
+     * the stats get its whole width, and they appear here instead, at
+     * the top of the open row, as labelled buttons with the same
+     * handlers: delete opens the same confirmation, hide and restore
+     * call the same API. Hidden on a desktop, where the corner controls
+     * stay as they are.
+     */
+    private _renderNarrowActions(d: UnknownDeviceSummary) {
+        return html`
+            <div class="row-actions-narrow">
+                <button
+                    class="action-btn dismiss-btn"
+                    title=${d.dismissed ? t("sniffer.restore") : t("sniffer.dismiss")}
+                    @click=${(e: Event) => {
+                        e.stopPropagation();
+                        if (d.dismissed) {
+                            void this._undismiss(d.id);
+                        } else {
+                            void this._dismiss(d.id);
+                        }
+                    }}
+                >
+                    <ha-svg-icon
+                        .path=${d.dismissed ? ICON_RESTORE : ICON_DISMISS}
+                    ></ha-svg-icon>
+                    ${d.dismissed ? t("sniffer.restore") : t("sniffer.dismiss")}
+                </button>
+                ${d.dismissed
+                    ? ""
+                    : html`<button
+                          class="action-btn delete-btn"
+                          title=${t("sniffer.delete_remote_title")}
+                          @click=${(e: Event) => {
+                              e.stopPropagation();
+                              this._deleteRemote = d;
+                          }}
+                      >
+                          <ha-svg-icon .path=${ICON_CLOSE}></ha-svg-icon>
+                          ${t("common.delete")}
+                      </button>`}
+            </div>
         `;
     }
 
@@ -2450,6 +2499,92 @@ export class IrSignalMonitor extends LitElement {
                 flex-wrap: wrap;
             }
         }
+        /* A remote's row on a phone (mobile pass, 2026-10-17): one rule
+           whatever the numbers are. The name is the first line and the
+           stats are always the second, lined up under the name; USE
+           and the chevron stay on the row; the X and the hide eye move
+           into the open row (_renderNarrowActions), so nothing on the
+           row has to fight the name for width. */
+        .row-actions-narrow {
+            display: none;
+        }
+        @media (max-width: 768px) {
+            /* One grid for the whole row: the info wrappers step aside
+               (display: contents) so the stats line can run the row's
+               full width, under USE and the chevron too, and never has
+               to break a number from its word, even at 320px. */
+            .device-row {
+                display: grid;
+                grid-template-columns: auto minmax(0, 1fr) auto auto;
+                grid-template-areas:
+                    "grip name btns chev"
+                    "stats stats stats stats"
+                    "extra extra extra extra";
+                align-items: center;
+                column-gap: 8px;
+                row-gap: 2px;
+                padding: 10px 12px;
+                min-height: 0;
+            }
+            .device-info,
+            .device-header {
+                display: contents;
+            }
+            .device-row .remote-grip {
+                grid-area: grip;
+            }
+            .device-row .protocol,
+            .device-row .rename-input {
+                grid-area: name;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .device-row .row-btns {
+                grid-area: btns;
+            }
+            .device-row .expand-btn {
+                grid-area: chev;
+            }
+            .device-stats {
+                grid-area: stats;
+                padding-left: 26px;
+                flex-wrap: wrap;
+                column-gap: 12px;
+                row-gap: 0;
+            }
+            .device-stats .stat {
+                white-space: nowrap;
+            }
+            .device-row .address,
+            .device-row .dismissed-badge {
+                grid-column: 1 / -1;
+                justify-self: start;
+                margin-left: 26px;
+            }
+            .corner-btn {
+                display: none;
+            }
+            .expand-btn {
+                margin-right: 0;
+                margin-left: 4px;
+            }
+            .row-actions-narrow {
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                padding: 10px 12px;
+                border-top: 1px solid var(--divider-color);
+            }
+            .row-actions-narrow + .expanded {
+                border-top: none;
+                padding-top: 4px;
+            }
+            .row-actions-narrow ha-svg-icon {
+                --mdc-icon-size: 16px;
+            }
+        }
         /* Fixed, centred columns (owner ruling 2026-08-01). Anchoring the
            chip to the label would make it walk left and right down the
            list, because rows show a diamond run until they are named and
@@ -2636,7 +2771,7 @@ export class IrSignalMonitor extends LitElement {
             color: var(--primary-color);
             transition: color 300ms ease;
         }
-    `];
+    `, toolbarStyles];
 }
 
 declare global {

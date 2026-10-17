@@ -32,6 +32,7 @@
  * Authoritative design: docs/internal/plans/wigs-tab-mockup-c8.html.
  */
 import { LitElement, html, css } from "lit";
+import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import {
@@ -1374,7 +1375,7 @@ export class IrWigs extends LitElement {
                         <span class="toolbar-count"
                             >(${tp("wigs.count", counts.all)})</span
                         ><span class="toolbar-tagline"
-                            >- ${t("panel.tagline.wigs")}</span
+                            ><span class="toolbar-dash">- </span>${t("panel.tagline.wigs")}</span
                         >
                     </span>
                 </div>
@@ -2185,13 +2186,20 @@ export class IrWigs extends LitElement {
             margin-bottom: 14px;
             flex-wrap: wrap;
         }
+        /* The filter row wears the header chip group's look
+           (ir-header-chip-group.ts), tinted with the closet's own
+           oxblood, so it reads as the same family as the Mirror's
+           filters and the device pages' chips (mobile pass,
+           2026-10-17). Behaviour is untouched. */
         .search {
             flex: 1 1 220px;
+            height: 28px;
+            box-sizing: border-box;
             border: 1px solid var(--divider-color);
-            border-radius: 8px;
-            padding: 7px 12px;
-            font-size: 13px;
-            background: var(--card-background-color);
+            border-radius: 14px;
+            padding: 0 12px;
+            font-size: 12.5px;
+            background: none;
             color: var(--primary-text-color);
         }
         .search:focus {
@@ -2202,18 +2210,26 @@ export class IrWigs extends LitElement {
             display: flex;
             align-items: center;
             gap: 6px;
-            font-size: 12.5px;
-            padding: 5px 13px;
-            border-radius: 16px;
+            font-size: 12px;
+            height: 28px;
+            box-sizing: border-box;
+            padding: 0 12px 0 10px;
+            border-radius: 14px;
             border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
+            background: none;
             color: var(--secondary-text-color);
+            font-family: inherit;
             cursor: pointer;
+            transition: background 140ms ease, border-color 140ms ease,
+                color 140ms ease;
+        }
+        .fchip:hover {
+            border-color: var(--wigs-accent);
         }
         .fchip.on {
-            background: var(--wigs-accent);
             border-color: var(--wigs-accent);
-            color: #fff;
+            background: color-mix(in srgb, var(--wigs-accent) 22%, transparent);
+            color: var(--primary-text-color);
         }
         .chip-dot {
             width: 8px;
@@ -2226,9 +2242,6 @@ export class IrWigs extends LitElement {
         }
         .chip-dot.mine {
             background: var(--wigs-accent);
-        }
-        .fchip.on .chip-dot.mine {
-            background: #fff;
         }
         .lib-ver {
             font-size: 11.5px;
@@ -2592,9 +2605,6 @@ export class IrWigs extends LitElement {
             font-weight: 700;
             color: #66bb6a;
         }
-        .fchip.on .chip-tick {
-            color: #fff;
-        }
         /* ADOPT DEVICE (v0.8.1): the closet-native make-it-live action,
            first in the row and green (owner re-ruling 2026-07-28 --
            the oxblood chip retired with the color-consistency pass;
@@ -2767,7 +2777,7 @@ export class IrWigs extends LitElement {
             font-size: 13.5px;
             line-height: 1.5;
         }
-    `];
+    `, toolbarStyles];
 }
 
 declare global {
