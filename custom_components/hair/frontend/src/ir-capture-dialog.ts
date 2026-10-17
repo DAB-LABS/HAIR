@@ -14,7 +14,16 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
+import { BROADSNIFF_ARM_FAILED } from "./types.js";
 import type { CaptureEvent, CaptureResult, IRDevice } from "./types.js";
+
+/** The words for a failed start or a failed session. A BroadSniff
+ *  remote that will not open its capture window says so in the
+ *  user's language; anything else keeps the message the server sent. */
+export function captureErrorText(code: unknown, message: string | undefined): string {
+    if (code === BROADSNIFF_ARM_FAILED) return t("capture.broadsniff_failed");
+    return message ?? "";
+}
 
 type Phase = "listening" | "captured" | "timeout" | "error" | "duplicate";
 
@@ -68,7 +77,11 @@ export class IrCaptureDialog extends LitElement {
             this._unsubscribe = unsubscribe;
         } catch (err) {
             this._stopCountdown();
-            this._error = (err as Error).message;
+            // A refused subscribe rejects with HA's {code, message}.
+            this._error = captureErrorText(
+                (err as { code?: unknown }).code,
+                (err as Error).message,
+            );
             this._phase = "error";
         }
     }
@@ -94,7 +107,7 @@ export class IrCaptureDialog extends LitElement {
                 break;
             case "capture_error":
                 this._stopCountdown();
-                this._error = event.error;
+                this._error = captureErrorText(event.code, event.error);
                 this._phase = "error";
                 break;
             case "capture_cancelled":

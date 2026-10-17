@@ -983,8 +983,29 @@ export type CaptureEvent =
           duplicate_of?: { id: string; name: string };
       }
     | { type: "capture_timeout" }
-    | { type: "capture_error"; error: string }
+    | { type: "capture_error"; error: string; code?: string }
     | { type: "capture_cancelled" };
+
+/** Error codes the capture doors send with a reason of their own, so
+ *  the panel can say it in the user's language. */
+export const BROADSNIFF_ARM_FAILED = "broadsniff_arm_failed";
+
+/** Where the Devices tab sends a core Broadlink owner who wants their
+ *  remote to listen as well as send. */
+export const BROADSNIFF_URL = "https://github.com/DAB-LABS/broadsniff";
+
+/** One BroadSniff remote, for the Sniffer's Listen row
+ *  (``hair/broadsniff/receivers``). Entity IDs come from the registry,
+ *  never from names; the row reads their live state from ``hass``. */
+export interface BroadSniffReceiverRow {
+    receiver_entity_id: string;
+    switch_entity_id: string;
+    mode_entity_id: string | null;
+    window_entity_id: string | null;
+    codes_entity_id: string | null;
+    ha_device_id: string;
+    name: string;
+}
 
 export interface CaptureStartResponse {
     session_id: string;

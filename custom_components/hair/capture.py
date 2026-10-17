@@ -6,9 +6,11 @@ Supports two capture paths:
 2. **ESPHome (legacy):** ``ESPHomeCaptureProvider`` listens to
    ``esphome.remote_received`` events on the HA bus.
 
-Broadlink RX is not supported: its learn-mode packets are neither Pronto
-nor raw timings, and it exposes no receive path HAIR can consume. The
-receiver-list UI labels such devices RX-UNSUPPORTED.
+A Broadlink is a receiver only with BroadSniff installed, which gives it
+an infrared receiver entity on the native path; the built-in Broadlink
+integration offers none. A BroadSniff remote only listens while its
+capture window is open, so a capture session on one opens that window
+for the length of the session (``broadsniff.py``).
 """
 from __future__ import annotations
 
@@ -182,8 +184,13 @@ class NativeCaptureProvider(CaptureProvider):
         self._receiver_entity_id = receiver_entity_id
         self._timeout = DEFAULT_CAPTURE_TIMEOUT
         self._unsubscribe = None
-        self._signal_queue: asyncio.Queue[CaptureResult] = asyncio.Queue()
+        # Results, plus two markers a BroadSniff remote can put in line
+        # behind them: an error (it would not listen) and None (its
+        # single-code window closed). Queue order is arrival order, so a
+        # code heard before its window closed is always taken first.
+        self._signal_queue: asyncio.Queue[Any] = asyncio.Queue()
         self._running = False
+        self._arm: Any = None
 
     @property
     def provider_type(self) -> CaptureProviderType:
@@ -225,19 +232,49 @@ class NativeCaptureProvider(CaptureProvider):
             _on_signal,
         )
 
+        # A BroadSniff remote hears nothing until a capture window is
+        # open; with BroadSniff absent this lookup is None and nothing
+        # below runs.
+        from .broadsniff import (
+            BroadSniffArmError,
+            BroadSniffSessionArm,
+            broadsniff_remote,
+        )
+
+        remote = broadsniff_remote(self._hass, self._receiver_entity_id)
+        if remote is None:
+            return
+        self._arm = BroadSniffSessionArm(
+            self._hass,
+            remote,
+            on_failure=self._signal_queue.put_nowait,
+            on_window_closed=lambda: self._signal_queue.put_nowait(None),
+        )
+        try:
+            await self._arm.async_start()
+        except BroadSniffArmError:
+            self._arm = None
+            await self.async_stop_capture()
+            raise
+
     async def async_wait_for_signal(self) -> CaptureResult | None:
         try:
             result = await asyncio.wait_for(
                 self._signal_queue.get(), timeout=self._timeout
             )
-            return result
         except (TimeoutError, asyncio.TimeoutError):  # noqa: UP041
             return None
+        if isinstance(result, Exception):
+            raise result
+        return result
 
     async def async_stop_capture(self) -> None:
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+        arm, self._arm = self._arm, None
+        if arm is not None:
+            await arm.async_stop()
         self._running = False
 
     def is_available(self) -> bool:
@@ -348,8 +385,8 @@ async def get_available_capture_providers(
 
     On HA 2026.6+, native ``InfraredReceiverEntity`` instances are
     discovered first.  Falls back to ESPHome device scanning (the legacy
-    event-bus bridge) for older HA versions. Broadlink is not discovered
-    for capture -- it has no receive path HAIR can consume.
+    event-bus bridge) for older HA versions. A Broadlink appears only
+    through BroadSniff's receiver entity, on the native path.
     """
     providers: list[dict[str, Any]] = []
 
@@ -420,14 +457,15 @@ async def get_available_capture_providers(
                     }
                 )
 
-    # Broadlink RX is intentionally NOT discovered. Broadlink exposes IR
-    # transmit through HA's infrared platform but has no receive path HAIR
-    # can consume (it does not fire esphome.remote_received and does not
-    # implement InfraredReceiverEntity), and its learn-mode packets are
-    # not Pronto or raw timings. The receiver-list UI labels such devices
-    # RX-UNSUPPORTED. If Broadlink upstream adopts InfraredReceiverEntity,
-    # HAIR picks it up automatically via the native path above. (H2,
-    # 2026-06-09 third-party review.)
+    # A Broadlink has nothing to discover here. The built-in Broadlink
+    # integration exposes IR transmit on HA's infrared platform but no
+    # receiver entity, and its learn-mode packets are not Pronto or raw
+    # timings, so without BroadSniff a Broadlink is an emitter only.
+    # BroadSniff (DAB-LABS/broadsniff) adds an InfraredReceiverEntity
+    # per remote, which the native path above already picks up; the
+    # remote listens only while BroadSniff has a capture window open,
+    # which is broadsniff.py's job. (H2, 2026-06-09 third-party review;
+    # reworded for BroadSniff 2026-10-17.)
 
     return providers
 

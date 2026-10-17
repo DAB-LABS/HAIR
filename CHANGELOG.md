@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Simplified Chinese (`zh-Hans`) for the panel and the config flow, drafted by a programming assistant, marked "reviewer wanted" in both files and shipping a truncated `README.zh.md` like the other translated READMEs. The dictionary carries every key `en.json` has, keeps HAIR's brand names in English, and gives HAIR's own words functional Chinese terms rather than the barbershop metaphor.
+- A Broadlink remote set up with [BroadSniff](https://github.com/DAB-LABS/broadsniff) can now listen from inside HAIR. The Sniffer has a Listen row with one chip per remote: gold while the remote is not listening, green while it is, and a click starts or stops it. The chip drains over the listening window BroadSniff sets and glows each time a code is heard, and the glyph after its name opens the remote's settings in Home Assistant. Learning a command on a BroadSniff receiver starts it listening, keeps it listening for the whole capture, and stops it afterwards unless you had started it yourself; in BroadSniff's single mode the capture ends with its window. If the remote will not start listening, the capture ends and says so. In the Sniffer, a signal now glows blue on its own row as it arrives, and the row heard last keeps a thin blue outline until the next one lands. A core Broadlink emitter on the Devices tab links to BroadSniff while BroadSniff is not installed.
 
 ### Changed
 

@@ -48,6 +48,7 @@ import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
 import { PINNING_UI_ENABLED, PIN_BLUE } from "./ir-pin-flag.js";
 import type { HairApi } from "./api.js";
 import { landedManyNotice } from "./api.js";
+import { BROADSNIFF_URL } from "./types.js";
 import type { MatrixCardPick } from "./ir-matrix-card.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
@@ -1685,6 +1686,33 @@ export class IrDeviceList extends LitElement {
         return entityId.split(".")[0];
     }
 
+    /** Whether an emitter is a core Broadlink remote that cannot hear:
+     *  Home Assistant's own Broadlink integration only sends, and
+     *  BroadSniff (DAB-LABS/broadsniff) is what gives the same remote a
+     *  receiver. False once BroadSniff is installed, so the hint goes
+     *  away by itself, and for every other emitter. */
+    private _wantsBroadSniff(entityId: string): boolean {
+        if (this.hass?.entities?.[entityId]?.platform !== "broadlink") return false;
+        const components: unknown = this.hass?.config?.components;
+        return Array.isArray(components) && !components.includes("broadsniff");
+    }
+
+    private _renderBroadSniffHint(entityId: string) {
+        if (!this._wantsBroadSniff(entityId)) return nothing;
+        // The card itself is a link to the integration page: keep the
+        // hint's click and Enter key to the hint.
+        const stop = (e: Event) => e.stopPropagation();
+        return html`<a
+            class="broadsniff-hint"
+            href=${BROADSNIFF_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            @click=${stop}
+            @keydown=${stop}
+            >${t("devlist.broadsniff_hint")}</a
+        >`;
+    }
+
     /** Device-registry IDs that have an emitter entity (TX capable). */
     private _getEmitterDeviceIds(): Set<string> {
         const ids = new Set<string>();
@@ -2471,6 +2499,7 @@ export class IrDeviceList extends LitElement {
                                               title=${t("devlist.tx_native_title")}
                                           >TX-NATIVE</span>
                                       </div>
+                                      ${this._renderBroadSniffHint(em.entity_id)}
                                   </div>
                               `,
                           )}
@@ -2918,6 +2947,18 @@ export class IrDeviceList extends LitElement {
             display: flex;
             gap: 6px;
             align-items: center;
+        }
+        .broadsniff-hint {
+            display: block;
+            margin: 8px 0 0 35px;
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .broadsniff-hint:hover,
+        .broadsniff-hint:focus-visible {
+            color: var(--primary-color);
         }
         .badge {
             border-radius: 4px;

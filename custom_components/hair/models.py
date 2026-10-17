@@ -1473,6 +1473,11 @@ class CaptureSession:
     state: CaptureState = CaptureState.IDLE
     started_at: str = field(default_factory=_now_iso)
     result: CaptureResult | None = None
+    # Why an ERROR session ended, when the provider said, and a short
+    # machine-readable code the panel can translate (BroadSniff's
+    # "could not start listening" today). Not serialized.
+    error: str | None = None
+    error_code: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {

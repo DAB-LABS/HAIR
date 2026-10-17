@@ -14,6 +14,7 @@ import { latticeFields } from "./matrix-lattice.js";
 import type {
     ActionOption,
     AssignResult,
+    BroadSniffReceiverRow,
     CandidateVerdict,
     CaptureEvent,
     CaptureProviderInfo,
@@ -266,6 +267,23 @@ export class HairApi {
     listReceivers(): Promise<ReceiverInfo[]> {
         return this.hass.connection.sendMessagePromise<ReceiverInfo[]>({
             type: "hair/receivers",
+        });
+    }
+
+    /** The BroadSniff remotes HAIR can open a capture window on. Empty
+     *  when BroadSniff is not installed. */
+    broadsniffReceivers(): Promise<BroadSniffReceiverRow[]> {
+        return this.hass.connection.sendMessagePromise<BroadSniffReceiverRow[]>({
+            type: "hair/broadsniff/receivers",
+        });
+    }
+
+    /** Open or close a BroadSniff remote's capture window. */
+    broadsniffListen(receiverEntityId: string, on: boolean): Promise<{ on: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ on: boolean }>({
+            type: "hair/broadsniff/listen",
+            receiver_entity_id: receiverEntityId,
+            on,
         });
     }
 
