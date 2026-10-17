@@ -11,6 +11,7 @@
  * delete-and-recreate, so there is no Show Dismissed / Promote machinery.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
+import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
@@ -1024,7 +1025,7 @@ export class IrPluck extends LitElement {
                             ? html`<span class="toolbar-count"
                                   >(${count} ${count === 1 ? "blaster" : "blasters"})</span
                               ><span class="toolbar-tagline"
-                                  >- ${t("panel.tagline.plucker")}</span
+                                  ><span class="toolbar-dash">- </span>${t("panel.tagline.plucker")}</span
                               >`
                             : ""}
                     </span>
@@ -2034,7 +2035,7 @@ export class IrPluck extends LitElement {
             gap: 4px;
             flex-shrink: 0;
         }
-    `];
+    `, toolbarStyles];
 }
 
 declare global {

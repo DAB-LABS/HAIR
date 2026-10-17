@@ -9,6 +9,7 @@
  * editor that replaces the S/L diamonds on a signal once named.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
+import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
@@ -1176,7 +1177,7 @@ export class IrClips extends LitElement {
                             ? html`<span class="toolbar-count"
                                   >(${tp("sniffer.remotes", count)})</span
                               ><span class="toolbar-tagline"
-                                  >- ${t("panel.tagline.clips")}</span
+                                  ><span class="toolbar-dash">- </span>${t("panel.tagline.clips")}</span
                               >`
                             : ""}
                     </span>
@@ -2307,7 +2308,7 @@ export class IrClips extends LitElement {
             gap: 4px;
             flex-shrink: 0;
         }
-    `];
+    `, toolbarStyles];
 }
 
 declare global {

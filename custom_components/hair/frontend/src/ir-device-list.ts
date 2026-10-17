@@ -9,6 +9,7 @@
  * Emitter/receiver/proxy cards link to their HA integration page.
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
+import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import {
@@ -1856,7 +1857,7 @@ export class IrDeviceList extends LitElement {
                         <ha-svg-icon .path=${ICON_DEVICES_TV} .viewBox=${TV_VIEWBOX}></ha-svg-icon>
                         ${t("devlist.title")}
                         <span class="toolbar-count">(${this.devices.length})</span>
-                        <span class="toolbar-tagline">- ${t("devlist.tagline")}</span>
+                        <span class="toolbar-tagline"><span class="toolbar-dash">- </span>${t("devlist.tagline")}</span>
                     </span>
                 </div>
             </div>
@@ -2002,7 +2003,7 @@ export class IrDeviceList extends LitElement {
                         <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
                         ${t("devlist.trigger_remotes_title")}
                         <span class="toolbar-count">(${this._triggerDrawerCount})</span>
-                        <span class="toolbar-tagline">- ${t("devlist.trigger_remotes_tagline")}</span>
+                        <span class="toolbar-tagline"><span class="toolbar-dash">- </span>${t("devlist.trigger_remotes_tagline")}</span>
                     </span>
                 </div>
             </div>
@@ -3503,6 +3504,7 @@ export class IrDeviceList extends LitElement {
             font-style: italic;
         }
     `,
+        toolbarStyles,
     ];
 }
 

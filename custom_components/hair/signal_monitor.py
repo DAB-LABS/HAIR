@@ -68,6 +68,7 @@ from .const import (
     TWEEZER_OBSERVER_ATTR,
     CommandSource,
 )
+from .entity_names import entity_display_name
 from .event_parser import EventParser
 from .identity import (
     SignalIdentity,
@@ -1232,12 +1233,10 @@ class SignalMonitor:
                 self._arm_expectation(exp, now)
 
     def _friendly_name(self, entity_id: str) -> str:
-        state = self._hass.states.get(entity_id)
-        if state is not None:
-            name = state.attributes.get("friendly_name")
-            if name:
-                return str(name)
-        return entity_id
+        # The device name said once: an ESPHome transmitter named
+        # "${friendly_name} TX" otherwise reads "KinCony AGv3 1 KinCony
+        # AGv3 1 TX" in every Mirror "via" (mobile pass, 2026-10-17).
+        return entity_display_name(self._hass, entity_id)
 
     @callback
     def _on_emitter_beacon(self, event: Any) -> None:

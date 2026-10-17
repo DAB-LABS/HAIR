@@ -31,6 +31,8 @@
  * Authoritative design: docs/internal/mockups/mirror-tab-mockup-m5.html.
  */
 import { LitElement, html, css } from "lit";
+import { toolbarStyles } from "./ir-toolbar-styles.js";
+import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
@@ -747,7 +749,7 @@ export class IrMirror extends LitElement {
                             ? html`<span class="toolbar-count"
                                   >(${tp("mirror.signals", rows.length)})</span
                               ><span class="toolbar-tagline"
-                                  >- ${t("panel.tagline.mirror")}</span
+                                  ><span class="toolbar-dash">- </span>${t("panel.tagline.mirror")}</span
                               >`
                             : ""}
                     </span>
@@ -869,7 +871,7 @@ export class IrMirror extends LitElement {
                         <line x1="20" y1="20" x2="16" y2="16"></line>
                     </svg>
                     <input
-                        class="search-pill"
+                        class="chip-search search-pill"
                         type="text"
                         placeholder=${t("mirror.search")}
                         .value=${this._search}
@@ -879,24 +881,26 @@ export class IrMirror extends LitElement {
                     />
                 </div>
                 <button
-                    class="fchip all-chip ${this._filter === "all" ? "on" : ""}"
+                    class="chip filter fchip all-chip ${this._filter === "all" ? "on" : ""}"
                     @click=${() => this._setFilter("all")}
                 >
+                    <span class="dot"></span>
                     ${t("mirror.filter_all", { count: rows.length })}
                 </button>
                 ${this._hasReceivers
                     ? html`
                           <button
-                              class="fchip warnc ${this._filter === "notheard" ? "on" : ""}"
+                              class="chip filter fchip warnc ${this._filter === "notheard" ? "on" : ""}"
                               @click=${() => this._setFilter("notheard")}
                           >
+                              <span class="dot"></span>
                               ${t("mirror.filter_not_heard", { count: notHeard })}
                           </button>
                       `
                     : ""}
                 <div class="emitter-pill-wrap">
                     <button
-                        class="fchip emitter-chip ${picked ? "on" : ""} ${this
+                        class="chip filter fchip emitter-chip ${picked ? "on" : ""} ${this
                             ._emitterOpen
                             ? "open"
                             : ""}"
@@ -905,6 +909,7 @@ export class IrMirror extends LitElement {
                         aria-expanded=${this._emitterOpen ? "true" : "false"}
                         @click=${this._toggleEmitterMenu}
                     >
+                        <span class="dot"></span>
                         <span class="emitter-chip-label">${emitterLabel}</span>
                         ${emitterCount !== null ? html`(${emitterCount})` : ""}
                         <svg class="chev" viewBox="0 0 24 24" fill="none"
@@ -1038,7 +1043,7 @@ export class IrMirror extends LitElement {
                         : html`
                               <div class="mrow-sub">
                                   ${r.via
-                                      ? html`<span title=${r.viaFull}
+                                      ? html`<span class="via" title=${r.viaFull}
                                             >${r.via}</span
                                         >`
                                       : ""}
@@ -1051,6 +1056,7 @@ export class IrMirror extends LitElement {
                                                 class=${r.heardOk
                                                     ? "heard"
                                                     : "not-heard"}
+                                                title=${r.heard}
                                                 >${r.heard}</span
                                             >
                                         `
@@ -1279,6 +1285,7 @@ export class IrMirror extends LitElement {
     }
 
     static styles = [
+        headerChipStyles,
         actionChipStyles,
         trashButtonStyles,
         editButtonStyles,
@@ -1416,81 +1423,31 @@ export class IrMirror extends LitElement {
                 flex-wrap: wrap;
                 position: relative;
             }
+            /* The filter chips are the header's .chip (headerChipStyles,
+               ir-header-chip-styles.ts): one size, one "on" state, one
+               dot, shared with the device pages' Emitters and Pin rows
+               and the Sniffer's Listen row (chip size pass,
+               2026-10-17). What stays here is the Mirror's own: the
+               tones (All and Emitter green, Not heard orange), the dot
+               showing its tone faintly while off, so Not heard reads as
+               a warning before it is picked, and the Emitter chip's
+               chevron and width cap. Behaviour is untouched. */
             .fchip {
-                font-size: 12.5px;
-                padding: 6px 14px;
-                height: 32px;
-                box-sizing: border-box;
-                border-radius: 16px;
-                border: 1px solid var(--divider-color);
-                background: var(--card-background-color);
-                color: var(--secondary-text-color);
-                font-family: inherit;
-                cursor: pointer;
-                display: inline-flex;
-                align-items: center;
-                gap: 5px;
+                --tone: #2e7d32;
                 flex: none;
-                transition: background 120ms ease, border-color 120ms ease,
-                    color 120ms ease;
             }
-            .fchip:focus-visible,
+            .fchip .dot {
+                background: color-mix(in srgb, var(--tone) 55%, #4d5359);
+            }
             .emitter-option:focus-visible {
                 outline: 2px solid #4dabf7;
                 outline-offset: 2px;
             }
-            /* All: green filled when it is the filter, green OUTLINE
-               when it is not -- it never falls to plain neutral. */
-            .fchip.all-chip.on {
-                background: #2e7d32;
-                border-color: #2e7d32;
-                color: #fff;
-                font-weight: 600;
+            .fchip.warnc {
+                --tone: #e65100;
             }
-            .fchip.all-chip:not(.on) {
-                color: #2e7d32;
-                border-color: rgba(46, 125, 50, 0.4);
-                font-weight: 600;
-            }
-            /* Not heard keeps its amber in BOTH states. Straight from
-               this component's own earlier header note: it is the
-               dead-LED finder, and it has to read apart from a plain
-               pill at a glance whether or not it is the active filter.
-               Do not let it fall back to neutral when inactive. */
-            .fchip.warnc.on {
-                background: #e65100;
-                border-color: #e65100;
-                color: #fff;
-            }
-            .fchip.warnc:not(.on) {
-                color: #e65100;
-                border-color: #ffcf9e;
-            }
-            /* The emitter pill wears All's exact green when an emitter
-               is picked. The two then read apart only by their label,
-               which the owner saw and approved rather than had forced
-               on him. Unpicked, it is the plain neutral .fchip base
-               above -- no override. */
             .fchip.emitter-chip {
                 max-width: 220px;
-            }
-            .fchip.emitter-chip.on {
-                background: #2e7d32;
-                border-color: #2e7d32;
-                color: #fff;
-                font-weight: 600;
-            }
-            /* An emitter's friendly name can be arbitrarily long -- the
-               bench fixture concatenates its receiver's name with its
-               emitter's. Ellipsize the NAME only so the count and the
-               chevron stay visible, with the whole name in the tooltip,
-               the same gate the card names use. The text is not
-               de-duplicated: a doubled name is a naming artifact on that
-               entity, not something to paper over here. */
-            .emitter-chip-label {
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
             }
             .emitter-chip .chev {
                 width: 12px;
@@ -1567,9 +1524,10 @@ export class IrMirror extends LitElement {
             .emitter-option.picked .rcount {
                 color: rgba(46, 125, 50, 0.7);
             }
-            /* Search is the same pill height and rounding as the other
-               three so all four read as one family, at a fixed width
-               that neither grows nor gets squeezed. */
+            /* Search is the shared .chip-search (headerChipStyles), the
+               chips' own height and rounding, so the row reads as one
+               height; here it keeps a fixed width that neither grows
+               nor gets squeezed, and room on the left for its icon. */
             .search-pill-wrap {
                 position: relative;
                 flex: 0 0 190px;
@@ -1579,26 +1537,15 @@ export class IrMirror extends LitElement {
                 left: 11px;
                 top: 50%;
                 transform: translateY(-50%);
-                width: 13px;
-                height: 13px;
+                width: 12px;
+                height: 12px;
                 color: var(--secondary-text-color);
                 pointer-events: none;
             }
-            .search-pill {
+            input.search-pill {
+                --tone: #607d8b;
                 width: 100%;
-                height: 32px;
-                box-sizing: border-box;
-                border-radius: 16px;
-                border: 1px solid var(--divider-color);
-                background: var(--card-background-color);
-                color: var(--primary-text-color);
-                font-family: inherit;
-                font-size: 12.5px;
-                padding: 0 12px 0 30px;
-            }
-            .search-pill:focus {
-                outline: none;
-                border-color: #607d8b;
+                padding: 0 10px 0 28px;
             }
 
             /* Rows: each send is its own rounded card (owner bench note),
@@ -1735,6 +1682,111 @@ export class IrMirror extends LitElement {
                 font-size: 12px;
                 color: var(--secondary-text-color);
             }
+            /* A Mirror row on a phone (mobile pass, 2026-10-17). The
+               desktop row is two columns, the description and the
+               meta, and a phone folded it: the meta's nowrap pushed
+               the row past the screen and the description became a
+               column of single words. Below 768px the row is laid out
+               for the width instead -- the four wrappers step aside
+               (display: contents) and their pieces take places in one
+               grid: the name; the protocol chip, the send knobs and
+               the emitter on one line; the send count and age, with
+               the source chip at the far end; "last heard ..." as one
+               line that truncates (the full text is its tooltip); and
+               the actions two by two. Nothing moves on a desktop. */
+            @media (max-width: 768px) {
+                .mrow {
+                    display: grid;
+                    grid-template-columns: auto auto minmax(0, 1fr) auto;
+                    grid-template-areas:
+                        "name name name name"
+                        "pill knobs via via"
+                        "counts counts counts chip"
+                        "heard heard heard heard"
+                        "btns btns btns btns";
+                    align-items: center;
+                    column-gap: 8px;
+                    row-gap: 6px;
+                    padding: 10px 12px;
+                }
+                .mrow-main,
+                .mrow-title,
+                .mrow-sub,
+                .mrow-meta {
+                    display: contents;
+                }
+                .mrow-title .name {
+                    grid-area: name;
+                    min-width: 0;
+                }
+                .mrow .pill {
+                    grid-area: pill;
+                    justify-self: start;
+                }
+                .mrow ir-tx-knobs {
+                    grid-area: knobs;
+                }
+                .mrow .via {
+                    grid-area: via;
+                    min-width: 0;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                .mrow .arrow {
+                    display: none;
+                }
+                .mrow .heard,
+                .mrow .not-heard {
+                    grid-area: heard;
+                    min-width: 0;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                .mrow .src-chip {
+                    grid-area: chip;
+                    justify-self: end;
+                }
+                .mrow .counts {
+                    grid-area: counts;
+                }
+                .mrow-hint {
+                    grid-column: 1 / -1;
+                }
+                .mrow-btns {
+                    grid-area: btns;
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 6px;
+                }
+                .mrow-btns .action-btn {
+                    justify-content: center;
+                }
+                .mrow-btns .edit-trash-group {
+                    justify-self: center;
+                }
+                /* The stats strip: two rows of three, the last send
+                   kept on one line in the second row's spare room. */
+                .stats {
+                    display: grid;
+                    grid-template-columns: repeat(3, minmax(0, auto));
+                    justify-content: space-between;
+                    row-gap: 4px;
+                    column-gap: 12px;
+                    padding: 8px 12px;
+                }
+                .search-pill-wrap {
+                    flex: 1 1 100%;
+                }
+                .stats .updated {
+                    grid-column: span 2;
+                    margin-left: 0;
+                    justify-self: end;
+                    white-space: nowrap;
+                    align-self: baseline;
+                }
+            }
             /* Empty state: the feature explaining itself. */
             .empty {
                 text-align: center;
@@ -1760,6 +1812,7 @@ export class IrMirror extends LitElement {
                 line-height: 1.5;
             }
         `,
+        toolbarStyles,
     ];
 }
 

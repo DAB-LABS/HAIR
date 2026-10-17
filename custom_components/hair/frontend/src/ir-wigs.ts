@@ -32,6 +32,8 @@
  * Authoritative design: docs/internal/plans/wigs-tab-mockup-c8.html.
  */
 import { LitElement, html, css } from "lit";
+import { toolbarStyles } from "./ir-toolbar-styles.js";
+import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import {
@@ -1374,7 +1376,7 @@ export class IrWigs extends LitElement {
                         <span class="toolbar-count"
                             >(${tp("wigs.count", counts.all)})</span
                         ><span class="toolbar-tagline"
-                            >- ${t("panel.tagline.wigs")}</span
+                            ><span class="toolbar-dash">- </span>${t("panel.tagline.wigs")}</span
                         >
                     </span>
                 </div>
@@ -1423,7 +1425,7 @@ export class IrWigs extends LitElement {
 
             <div class="toolbar">
                 <input
-                    class="search"
+                    class="chip-search search"
                     type="text"
                     .value=${this._search}
                     placeholder=${t("wigs.search")}
@@ -1431,27 +1433,27 @@ export class IrWigs extends LitElement {
                         (this._search = (e.target as HTMLInputElement).value)}
                 />
                 <button
-                    class="fchip ${this._filter === "all" ? "on" : ""}"
+                    class="chip filter fchip ${this._filter === "all" ? "on" : ""}"
                     @click=${() => (this._filter = "all")}
                 >
                     ${t("wigs.chip.all", { count: String(counts.all) })}
                 </button>
                 <button
-                    class="fchip ${this._filter === "library" ? "on" : ""}"
+                    class="chip filter fchip ${this._filter === "library" ? "on" : ""}"
                     @click=${() => (this._filter = "library")}
                 >
-                    <span class="chip-dot lib"></span>
+                    <span class="dot lib"></span>
                     ${t("wigs.chip.library", { count: String(counts.library) })}
                 </button>
                 <button
-                    class="fchip ${this._filter === "yours" ? "on" : ""}"
+                    class="chip filter fchip ${this._filter === "yours" ? "on" : ""}"
                     @click=${() => (this._filter = "yours")}
                 >
-                    <span class="chip-dot mine"></span>
+                    <span class="dot mine"></span>
                     ${t("wigs.chip.yours", { count: String(counts.yours) })}
                 </button>
                 <button
-                    class="fchip ${this._filter === "perfect" ? "on" : ""}"
+                    class="chip filter fchip ${this._filter === "perfect" ? "on" : ""}"
                     @click=${() => (this._filter = "perfect")}
                 >
                     <span class="chip-tick">&check;</span>
@@ -2050,7 +2052,7 @@ export class IrWigs extends LitElement {
         `;
     }
 
-    static styles = [dialogStyles, actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, downloadButtonStyles, css`
+    static styles = [dialogStyles, headerChipStyles, actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, downloadButtonStyles, css`
         /* Oxblood leather, the closet's accent (owner ruling 2026-07-20). */
         :host {
             --wigs-accent: #8e3b3b;
@@ -2185,50 +2187,26 @@ export class IrWigs extends LitElement {
             margin-bottom: 14px;
             flex-wrap: wrap;
         }
+        /* The filter row is the header's .chip and .chip-search
+           (headerChipStyles, ir-header-chip-styles.ts): one size, one
+           "on" state and one dot with the device pages' chips, the
+           Mirror's filters and the Sniffer's Listen row (chip size
+           pass, 2026-10-17). What stays here is the closet's own: the
+           oxblood tone, and the library and yours dots keeping their
+           own colours on or off, so a chip still says which shelf it
+           picks. Behaviour is untouched. */
         .search {
+            --tone: var(--wigs-accent);
             flex: 1 1 220px;
-            border: 1px solid var(--divider-color);
-            border-radius: 8px;
-            padding: 7px 12px;
-            font-size: 13px;
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-        }
-        .search:focus {
-            outline: none;
-            border-color: var(--wigs-accent);
         }
         .fchip {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12.5px;
-            padding: 5px 13px;
-            border-radius: 16px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-            color: var(--secondary-text-color);
-            cursor: pointer;
+            --tone: var(--wigs-accent);
         }
-        .fchip.on {
-            background: var(--wigs-accent);
-            border-color: var(--wigs-accent);
-            color: #fff;
-        }
-        .chip-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            flex: none;
-        }
-        .chip-dot.lib {
+        .fchip .dot.lib {
             background: var(--wigs-lib);
         }
-        .chip-dot.mine {
+        .fchip .dot.mine {
             background: var(--wigs-accent);
-        }
-        .fchip.on .chip-dot.mine {
-            background: #fff;
         }
         .lib-ver {
             font-size: 11.5px;
@@ -2592,9 +2570,6 @@ export class IrWigs extends LitElement {
             font-weight: 700;
             color: #66bb6a;
         }
-        .fchip.on .chip-tick {
-            color: #fff;
-        }
         /* ADOPT DEVICE (v0.8.1): the closet-native make-it-live action,
            first in the row and green (owner re-ruling 2026-07-28 --
            the oxblood chip retired with the color-consistency pass;
@@ -2767,7 +2742,7 @@ export class IrWigs extends LitElement {
             font-size: 13.5px;
             line-height: 1.5;
         }
-    `];
+    `, toolbarStyles];
 }
 
 declare global {
