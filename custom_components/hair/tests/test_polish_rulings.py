@@ -1418,7 +1418,9 @@ class TestEmittersHaveThreeStates:
     """
 
     def test_the_picker_reads_availability(self):
-        text = _read("ir-emitter-picker.ts")
+        # The emitter list moved to emitter-options.ts (header doubled
+        # name), so read both files.
+        text = _read("ir-emitter-picker.ts") + _read("emitter-options.ts")
         assert "available" in text
         # GH #83: "unknown" means never-used, not down. The dead set
         # must contain exactly "unavailable" -- painting a brand-new

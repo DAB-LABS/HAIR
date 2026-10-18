@@ -477,13 +477,15 @@ export class IrDeviceDetail extends LitElement {
      *  infrared.* / receiver-exclusion / hair_observer filter
      *  ir-emitter-picker.ts itself uses), mapped to header-chip-group's
      *  row shape. `down` mirrors that component's own three-state
-     *  logic: assigned but HA reports it unreachable. */
+     *  logic: assigned but HA reports it unreachable. The chip says
+     *  the name once; its tooltip keeps HA's full friendly name. */
     private _emitterRows(): HeaderChipRow[] {
         const receiverIds = new Set(this.receivers.map((r) => r.entity_id));
         const value = this.device.emitter_entity_ids ?? [];
         return getEmitterOptions(this.hass, receiverIds).map((em) => ({
             id: em.entity_id,
             name: em.name,
+            title: em.fullName,
             on: value.includes(em.entity_id),
             down: value.includes(em.entity_id) && !em.available,
         }));

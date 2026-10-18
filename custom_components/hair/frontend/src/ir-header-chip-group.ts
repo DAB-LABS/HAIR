@@ -109,6 +109,9 @@ export interface HeaderChipRow {
     /** Assigned but unreachable -- meaningless unless `on` is also
      *  true. Only emitters use this; receivers/pin rows never set it. */
     down?: boolean;
+    /** Tooltip name when it should differ from `name`: an emitter's
+     *  chip says its name once, its tooltip keeps HA's full one. */
+    title?: string;
 }
 
 @customElement("ir-header-chip-group")
@@ -215,7 +218,7 @@ export class IrHeaderChipGroup extends LitElement {
                 aria-checked=${row.on ? "true" : "false"}
                 aria-label="${row.name}, ${word}"
                 ?disabled=${this.disabled}
-                title="${row.name} · ${word}"
+                title="${row.title ?? row.name} · ${word}"
                 @click=${() => this._toggleChip(row)}
             >
                 <span class="dot"></span>
