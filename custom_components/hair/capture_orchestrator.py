@@ -150,6 +150,9 @@ class CaptureOrchestrator:
             raise
         except Exception as err:
             _LOGGER.exception("Capture provider raised")
+            session.error = str(err) or None
+            code = getattr(err, "code", None)
+            session.error_code = code if isinstance(code, str) else None
             session.state = CaptureState.ERROR
             self._notify(session.session_id, CaptureState.ERROR, None)
             self._hass.bus.async_fire(

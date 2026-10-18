@@ -14,6 +14,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from . import pluck
+from .broadsniff import (
+    BroadSniffArmError,
+    async_set_listening,
+    list_broadsniff_receivers,
+)
 from .capture import (
     CaptureProviderType,
     get_available_capture_providers,
@@ -95,6 +100,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_command_templates)
     websocket_api.async_register_command(hass, ws_get_capture_providers)
     websocket_api.async_register_command(hass, ws_get_receivers)
+    websocket_api.async_register_command(hass, ws_broadsniff_receivers)
+    websocket_api.async_register_command(hass, ws_broadsniff_listen)
     websocket_api.async_register_command(hass, ws_get_sniffer_status)
 
     # Matrix device detail (Cold Cuts second half)
@@ -1262,6 +1269,11 @@ async def ws_start_capture(
     except CaptureInProgressError as err:
         connection.send_error(msg_id, "in_progress", str(err))
         return
+    except BroadSniffArmError as err:
+        # The capture hardware is a BroadSniff remote that would not
+        # open a capture window; said in its own words, not retried.
+        connection.send_error(msg_id, err.code, str(err))
+        return
     except Exception as err:
         connection.send_error(msg_id, "capture_failed", str(err))
         return
@@ -1286,7 +1298,12 @@ async def ws_start_capture(
         elif state == CaptureState.TIMEOUT:
             payload = {"type": "capture_timeout"}
         elif state == CaptureState.ERROR:
+            # A provider error with a code (BroadSniff's) is said in its
+            # own words; anything else keeps the old generic line.
             payload = {"type": "capture_error", "error": "Capture failed"}
+            if session.error_code:
+                payload["error"] = session.error or payload["error"]
+                payload["code"] = session.error_code
         elif state == CaptureState.CANCELLED:
             payload = {"type": "capture_cancelled"}
         else:
@@ -1495,6 +1512,57 @@ async def ws_get_receivers(
         pass  # Pre-2026.6: no native receiver API.
 
     connection.send_result(msg["id"], receivers)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/broadsniff/receivers",
+})
+@callback
+def ws_broadsniff_receivers(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The BroadSniff receivers, for the Sniffer's Listen row.
+
+    Empty when BroadSniff is not installed, and the panel then shows no
+    Listen row at all. Each row names the remote and the entities whose
+    live state the panel reads (switch, window, mode, codes caught).
+    """
+    connection.send_result(msg["id"], list_broadsniff_receivers(hass))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/broadsniff/listen",
+    vol.Required("receiver_entity_id"): str,
+    vol.Required("on"): bool,
+})
+@websocket_api.async_response
+async def ws_broadsniff_listen(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Open or close a BroadSniff remote's capture window.
+
+    Takes the receiver, never a switch: the switch is resolved through
+    the registry, so this door cannot toggle anything that is not a
+    BroadSniff IR capture switch.
+    """
+    try:
+        await async_set_listening(hass, msg["receiver_entity_id"], msg["on"])
+    except ValueError as err:
+        connection.send_error(msg["id"], "not_broadsniff", str(err))
+        return
+    except BroadSniffArmError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    except Exception as err:
+        connection.send_error(msg["id"], "listen_failed", str(err))
+        return
+    connection.send_result(msg["id"], {"on": msg["on"]})
 
 
 @websocket_api.require_admin

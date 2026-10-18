@@ -48,7 +48,7 @@ Or find it by hand:
 ## Requirements
 
 - Home Assistant **2026.4** or later. **2026.6+** is recommended for native IR receivers.
-- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; any other adopter works automatically.
+- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; a Broadlink listens with [BroadSniff](https://github.com/DAB-LABS/broadsniff) installed beside it (see [Listen with a Broadlink](#listen-with-a-broadlink)); any other adopter works automatically.
 - **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, SMLIGHT, or MQTT.
 
 These integrations have adopted the `infrared` platform:
@@ -57,7 +57,7 @@ These integrations have adopted the `infrared` platform:
 |---|---|---|---|---|
 | [ESPHome](https://esphome.io/) | Yes | Yes | No | 2026.4 (TX), 2026.6 (native RX) |
 | [Tuya Local](https://github.com/make-all/tuya-local) | Yes | No | Yes | TX 2026.4, Pluck 2026.6.2 |
-| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | No | Yes | 2026.5 |
+| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | With [BroadSniff](https://github.com/DAB-LABS/broadsniff) | Yes | 2026.5 |
 | [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Yes | Yes | No | TX 2026.5, native RX (Ultima) 2026.7 |
 | [MQTT](https://www.home-assistant.io/integrations/mqtt/) | Yes | Yes | No | 2026.8 |
 
@@ -93,6 +93,14 @@ When you assign a signal, pick a name from the device-type template list (Power 
 A remote that leaks in from outside (a neighbor's clicker, for example) can be hidden with the eye at the bottom-right corner of its row and brought back later with **Show hidden**; a hidden remote wears a small "hidden" badge and the open eye restores it. A dot lights up on the Show hidden button if a hidden remote is still transmitting in the background. The X at the top-right corner of a row deletes the remote, and the trash can on a signal row deletes that one signal; both controls stay faint until you hover the row. Anything a receiver hears again comes right back after a delete, so hiding is the tool for keeping a remote out of the way for good. A remote already used to make a Device or Remote shows a count dot on **USE**; click it to jump to what you made, or use it again for a second room.
 
 ![Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts](images/screenshots/sniffer-signals.png)
+
+### Listen with a Broadlink
+
+Home Assistant's Broadlink integration only sends. [BroadSniff](https://github.com/DAB-LABS/broadsniff) is a small companion integration that gives a Broadlink RM an IR receiver on the same `infrared` platform, so HAIR hears it like any other receiver. Install BroadSniff from HACS, add it against your Broadlink, and HAIR picks the receiver up on its own; nothing to configure in HAIR.
+
+A Broadlink only hears codes while a capture window is open, so the Sniffer gets a **Listen** row with one chip per Broadlink. The chip is gold while the Broadlink is not listening. Click it and it turns green and the Broadlink listens; the fill drains over the window BroadSniff sets (ten seconds by default) and, in BroadSniff's sliding mode, snaps back to full each time a code lands, which is how you can tell the Broadlink heard the press. The chip glows as each code arrives and goes back to gold when the window ends, or when you click it again. The small glyph after the name opens the Broadlink's device page in Home Assistant, where BroadSniff's window length and mode live.
+
+The same chip sits on the Broadlink's card on the Devices tab, as an **RX-CAPTURE** badge in place of RX-NATIVE: click it there and the Broadlink listens the same way. The command editor's Listen, the Fix window's Listen and the fitting listen hear a Broadlink only while its chip is on, so start it listening first.
 
 ## Turn signals into a device
 

@@ -6,6 +6,7 @@
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
+import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
@@ -34,9 +35,12 @@ import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
 import "./ir-tx-knobs.js";
+import "./ir-listen-row.js";
+import { arrivalBloomKey, lastHeardTarget } from "./ir-listen-state.js";
 import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
     AssignResult,
+    BroadSniffReceiverRow,
     DeviceSummary,
     IRDevice,
     IRTrigger,
@@ -151,7 +155,21 @@ export class IrSignalMonitor extends LitElement {
     @state() private _showDismissed = false;
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
-    @state() private _flashIds = new Set<string>();
+    /** Rows blooming right now: ``dev:<remote id>`` for a collapsed
+     *  remote's header row, ``sig:<signal id>`` for a signal row in the
+     *  open remote (BroadSniff Listen, 2026-10-17). Replaces the old
+     *  header-only ``row-flash``. */
+    @state() private _bloomed = new Set<string>();
+    private _bloom = new BloomTracker();
+    /** One row per BroadSniff remote, for the Listen row. Empty, and the
+     *  row absent, when BroadSniff is not installed. */
+    @state() private _listenRows: BroadSniffReceiverRow[] = [];
+    /** Where the "last heard" tint goes this render; worked out once
+     *  per update in willUpdate (see lastHeardTarget). */
+    private _heard: { deviceId: string | null; signalId: string | null } = {
+        deviceId: null,
+        signalId: null,
+    };
     @state() private _flashStats = new Set<string>();
     /** Last 2 signal ids that received a hit (most recent first). */
     @state() private _recentSignalIds: string[] = [];
@@ -263,6 +281,24 @@ export class IrSignalMonitor extends LitElement {
         void this._subscribeRemoved();
         void this._subscribeDismissActivity();
         void this._subscribeUpdated();
+    }
+
+    protected willUpdate(changed: PropertyValues): void {
+        super.willUpdate(changed);
+        this._heard = lastHeardTarget(this._devices, this._expandedId, this._expandedDevice);
+        // The last-heard wash is toned per theme (see --heard-alpha).
+        this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));
+        // A BroadSniff remote added or removed changes the entity
+        // registry, and HA hands the panel a new ``hass.entities`` for
+        // it. Re-read the Listen rows then, and only then: ordinary
+        // state changes keep the same registry object.
+        if (changed.has("hass")) {
+            const before = (changed.get("hass") as any)?.entities;
+            const now = this.hass?.entities;
+            if (before !== undefined && now !== undefined && before !== now) {
+                void this._loadListenRows();
+            }
+        }
     }
 
     protected updated(changed: PropertyValues): void {
@@ -427,6 +463,7 @@ export class IrSignalMonitor extends LitElement {
             this._triggers = triggers;
             this._hasReceivers = status.has_receivers;
             this._error = null;
+            void this._loadListenRows();
             // Best-effort: receiver names for the trigger popover scope labels.
             // Never let a pre-2026.6 HA (no receiver API) break the main load.
             this.api
@@ -442,6 +479,31 @@ export class IrSignalMonitor extends LitElement {
         } finally {
             this._loading = false;
         }
+    }
+
+    /** Best-effort: the Listen row is extra, and a failure to read it
+     *  must never break the Sniffer. */
+    private async _loadListenRows(): Promise<void> {
+        try {
+            this._listenRows = await this.api.broadsniffReceivers();
+        } catch {
+            this._listenRows = [];
+        }
+    }
+
+    private _bloomRow(key: string): void {
+        this._bloom.trigger(
+            key,
+            () => {
+                this._bloomed = new Set([...this._bloomed, key]);
+            },
+            () => {
+                if (!this._bloomed.has(key)) return;
+                const next = new Set(this._bloomed);
+                next.delete(key);
+                this._bloomed = next;
+            },
+        );
     }
 
     private async _subscribeLive(): Promise<void> {
@@ -1143,13 +1205,12 @@ export class IrSignalMonitor extends LitElement {
             }
         }
 
-        // Flash the device card border briefly.
-        this._flashIds = new Set([...this._flashIds, ev.device_id]);
-        setTimeout(() => {
-            const next = new Set(this._flashIds);
-            next.delete(ev.device_id);
-            this._flashIds = next;
-        }, 800);
+        // The arrival bloom, in the Sniffer's blue: on the signal's own
+        // row when its remote is open, on the remote's header row when
+        // it is collapsed. A signal new to the open remote blooms as
+        // soon as the re-fetch above renders its row.
+        const open = this._expandedId === ev.device_id && this._expandedDevice !== null;
+        this._bloomRow(arrivalBloomKey(ev.device_id, ev.signal_id, open));
 
         // Flash collapsed stats (hit count / signal count) with accent color.
         this._flashStats = new Set([...this._flashStats, ev.device_id]);
@@ -1321,6 +1382,15 @@ export class IrSignalMonitor extends LitElement {
                     </span>
                 </div>
             </div>
+
+            ${this._listenRows.length > 0
+                ? html`<ir-listen-row
+                      class="listen-row"
+                      .hass=${this.hass}
+                      .api=${this.api}
+                      .rows=${this._listenRows}
+                  ></ir-listen-row>`
+                : nothing}
 
             ${this._error
                 ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
@@ -1593,13 +1663,15 @@ export class IrSignalMonitor extends LitElement {
 
     private _renderDevice(d: UnknownDeviceSummary) {
         const expanded = this._expandedId === d.id;
-        const flashing = this._flashIds.has(d.id);
+        const blooming = this._bloomed.has(`dev:${d.id}`);
         const statsFlash = this._flashStats.has(d.id);
 
         return html`
-            <ha-card class="device ${d.dismissed ? "dismissed" : ""}">
+            <ha-card
+                class="device ${d.dismissed ? "dismissed" : ""}"
+            >
                 <div
-                    class="device-row ${flashing ? "flash-row" : ""} ${
+                    class="device-row ${blooming ? "bloom" : ""} ${this._heard.deviceId === d.id ? "last-heard" : ""} ${
                         expanded ? "row-expanded" : ""
                     }"
                     @click=${() => this._toggleExpand(d.id)}
@@ -1798,8 +1870,11 @@ export class IrSignalMonitor extends LitElement {
                             const isPrevious = recentIdx === 1;
                             const isGlowing = this._glowSignalIds.has(sig.id);
                             const isHitFlash = this._hitFlashSignalIds.has(sig.id);
+                            const blooming = this._bloomed.has(`sig:${sig.id}`);
                             return html`
-                            <div class="signal-row">
+                            <div
+                                class="signal-row ${blooming ? "bloom" : ""} ${this._heard.signalId === sig.id ? "last-heard" : ""}"
+                            >
                                 ${device.dismissed
                                     ? ""
                                     : html`<ha-svg-icon
@@ -1945,7 +2020,7 @@ export class IrSignalMonitor extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bloomStyles, css`
         /* Edit + trash sit as one unit, hover boxes butted with zero
            gap -- same pairing ir-command-row.ts's device-detail rows
            use (edit-and-actions bench passes, 2026-08-11), rolled out
@@ -2058,6 +2133,10 @@ export class IrSignalMonitor extends LitElement {
             font-style: italic;
         }
 
+        .listen-row {
+            margin: 0 0 12px;
+        }
+
         .device-list {
             display: flex;
             flex-direction: column;
@@ -2083,15 +2162,52 @@ export class IrSignalMonitor extends LitElement {
             border: 1px solid rgba(33, 150, 243, 0.3);
             border-color: color-mix(in srgb, var(--primary-color) 30%, transparent);
         }
-        /* Hit flash: pulse the device-row background. When the card is
-           collapsed the row fills the whole card (the card's overflow:hidden
-           clips the pulse to the rounded corners), so the entire card appears
-           to flash; when expanded only the top row flashes, leaving the signal
-           list below calm. */
-        .device-row.flash-row {
-            animation: row-flash 900ms ease-out;
+        /* Arrival (BroadSniff Listen, 2026-10-17): the shared bloom
+           from ir-bloom-styles, in the Sniffer's own blue (HA primary).
+           It lands on the row the signal belongs to: the signal's row
+           when its remote is open, the remote's header row when it is
+           collapsed (that row is then the whole card). It replaces the
+           old header-only row-flash, which lit the header of an open
+           remote and left the user hunting for the row that fired. The
+           Assign button's own glow still plays on top. */
+        .device-row.bloom,
+        .signal-row.bloom {
+            --bloom-rgb: 3, 169, 244;
+            --bloom-peak: #03a9f4;
+            --bloom-edge: #4fc3f7;
         }
-        /* The flash's own clipping, taken over from the card. A
+        /* Last heard: a faint wash of the arrival blue on the one row
+           heard most recently, kept until the next signal lands
+           anywhere. On a collapsed remote it is the header row, which
+           is the whole card; inside an open remote it is the signal
+           row. No border and no shadow (round 2, owner: "I like the
+           glow, but I don't like the remaining stroke"): it is the
+           only row with a different ground, which is enough, and it
+           leaves the Assign button the loudest thing on the row. The
+           signal row's wash is layered over the row's own ground, so
+           the row stays opaque. Hover, declared further down, still
+           shows over it. */
+        .device-row.last-heard {
+            background: rgba(3, 169, 244, var(--heard-alpha));
+        }
+        .signal-row.last-heard {
+            background: linear-gradient(
+                    rgba(3, 169, 244, var(--heard-alpha)),
+                    rgba(3, 169, 244, var(--heard-alpha))
+                ),
+                var(--primary-background-color);
+        }
+        /* How much of the blue the wash carries. One number does not
+           serve both themes: 7 percent read as near-black on a dark
+           card and as nothing on white (owner, on the real box,
+           2026-10-17). The host carries a "dark" attribute from HA's theme. */
+        :host {
+            --heard-alpha: 0.14;
+        }
+        :host([dark]) {
+            --heard-alpha: 0.12;
+        }
+        /* The row's own rounding, taken over from the card. A
            collapsed row IS the whole card, so it rounds all four
            corners; an expanded one is only the top of it and keeps its
            bottom edge square against the divider below. */
@@ -2108,14 +2224,6 @@ export class IrSignalMonitor extends LitElement {
         .device-row.row-expanded {
             border-bottom-left-radius: 0;
             border-bottom-right-radius: 0;
-        }
-        @keyframes row-flash {
-            0% { background: transparent; }
-            18% {
-                background: rgba(33, 150, 243, 0.32);
-                background: color-mix(in srgb, var(--primary-color) 32%, transparent);
-            }
-            100% { background: transparent; }
         }
         .device.dismissed {
             opacity: 0.6;
@@ -2458,7 +2566,11 @@ export class IrSignalMonitor extends LitElement {
         .signal-row {
             display: flex;
             align-items: center;
-            padding: 6px 8px;
+            /* One pixel of the old 6px 8px padding is now a transparent
+               border, so the bloom has an
+               edge to colour without the row changing size. */
+            padding: 5px 7px;
+            border: 1px solid transparent;
             /* Match the page background so the Sniffer signal rows blend
                with the panel backdrop instead of reading as highlighted
                peach strips, mirroring the device-detail command row
