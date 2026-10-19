@@ -72,6 +72,7 @@ import type {
     TriggerRemoteInfo,
     WigInfo,
 } from "./types.js";
+import { entityDisplayName, entityFullName } from "./entity-names.js";
 
 /**
  * Sentinel "device id" for the single HAIR Triggers drawer card, reusing
@@ -216,7 +217,7 @@ export class IrDeviceList extends LitElement {
     @property({ type: Boolean }) public loading = false;
     @property({ attribute: false }) public expandedDeviceId: string | null = null;
 
-    @state() private _emitters: { entity_id: string; name: string }[] = [];
+    @state() private _emitters: { entity_id: string; name: string; fullName: string }[] = [];
     @state() private _captureProviders: CaptureProviderInfo[] = [];
     /** One row per BroadSniff remote (``hair/broadsniff/receivers``):
      *  what the RX-CAPTURE chip on a hardware card toggles. */
@@ -604,7 +605,7 @@ export class IrDeviceList extends LitElement {
                 attributes: { friendly_name?: string; hair_observer?: boolean };
             }
         >;
-        const emitters: { entity_id: string; name: string }[] = [];
+        const emitters: { entity_id: string; name: string; fullName: string }[] = [];
         for (const [entityId, st] of Object.entries(states)) {
             if (
                 entityId.startsWith("infrared.") &&
@@ -613,7 +614,10 @@ export class IrDeviceList extends LitElement {
             ) {
                 emitters.push({
                     entity_id: entityId,
-                    name: st.attributes.friendly_name ?? entityId,
+                    // Named once, as the picker and the device header
+                    // name it; the card's tooltip keeps the full name.
+                    name: entityDisplayName(this.hass, entityId),
+                    fullName: entityFullName(this.hass, entityId),
                 });
             }
         }
@@ -2555,7 +2559,7 @@ export class IrDeviceList extends LitElement {
                                   >
                                       <div class="card-header">
                                           <ha-svg-icon .path=${ICON_EMITTER}></ha-svg-icon>
-                                          <div class="card-name">${em.name}</div>
+                                          <div class="card-name" title=${em.fullName}>${em.name}</div>
                                       </div>
                                       <div class="card-meta">${em.entity_id}</div>
                                       <div class="card-footer">

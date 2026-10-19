@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The panel no longer breaks when a new version of HAIR loads over a page that is already open, as on a phone after an upgrade and restart.
+- The device page's Emitters chips, the emitter picker in Add Device, Assign, Promote and Test emitter, and the Devices tab's Emitters cards name an emitter once when its entity name already repeats the device's name, as the Mirror does ("KinCony AGv3 1 TX", not "KinCony AGv3 1 KinCony AGv3 1 TX"). Hovering a chip or card still shows the full name.
 
 ## [0.17.5] - 2026-10-12 -- Root Touch-Up
 
