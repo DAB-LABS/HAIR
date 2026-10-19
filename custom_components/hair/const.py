@@ -14,13 +14,10 @@ STORAGE_VERSION = 1
 STORAGE_VERSION_MINOR = 2
 
 CONF_EMITTER_ENTITY_ID = "emitter_entity_id"
-CONF_CAPTURE_DEVICE_ID = "capture_device_id"
-CONF_CAPTURE_PROVIDER_TYPE = "capture_provider_type"
 CONF_DEVICE_TYPE = "device_type"
 CONF_DEVICE_NAME = "device_name"
 CONF_MANUFACTURER = "manufacturer"
 CONF_MODEL = "model"
-DEFAULT_CAPTURE_TIMEOUT = 15
 DEFAULT_CARRIER_FREQUENCY = 38000
 DEFAULT_REPEAT_COUNT = 1
 # Whole-frame "send N times" for a device command. Orthogonal to the NEC
@@ -130,9 +127,6 @@ PANEL_ICON = "mdi:remote"
 
 WS_PREFIX = "hair"
 
-EVENT_COMMAND_CAPTURED = f"{DOMAIN}_command_captured"
-EVENT_CAPTURE_TIMEOUT = f"{DOMAIN}_capture_timeout"
-EVENT_CAPTURE_ERROR = f"{DOMAIN}_capture_error"
 EVENT_SIGNAL_DETECTED = f"{DOMAIN}_signal_detected"
 EVENT_SIGNAL_REMOVED = f"{DOMAIN}_signal_removed"
 # Fired when a signal's assignment set changes (assign, or a device command
@@ -456,21 +450,8 @@ class CommandSource(StrEnum):
     MATRIX = "matrix"
 
 
-class CaptureProviderType(StrEnum):
-    """Capture provider types."""
+class ReceiverHardwareType(StrEnum):
+    """How HAIR hears a piece of receiving hardware (receiver_discovery)."""
 
     ESPHOME = "esphome"
-    BROADLINK = "broadlink"
     NATIVE = "native"
-    MOCK = "mock"
-
-
-class CaptureState(StrEnum):
-    """States of a capture session."""
-
-    IDLE = "idle"
-    LISTENING = "listening"
-    CAPTURED = "captured"
-    TIMEOUT = "timeout"
-    ERROR = "error"
-    CANCELLED = "cancelled"

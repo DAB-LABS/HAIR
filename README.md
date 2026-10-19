@@ -48,7 +48,7 @@ Or find it by hand:
 ## Requirements
 
 - Home Assistant **2026.4** or later. **2026.6+** is recommended for native IR receivers.
-- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; a Broadlink listens with [BroadSniff](https://github.com/DAB-LABS/broadsniff) installed beside it (see [Listen with a Broadlink](#listen-with-a-broadlink)); any other adopter works automatically.
+- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; a Broadlink listens with [BroadSniff](https://github.com/DAB-LABS/broadsniff) installed beside it (see [Capture devices](#capture-devices)); any other adopter works automatically.
 - **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, SMLIGHT, or MQTT.
 
 These integrations have adopted the `infrared` platform:
@@ -57,7 +57,7 @@ These integrations have adopted the `infrared` platform:
 |---|---|---|---|---|
 | [ESPHome](https://esphome.io/) | Yes | Yes | No | 2026.4 (TX), 2026.6 (native RX) |
 | [Tuya Local](https://github.com/make-all/tuya-local) | Yes | No | Yes | TX 2026.4, Pluck 2026.6.2 |
-| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | With [BroadSniff](https://github.com/DAB-LABS/broadsniff) | Yes | 2026.5 |
+| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | As a [capture device](#capture-devices) | Yes | 2026.5 |
 | [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Yes | Yes | No | TX 2026.5, native RX (Ultima) 2026.7 |
 | [MQTT](https://www.home-assistant.io/integrations/mqtt/) | Yes | Yes | No | 2026.8 |
 
@@ -94,13 +94,11 @@ A remote that leaks in from outside (a neighbor's clicker, for example) can be h
 
 ![Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts](images/screenshots/sniffer-signals.png)
 
-### Listen with a Broadlink
+### Capture devices
 
-Home Assistant's Broadlink integration only sends. [BroadSniff](https://github.com/DAB-LABS/broadsniff) is a small companion integration that gives a Broadlink RM an IR receiver on the same `infrared` platform, so HAIR hears it like any other receiver. Install BroadSniff from HACS, add it against your Broadlink, and HAIR picks the receiver up on its own; nothing to configure in HAIR.
+Some receivers hear codes only while a capture window is open, such as a hub in learn mode. Any integration can say its receiver works this way with a `capturing` attribute on the receiver entity, and HAIR then opens and closes the window for you; the contract for integration authors is in [Windowed receivers](docs/windowed-receivers.md). A capture device gets a **Listen** chip in the Sniffer: gold while the window is closed, green while it is open, draining until the window ends and glowing each time HAIR hears a code from it. Its card on the Devices tab shows the same chip as an **RX-CAPTURE** badge, split in two: the main part starts and stops a capture, and the caret opens a menu of the switch that opens the window. When the integration names the switch, that one is used; otherwise choose a switch on the device, or any switch or toggle helper. Until one is chosen the chip and the card's icon are grey, and a click on the chip opens the menu. The Listen in the code editor and in the Fix window names the receiver it uses beside the button, and on a capture device it opens the window for the listen and closes it after.
 
-A Broadlink only hears codes while a capture window is open, so the Sniffer gets a **Listen** row with one chip per Broadlink. The chip is gold while the Broadlink is not listening. Click it and it turns green and the Broadlink listens; the fill drains over the window BroadSniff sets (ten seconds by default) and, in BroadSniff's sliding mode, snaps back to full each time a code lands, which is how you can tell the Broadlink heard the press. The chip glows as each code arrives and goes back to gold when the window ends, or when you click it again. The small glyph after the name opens the Broadlink's device page in Home Assistant, where BroadSniff's window length and mode live.
-
-The same chip sits on the Broadlink's card on the Devices tab, as an **RX-CAPTURE** badge in place of RX-NATIVE: click it there and the Broadlink listens the same way. The command editor's Listen, the Fix window's Listen and the fitting listen hear a Broadlink only while its chip is on, so start it listening first.
+The worked example is a Broadlink RM. Home Assistant's Broadlink integration only sends, and [BroadSniff](https://github.com/DAB-LABS/broadsniff) gives the same RM a receiver that is a capture device. Install it from HACS and add it against your Broadlink, and HAIR picks the receiver up on its own, with nothing to configure. BroadSniff's window length and mode are on the Broadlink's device page in Home Assistant, one click from the glyph on the Sniffer's chip.
 
 ## Turn signals into a device
 
@@ -268,7 +266,7 @@ The tab splits into two sections. **DEVICES** holds the things HAIR sends codes 
 
 ### Editing signals and commands
 
-Every signal and command has a copy/edit glyph that opens a single editor: read the raw Pronto code, copy it, or replace it by pasting a new code or pressing **LISTEN** to capture it fresh off the remote. The box takes one code at a time, as Pronto or as a Tuya or Broadlink base64 code; a base64 code is converted to Pronto and the editor says which format it came from. A file of many codes goes to the Closet instead. Editing updates the fingerprint and decoded identity, and moves any trigger bound to that signal along with it. Renaming a command updates any action mapping that pointed at the old name. A device command is a copy of the signal it was assigned from, so editing a catalog signal in the Sniffer or Clipper does not change commands already assigned from it; edit the command on the device itself to change what that device transmits. If a signal's carrier reads off the common IR standards, the editor offers a "Snap to N kHz" button that re-encodes it to the nearest standard (30, 33, 36, 38, 40, or 56 kHz) before you save.
+Every signal and command has a copy/edit glyph that opens a single editor: read the raw Pronto code, copy it, or replace it by pasting a new code or pressing **LISTEN** to capture it fresh off the remote, on the receiver named beside the button (its menu lists the others). The box takes one code at a time, as Pronto or as a Tuya or Broadlink base64 code; a base64 code is converted to Pronto and the editor says which format it came from. A file of many codes goes to the Closet instead. Editing updates the fingerprint and decoded identity, and moves any trigger bound to that signal along with it. Renaming a command updates any action mapping that pointed at the old name. A device command is a copy of the signal it was assigned from, so editing a catalog signal in the Sniffer or Clipper does not change commands already assigned from it; edit the command on the device itself to change what that device transmits. If a signal's carrier reads off the common IR standards, the editor offers a "Snap to N kHz" button that re-encodes it to the nearest standard (30, 33, 36, 38, 40, or 56 kHz) before you save.
 
 The same editor carries the two transmit knobs. **Send times** is how many times the whole code goes out as independent presses, for gear that needs a repeat to register. **Spacing** is the gap between those presses, measured from the start of one to the start of the next, and it turns on as soon as send times rises above 1. The box opens on what the code is spaced at today, so the number you adjust is the cadence the command already has rather than a blank.
 

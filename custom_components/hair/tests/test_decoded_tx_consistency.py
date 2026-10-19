@@ -1,6 +1,6 @@
 """Tests for the decoded-TX consistency pass.
 
-Covers the three command-creation entry points that must carry the decoded
+Covers the command-creation entry points that must carry the decoded
 protocol identity through to the persisted ``IRCommand`` (and the catalog
 Test path that must transmit the canonical decoded form):
 
@@ -9,7 +9,6 @@ Test path that must transmit the canonical decoded form):
 - ``assign_signal`` / ``assign_to_new_device`` -- carry decoded_* live.
 - ``test_signal`` -- prefer encode-from-decoded for Sniffer / Clipper /
   Plucker Test, falling back to raw replay.
-- ``ws_save_captured_command`` -- decode at save (no source signal to copy).
 - End-to-end: a freshly-assigned NEC command transmits canonical timings via
   ``device_manager.async_send_command`` without a reload.
 """
@@ -24,20 +23,17 @@ from custom_components.hair.const import DOMAIN, CommandCategory, CommandSource
 from custom_components.hair.device_manager import DeviceManager
 from custom_components.hair.entity_factory import EntityFactory
 from custom_components.hair.models import (
-    CaptureResult,
     IRCommand,
     IRDevice,
     UnknownDevice,
     UnknownSignal,
 )
-from custom_components.hair.protocol_decode import DecodedIdentity
 from custom_components.hair.signal_monitor import (
     SignalMonitor,
     _apply_signal_provenance,
 )
 from custom_components.hair.signal_store import SignalStore
 from custom_components.hair.storage import HAIRStore
-from custom_components.hair.websocket_api import ws_save_captured_command
 
 # A short, valid Pronto code used where only fingerprint / byte_hash matter.
 _PRONTO = "0000 006D 0002 0000 0020 0040 0020 0040"
@@ -97,10 +93,9 @@ def _make_connection():
     return conn
 
 
-def _wire_hass(hass, manager=None, orchestrator=None):
+def _wire_hass(hass, manager=None):
     entry_data = {
         "device_manager": manager or MagicMock(),
-        "orchestrator": orchestrator or MagicMock(),
         "signal_monitor": MagicMock(),
     }
     hass.data[DOMAIN] = {"entry-1": entry_data}
@@ -347,90 +342,6 @@ async def test_catalog_test_falls_back_to_raw_when_decoded_unsupported(fake_hass
     bdc.assert_called_once()
     bc.assert_called_once()
     assert _unwrap(ir_send.call_args[0][2]) is sentinel
-
-
-# ---------------------------------------------------------------------------
-# Edit 5 -- ws_save_captured_command decodes at save
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_save_captured_command_decodes_at_save(fake_hass):
-    device = IRDevice(id="hd1", name="TV")
-    manager = MagicMock()
-    manager.get_device = MagicMock(return_value=device)
-    manager.async_add_command = AsyncMock()
-    result = CaptureResult(
-        protocol="PRONTO", code=_PRONTO, raw_timings=[560, -560, 560, -1690],
-        frequency=38000,
-    )
-    orchestrator = MagicMock()
-    orchestrator.get_session_result = MagicMock(return_value=result)
-    _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
-    conn = _make_connection()
-
-    with patch(
-        "custom_components.hair.protocol_decode.try_decode_identity",
-        return_value=DecodedIdentity(
-            protocol="NEC", address=0x1000, command=0x18,
-            fingerprint="NEC:0x1000:0x18", extras=None, source="upstream",
-        ),
-    ):
-        await ws_save_captured_command(
-            fake_hass,
-            conn,
-            {
-                "id": 1,
-                "type": "hair/capture/save",
-                "device_id": "hd1",
-                "session_id": "sess-1",
-                "command_name": "On",
-            },
-        )
-
-    cmd = manager.async_add_command.call_args[0][1]
-    assert cmd.decoded_protocol == "NEC"
-    assert cmd.decoded_address == 0x1000
-    assert cmd.decoded_command == 0x18
-    assert cmd.decoded_fingerprint == "NEC:0x1000:0x18"
-    assert cmd.byte_hash is not None
-
-
-@pytest.mark.asyncio
-async def test_save_captured_command_non_nec_leaves_fields_none(fake_hass):
-    """A raw / undecodable capture leaves decoded_* and byte_hash None."""
-    device = IRDevice(id="hd1", name="TV")
-    manager = MagicMock()
-    manager.get_device = MagicMock(return_value=device)
-    manager.async_add_command = AsyncMock()
-    result = CaptureResult(
-        protocol=None, code=None, raw_timings=[100, -100, 100, -100], frequency=38000,
-    )
-    orchestrator = MagicMock()
-    orchestrator.get_session_result = MagicMock(return_value=result)
-    _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
-    conn = _make_connection()
-
-    with patch(
-        "custom_components.hair.protocol_decode.try_decode_identity",
-        return_value=None,
-    ):
-        await ws_save_captured_command(
-            fake_hass,
-            conn,
-            {
-                "id": 1,
-                "type": "hair/capture/save",
-                "device_id": "hd1",
-                "session_id": "sess-1",
-                "command_name": "On",
-            },
-        )
-
-    cmd = manager.async_add_command.call_args[0][1]
-    assert cmd.decoded_protocol is None
-    assert cmd.decoded_fingerprint is None
-    assert cmd.byte_hash is None
 
 
 # ---------------------------------------------------------------------------

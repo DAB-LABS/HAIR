@@ -14,23 +14,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from . import pluck
-from .broadsniff import (
-    BroadSniffArmError,
-    async_set_listening,
-    list_broadsniff_receivers,
-)
-from .capture import (
-    CaptureProviderType,
-    get_available_capture_providers,
-    get_capture_provider_for_device,
-)
-from .capture_orchestrator import (
-    CaptureInProgressError,
-    CaptureOrchestrator,
-)
 from .command_templates import get_action_options, get_templates_for_device_type
 from .const import (
-    DEFAULT_CAPTURE_TIMEOUT,
     DEFAULT_CARRIER_FREQUENCY,
     DOMAIN,
     EVENT_SIGNAL_UPDATED,
@@ -42,17 +27,14 @@ from .const import (
     SEND_SPACING_MAX_MS,
     SEND_SPACING_MIN_MS,
     WS_PREFIX,
-    CaptureState,
-    CommandCategory,
     CommandSource,
     DeviceType,
 )
-from .device_manager import DeviceManager, category_for_command_name
+from .device_manager import DeviceManager
 from .device_registry_compat import device_by_identifier, hair_config_entry_id
 from .frequency_standards import IR_CARRIER_STANDARDS_HZ
 from .identity import (
     SignalIdentity,
-    canonical_byte_hash,
     canonical_fingerprint,
 )
 from .models import MAX_POWER_SETTLE_S, IRDevice, IRTrigger, TriggerRemote
@@ -63,6 +45,15 @@ from .pasted_code import (
     coerce_pasted_code,
 )
 from .pronto_validator import validate_pronto
+from .receiver_discovery import list_receiver_hardware
+from .receiver_window import (
+    CaptureDeviceError,
+    ReceiverArmError,
+    arm_for,
+    async_set_listening,
+    capture_receivers,
+    set_choice,
+)
 from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
 from .trigger_manager import TriggerManager
@@ -94,14 +85,12 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_reorder_commands)
     websocket_api.async_register_command(hass, ws_reorder_devices)
     websocket_api.async_register_command(hass, ws_send_command)
-    websocket_api.async_register_command(hass, ws_start_capture)
-    websocket_api.async_register_command(hass, ws_cancel_capture)
-    websocket_api.async_register_command(hass, ws_save_captured_command)
     websocket_api.async_register_command(hass, ws_get_command_templates)
-    websocket_api.async_register_command(hass, ws_get_capture_providers)
+    websocket_api.async_register_command(hass, ws_receiver_hardware)
     websocket_api.async_register_command(hass, ws_get_receivers)
-    websocket_api.async_register_command(hass, ws_broadsniff_receivers)
-    websocket_api.async_register_command(hass, ws_broadsniff_listen)
+    websocket_api.async_register_command(hass, ws_capture_receivers)
+    websocket_api.async_register_command(hass, ws_receiver_listen)
+    websocket_api.async_register_command(hass, ws_set_capture_switch)
     websocket_api.async_register_command(hass, ws_get_sniffer_status)
 
     # Matrix device detail (Cold Cuts second half)
@@ -659,8 +648,6 @@ async def ws_get_device(
     vol.Required("emitter_entity_ids"): [str],
     vol.Optional("manufacturer"): vol.Any(str, None),
     vol.Optional("model"): vol.Any(str, None),
-    vol.Optional("capture_device_id"): vol.Any(str, None),
-    vol.Optional("capture_provider_type"): str,
     vol.Optional("promoted_from_unknown_id"): vol.Any(str, None),
 })
 @websocket_api.async_response
@@ -681,23 +668,12 @@ async def ws_create_device(
         connection.send_error(msg["id"], "invalid_format", "Unknown device_type")
         return
 
-    provider_value = msg.get("capture_provider_type") or CaptureProviderType.ESPHOME
-    try:
-        provider_type = CaptureProviderType(provider_value)
-    except ValueError:
-        connection.send_error(
-            msg["id"], "invalid_format", "Unknown capture_provider_type"
-        )
-        return
-
     device = IRDevice(
         name=msg["name"],
         device_type=device_type,
         manufacturer=msg.get("manufacturer"),
         model=msg.get("model"),
         emitter_entity_ids=list(msg["emitter_entity_ids"]),
-        capture_device_id=msg.get("capture_device_id"),
-        capture_provider_type=provider_type,
     )
     await manager.async_create_device(device)
 
@@ -1203,230 +1179,6 @@ async def ws_reorder_devices(
     connection.send_result(msg["id"], {"reordered": True})
 
 
-# --- Capture Operations (with event streaming) ---
-
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/capture/start",
-    vol.Required("device_id"): str,
-    vol.Optional("timeout", default=DEFAULT_CAPTURE_TIMEOUT): int,
-})
-@websocket_api.async_response
-async def ws_start_capture(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Start IR capture and stream events to the client.
-
-    The handler responds with the session_id immediately and then sends
-    further messages as ``event``-typed pushes:
-    - capture_listening
-    - capture_received   { result, duplicate_of? }
-    - capture_timeout
-    - capture_error      { error }
-    - capture_cancelled
-    """
-    data = _get_first_entry_data(hass)
-    if data is None:
-        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
-        return
-
-    manager: DeviceManager = data["device_manager"]
-    orchestrator: CaptureOrchestrator = data["orchestrator"]
-    device = manager.get_device(msg["device_id"])
-    if device is None:
-        connection.send_error(msg["id"], "not_found", "Device not found")
-        return
-
-    capture_device_id = device.capture_device_id
-    if capture_device_id is None:
-        connection.send_error(
-            msg["id"],
-            "no_capture_device",
-            "Device has no capture hardware configured",
-        )
-        return
-
-    provider = await get_capture_provider_for_device(
-        hass, device.capture_provider_type, capture_device_id
-    )
-    if provider is None:
-        connection.send_error(
-            msg["id"],
-            "provider_unavailable",
-            "Capture provider not available",
-        )
-        return
-
-    msg_id = msg["id"]
-    timeout = msg.get("timeout", DEFAULT_CAPTURE_TIMEOUT)
-
-    try:
-        session = await orchestrator.start_capture(
-            provider, device.id, timeout=timeout
-        )
-    except CaptureInProgressError as err:
-        connection.send_error(msg_id, "in_progress", str(err))
-        return
-    except BroadSniffArmError as err:
-        # The capture hardware is a BroadSniff remote that would not
-        # open a capture window; said in its own words, not retried.
-        connection.send_error(msg_id, err.code, str(err))
-        return
-    except Exception as err:
-        connection.send_error(msg_id, "capture_failed", str(err))
-        return
-
-    # Subscribe to capture events and forward them as pushed events.
-    @callback
-    def _on_event(state: CaptureState, result) -> None:
-        payload: dict[str, Any]
-        if state == CaptureState.LISTENING:
-            payload = {"type": "capture_listening"}
-        elif state == CaptureState.CAPTURED and result is not None:
-            duplicate = orchestrator.check_duplicate(device, result)
-            payload = {
-                "type": "capture_received",
-                "result": result.to_dict(),
-            }
-            if duplicate is not None:
-                payload["duplicate_of"] = {
-                    "id": duplicate.id,
-                    "name": duplicate.name,
-                }
-        elif state == CaptureState.TIMEOUT:
-            payload = {"type": "capture_timeout"}
-        elif state == CaptureState.ERROR:
-            # A provider error with a code (BroadSniff's) is said in its
-            # own words; anything else keeps the old generic line.
-            payload = {"type": "capture_error", "error": "Capture failed"}
-            if session.error_code:
-                payload["error"] = session.error or payload["error"]
-                payload["code"] = session.error_code
-        elif state == CaptureState.CANCELLED:
-            payload = {"type": "capture_cancelled"}
-        else:
-            return
-        connection.send_event(msg_id, payload)
-
-    unsubscribe = orchestrator.subscribe(session.session_id, _on_event)
-    connection.subscriptions[msg_id] = unsubscribe
-
-    # Acknowledge the subscription with the session id so the client
-    # can later cancel/save against it.
-    connection.send_result(
-        msg_id,
-        {
-            "session_id": session.session_id,
-            "device_id": device.id,
-            "timeout": timeout,
-        },
-    )
-
-    # Re-emit the listening state so clients that subscribed after the
-    # initial dispatch still see it.
-    connection.send_event(msg_id, {"type": "capture_listening"})
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/capture/cancel",
-    vol.Required("session_id"): str,
-})
-@websocket_api.async_response
-async def ws_cancel_capture(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    data = _get_first_entry_data(hass)
-    if data is None:
-        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
-        return
-    orchestrator: CaptureOrchestrator = data["orchestrator"]
-    await orchestrator.cancel_capture(msg["session_id"])
-    connection.send_result(msg["id"], {"cancelled": True})
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/capture/save",
-    vol.Required("device_id"): str,
-    vol.Required("session_id"): str,
-    vol.Required("command_name"): str,
-    vol.Optional("command_category"): str,
-})
-@websocket_api.async_response
-async def ws_save_captured_command(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    data = _get_first_entry_data(hass)
-    if data is None:
-        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
-        return
-    manager: DeviceManager = data["device_manager"]
-    orchestrator: CaptureOrchestrator = data["orchestrator"]
-
-    device = manager.get_device(msg["device_id"])
-    if device is None:
-        connection.send_error(msg["id"], "not_found", "Device not found")
-        return
-
-    result = orchestrator.get_session_result(msg["session_id"])
-    if result is None:
-        connection.send_error(
-            msg["id"], "no_capture", "No captured signal for that session"
-        )
-        return
-
-    category_value = msg.get("command_category")
-    if category_value:
-        try:
-            category = CommandCategory(category_value)
-        except ValueError:
-            category = category_for_command_name(msg["command_name"])
-    else:
-        category = category_for_command_name(msg["command_name"])
-
-    # Decode at save so a captured NEC command transmits canonical timings on
-    # the first press (mirrors the catalog-signal capture pipeline). Also sets
-    # byte_hash at creation: the matcher's reverse index keys on
-    # (fingerprint, byte_hash), and since v0.5.8 the hash is identity, not
-    # just a tiebreaker. (A load-time backfill exists for pre-0.3.4 records,
-    # but a freshly captured command should not need it.) Both fields default
-    # to None on undecodable / non-Pronto captures.
-    #
-    # Through mint_command since GH #134, so the coverage verdict lands
-    # here the same way it lands at every other door.
-    from .mint import mint_command
-    from .protocol_decode import try_decode_identity
-
-    identity = try_decode_identity(result.raw_timings)
-    command = mint_command(
-        name=msg["command_name"],
-        category=category,
-        protocol=result.protocol,
-        code=result.code,
-        raw_timings=result.raw_timings,
-        frequency=result.frequency,
-        identity=identity,
-        byte_hash=canonical_byte_hash(result.code),
-    )
-    await manager.async_add_command(device.id, command, placement="top")
-    # Notify other tabs this signal now has an assignment (v0.5.7).
-    save_fp = canonical_fingerprint(
-        command.protocol, command.code, command.raw_timings
-    )
-    if save_fp:
-        hass.bus.async_fire(EVENT_SIGNAL_UPDATED, {"signal_fingerprint": save_fp})
-    connection.send_result(msg["id"], command.to_dict())
-
-
-# --- Template & Provider Info ---
-
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/templates",
@@ -1446,16 +1198,17 @@ async def ws_get_command_templates(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/capture/providers",
+    vol.Required("type"): f"{WS_PREFIX}/receivers/hardware",
 })
 @websocket_api.async_response
-async def ws_get_capture_providers(
+async def ws_receiver_hardware(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    providers = await get_available_capture_providers(hass)
-    connection.send_result(msg["id"], providers)
+    """The receiving hardware, for the Devices tab's Receivers and
+    Proxies cards (receiver_discovery.py)."""
+    connection.send_result(msg["id"], await list_receiver_hardware(hass))
 
 
 @websocket_api.require_admin
@@ -1516,53 +1269,82 @@ async def ws_get_receivers(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/broadsniff/receivers",
+    vol.Required("type"): f"{WS_PREFIX}/receivers/capture",
 })
 @callback
-def ws_broadsniff_receivers(
+def ws_capture_receivers(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """The BroadSniff receivers, for the Sniffer's Listen row.
+    """The capture devices, for the Sniffer's Listen row, the Devices
+    cards and the code editor's Listen (receiver_window.py).
 
-    Empty when BroadSniff is not installed, and the panel then shows no
-    Listen row at all. Each row names the remote and the entities whose
-    live state the panel reads (switch, window, mode, codes caught).
+    Empty when no receiver is a capture device. Each row names the
+    receiver, its device, whether it is available, the entity HAIR
+    toggles to open its window (or null) and where that came from, and
+    the switches on its device for the card's picker.
     """
-    connection.send_result(msg["id"], list_broadsniff_receivers(hass))
+    connection.send_result(msg["id"], capture_receivers(hass))
 
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/broadsniff/listen",
+    vol.Required("type"): f"{WS_PREFIX}/receivers/listen",
     vol.Required("receiver_entity_id"): str,
     vol.Required("on"): bool,
 })
 @websocket_api.async_response
-async def ws_broadsniff_listen(
+async def ws_receiver_listen(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Open or close a BroadSniff remote's capture window.
+    """Open or close a capture device's window.
 
-    Takes the receiver, never a switch: the switch is resolved through
-    the registry, so this door cannot toggle anything that is not a
-    BroadSniff IR capture switch.
+    Takes the receiver, never the entity to toggle: that is resolved
+    from the receiver under the safety rule, so this door cannot toggle
+    anything a capture device does not own or the user did not choose.
     """
     try:
         await async_set_listening(hass, msg["receiver_entity_id"], msg["on"])
-    except ValueError as err:
-        connection.send_error(msg["id"], "not_broadsniff", str(err))
+    except CaptureDeviceError as err:
+        connection.send_error(msg["id"], err.code, str(err))
         return
-    except BroadSniffArmError as err:
+    except ReceiverArmError as err:
         connection.send_error(msg["id"], err.code, str(err))
         return
     except Exception as err:
         connection.send_error(msg["id"], "listen_failed", str(err))
         return
     connection.send_result(msg["id"], {"on": msg["on"]})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/receivers/capture_switch",
+    vol.Required("receiver_entity_id"): str,
+    vol.Required("entity_id"): str,
+})
+@callback
+def ws_set_capture_switch(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Choose what opens a capture device's window (the card's picker).
+
+    Only a switch or an input_boolean; the choice is kept by the
+    receiver's registry entry id. A receiver that declares a valid
+    capture_switch is refused with ``capture_switch_declared``: its
+    switch is final (owner ruling, 2026-10-20).
+    """
+    try:
+        set_choice(hass, msg["receiver_entity_id"], msg["entity_id"])
+    except CaptureDeviceError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], {"entity_id": msg["entity_id"]})
 
 
 @websocket_api.require_admin
@@ -6433,7 +6215,7 @@ def _fitting_username(connection: websocket_api.ActiveConnection) -> str:
 
 
 
-def _arm_listen(
+async def _arm_listen(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
@@ -6477,6 +6259,22 @@ def _arm_listen(
     -- fill a fitting row, fill a command-edit box -- is the caller's
     business, and pretending the subscription knew would be inventing a
     scope it does not have.
+
+    ONE RECEIVER, OR ALL OF THEM (windowed receivers, round 3). With a
+    ``receiver_entity_id`` the listen forwards only presses that
+    receiver heard. When that receiver is a capture device, which hears
+    only while a capture window is open, the listen opens the window
+    before it answers and closes it in the same ``_finish`` that already
+    runs on a capture, a timeout, the panel's unsubscribe and a dropped
+    connection, so closing the tab closes the window. A window the user
+    opened is left open. A ``single``-mode window is the whole listen:
+    when it closes with nothing forwarded, the listen ends with the
+    caller's timeout event. The fix flow's ladder (``keep_listening``)
+    re-opens it after a code instead (owner ruling 2026-10-19), and an
+    empty close still ends it. A window that will not open ends the
+    listen with ``receiver_arm_failed``: as the error before the answer,
+    or as an event once the listen is running. Without a receiver,
+    nothing here changes and the listen hears everything.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -6485,7 +6283,8 @@ def _arm_listen(
     monitor = data["signal_monitor"]
     signal_store = data["signal_store"]
     msg_id = msg["id"]
-    state: dict[str, Any] = {"done": False, "timer": None}
+    receiver = msg.get("receiver_entity_id") or None
+    state: dict[str, Any] = {"done": False, "timer": None, "arm": None}
 
     def _finish() -> None:
         state["done"] = True
@@ -6493,7 +6292,30 @@ def _arm_listen(
         timer = state.pop("timer", None)
         if timer is not None:
             timer.cancel()
+        arm = state.pop("arm", None)
+        if arm is not None:
+            hass.async_create_task(arm.async_stop())
         connection.subscriptions.pop(msg_id, None)
+
+    @callback
+    def _on_arm_failed(err: ReceiverArmError) -> None:
+        if state["done"]:
+            return
+        state["arm"] = None  # it detached itself; nothing to close
+        _finish()
+        connection.send_event(msg_id, {
+            "type": ReceiverArmError.code,
+            "name": err.name,
+            "message": str(err),
+        })
+
+    @callback
+    def _on_window_closed() -> None:
+        # A single-mode window closed and the listen ends with it.
+        if state["done"]:
+            return
+        _finish()
+        connection.send_event(msg_id, {"type": timeout_event})
 
     @callback
     def _on_signal(summary: dict[str, Any]) -> None:
@@ -6502,6 +6324,8 @@ def _arm_listen(
         # HAIR's own transmissions, and the foreign ones it audits: the
         # Mirror logs what was SENT, never what a remote pressed.
         if summary.get("device_fingerprint") == MIRROR_DEVICE_FP:
+            return
+        if receiver is not None and summary.get("receiver_entity_id") != receiver:
             return
         device = signal_store.get_device(summary.get("device_id") or "")
         signal = (
@@ -6519,6 +6343,9 @@ def _arm_listen(
             # window with nothing in it.
             return
         heard = getattr(signal, "heard_by", None) or []
+        arm = state.get("arm")
+        if arm is not None:
+            arm.note_code()
         if keep_listening:
             # Stay armed, and give the next press a fresh silence
             # window. Teardown is the client's job now, or the
@@ -6564,6 +6391,24 @@ def _arm_listen(
         _finish()
         connection.send_event(msg_id, {"type": timeout_event})
 
+    if receiver is not None:
+        try:
+            arm = arm_for(
+                hass, receiver,
+                on_failure=_on_arm_failed,
+                on_window_closed=_on_window_closed,
+                reopen_after_code=keep_listening,
+            )
+            if arm is not None:
+                await arm.async_start()
+        except CaptureDeviceError as err:
+            connection.send_error(msg_id, err.code, str(err))
+            return
+        except ReceiverArmError as err:
+            connection.send_error(msg_id, err.code, str(err))
+            return
+        state["arm"] = arm
+
     monitor.subscribe(_on_signal)
     state["timer"] = hass.loop.call_later(
         FITTING_LISTEN_TIMEOUT_S, _on_timeout
@@ -6576,9 +6421,10 @@ def _arm_listen(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/command/listen",
+    vol.Optional("receiver_entity_id"): str,
 })
-@callback
-def ws_command_listen(
+@websocket_api.async_response
+async def ws_command_listen(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
@@ -6591,8 +6437,11 @@ def ws_command_listen(
     step, because the box IS the accept: the validation line and the
     protocol pill re-evaluate against it, listening again re-captures,
     and nothing commits until Save.
+
+    An optional ``receiver_entity_id`` listens on that receiver alone,
+    opening its capture window if it is a capture device.
     """
-    _arm_listen(
+    await _arm_listen(
         hass, connection, msg, "command_capture", "command_listen_timeout"
     )
 
@@ -8687,6 +8536,7 @@ async def ws_tangle_test_send(
     vol.Required("type"): f"{WS_PREFIX}/device/tangle/listen",
     vol.Required("device_id"): str,
     vol.Optional("target"): str,
+    vol.Optional("receiver_entity_id"): str,
 })
 @websocket_api.async_response
 async def ws_tangle_listen(
@@ -8752,7 +8602,7 @@ async def ws_tangle_listen(
         if msg.get("target"):
             payload["target"] = msg["target"]
 
-    _arm_listen(
+    await _arm_listen(
         hass, connection, msg, "tangle_capture", "tangle_listen_timeout",
         decorate=_decorate, keep_listening=True,
     )

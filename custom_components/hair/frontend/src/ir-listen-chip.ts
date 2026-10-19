@@ -1,49 +1,68 @@
 /**
- * One BroadSniff Listen chip (BroadSniff Listen, 2026-10-17; its own
- * element since round 2, so the Sniffer and the Devices page share it).
+ * One Listen chip for a capture device (BroadSniff Listen, 2026-10-17;
+ * its own element since round 2, so the Sniffer and the Devices page
+ * share it; any integration's capture device since round 3).
  *
- * A Broadlink hears IR only while BroadSniff (DAB-LABS/broadsniff) has a
- * capture window open on it. The chip is gold while the remote is not
- * listening and green while it is; one click opens a window, another
- * closes it, through ``hair/broadsniff/listen``.
+ * A capture device is an infrared receiver that hears only while a
+ * capture window is open, and says so with a boolean ``capturing``
+ * attribute (docs/windowed-receivers.md): a Broadlink through BroadSniff
+ * (DAB-LABS/broadsniff), or any other integration that follows the
+ * contract. The chip is gold while the window is closed and green while
+ * it is open; one click opens a window, another closes it, through
+ * ``hair/receivers/listen``, which takes the receiver and resolves what
+ * to toggle on the server.
  *
- * The chip follows BroadSniff's own switch, read live from ``hass``, so
- * a window opened from BroadSniff's device page, by a HAIR capture
- * session or by the same chip in the other place shows green here too,
- * and the chip goes back to gold by itself when the window ends.
+ * The chip follows the receiver's own ``capturing``, read live from
+ * ``hass``, so a window opened anywhere else (the integration's device
+ * page, a listen in the code editor, the same chip in the other place)
+ * shows green here too, and the chip goes back to gold by itself when
+ * the window ends.
  *
- * THE FILL drains across the chip over the window. It is drawn from
- * BroadSniff's own deadline (the switch's ``window_ends_at``), never
- * from a timer started on tap, and is re-read whenever the deadline
- * changes: in BroadSniff's ``sliding`` mode each code moves the
- * deadline, and the fill snaps back to full. That snap is the user's
- * proof the Broadlink heard the press.
+ * THE FILL drains across the chip over the window. It is drawn from the
+ * receiver's ``window_ends_at``, never from a timer started on tap: it
+ * starts full when a deadline first shows and drains to nothing at it,
+ * and a new deadline (a ``sliding`` window moved by a code) plans it
+ * afresh, so the fill snaps back to full. That snap is the user's proof
+ * the receiver heard the press. A receiver that publishes no deadline
+ * gets on and off with no fill.
  *
  * THE BLOOM (the shared ir-bloom-styles animation, in the chip's green)
- * fires when the chip turns on, when the deadline restarts, and when
- * BroadSniff's code count goes up. The last covers the modes whose
- * deadline never moves: in ``multiple`` the chip blooms on every code
- * while the fill keeps draining to its fixed end, and in ``single`` it
- * blooms on the one code just as the window closes and the chip goes
- * back to gold (owner, 2026-10-17). Repeat frames can bloom it several
- * times a second; BloomTracker restarts the glow cleanly each time.
+ * fires when the window opens, when the deadline moves, and when a code
+ * from this receiver reaches HAIR (ir-arrivals.ts). The last is HAIR's
+ * own arrival, so the glow means HAIR heard it, in every capture mode.
+ * Repeat frames can bloom it several times a second; BloomTracker
+ * restarts the glow cleanly each time.
+ *
+ * WAITING while no entity is chosen to open the window. That is setup,
+ * not health, so it is not drawn in ember. In the Sniffer the chip dims,
+ * is disabled, and its title says to choose a switch first. On the
+ * Devices card (compact) it is grey, like the card's icon, and a click
+ * anywhere on it opens the switch menu (owner ruling, 2026-10-20).
  *
  * TWO FORMS, one element (round 2, owner: "one component, two places;
  * do not fork the chip"):
- * - the Sniffer's Listen row shows the full pill: the remote's name,
- *   then the exit-to-entity glyph, which opens the remote's BroadSniff
- *   device page, where the window length and mode live;
+ * - the Sniffer's Listen row shows the full pill: the receiver's name,
+ *   then the exit-to-entity glyph, which opens the receiver's device
+ *   page in Home Assistant;
  * - ``compact`` is the Devices page's hardware-card badge, made to
  *   look like the TX-NATIVE and RX-NATIVE badges beside it: the
- *   ``RX-CAPTURE`` label alone in badge geometry, with no dot (owner
+ *   ``RX-CAPTURE`` label in badge geometry, with no dot (owner
  *   addendum, 2026-10-17: the dot belongs to the header-style chips)
  *   and no glyph (the card around it is already a link). The tone,
- *   the fill and the bloom are the same.
+ *   the fill and the bloom are the same. Since the owner's ruling of
+ *   2026-10-20 it is a SPLIT chip, like the editor's Listen: the main
+ *   part starts and stops a capture, and a caret behind a thin divider
+ *   opens the switch menu (ir-capture-switch-menu.ts). Gold once a
+ *   switch is resolved, grey until then, ember and disabled offline,
+ *   caret included. Its tooltip names the switch ("Capture with ...")
+ *   and where it came from. The separate switch pill is gone.
  * OFFLINE (ember, 2026-10-19): when HA cannot reach the receiver or
- * BroadSniff's switch (ir-listen-state.ts listenOnline), the chip is
- * disabled, keeps its gold outline dimmed, wears the shared ember ring
- * for a dot, and its tooltip and accessible name say offline. Gold and green still mean ready and
- * listening: that is the capture window, not health. The compact
+ * the entity that opens its window (ir-listen-state.ts listenOnline),
+ * the chip is disabled, keeps its gold outline dimmed, wears the shared
+ * ember ring for a dot, and its tooltip and accessible name say
+ * offline. A capture device HAIR remembers but whose integration has
+ * not loaded is offline the same way. Gold and green still mean ready
+ * and listening: that is the capture window, not health. The compact
  * RX-CAPTURE badge has no dot; it goes ember instead, like the hardware
  * card's other badges (owner bench, 2026-10-19), is not clickable, and
  * says its health first.
@@ -54,6 +73,7 @@
  * keyboard activation.
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
+import { ifDefined } from "lit/directives/if-defined.js";
 import { keyed } from "lit/directives/keyed.js";
 import type { HairApi } from "./api.js";
 import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
@@ -61,16 +81,20 @@ import { EMBER_VAR, headerChipStyles } from "./ir-header-chip-styles.js";
 import { exitToEntityButtonStyles, renderExitToEntityBtn } from "./ir-icons.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
+import { onArrival } from "./ir-arrivals.js";
+import { entityFullName } from "./entity-names.js";
+import "./ir-capture-switch-menu.js";
+import type { IrCaptureSwitchMenu } from "./ir-capture-switch-menu.js";
 import {
+    chipBlock,
     listenBlooms,
     listenLive,
     listenOnline,
     planFill,
-    windowMs,
     type FillPlan,
     type ListenLive,
 } from "./ir-listen-state.js";
-import type { BroadSniffReceiverRow } from "./types.js";
+import type { CaptureReceiverRow, CaptureSwitchSource } from "./types.js";
 
 /** Not listening: HAIR's gold (ORIGIN_COLORS.remote). */
 export const LISTEN_GOLD = "#f5a623";
@@ -81,11 +105,21 @@ export const LISTEN_GREEN = "#43a047";
  *  is not translated. */
 export const RX_CAPTURE_LABEL = "RX-CAPTURE";
 
+/** Where the switch came from, for the compact chip's tooltip. */
+const SOURCE_KEYS: Record<CaptureSwitchSource, string> = {
+    declared: "capswitch.source_declared",
+    user: "capswitch.source_user",
+    device: "capswitch.source_device",
+};
+
+/** Grey, the card icons' own, while no switch is resolved. */
+const WAITING_TONE = "var(--secondary-text-color)";
+
 @customElement("ir-listen-chip")
 export class IrListenChip extends LitElement {
     @property({ attribute: false }) public hass?: any;
     @property({ attribute: false }) public api!: HairApi;
-    @property({ attribute: false }) public row!: BroadSniffReceiverRow;
+    @property({ attribute: false }) public row!: CaptureReceiverRow;
     /** The Devices page's badge form. */
     @property({ type: Boolean, reflect: true }) public compact = false;
 
@@ -100,15 +134,41 @@ export class IrListenChip extends LitElement {
     /** The fill for the open window, fixed when its deadline arrives so
      *  later renders never retime a running animation. */
     private _fill: FillPlan | undefined = undefined;
+    /** The arrivals feed for the receiver this chip shows. */
+    private _arrivals: { key: string; stop: () => void } | null = null;
 
     private _live(): ListenLive {
         return listenLive(this.hass?.states, this.row);
     }
 
+    connectedCallback(): void {
+        super.connectedCallback();
+        this._listenForArrivals();
+    }
+
+    disconnectedCallback(): void {
+        super.disconnectedCallback();
+        this._arrivals?.stop();
+        this._arrivals = null;
+    }
+
+    /** One arrivals subscription per receiver shown, moved when the row
+     *  or the api changes. */
+    private _listenForArrivals(): void {
+        const receiver = this.row?.receiver_entity_id;
+        const key = receiver && this.api ? receiver : "";
+        if (this._arrivals?.key === key) return;
+        this._arrivals?.stop();
+        this._arrivals = null;
+        if (!key || !this.isConnected) return;
+        this._arrivals = { key, stop: onArrival(this.api, key, () => this._bloomChip()) };
+    }
+
     protected willUpdate(changed: PropertyValues): void {
+        if (changed.has("row") || changed.has("api")) this._listenForArrivals();
         if (!this.row || (!changed.has("hass") && !changed.has("row"))) return;
-        // A different remote in the same element starts from scratch.
-        const previous = changed.get("row") as BroadSniffReceiverRow | undefined;
+        // A different receiver in the same element starts from scratch.
+        const previous = changed.get("row") as CaptureReceiverRow | undefined;
         if (previous && previous.receiver_entity_id !== this.row.receiver_entity_id) {
             this._seen = undefined;
             this._fill = undefined;
@@ -119,11 +179,12 @@ export class IrListenChip extends LitElement {
         if (now.endsAt === null) {
             this._fill = undefined;
         } else if (this._fill?.endsAt !== now.endsAt) {
-            this._fill = planFill(now.endsAt, windowMs(this.hass?.states, this.row), Date.now());
+            this._fill = planFill(now.endsAt, Date.now()) ?? undefined;
         }
         if (listenBlooms(before, now)) this._bloomChip();
-        // A window that opened after all (from BroadSniff's own page,
-        // or a capture session) answers an earlier failed click.
+        // A window that opened after all (from the integration's own
+        // page, or a listen in the editor) answers an earlier failed
+        // click.
         if (now.on && this._failed) this._failed = false;
     }
 
@@ -144,12 +205,30 @@ export class IrListenChip extends LitElement {
         this._busy = true;
         this._failed = false;
         try {
-            await this.api.broadsniffListen(this.row.receiver_entity_id, !on);
+            await this.api.receiverListen(this.row.receiver_entity_id, !on);
         } catch {
             this._failed = true;
         } finally {
             this._busy = false;
         }
+    }
+
+    /** The compact chip's main part: with nothing picked there is
+     *  nothing to capture with, so it opens the switch menu under the
+     *  whole chip instead. */
+    private _onMain(on: boolean, waiting: boolean): void {
+        if (waiting) {
+            const menu = this.renderRoot.querySelector<IrCaptureSwitchMenu>("ir-capture-switch-menu");
+            menu?.open(this.renderRoot.querySelector<HTMLElement>(".split") ?? undefined);
+            return;
+        }
+        void this._toggle(on);
+    }
+
+    /** The full name of the switch, for the tooltip. */
+    private _switchName(entityId: string): string {
+        if (this.hass?.states?.[entityId]) return entityFullName(this.hass, entityId);
+        return this.row.device_switches.find((s) => s.entity_id === entityId)?.name ?? entityId;
     }
 
     /** The chip lives inside things that act on click and keys (the
@@ -163,26 +242,46 @@ export class IrListenChip extends LitElement {
         // so the chip shows no window state at all. It stays gold,
         // dimmed rather than grey so it still reads as a capture device
         // that is down, its dot becomes the ember ring, and it cannot be
-        // pressed until HA reaches the remote again.
+        // pressed until HA reaches the receiver again. Without a chosen
+        // switch it waits (dimmed, not ember: setup, not health).
         const online = listenOnline(this.hass?.states, row);
-        const live = online ? this._live() : { on: false, endsAt: null, codes: null };
+        const block = chipBlock(row, online);
+        const live = online ? this._live() : { on: false, endsAt: null };
         const fill = live.on ? this._fill : undefined;
-        const said = !online
-            ? t("listen.offline_title", { name: row.name })
-            : this._failed
-              ? t("listen.failed", { name: row.name })
-              : live.on
-                ? t("listen.on_title", { name: row.name })
-                : t("listen.off_title", { name: row.name });
+        // On the Devices card nothing picked is grey and opens the menu;
+        // in the Sniffer it dims and waits, as before.
+        const waiting = this.compact && block === "no_switch";
+        const said =
+            block === "offline"
+                ? t("listen.offline_title", { name: row.name })
+                : block === "no_switch"
+                  ? this.compact
+                      ? t("capswitch.choose_title", { name: row.name })
+                      : t("listen.no_switch_title")
+                  : this._failed
+                    ? t("listen.failed", { name: row.name })
+                    : live.on
+                      ? t("listen.on_title", { name: row.name })
+                      : t("listen.off_title", { name: row.name });
         // The compact form is a hardware badge, and every badge on the
-        // card says its health first: "RX-CAPTURE, online: ...".
+        // card says its health first: "RX-CAPTURE, online: ...", then
+        // the switch it captures with and where that came from.
+        const current = row.switch_entity_id;
         const word = this.compact
-            ? `${RX_CAPTURE_LABEL}, ${t(online ? "common.online" : "common.offline")}: ${said}`
+            ? [
+                  `${RX_CAPTURE_LABEL}, ${t(online ? "common.online" : "common.offline")}: ${said}`,
+                  current ? t("listen.capture_with", { name: this._switchName(current) }) : "",
+                  current && row.source ? t(SOURCE_KEYS[row.source]) : "",
+              ]
+                  .filter(Boolean)
+                  .join("\n")
             : said;
-        return html`
+        const tone = waiting ? WAITING_TONE : live.on ? LISTEN_GREEN : LISTEN_GOLD;
+        const disabled = this._busy || (this.compact ? block === "offline" : block !== null);
+        const chip = html`
             <span
-                class="chip listen ${live.on ? "on" : "idle"} ${online ? "" : "offline"} ${this._failed && online ? "failed" : ""} ${this._bloomed && online ? "bloom" : ""}"
-                style="--tone:${live.on ? LISTEN_GREEN : LISTEN_GOLD}"
+                class="chip listen ${live.on ? "on" : "idle"} ${online ? "" : "offline"} ${block === "no_switch" && !this.compact ? "blocked" : ""} ${waiting ? "waiting" : ""} ${this._failed && online ? "failed" : ""} ${this._bloomed && online ? "bloom" : ""}"
+                style="--tone:${tone}"
                 @click=${this._stop}
                 @keydown=${this._stop}
             >
@@ -197,24 +296,45 @@ export class IrListenChip extends LitElement {
                     : nothing}
                 <button
                     class="listen-toggle"
-                    role="switch"
-                    aria-checked=${live.on ? "true" : "false"}
-                    aria-label=${word}
+                    role=${waiting ? "button" : "switch"}
+                    aria-checked=${ifDefined(waiting ? undefined : live.on ? "true" : "false")}
+                    aria-haspopup=${ifDefined(waiting ? "menu" : undefined)}
+                    aria-label=${word.replace(/\n/g, ". ")}
                     title=${word}
-                    ?disabled=${this._busy || !online}
-                    @click=${() => void this._toggle(live.on)}
+                    ?disabled=${disabled}
+                    @click=${() => this._onMain(live.on, waiting)}
                 >
                     ${this.compact
                         ? nothing
                         : html`<span class="dot ${online ? "" : "offline"}"></span>`}
                     <span class="chip-name">${this.compact ? RX_CAPTURE_LABEL : row.name}</span>
                 </button>
-                ${this.compact
+                ${this.compact || !row.ha_device_id
                     ? nothing
                     : renderExitToEntityBtn(
                           `/config/devices/device/${row.ha_device_id}`,
                           t("listen.open_title", { name: row.name }),
                       )}
+            </span>
+        `;
+        if (!this.compact) return chip;
+        // The split: the menu sits beside the chip, not inside it, so its
+        // fixed menu is not trapped in the chip's isolated stacking
+        // context; the two share colours through --split-fg/--split-bg.
+        return html`
+            <span
+                class="split ${live.on ? "on" : ""} ${online ? "" : "offline"} ${waiting ? "waiting" : ""}"
+                style="--tone:${tone}"
+                @click=${this._stop}
+                @keydown=${this._stop}
+            >
+                ${chip}
+                <ir-capture-switch-menu
+                    .hass=${this.hass}
+                    .api=${this.api}
+                    .row=${row}
+                    ?disabled=${!online}
+                ></ir-capture-switch-menu>
             </span>
         `;
     }
@@ -291,6 +411,15 @@ export class IrListenChip extends LitElement {
             }
             .listen-toggle:disabled {
                 cursor: progress;
+            }
+            /* No switch chosen yet: dimmed, and the click does
+               nothing (the Sniffer; the card's chip is grey and opens
+               the switch menu instead). */
+            .chip.listen.blocked {
+                opacity: 0.45;
+            }
+            .chip.listen.blocked .listen-toggle {
+                cursor: default;
             }
             .listen-toggle:focus-visible {
                 outline: 2px solid var(--tone);
@@ -377,6 +506,34 @@ export class IrListenChip extends LitElement {
             }
             :host([compact]) .chip-name {
                 max-width: none;
+            }
+            /* THE SPLIT (owner ruling, 2026-10-20): the chip's main part,
+               then the caret, one chip on one row. The caret reads the
+               chip's colours from --split-fg and --split-bg. */
+            .split {
+                display: inline-flex;
+                align-items: stretch;
+                white-space: nowrap;
+                border-radius: 4px;
+                font-size: 0.72rem;
+                font-weight: 500;
+                line-height: 1;
+                --split-fg: var(--tone);
+                --split-bg: color-mix(in srgb, var(--tone) 15%, transparent);
+            }
+            .split.on {
+                --split-bg: color-mix(in srgb, var(--tone) 10%, transparent);
+            }
+            .split.offline {
+                --split-fg: ${EMBER_VAR};
+                --split-bg: color-mix(in srgb, ${EMBER_VAR} 13%, transparent);
+            }
+            :host([compact]) .split .chip.listen {
+                border-radius: 4px 0 0 4px;
+            }
+            /* Nothing picked: grey, and the main part opens the menu. */
+            :host([compact]) .chip.listen.waiting .listen-toggle {
+                cursor: pointer;
             }
         `,
     ];

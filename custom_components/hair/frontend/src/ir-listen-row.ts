@@ -1,12 +1,13 @@
 /**
- * The Sniffer's Listen row (BroadSniff Listen, 2026-10-17).
+ * The Sniffer's Listen row (BroadSniff Listen, 2026-10-17; any capture
+ * device since windowed receivers, round 3).
  *
- * A Broadlink hears IR only while BroadSniff (DAB-LABS/broadsniff) has a
- * capture window open on it, and the user is in the Sniffer when they
- * want it to listen. This row is a "Listen:" label and one
- * ``ir-listen-chip`` per BroadSniff remote; the chip carries all the
- * behaviour (the toggle, the fill, the bloom) and is the same element
- * the Devices page shows on the remote's hardware card.
+ * A capture device hears codes only while a capture window is open (a
+ * Broadlink through BroadSniff is the worked example), and the user is
+ * in the Sniffer when they want it to listen. This row is a "Listen:"
+ * label and one ``ir-listen-chip`` per capture device; the chip carries
+ * all the behaviour (the toggle, the fill, the bloom) and is the same
+ * element the Devices page shows on the receiver's hardware card.
  *
  * The look is the device pages' header chip group, from the shared
  * ir-header-chip-styles module, except for the label (round 2, owner):
@@ -21,13 +22,13 @@ import { headerChipStyles } from "./ir-header-chip-styles.js";
 import "./ir-listen-chip.js";
 import { customElement, property } from "./decorators.js";
 import { t } from "./localize.js";
-import type { BroadSniffReceiverRow } from "./types.js";
+import type { CaptureReceiverRow } from "./types.js";
 
 @customElement("ir-listen-row")
 export class IrListenRow extends LitElement {
     @property({ attribute: false }) public hass?: any;
     @property({ attribute: false }) public api!: HairApi;
-    @property({ attribute: false }) public rows: BroadSniffReceiverRow[] = [];
+    @property({ attribute: false }) public rows: CaptureReceiverRow[] = [];
 
     render() {
         if (this.rows.length === 0) return nothing;

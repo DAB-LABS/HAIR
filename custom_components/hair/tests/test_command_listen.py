@@ -9,6 +9,7 @@ silently lose by re-implementing rather than reusing.
 """
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock
 
 from custom_components.hair.const import DOMAIN, MIRROR_DEVICE_FP
@@ -103,9 +104,9 @@ def _arm(fake_hass, monitor, signal=None):
         "signal_store": _store(signal if signal else _signal()),
     }}
     conn = _conn()
-    ws_command_listen(
+    asyncio.run(ws_command_listen(
         fake_hass, conn, {"id": 7, "type": "hair/command/listen"}
-    )
+    ))
     return conn
 
 
@@ -213,7 +214,7 @@ def test_timeout_says_so_on_the_command_channel(fake_hass):
 def test_an_unconfigured_install_refuses(fake_hass):
     fake_hass.data = {}
     conn = _conn()
-    ws_command_listen(
+    asyncio.run(ws_command_listen(
         fake_hass, conn, {"id": 7, "type": "hair/command/listen"}
-    )
+    ))
     assert conn.send_error.call_args.args[1] == "not_configured"

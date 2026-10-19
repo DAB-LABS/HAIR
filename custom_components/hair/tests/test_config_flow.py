@@ -102,7 +102,7 @@ async def test_shows_form_when_capture_provider_found(fake_hass):
     fake_ir_entity = MagicMock()
     fake_ir_entity.entity_id = "infrared.hair1_tx"
 
-    # capture.py only surfaces an ESPHome provider when the bridge is
+    # receiver_discovery.py only surfaces an ESPHome provider when the bridge is
     # known to be active (per signal_monitor's runtime-observed set).
     from custom_components.hair.const import DOMAIN
     monitor = MagicMock()
@@ -110,16 +110,16 @@ async def test_shows_form_when_capture_provider_found(fake_hass):
     fake_hass.data = {DOMAIN: {"entry-1": {"signal_monitor": monitor}}}
 
     with patch(
-        "custom_components.hair.capture.dr.async_get",
+        "custom_components.hair.receiver_discovery.dr.async_get",
         return_value=MagicMock(),
     ), patch(
-        "custom_components.hair.capture.dr.async_entries_for_config_entry",
+        "custom_components.hair.receiver_discovery.dr.async_entries_for_config_entry",
         return_value=[fake_device],
     ), patch(
-        "custom_components.hair.capture.er.async_get",
+        "custom_components.hair.receiver_discovery.er.async_get",
         return_value=MagicMock(),
     ), patch(
-        "custom_components.hair.capture.er.async_entries_for_device",
+        "custom_components.hair.receiver_discovery.er.async_entries_for_device",
         return_value=[fake_ir_entity],
     ):
         flow = _make_flow(fake_hass)

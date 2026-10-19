@@ -390,7 +390,6 @@ class TestUnload:
         hass.data[DOMAIN] = {entry.entry_id: {
             "signal_store": store,
             "signal_monitor": monitor,
-            "orchestrator": MagicMock(is_capturing=False, active_session=None),
         }}
         _a_capture(store)
 
@@ -411,7 +410,6 @@ class TestUnload:
         store, backing = _store_on(tmp_path, hass)
         hass.data[DOMAIN] = {entry.entry_id: {
             "signal_store": store,
-            "orchestrator": MagicMock(is_capturing=False, active_session=None),
         }}
         _a_capture(store)
 

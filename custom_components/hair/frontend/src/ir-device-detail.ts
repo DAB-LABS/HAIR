@@ -28,7 +28,6 @@ const ACTION_BADGE_WEIGHT = 500;
 const ACTION_BADGE_TRACKING = 0; // the link-A label carries no letter-spacing, unlike the old uppercase badge button's 0.03em
 const ACTION_ARROW_CHAR = "→"; // matches .map-arrow's glyph in ir-command-row.ts
 const ACTION_ARROW_GAP_PX = 3; // matches .action-visible/.action-sizer's flex gap there
-import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-save-perfect-dialog.js";
 import "./ir-save-route-dialog.js";
@@ -124,7 +123,6 @@ export class IrDeviceDetail extends LitElement {
     @property({ attribute: false }) public triggerRemotes: TriggerRemoteInfo[] = [];
 
     @state() private _busy = false;
-    @state() private _captureName: string | null = null;
     @state() private _toast: string | null = null;
     /** Second Fitting v3 punch list item 6: the window itself opens on
      * this alone, synchronously, the moment SAVE TO CLOSET is clicked
@@ -1271,22 +1269,6 @@ export class IrDeviceDetail extends LitElement {
     }
 
     // ---------------------------------------------------------------
-    // Capture dialog
-    // ---------------------------------------------------------------
-
-    private _onCaptureClosed() {
-        this._captureName = null;
-    }
-
-    private async _onCommandSaved(e: CustomEvent) {
-        const { commandName } = e.detail as { commandName: string };
-        this._cancelPendingReorderSave();
-        await this._refresh();
-        this._flash(t("devdetail.saved", { name: commandName }));
-        this._captureName = null;
-    }
-
-    // ---------------------------------------------------------------
     // Navigation / device delete
     // ---------------------------------------------------------------
 
@@ -1949,18 +1931,6 @@ export class IrDeviceDetail extends LitElement {
                       @closed=${this._closeSaveFlow}
                   ></ir-save-perfect-dialog>`
                 : ""}
-            ${this._captureName
-                ? html`
-                      <ir-capture-dialog
-                          .api=${this.api}
-                          .hass=${this.hass}
-                          .device=${this.device}
-                          .commandName=${this._captureName}
-                          @closed=${this._onCaptureClosed}
-                          @command-saved=${this._onCommandSaved}
-                      ></ir-capture-dialog>
-                  `
-                : ""}
             ${this._commandToDelete
                 ? html`
                       <ir-confirm-dialog
@@ -1985,6 +1955,7 @@ export class IrDeviceDetail extends LitElement {
                 ? html`
                       <ir-signal-editor
                           .api=${this.api}
+                          .hass=${this.hass}
                           .deviceId=${this.device.id}
                           .commandId=${this._editCommand.id}
                           .initialPronto=${this._editCommand.code_export ??

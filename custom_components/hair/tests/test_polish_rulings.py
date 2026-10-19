@@ -5004,22 +5004,29 @@ class TestThePopupLeadsWithThePressRoad:
         box = dialog.index("this._renderCodeBox()")
         assert intro < status < box, (intro, status, box)
 
-    def test_the_ordinary_editor_still_leads_with_the_code_box(self):
+    def test_the_command_editor_leads_with_replace_and_the_rest_with_the_box(self):
         """The other half of the same claim: a context was reordered,
-        not the component. Outside a tangle repair the box comes first
-        and the Replace block follows it, exactly as before."""
+        not the component. In the command editor "Replace this code" and
+        its Listen sit above the box (windowed receivers, round 3, owner
+        2026-10-19), so the box, its validation, its pill and its snap
+        read together. Creating or editing a signal has no Replace block,
+        and the box leads as before."""
         dialog = self._dialog()
         assert (
-            "html`${this._renderCodeBox()} ${this._renderReplace()}`" in dialog
+            "html`${this._renderReplace()} ${this._renderCodeBox()}`" in dialog
         )
+        assert ": html`${this._renderCodeBox()}`}" in dialog
 
-    def test_the_two_orders_are_one_ternary_on_the_tangle_flag(self):
-        """So there is no third arrangement to drift into."""
+    def test_the_orders_are_one_ternary_chain(self):
+        """The repair, the command editor, and everything else: three
+        arrangements in one expression, so there is no fourth to drift
+        into."""
         dialog = self._dialog()
         assert (
             "${this._isTangle ? html`${this._renderTangleIntro()} "
             "${this._renderTangleStatus()} ${this._renderCodeBox()}` "
-            ": html`${this._renderCodeBox()} ${this._renderReplace()}`}"
+            ": this._isCommand ? html`${this._renderReplace()} ${this._renderCodeBox()}` "
+            ": html`${this._renderCodeBox()}`}"
         ) in dialog
 
     def test_the_validation_still_follows_the_box_it_describes(self):
@@ -5260,13 +5267,14 @@ class TestTheFixWindowRedesign:
         assert data["editor.replace_title"] == "Replace this code"
 
     def test_the_ordinary_editors_layout_is_untouched(self):
-        """The control group, in one pin: outside a repair the box
-        leads with its own label, the Replace block follows it, and the
-        press button is inside that block rather than in the footer."""
+        """The control group, in one pin: in the command editor the
+        Replace block leads (round 3, owner 2026-10-19), the box follows
+        with its own label, and the press button is inside the Replace
+        block rather than in the footer."""
         text = _read("ir-signal-editor.ts")
         dialog = self._dialog()
         assert (
-            "html`${this._renderCodeBox()} ${this._renderReplace()}`"
+            "html`${this._renderReplace()} ${this._renderCodeBox()}`"
             in dialog
         )
         box = text.split("private _renderCodeBox()", 1)[1].split(

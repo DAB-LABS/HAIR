@@ -20,35 +20,16 @@ if _ir_mod is None:
 if not hasattr(_ir_mod, "async_send_command"):
     _ir_mod.async_send_command = AsyncMock()  # type: ignore[attr-defined]
 
-from custom_components.hair.capture import MockCaptureProvider  # noqa: E402
 from custom_components.hair.const import (  # noqa: E402
-    CaptureProviderType,
     CommandCategory,
     CommandSource,
     DeviceType,
 )
 from custom_components.hair.models import (  # noqa: E402
-    CaptureResult,
     EntityConfig,
     IRCommand,
     IRDevice,
 )
-
-
-@pytest.fixture
-def capture_result() -> CaptureResult:
-    return CaptureResult(
-        protocol="NEC",
-        code="0x20DF10EF",
-        raw_timings=[9000, -4500, 560, -560, 560, -1690, 560, -560],
-        frequency=38000,
-        confidence=0.95,
-    )
-
-
-@pytest.fixture
-def mock_capture_provider(capture_result: CaptureResult) -> MockCaptureProvider:
-    return MockCaptureProvider(result=capture_result, delay=0.01)
 
 
 @pytest.fixture
@@ -74,8 +55,6 @@ def mock_device(mock_command: IRCommand) -> IRDevice:
         manufacturer="Samsung",
         model="UN55TU7000",
         emitter_entity_ids=["infrared.test_emitter"],
-        capture_device_id="esphome-device-1",
-        capture_provider_type=CaptureProviderType.ESPHOME,
         commands=[mock_command],
         entity_config=EntityConfig(
             platform="media_player",

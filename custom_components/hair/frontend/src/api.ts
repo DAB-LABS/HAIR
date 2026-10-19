@@ -4,7 +4,7 @@
  * The HA frontend exposes a connection on the panel host element via
  * the `hass` property; we use `hass.connection.sendMessagePromise` for
  * one-shot commands and `hass.connection.subscribeMessage` for
- * streaming capture events.
+ * streaming listen events.
  */
 // The ONE runtime import this module has, and the rule for adding any
 // other: it must itself import nothing but types. ``matrix-lattice.ts``
@@ -14,11 +14,8 @@ import { latticeFields } from "./matrix-lattice.js";
 import type {
     ActionOption,
     AssignResult,
-    BroadSniffReceiverRow,
     CandidateVerdict,
-    CaptureEvent,
-    CaptureProviderInfo,
-    CaptureStartResponse,
+    CaptureReceiverRow,
     ClaimsLedger,
     CodeBrand,
     CombReport,
@@ -43,6 +40,7 @@ import type {
     PluckVendor,
     PluckedStoreRecord,
     ProntoValidation,
+    ReceiverHardwareInfo,
     ReceiverInfo,
     ReverseSupersessionBlock,
     SavePlan,
@@ -127,8 +125,6 @@ export class HairApi {
         emitter_entity_ids: string[];
         manufacturer?: string | null;
         model?: string | null;
-        capture_device_id?: string | null;
-        capture_provider_type?: string;
         promoted_from_unknown_id?: string | null;
     }): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({
@@ -258,9 +254,10 @@ export class HairApi {
         });
     }
 
-    listCaptureProviders(): Promise<CaptureProviderInfo[]> {
-        return this.hass.connection.sendMessagePromise<CaptureProviderInfo[]>({
-            type: "hair/capture/providers",
+    /** The receiving hardware, for the Devices tab's cards. */
+    listReceiverHardware(): Promise<ReceiverHardwareInfo[]> {
+        return this.hass.connection.sendMessagePromise<ReceiverHardwareInfo[]>({
+            type: "hair/receivers/hardware",
         });
     }
 
@@ -270,20 +267,31 @@ export class HairApi {
         });
     }
 
-    /** The BroadSniff remotes HAIR can open a capture window on. Empty
-     *  when BroadSniff is not installed. */
-    broadsniffReceivers(): Promise<BroadSniffReceiverRow[]> {
-        return this.hass.connection.sendMessagePromise<BroadSniffReceiverRow[]>({
-            type: "hair/broadsniff/receivers",
+    /** The capture devices: receivers that hear only while a capture
+     *  window is open, from any integration. Empty when there are none. */
+    captureReceivers(): Promise<CaptureReceiverRow[]> {
+        return this.hass.connection.sendMessagePromise<CaptureReceiverRow[]>({
+            type: "hair/receivers/capture",
         });
     }
 
-    /** Open or close a BroadSniff remote's capture window. */
-    broadsniffListen(receiverEntityId: string, on: boolean): Promise<{ on: boolean }> {
+    /** Open or close a capture device's window. Takes the receiver; the
+     *  server resolves what to toggle. */
+    receiverListen(receiverEntityId: string, on: boolean): Promise<{ on: boolean }> {
         return this.hass.connection.sendMessagePromise<{ on: boolean }>({
-            type: "hair/broadsniff/listen",
+            type: "hair/receivers/listen",
             receiver_entity_id: receiverEntityId,
             on,
+        });
+    }
+
+    /** Choose what opens a capture device's window: a switch or an
+     *  input_boolean. Kept by the receiver's registry entry. */
+    setCaptureSwitch(receiverEntityId: string, entityId: string): Promise<{ entity_id: string }> {
+        return this.hass.connection.sendMessagePromise<{ entity_id: string }>({
+            type: "hair/receivers/capture_switch",
+            receiver_entity_id: receiverEntityId,
+            entity_id: entityId,
         });
     }
 
@@ -720,13 +728,19 @@ export class HairApi {
     /** Arm the Sniffer for one capture into the command editor's Pronto
      * box. Emits a single command_capture or command_listen_timeout;
      * call the returned unsubscribe on cancel or when the dialog
-     * closes. */
+     * closes. With a receiver, only that receiver's presses count, and
+     * a capture device's window is opened for the listen and closed
+     * with it (server side, so a closed tab still closes it). */
     async commandListen(
         onEvent: (event: CommandListenEvent) => void,
+        receiverEntityId?: string,
     ): Promise<() => Promise<void>> {
         return this.hass.connection.subscribeMessage<CommandListenEvent>(
             onEvent,
-            { type: "hair/command/listen" },
+            {
+                type: "hair/command/listen",
+                ...(receiverEntityId ? { receiver_entity_id: receiverEntityId } : {}),
+            },
         );
     }
 
@@ -824,64 +838,6 @@ export class HairApi {
         });
     }
 
-
-    /**
-     * Start a capture session and stream events to ``onEvent``.
-     * The returned promise resolves with the session id once the server
-     * acknowledges; the unsubscribe function should be called when the
-     * caller is done listening.
-     */
-    async startCapture(
-        deviceId: string,
-        timeout: number,
-        onEvent: (event: CaptureEvent) => void,
-    ): Promise<{ session: CaptureStartResponse; unsubscribe: () => Promise<void> }> {
-        let session: CaptureStartResponse | null = null;
-
-        const unsubscribe = await this.hass.connection.subscribeMessage<
-            CaptureEvent | CaptureStartResponse
-        >(
-            (message) => {
-                if ((message as CaptureEvent).type?.startsWith("capture_")) {
-                    onEvent(message as CaptureEvent);
-                } else if ((message as CaptureStartResponse).session_id) {
-                    session = message as CaptureStartResponse;
-                }
-            },
-            {
-                type: "hair/capture/start",
-                device_id: deviceId,
-                timeout,
-            },
-        );
-
-        // Allow microtask flush so the synchronous result message is
-        // delivered before we resolve.
-        await Promise.resolve();
-        if (session === null) {
-            throw new Error("Capture session did not start");
-        }
-        return { session, unsubscribe };
-    }
-
-    cancelCapture(sessionId: string): Promise<{ cancelled: boolean }> {
-        return this.hass.connection.sendMessagePromise<{ cancelled: boolean }>({
-            type: "hair/capture/cancel",
-            session_id: sessionId,
-        });
-    }
-
-    saveCapturedCommand(payload: {
-        device_id: string;
-        session_id: string;
-        command_name: string;
-        command_category?: string;
-    }): Promise<IRCommand> {
-        return this.hass.connection.sendMessagePromise<IRCommand>({
-            type: "hair/capture/save",
-            ...payload,
-        });
-    }
 
     // --- Action Mapping ---
 
@@ -1672,6 +1628,7 @@ export class HairApi {
         deviceId: string,
         onEvent: (event: TangleListenEvent) => void,
         target?: string,
+        receiverEntityId?: string,
     ): Promise<() => Promise<void>> {
         return this.hass.connection.subscribeMessage<TangleListenEvent>(
             onEvent,
@@ -1679,6 +1636,7 @@ export class HairApi {
                 type: "hair/device/tangle/listen",
                 device_id: deviceId,
                 ...(target !== undefined ? { target } : {}),
+                ...(receiverEntityId ? { receiver_entity_id: receiverEntityId } : {}),
             },
         );
     }

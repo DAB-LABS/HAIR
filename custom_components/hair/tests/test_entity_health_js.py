@@ -567,7 +567,15 @@ class TestTheListenChip:
     def test_offline_disables_and_rings(self):
         text = _flat("ir-listen-chip.ts")
         assert "const online = listenOnline(this.hass?.states, row);" in text
-        assert "?disabled=${this._busy || !online}" in text
+        # Windowed receivers, round 3: offline is one of two blocks (the
+        # other is no switch chosen yet). Offline disables the toggle
+        # everywhere; no switch disables it in the Sniffer, while the
+        # card's split chip opens its switch menu instead (2026-10-20).
+        assert "const block = chipBlock(row, online);" in text
+        assert (
+            'const disabled = this._busy || (this.compact ? block === "offline" : block !== null);'
+        ) in text
+        assert "?disabled=${disabled}" in text
         assert '<span class="dot ${online ? "" : "offline"}"></span>' in text
         assert '${online ? "" : "offline"}' in text
         assert 't("listen.offline_title", { name: row.name })' in text
@@ -575,7 +583,7 @@ class TestTheListenChip:
     def test_offline_shows_no_window(self):
         text = _flat("ir-listen-chip.ts")
         assert (
-            "const live = online ? this._live() : { on: false, endsAt: null, codes: null };"
+            "const live = online ? this._live() : { on: false, endsAt: null };"
         ) in text
 
     def test_the_pill_keeps_its_gold_dimmed_not_grey(self):
@@ -706,16 +714,21 @@ class TestTheHardwareCards:
     def test_the_compact_listen_badge_says_its_health_and_goes_ember(self):
         chip = _read("ir-listen-chip.ts")
         flat = " ".join(chip.split())
+        # Health first; since 2026-10-20 the switch it captures with and
+        # its source follow on their own lines.
         assert (
-            "const word = this.compact ? `${RX_CAPTURE_LABEL}, "
-            '${t(online ? "common.online" : "common.offline")}: ${said}` : said;'
+            "const word = this.compact ? [ `${RX_CAPTURE_LABEL}, "
+            '${t(online ? "common.online" : "common.offline")}: ${said}`,'
         ) in flat
         offline = _block(chip, ":host([compact]) .chip.listen.offline")
         assert "color-mix(in srgb, ${EMBER_VAR} 13%, transparent)" in offline
         toggle = _block(chip, ":host([compact]) .chip.listen.offline .listen-toggle")
         assert "color: ${EMBER_VAR};" in toggle
-        # Not clickable: the toggle is disabled whenever it is offline.
-        assert "?disabled=${this._busy || !online}" in flat
+        # Not clickable: the toggle is disabled whenever it is offline
+        # (chipBlock returns "offline" first; round 3), and so is the
+        # split chip's caret.
+        assert 'this._busy || (this.compact ? block === "offline" : block !== null)' in flat
+        assert "?disabled=${!online}" in flat
 
     def test_the_corner_shows_only_when_offline(self):
         text = _flat("ir-device-list.ts")

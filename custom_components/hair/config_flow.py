@@ -19,8 +19,8 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 
-from .capture import get_available_capture_providers
 from .const import DOMAIN, TWEEZER_OBSERVER_ATTR
+from .receiver_discovery import list_receiver_hardware
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ class HAIRConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="single_instance_allowed")
 
         emitters = await _async_get_emitters(self.hass)
-        capture_providers = await get_available_capture_providers(self.hass)
+        receiver_hardware = await list_receiver_hardware(self.hass)
         native_receivers = await _async_get_native_receivers(self.hass)
 
         if user_input is None:
@@ -92,7 +92,7 @@ class HAIRConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 s.attributes.get("friendly_name", s.entity_id)
                 for s in emitters
             ]
-            capture_names = [p["name"] for p in capture_providers]
+            capture_names = [p["name"] for p in receiver_hardware]
             # Add native receivers not already in capture_names.
             for entity_id in native_receivers:
                 state = self.hass.states.get(entity_id)
@@ -115,7 +115,7 @@ class HAIRConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema({}),
                 description_placeholders={
                     "emitter_count": str(len(emitters)),
-                    "capture_count": str(len(capture_providers)),
+                    "capture_count": str(len(receiver_hardware)),
                     "hardware_summary": hw_summary,
                 },
             )

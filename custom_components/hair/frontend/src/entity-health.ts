@@ -129,6 +129,10 @@ export function partsHealth(
  *    "plain"     -> no infrared entity (RX-BRIDGE): today's outline icon
  *                   in today's grey.
  *    "online"    -> the solid icon, in online green.
+ *    "waiting"   -> a capture device with no switch resolved yet
+ *                   (undeclared, several switches, none chosen): the
+ *                   solid icon in grey, like its dimmed chip, until a
+ *                   switch resolves (owner, 2026-10-20).
  *    "ready"     -> a capture device whose chip is ready: its gold.
  *    "listening" -> a capture device whose chip is listening: its green.
  *    "offline"   -> the icon's outline twin (card-icons.ts), in ember.
@@ -137,16 +141,17 @@ export function partsHealth(
  *                   chip).
  *  `health` is partsHealth for the part the icon follows; `capture` is
  *  null for a card that is not a capture device. */
-export type CardGlyph = "plain" | "online" | "ready" | "listening" | "offline";
+export type CardGlyph = "plain" | "online" | "waiting" | "ready" | "listening" | "offline";
 
 export function cardGlyph(
     health: "none" | "online" | "offline",
-    capture: { online: boolean; listening: boolean } | null,
+    capture: { online: boolean; listening: boolean; waiting?: boolean } | null,
 ): CardGlyph {
     if (health === "none") return "plain";
     if (health === "offline") return "offline";
     if (capture) {
         if (!capture.online) return "offline";
+        if (capture.waiting) return "waiting";
         return capture.listening ? "listening" : "ready";
     }
     return "online";
