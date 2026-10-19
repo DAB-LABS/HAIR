@@ -4,10 +4,10 @@ from __future__ import annotations
 import pytest
 
 from custom_components.hair.const import (
-    CaptureProviderType,
     CommandCategory,
     CommandSource,
     DeviceType,
+    ReceiverHardwareType,
 )
 from custom_components.hair.models import (
     CaptureResult,
@@ -235,8 +235,6 @@ def test_device_clone_preserves_non_id_fields(mock_device: IRDevice):
     assert (
         clone.humidity_sensor_entity_id == mock_device.humidity_sensor_entity_id
     )
-    assert clone.capture_device_id == mock_device.capture_device_id
-    assert clone.capture_provider_type == mock_device.capture_provider_type
     assert clone.database_id == mock_device.database_id
     assert len(clone.commands) == len(mock_device.commands)
     assert clone.entity_config.platform == mock_device.entity_config.platform
@@ -440,9 +438,31 @@ def test_entity_config_round_trip():
     assert restored.fan_modes == config.fan_modes
 
 
-def test_provider_enum_round_trip():
-    assert CaptureProviderType("esphome") == CaptureProviderType.ESPHOME
-    assert str(CaptureProviderType.BROADLINK) == "broadlink"
+def test_receiver_hardware_enum_round_trip():
+    assert ReceiverHardwareType("esphome") == ReceiverHardwareType.ESPHOME
+    assert str(ReceiverHardwareType.NATIVE) == "native"
+
+
+def test_a_device_stored_with_learn_fields_still_loads_without_them(mock_device):
+    """The Learn dialog's capture fields are retired (windowed receivers,
+    round 3). A device saved before then carries them; it must still
+    load, and the fields must be dropped on read, not carried back out
+    as unknown keys on the next save."""
+    stored = mock_device.to_dict()
+    assert "capture_device_id" not in stored
+    assert "capture_provider_type" not in stored
+    stored["capture_device_id"] = "esphome-device-1"
+    stored["capture_provider_type"] = "esphome"
+    stored["some_future_key"] = 1  # a genuinely unknown key still rides along
+
+    device = IRDevice.from_dict(stored)
+
+    assert device.name == mock_device.name
+    assert not hasattr(device, "capture_device_id")
+    saved = device.to_dict()
+    assert "capture_device_id" not in saved
+    assert "capture_provider_type" not in saved
+    assert saved.get("some_future_key") == 1
 
 
 # ---------------------------------------------------------------------------

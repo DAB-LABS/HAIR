@@ -371,8 +371,6 @@ export class IrAddControlledDeviceDialog extends LitElement {
                     name,
                     device_type: this._deviceType,
                     emitter_entity_ids: this._emitterIds,
-                    capture_device_id: null,
-                    capture_provider_type: "esphome",
                     promoted_from_unknown_id: this._pickedSourceRow!.id,
                 });
             } else if (this._activeTab === "remotes") {
@@ -391,8 +389,6 @@ export class IrAddControlledDeviceDialog extends LitElement {
                     name,
                     device_type: this._deviceType,
                     emitter_entity_ids: this._emitterIds,
-                    capture_device_id: null,
-                    capture_provider_type: "esphome",
                 });
             }
             this.dispatchEvent(

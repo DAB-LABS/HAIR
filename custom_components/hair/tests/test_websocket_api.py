@@ -23,7 +23,6 @@ from custom_components.hair.websocket_api import (
     async_register_websocket_commands,
     ws_assign_new_device,
     ws_assign_signal,
-    ws_cancel_capture,
     ws_clear_unknowns,
     ws_clip_create_remote,
     ws_clip_create_signal,
@@ -42,7 +41,6 @@ from custom_components.hair.websocket_api import (
     ws_dismiss_unknown,
     ws_duplicate_device,
     ws_duplicate_trigger_remote,
-    ws_get_capture_providers,
     ws_get_command_templates,
     ws_get_device,
     ws_get_devices,
@@ -60,11 +58,9 @@ from custom_components.hair.websocket_api import (
     ws_reorder_triggers,
     ws_reorder_unknown_devices,
     ws_reorder_unknown_signals,
-    ws_save_captured_command,
     ws_send_command,
     ws_set_command_tx_force_raw,
     ws_set_signal_alias,
-    ws_start_capture,
     ws_test_signal,
     ws_trigger_remote_make_device,
     ws_trigger_remote_matrix_cell,
@@ -90,7 +86,7 @@ def _make_connection():
     return conn
 
 
-def _wire_hass(hass, manager=None, orchestrator=None, signal_monitor=None):
+def _wire_hass(hass, manager=None, signal_monitor=None):
     """Set up hass.data[DOMAIN] with a fake entry data dict."""
     if manager is None:
         manager = MagicMock()
@@ -99,7 +95,6 @@ def _wire_hass(hass, manager=None, orchestrator=None, signal_monitor=None):
         manager._store.async_save = AsyncMock()
     entry_data = {
         "device_manager": manager,
-        "orchestrator": orchestrator or MagicMock(),
         "signal_monitor": signal_monitor or MagicMock(),
     }
     hass.data[DOMAIN] = {"entry-1": entry_data}
@@ -1300,258 +1295,6 @@ async def test_reorder_commands_not_configured(fake_hass):
 
 
 # ---------------------------------------------------------------------------
-# ws_start_capture
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_start_capture_no_device(fake_hass):
-    manager = MagicMock()
-    manager.get_device.return_value = None
-    orchestrator = MagicMock()
-    _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
-
-    conn = _make_connection()
-    await ws_start_capture(
-        fake_hass,
-        conn,
-        {"id": 8, "type": "hair/capture/start", "device_id": "missing"},
-    )
-    conn.send_error.assert_called_once()
-    assert conn.send_error.call_args[0][1] == "not_found"
-
-
-@pytest.mark.asyncio
-async def test_start_capture_no_capture_device(fake_hass):
-    device = IRDevice(
-        name="TV",
-        device_type=DeviceType.MEDIA_PLAYER,
-        emitter_entity_ids=["infrared.a"],
-        capture_device_id=None,
-    )
-    manager = MagicMock()
-    manager.get_device.return_value = device
-    _wire_hass(fake_hass, manager=manager)
-
-    conn = _make_connection()
-    await ws_start_capture(
-        fake_hass,
-        conn,
-        {"id": 8, "type": "hair/capture/start", "device_id": device.id},
-    )
-    conn.send_error.assert_called_once()
-    assert conn.send_error.call_args[0][1] == "no_capture_device"
-
-
-@pytest.mark.asyncio
-async def test_start_capture_provider_unavailable(fake_hass):
-    device = IRDevice(
-        name="TV",
-        device_type=DeviceType.MEDIA_PLAYER,
-        emitter_entity_ids=["infrared.a"],
-        capture_device_id="cap-1",
-    )
-    manager = MagicMock()
-    manager.get_device.return_value = device
-    _wire_hass(fake_hass, manager=manager)
-
-    conn = _make_connection()
-    with patch(
-        "custom_components.hair.websocket_api.get_capture_provider_for_device",
-        new_callable=AsyncMock,
-        return_value=None,
-    ):
-        await ws_start_capture(
-            fake_hass,
-            conn,
-            {"id": 8, "type": "hair/capture/start", "device_id": device.id},
-        )
-    conn.send_error.assert_called_once()
-    assert conn.send_error.call_args[0][1] == "provider_unavailable"
-
-
-@pytest.mark.asyncio
-async def test_start_capture_success(fake_hass, mock_capture_provider, capture_result):
-    from custom_components.hair.models import CaptureSession
-
-    device = IRDevice(
-        name="TV",
-        device_type=DeviceType.MEDIA_PLAYER,
-        emitter_entity_ids=["infrared.a"],
-        capture_device_id="cap-1",
-    )
-    session = CaptureSession(device_id=device.id)
-
-    manager = MagicMock()
-    manager.get_device.return_value = device
-    orchestrator = MagicMock()
-    orchestrator.start_capture = AsyncMock(return_value=session)
-    orchestrator.subscribe = MagicMock(return_value=lambda: None)
-    _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
-
-    conn = _make_connection()
-    with patch(
-        "custom_components.hair.websocket_api.get_capture_provider_for_device",
-        new_callable=AsyncMock,
-        return_value=mock_capture_provider,
-    ):
-        await ws_start_capture(
-            fake_hass,
-            conn,
-            {"id": 8, "type": "hair/capture/start", "device_id": device.id},
-        )
-    conn.send_result.assert_called_once()
-    result = conn.send_result.call_args[0][1]
-    assert result["session_id"] == session.session_id
-    assert result["device_id"] == device.id
-    # Should also send initial capture_listening event
-    conn.send_event.assert_called()
-
-
-@pytest.mark.asyncio
-async def test_start_capture_already_in_progress(fake_hass, mock_capture_provider):
-    from custom_components.hair.capture_orchestrator import CaptureInProgressError
-
-    device = IRDevice(
-        name="TV",
-        device_type=DeviceType.MEDIA_PLAYER,
-        emitter_entity_ids=["infrared.a"],
-        capture_device_id="cap-1",
-    )
-    manager = MagicMock()
-    manager.get_device.return_value = device
-    orchestrator = MagicMock()
-    orchestrator.start_capture = AsyncMock(
-        side_effect=CaptureInProgressError("busy")
-    )
-    _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
-
-    conn = _make_connection()
-    with patch(
-        "custom_components.hair.websocket_api.get_capture_provider_for_device",
-        new_callable=AsyncMock,
-        return_value=mock_capture_provider,
-    ):
-        await ws_start_capture(
-            fake_hass,
-            conn,
-            {"id": 8, "type": "hair/capture/start", "device_id": device.id},
-        )
-    conn.send_error.assert_called_once()
-    assert conn.send_error.call_args[0][1] == "in_progress"
-
-
-# ---------------------------------------------------------------------------
-# ws_cancel_capture
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_cancel_capture(fake_hass):
-    orchestrator = MagicMock()
-    orchestrator.cancel_capture = AsyncMock()
-    _wire_hass(fake_hass, orchestrator=orchestrator)
-
-    conn = _make_connection()
-    await ws_cancel_capture(
-        fake_hass,
-        conn,
-        {"id": 9, "type": "hair/capture/cancel", "session_id": "sess-1"},
-    )
-    orchestrator.cancel_capture.assert_awaited_once_with("sess-1")
-    conn.send_result.assert_called_once_with(9, {"cancelled": True})
-
-
-# ---------------------------------------------------------------------------
-# ws_save_captured_command
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_save_captured_command(fake_hass, mock_device, capture_result):
-    manager = MagicMock()
-    manager.get_device.return_value = mock_device
-    manager.async_add_command = AsyncMock(
-        side_effect=lambda did, cmd, placement="append": cmd
-    )
-    orchestrator = MagicMock()
-    orchestrator.get_session_result.return_value = capture_result
-    _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
-
-    conn = _make_connection()
-    await ws_save_captured_command(
-        fake_hass,
-        conn,
-        {
-            "id": 10,
-            "type": "hair/capture/save",
-            "device_id": mock_device.id,
-            "session_id": "sess-1",
-            "command_name": "Volume Up",
-        },
-    )
-    conn.send_result.assert_called_once()
-    result = conn.send_result.call_args[0][1]
-    assert result["name"] == "Volume Up"
-    assert result["protocol"] == "NEC"
-
-
-@pytest.mark.asyncio
-async def test_save_captured_command_no_result(fake_hass, mock_device):
-    manager = MagicMock()
-    manager.get_device.return_value = mock_device
-    orchestrator = MagicMock()
-    orchestrator.get_session_result.return_value = None
-    _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
-
-    conn = _make_connection()
-    await ws_save_captured_command(
-        fake_hass,
-        conn,
-        {
-            "id": 10,
-            "type": "hair/capture/save",
-            "device_id": mock_device.id,
-            "session_id": "missing-session",
-            "command_name": "Power",
-        },
-    )
-    conn.send_error.assert_called_once()
-    assert conn.send_error.call_args[0][1] == "no_capture"
-
-
-@pytest.mark.asyncio
-async def test_save_captured_command_with_explicit_category(
-    fake_hass, mock_device, capture_result
-):
-    manager = MagicMock()
-    manager.get_device.return_value = mock_device
-    manager.async_add_command = AsyncMock(
-        side_effect=lambda did, cmd, placement="append": cmd
-    )
-    orchestrator = MagicMock()
-    orchestrator.get_session_result.return_value = capture_result
-    _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
-
-    conn = _make_connection()
-    await ws_save_captured_command(
-        fake_hass,
-        conn,
-        {
-            "id": 10,
-            "type": "hair/capture/save",
-            "device_id": mock_device.id,
-            "session_id": "sess-1",
-            "command_name": "Custom Button",
-            "command_category": "volume",
-        },
-    )
-    conn.send_result.assert_called_once()
-    result = conn.send_result.call_args[0][1]
-    assert result["category"] == "volume"
-
-
-# ---------------------------------------------------------------------------
 # ws_get_command_templates
 # ---------------------------------------------------------------------------
 
@@ -1574,21 +1317,23 @@ async def test_get_command_templates(fake_hass):
 
 
 # ---------------------------------------------------------------------------
-# ws_get_capture_providers
+# ws_receiver_hardware
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_get_capture_providers_empty(fake_hass):
-    """No capture hardware -> empty list."""
+async def test_receiver_hardware_empty(fake_hass):
+    """No receiving hardware -> empty list."""
+    from custom_components.hair.websocket_api import ws_receiver_hardware
+
     fake_hass.config.components = set()
     fake_hass.config_entries.async_entries = MagicMock(return_value=[])
 
     conn = _make_connection()
-    await ws_get_capture_providers(
+    await ws_receiver_hardware(
         fake_hass,
         conn,
-        {"id": 12, "type": "hair/capture/providers"},
+        {"id": 12, "type": "hair/receivers/hardware"},
     )
     conn.send_result.assert_called_once_with(12, [])
 

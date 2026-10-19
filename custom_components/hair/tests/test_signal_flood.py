@@ -811,9 +811,9 @@ class TestRfSubscriptionExclusion:
         assert set(monitor._receiver_subs) == {"infrared.athom_rx"}
         assert fake.unsubs["infrared.athom_rf_rx"][0].called
 
-    async def test_capture_providers_exclude_rf(self):
-        from custom_components.hair.capture import (
-            get_available_capture_providers,
+    async def test_receiver_hardware_excludes_rf(self):
+        from custom_components.hair.receiver_discovery import (
+            list_receiver_hardware,
         )
 
         from .test_signal_monitor import _make_hass
@@ -844,7 +844,7 @@ class TestRfSubscriptionExclusion:
             "custom_components.hair.receiver_filter.er.async_get",
             return_value=registry,
         ):
-            providers = await get_available_capture_providers(hass)
+            providers = await list_receiver_hardware(hass)
         native_ids = [
             p["receiver_entity_id"]
             for p in providers

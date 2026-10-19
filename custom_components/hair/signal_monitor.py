@@ -556,7 +556,7 @@ class SignalMonitor:
 
         # HA device_ids that have fired ``esphome.remote_received`` events
         # since HA started. Populated lazily as bridge events arrive.
-        # Used by ``capture.get_available_capture_providers`` to decide
+        # Used by ``receiver_discovery.list_receiver_hardware`` to decide
         # whether to surface an ESPHome (legacy bridge) provider entry
         # for a given device. Resets on HA restart -- we have no way to
         # introspect the ESPHome YAML statically, so the only signal that
@@ -2020,6 +2020,13 @@ class SignalMonitor:
             "code": parsed.code,
             "hit_count": signal.hit_count,
             "device_hit_count": device.hit_count,
+            # Which receiver heard this press (None on the legacy
+            # ESPHome bridge). Repeat suppression is per receiver, so a
+            # press two receivers hear arrives twice, once each: a
+            # listen aimed at one receiver filters on this, and the
+            # panel's capture chips bloom on their own receiver's
+            # arrivals (windowed receivers, round 3).
+            "receiver_entity_id": receiver_entity_id,
         }
         self._hass.bus.async_fire(EVENT_SIGNAL_DETECTED, summary)
 

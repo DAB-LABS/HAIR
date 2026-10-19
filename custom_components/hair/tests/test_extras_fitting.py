@@ -662,7 +662,6 @@ def _wire_door(hass, matrix):
     manager.async_send_matrix_cell = AsyncMock(side_effect=_heard)
     hass.data[DOMAIN] = {"entry-1": {
         "device_manager": manager,
-        "orchestrator": MagicMock(),
         "signal_monitor": MagicMock(),
     }}
     return manager

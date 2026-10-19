@@ -36,7 +36,9 @@ export interface ActionOption {
 
 export type CommandSourceId = "captured" | "database" | "imported" | "matrix";
 
-export type CaptureProviderTypeId = "esphome" | "broadlink" | "native" | "mock";
+/** The kinds of receiving hardware the Devices tab and setup count
+ *  (``hair/receivers/hardware``). */
+export type ReceiverHardwareTypeId = "esphome" | "native";
 
 /** A repair's record, as tangles.py's build_provenance writes it
  * under the command's/cell's `hair_repair` extra key (PROVENANCE_KEY).
@@ -486,7 +488,8 @@ export type CommandListenEvent =
           // each other. A notice, never a gate: the capture lands.
           repeats_disagree?: RepeatVote;
       }
-    | { type: "command_listen_timeout" };
+    | { type: "command_listen_timeout" }
+    | ReceiverArmFailedEvent;
 
 /** One line of the attestation list, as the dialog draws it. */
 export interface SavePlanRow {
@@ -899,8 +902,6 @@ export interface IRDevice {
     manufacturer: string | null;
     model: string | null;
     emitter_entity_ids: string[];
-    capture_device_id: string | null;
-    capture_provider_type: CaptureProviderTypeId;
     commands: IRCommand[];
     entity_config: EntityConfig;
     database_id: string | null;
@@ -954,8 +955,11 @@ export interface DeviceSummary {
     ha_device_id: string | null;
 }
 
-export interface CaptureProviderInfo {
-    type: CaptureProviderTypeId;
+/** One piece of receiving hardware (``hair/receivers/hardware``): a
+ *  native receiver entity, or an ESPHome device seen on the legacy
+ *  bridge, for the Devices tab's cards. */
+export interface ReceiverHardwareInfo {
+    type: ReceiverHardwareTypeId;
     device_id: string;
     name: string;
     config_entry_id: string | null;
@@ -967,50 +971,45 @@ export interface ReceiverInfo {
     name: string;
 }
 
-export interface CaptureResult {
-    protocol: string | null;
-    code: string | null;
-    raw_timings: number[];
-    frequency: number;
-    confidence: number;
-}
-
-export type CaptureEvent =
-    | { type: "capture_listening" }
-    | {
-          type: "capture_received";
-          result: CaptureResult;
-          duplicate_of?: { id: string; name: string };
-      }
-    | { type: "capture_timeout" }
-    | { type: "capture_error"; error: string; code?: string }
-    | { type: "capture_cancelled" };
-
-/** Error codes the capture doors send with a reason of their own, so
+/** Error codes the receiver doors send with a reason of their own, so
  *  the panel can say it in the user's language. */
-export const BROADSNIFF_ARM_FAILED = "broadsniff_arm_failed";
+export const RECEIVER_ARM_FAILED = "receiver_arm_failed";
+export const NO_CAPTURE_SWITCH = "no_capture_switch";
+export const RECEIVER_UNAVAILABLE = "receiver_unavailable";
+
+/** A listen that was running ended because its capture device's window
+ *  would not open (or snapped shut as soon as HAIR opened it). */
+export interface ReceiverArmFailedEvent {
+    type: "receiver_arm_failed";
+    /** The device, as the server names it. */
+    name: string;
+    message: string;
+}
 
 /** Where the Devices tab sends a core Broadlink owner who wants their
  *  remote to listen as well as send. */
 export const BROADSNIFF_URL = "https://github.com/DAB-LABS/broadsniff";
 
-/** One BroadSniff remote, for the Sniffer's Listen row
- *  (``hair/broadsniff/receivers``). Entity IDs come from the registry,
- *  never from names; the row reads their live state from ``hass``. */
-export interface BroadSniffReceiverRow {
-    receiver_entity_id: string;
-    switch_entity_id: string;
-    mode_entity_id: string | null;
-    window_entity_id: string | null;
-    codes_entity_id: string | null;
-    ha_device_id: string;
-    name: string;
-}
+/** Where the switch that opens a capture window came from. */
+export type CaptureSwitchSource = "user" | "declared" | "device";
 
-export interface CaptureStartResponse {
-    session_id: string;
-    device_id: string;
-    timeout: number;
+/** One capture device (``hair/receivers/capture``): an infrared receiver
+ *  that hears only while a capture window is open, from any
+ *  integration that says so with a boolean ``capturing`` attribute
+ *  (docs/windowed-receivers.md). The panel reads the window's live
+ *  state from the receiver entity in ``hass``. */
+export interface CaptureReceiverRow {
+    receiver_entity_id: string;
+    name: string;
+    ha_device_id: string | null;
+    /** False while the receiver's integration has it unavailable or not
+     *  loaded; the card stays RX-CAPTURE with its chip disabled. */
+    available: boolean;
+    /** What HAIR toggles to open the window, or null until one is chosen. */
+    switch_entity_id: string | null;
+    source: CaptureSwitchSource | null;
+    /** The ``switch`` entities on the receiver's own device, for the picker. */
+    device_switches: { entity_id: string; name: string }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1340,6 +1339,9 @@ export interface UnknownSignalEvent {
     code: string | null;
     hit_count: number;
     device_hit_count: number;
+    /** The receiver that heard the press; null on the legacy ESPHome
+     *  bridge and on HAIR's own Mirror rows. */
+    receiver_entity_id?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1680,7 +1682,10 @@ export interface TangleListenTimeoutEvent {
     type: "tangle_listen_timeout";
 }
 
-export type TangleListenEvent = TangleCaptureEvent | TangleListenTimeoutEvent;
+export type TangleListenEvent =
+    | TangleCaptureEvent
+    | TangleListenTimeoutEvent
+    | ReceiverArmFailedEvent;
 
 export interface TangleApplyResult {
     applied: true;

@@ -36,11 +36,11 @@ import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
 import "./ir-tx-knobs.js";
 import "./ir-listen-row.js";
-import { arrivalBloomKey, lastHeardTarget } from "./ir-listen-state.js";
+import { arrivalBloomKey, captureSignature, lastHeardTarget } from "./ir-listen-state.js";
 import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
     AssignResult,
-    BroadSniffReceiverRow,
+    CaptureReceiverRow,
     DeviceSummary,
     IRDevice,
     IRTrigger,
@@ -161,9 +161,11 @@ export class IrSignalMonitor extends LitElement {
      *  header-only ``row-flash``. */
     @state() private _bloomed = new Set<string>();
     private _bloom = new BloomTracker();
-    /** One row per BroadSniff remote, for the Listen row. Empty, and the
-     *  row absent, when BroadSniff is not installed. */
-    @state() private _listenRows: BroadSniffReceiverRow[] = [];
+    /** One row per capture device, for the Listen row. Empty, and the
+     *  row absent, when no receiver is a capture device. */
+    @state() private _listenRows: CaptureReceiverRow[] = [];
+    /** ``captureSignature`` at the last read of the Listen rows. */
+    private _captureSig: string | undefined = undefined;
     /** Where the "last heard" tint goes this render; worked out once
      *  per update in willUpdate (see lastHeardTarget). */
     private _heard: { deviceId: string | null; signalId: string | null } = {
@@ -288,14 +290,19 @@ export class IrSignalMonitor extends LitElement {
         this._heard = lastHeardTarget(this._devices, this._expandedId, this._expandedDevice);
         // The last-heard wash is toned per theme (see --heard-alpha).
         this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));
-        // A BroadSniff remote added or removed changes the entity
+        // A capture device added or removed changes the entity
         // registry, and HA hands the panel a new ``hass.entities`` for
-        // it. Re-read the Listen rows then, and only then: ordinary
-        // state changes keep the same registry object.
+        // it; one that loads, goes unavailable or comes back changes
+        // which receivers say ``capturing``. Re-read the Listen rows
+        // then, and only then: ordinary state changes (a window
+        // opening) change neither.
         if (changed.has("hass")) {
             const before = (changed.get("hass") as any)?.entities;
             const now = this.hass?.entities;
-            if (before !== undefined && now !== undefined && before !== now) {
+            const sig = captureSignature(this.hass?.states);
+            const sigMoved = this._captureSig !== undefined && sig !== this._captureSig;
+            this._captureSig = sig;
+            if ((before !== undefined && now !== undefined && before !== now) || sigMoved) {
                 void this._loadListenRows();
             }
         }
@@ -485,7 +492,7 @@ export class IrSignalMonitor extends LitElement {
      *  must never break the Sniffer. */
     private async _loadListenRows(): Promise<void> {
         try {
-            this._listenRows = await this.api.broadsniffReceivers();
+            this._listenRows = await this.api.captureReceivers();
         } catch {
             this._listenRows = [];
         }

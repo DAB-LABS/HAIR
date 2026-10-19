@@ -105,7 +105,7 @@ class TestAsyncSetupEntry:
         entry_data = hass.data[DOMAIN][entry.entry_id]
         assert "store" in entry_data
         assert "device_manager" in entry_data
-        assert "orchestrator" in entry_data
+        assert "capture_receivers" in entry_data
         assert "entity_factory" in entry_data
         assert "config_entry" in entry_data
 
@@ -195,12 +195,9 @@ class TestAsyncUnloadEntry:
         entry = _fake_entry()
 
         # Simulate existing entry data
-        mock_orchestrator = MagicMock()
-        mock_orchestrator.is_capturing = False
         hass.data[DOMAIN] = {
             entry.entry_id: {
                 "device_manager": MagicMock(),
-                "orchestrator": mock_orchestrator,
             }
         }
 
@@ -209,39 +206,14 @@ class TestAsyncUnloadEntry:
         assert entry.entry_id not in hass.data[DOMAIN]
 
     @pytest.mark.asyncio
-    async def test_unload_cancels_active_capture(self):
-        hass = _fake_hass()
-        entry = _fake_entry()
-
-        mock_orchestrator = MagicMock()
-        mock_orchestrator.is_capturing = True
-        mock_session = MagicMock()
-        mock_session.session_id = "sess-1"
-        mock_orchestrator.active_session = mock_session
-        mock_orchestrator.cancel_capture = AsyncMock()
-
-        hass.data[DOMAIN] = {
-            entry.entry_id: {
-                "device_manager": MagicMock(),
-                "orchestrator": mock_orchestrator,
-            }
-        }
-
-        await async_unload_entry(hass, entry)
-        mock_orchestrator.cancel_capture.assert_awaited_once_with("sess-1")
-
-    @pytest.mark.asyncio
     async def test_unload_removes_panel_when_last_entry(self):
         hass = _fake_hass()
         entry = _fake_entry()
 
-        mock_orchestrator = MagicMock()
-        mock_orchestrator.is_capturing = False
 
         hass.data[DOMAIN] = {
             entry.entry_id: {
                 "device_manager": MagicMock(),
-                "orchestrator": mock_orchestrator,
             },
             "_panel_registered": True,
         }
@@ -257,13 +229,10 @@ class TestAsyncUnloadEntry:
         hass = _fake_hass()
         entry = _fake_entry("entry-1")
 
-        mock_orchestrator = MagicMock()
-        mock_orchestrator.is_capturing = False
 
         hass.data[DOMAIN] = {
             "entry-1": {
                 "device_manager": MagicMock(),
-                "orchestrator": mock_orchestrator,
             },
             "entry-2": {
                 "device_manager": MagicMock(),
@@ -428,11 +397,8 @@ class TestReloadRehashesPanel:
         )
 
         # Unload (single entry): panel removed, guard cleared.
-        mock_orchestrator = MagicMock()
-        mock_orchestrator.is_capturing = False
         hass.data[DOMAIN][entry.entry_id] = {
             "device_manager": MagicMock(),
-            "orchestrator": mock_orchestrator,
         }
         with patch("custom_components.hair.frontend") as mock_frontend:
             assert await async_unload_entry(hass, entry) is True

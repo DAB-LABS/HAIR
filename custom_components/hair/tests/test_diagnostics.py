@@ -73,7 +73,6 @@ class TestDiagnostics:
         manager.get_all_devices.return_value = [dev]
         hass.data = {DOMAIN: {entry.entry_id: {
             "device_manager": manager,
-            "orchestrator": MagicMock(is_capturing=False),
         }}}
         result = await async_get_config_entry_diagnostics(hass, entry)
         assert isinstance(result["infrared_protocols_version"], str)
@@ -90,19 +89,16 @@ class TestDiagnostics:
 
         manager = MagicMock()
         manager.get_all_devices.return_value = []
-        orchestrator = MagicMock()
-        orchestrator.is_capturing = False
-
         hass.data = {DOMAIN: {entry.entry_id: {
             "device_manager": manager,
-            "orchestrator": orchestrator,
         }}}
 
         result = await async_get_config_entry_diagnostics(hass, entry)
         assert result["entry"]["options"] == {}
         assert result["entry"]["data"] == {}
         assert result["devices"] == []
-        assert result["is_capturing"] is False
+        # The Learn dialog's capture flag went with it (round 3).
+        assert "is_capturing" not in result
 
     @pytest.mark.asyncio
     async def test_devices_serialized_and_redacted(self):
@@ -116,12 +112,8 @@ class TestDiagnostics:
         device = _device_with_command()
         manager = MagicMock()
         manager.get_all_devices.return_value = [device]
-        orchestrator = MagicMock()
-        orchestrator.is_capturing = False
-
         hass.data = {DOMAIN: {entry.entry_id: {
             "device_manager": manager,
-            "orchestrator": orchestrator,
         }}}
 
         # Patch async_redact_data to verify it's called with REDACT_KEYS
@@ -160,7 +152,8 @@ class TestDiagnostics:
 
         result = await async_get_config_entry_diagnostics(hass, entry)
         assert result["devices"] == []
-        assert result["is_capturing"] is False
+        # The Learn dialog's capture flag went with it (round 3).
+        assert "is_capturing" not in result
 
     def test_redact_keys_includes_sensitive_fields(self):
         assert "raw_timings" in REDACT_KEYS

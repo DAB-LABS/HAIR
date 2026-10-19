@@ -29,7 +29,6 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
     manager = data.get("device_manager")
-    orchestrator = data.get("orchestrator")
 
     devices: list[dict[str, Any]] = []
     decoded_total = 0
@@ -52,7 +51,6 @@ async def async_get_config_entry_diagnostics(
             "data": dict(entry.data),
         },
         "devices": devices,
-        "is_capturing": getattr(orchestrator, "is_capturing", False),
         "infrared_protocols_version": version,
         "protocol_registry": registered_protocols(),
         "decoded_commands": {

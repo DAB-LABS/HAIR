@@ -96,7 +96,6 @@ def _make_connection():
 def _wire_hass(hass, manager=None, signal_monitor=None):
     hass.data[DOMAIN] = {"entry-1": {
         "device_manager": manager or MagicMock(),
-        "orchestrator": MagicMock(),
         "signal_monitor": signal_monitor or MagicMock(),
     }}
 

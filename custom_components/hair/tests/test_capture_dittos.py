@@ -417,7 +417,6 @@ async def test_signal_edit_ws_accepts_repeat_and_send(fake_hass):
         "e1": {
             "signal_monitor": monitor,
             "device_manager": MagicMock(),
-            "orchestrator": MagicMock(),
         }
     }
     conn = MagicMock()
@@ -491,7 +490,6 @@ async def test_assign_signal_ws_carries_repeat_count(fake_hass):
         "e1": {
             "signal_monitor": monitor,
             "device_manager": dm,
-            "orchestrator": MagicMock(),
         }
     }
     conn = MagicMock()

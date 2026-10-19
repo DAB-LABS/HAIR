@@ -535,7 +535,6 @@ def _wire(hass, *, monitor=None, manager=None):
         manager = MagicMock()
     hass.data[DOMAIN] = {"entry-1": {
         "device_manager": manager,
-        "orchestrator": MagicMock(),
         "signal_monitor": monitor or MagicMock(),
         "trigger_manager": MagicMock(),
     }}

@@ -1,30 +1,32 @@
 /**
- * The decisions behind the Sniffer's Listen row and its arrival marks
- * (BroadSniff Listen, 2026-10-17), as plain functions.
+ * The decisions behind the Listen chips, the editor's Listen and the
+ * Sniffer's arrival marks, as plain functions.
  *
  * They live apart from the components so a test can run them under
- * node: when a chip blooms, how much of a window its fill shows, and
- * which one row carries the "last heard" tint are exactly what a
- * source grep cannot see. Nothing here imports Lit or touches the DOM.
+ * node: when a chip blooms, how its fill drains, which receiver the
+ * editor listens on, what the switch picker offers and which one row
+ * carries the "last heard" tint are exactly what a source grep cannot
+ * see. Nothing here imports Lit or touches the DOM.
+ *
+ * A capture device is an infrared receiver whose state carries a
+ * boolean ``capturing`` (windowed receivers, round 3;
+ * docs/windowed-receivers.md). Everything below reads that contract
+ * from the receiver entity itself and knows no integration by name.
  */
-import type { BroadSniffReceiverRow } from "./types.js";
+import type { CaptureReceiverRow, ReceiverInfo } from "./types.js";
 import { isEntityOnline } from "./entity-health.js";
 
-/** BroadSniff's own default window, for a remote whose window entity
- *  has no readable state. */
-export const DEFAULT_WINDOW_S = 10;
-
-/** A deadline further ahead than the window plus this is a browser
- *  clock that disagrees with the server's; the fill then starts full. */
-export const CLOCK_SLACK_MS = 2000;
+/** The longest drain the fill will plan. A deadline further ahead than
+ *  this is a browser clock that disagrees with the server's, and the
+ *  chip shows no fill rather than one that never moves. */
+export const MAX_FILL_MS = 10 * 60 * 1000;
 
 /** What one chip shows, read from Home Assistant's live states. */
 export interface ListenLive {
+    /** The receiver's ``capturing``: its window is open now. */
     on: boolean;
-    /** BroadSniff's deadline for the open window, or null when closed. */
+    /** The receiver's ``window_ends_at`` while open, or null. */
     endsAt: string | null;
-    /** BroadSniff's codes-captured count, or null when unreadable. */
-    codes: number | null;
 }
 
 /** The drain for one open window, fixed when its deadline first shows
@@ -38,59 +40,78 @@ export interface FillPlan {
 
 type States = Record<string, { state?: string; attributes?: Record<string, any> } | undefined>;
 
-/** Whether the chip can listen at all (ember, 2026-10-19): online only
- *  when HA can reach both the receiver and BroadSniff's switch. Arming
- *  goes through the switch and hearing through the receiver, so either
- *  one unavailable or missing is offline (entity-health.ts's rule). */
-export function listenOnline(states: States | undefined, row: BroadSniffReceiverRow): boolean {
+/** Whether the chip can listen at all (ember, 2026-10-19; any capture
+ *  device since windowed receivers, round 3): online only when HA can
+ *  reach the receiver and the entity that opens its window. Arming goes
+ *  through that entity and hearing through the receiver, so either one
+ *  unavailable or missing is offline (entity-health.ts's rule). With no
+ *  entity chosen yet the chip waits for a choice instead (chipBlock),
+ *  which is setup, not health. */
+export function listenOnline(states: States | undefined, row: CaptureReceiverRow): boolean {
     return (
         isEntityOnline(states, row.receiver_entity_id) &&
-        isEntityOnline(states, row.switch_entity_id)
+        (row.switch_entity_id === null || isEntityOnline(states, row.switch_entity_id))
     );
 }
 
-export function listenLive(states: States | undefined, row: BroadSniffReceiverRow): ListenLive {
-    const all = states ?? {};
-    const sw = all[row.switch_entity_id];
-    const on = sw?.state === "on";
-    const endsAt: string | null = on ? (sw?.attributes?.window_ends_at ?? null) : null;
-    const raw = row.codes_entity_id ? all[row.codes_entity_id]?.state : undefined;
-    const codes =
-        raw !== undefined && raw !== "" && !Number.isNaN(Number(raw)) ? Number(raw) : null;
-    return { on, endsAt, codes };
+export function listenLive(states: States | undefined, row: CaptureReceiverRow): ListenLive {
+    const st = states?.[row.receiver_entity_id];
+    const on = st?.attributes?.capturing === true;
+    const ends = st?.attributes?.window_ends_at;
+    return { on, endsAt: on && typeof ends === "string" && ends ? ends : null };
 }
 
-/** The window length BroadSniff is set to, in ms. */
-export function windowMs(states: States | undefined, row: BroadSniffReceiverRow): number {
-    const raw = row.window_entity_id ? states?.[row.window_entity_id]?.state : undefined;
-    const seconds = Number(raw);
-    return (Number.isFinite(seconds) && seconds > 0 ? seconds : DEFAULT_WINDOW_S) * 1000;
+/** The fill for a deadline seen for the first time: full, draining to
+ *  nothing at the deadline. A new deadline (a ``sliding`` window moved
+ *  by a code) plans afresh, so the fill snaps back to full. Null when
+ *  the deadline cannot be read or is not believable; the chip is then
+ *  on without a fill. */
+export function planFill(endsAt: string, nowMs: number): FillPlan | null {
+    const leftMs = Date.parse(endsAt) - nowMs;
+    if (!Number.isFinite(leftMs) || leftMs > MAX_FILL_MS) return null;
+    return { endsAt, start: 1, durationMs: Math.max(0, leftMs) };
 }
 
-/** The fill for a deadline seen for the first time: whatever is left
- *  of the window, as a share of the whole window. */
-export function planFill(endsAt: string, totalMs: number, nowMs: number): FillPlan {
-    let leftMs = Date.parse(endsAt) - nowMs;
-    if (!Number.isFinite(leftMs) || leftMs > totalMs + CLOCK_SLACK_MS) {
-        leftMs = totalMs;
-    }
-    leftMs = Math.max(0, Math.min(leftMs, totalMs));
-    return { endsAt, start: totalMs > 0 ? leftMs / totalMs : 0, durationMs: leftMs };
-}
-
-/** Whether a chip blooms on this change: when it turns on, when its
- *  deadline restarts (``sliding`` mode, on every code), and when the
- *  code count goes up (every mode, which is what makes ``multiple``
- *  bloom while it keeps draining and ``single`` bloom on its one code
- *  as it goes back to gold). First sight is a page load, not an
- *  event, so ``before`` undefined never blooms. */
+/** Whether a chip blooms on this change of state: when its window
+ *  opens and when its deadline moves. A code arriving from the
+ *  receiver blooms it too, through the arrivals feed rather than the
+ *  receiver's state. First sight is a page load, not an event, so
+ *  ``before`` undefined never blooms. */
 export function listenBlooms(before: ListenLive | undefined, now: ListenLive): boolean {
     if (before === undefined) return false;
     const opened = now.on && !before.on;
     const restarted =
         now.on && before.on && now.endsAt !== null && now.endsAt !== before.endsAt;
-    const heard = now.codes !== null && before.codes !== null && now.codes > before.codes;
-    return opened || restarted || heard;
+    return opened || restarted;
+}
+
+/** Which receivers say they are capture devices right now: the
+ *  ``infrared`` entities whose state carries a boolean ``capturing``.
+ *  The panel re-reads its capture rows when this changes, which covers
+ *  a receiver whose integration loads after HAIR, one that goes
+ *  unavailable, and one that comes back, none of which touch the
+ *  entity registry. Ordinary state changes (a window opening) do not
+ *  change it. */
+export function captureSignature(states: States | undefined): string {
+    const ids: string[] = [];
+    for (const [entityId, st] of Object.entries(states ?? {})) {
+        if (entityId.startsWith("infrared.") && typeof st?.attributes?.capturing === "boolean") {
+            ids.push(entityId);
+        }
+    }
+    return ids.sort().join(",");
+}
+
+/** Why a chip cannot capture right now, or null when it can. Offline
+ *  is health (listenOnline, drawn in ember, both parts disabled); no
+ *  switch is setup. On the Devices card the chip is then grey and its
+ *  main part opens the switch menu; the Sniffer's chip dims and waits. */
+export type ChipBlock = "offline" | "no_switch" | null;
+
+export function chipBlock(row: CaptureReceiverRow, online: boolean): ChipBlock {
+    if (!online) return "offline";
+    if (!row.switch_entity_id) return "no_switch";
+    return null;
 }
 
 /** The item with the newest ``last_seen``, or null. Compared as times,
@@ -140,18 +161,15 @@ export function arrivalBloomKey(
     return remoteOpen && signalId ? `sig:${signalId}` : `dev:${deviceId}`;
 }
 
-/** What a Devices-page hardware card shows for a receiver that hears
- *  only while a capture window is open (round 2):
- *  - ``"chip"``: the Listen chip itself, in its compact form, because
- *    HAIR knows the switch that opens the window (a BroadSniff row);
- *  - ``"static"``: a plain RX-CAPTURE badge, for a windowed receiver
- *    whose switch HAIR does not know (a future one from another
- *    integration);
+/** What a Devices-page hardware card shows for a capture device:
+ *  - ``"chip"``: the Listen chip in its compact form, because the
+ *    server has a row for it (``hair/receivers/capture``);
+ *  - ``"static"``: a plain RX-CAPTURE badge, for a receiver whose state
+ *    says ``capturing`` before its row has arrived;
  *  - ``null``: an ordinary receiver, which keeps RX-NATIVE.
- * Windowed is read from the receiver's own ``capturing`` attribute
- * first (BroadSniff sets it on every receiver; any integration can),
- * and from the BroadSniff row second, which covers a receiver whose
- * state has not arrived yet. ``by`` says which of the two decided. */
+ * The row decides first, because it also covers a capture device that
+ * is unavailable and so carries no attributes at all. ``by`` says which
+ * of the two decided. */
 export interface RxCaptureMatch {
     kind: "chip" | "static" | null;
     by: "attribute" | "row" | null;
@@ -159,12 +177,123 @@ export interface RxCaptureMatch {
 
 export function rxCaptureMatch(
     receiverAttributes: Record<string, unknown> | undefined,
-    hasListenRow: boolean,
+    hasCaptureRow: boolean,
 ): RxCaptureMatch {
     const byAttribute = typeof receiverAttributes?.capturing === "boolean";
-    if (!byAttribute && !hasListenRow) return { kind: null, by: null };
+    if (!byAttribute && !hasCaptureRow) return { kind: null, by: null };
     return {
-        kind: hasListenRow ? "chip" : "static",
+        kind: hasCaptureRow ? "chip" : "static",
         by: byAttribute ? "attribute" : "row",
     };
+}
+
+// ---------------------------------------------------------------------------
+// The editor's Listen: which receiver
+// ---------------------------------------------------------------------------
+
+/** Where the editor remembers the receiver last listened on, per browser. */
+export const LAST_RECEIVER_KEY = "hair.listen.receiver";
+
+/** One receiver the editor's Listen menu offers. */
+export interface ListenChoice {
+    entityId: string;
+    name: string;
+    /** A capture device: listening opens its window. */
+    capture: boolean;
+}
+
+/** The receivers to offer: every native receiver HAIR hears, with the
+ *  capture devices marked. An offline one is still listed, with its
+ *  health on its dot (the menu draws it from hass.states), so the menu
+ *  says what is down rather than hiding it. */
+export function listenChoices(
+    receivers: readonly ReceiverInfo[],
+    captureRows: readonly CaptureReceiverRow[],
+): ListenChoice[] {
+    const capture = new Set(captureRows.map((row) => row.receiver_entity_id));
+    return receivers.map((r) => ({
+        entityId: r.entity_id,
+        name: r.name,
+        capture: capture.has(r.entity_id),
+    }));
+}
+
+/** The receiver Listen uses: the last one used when it is still offered
+ *  and online, otherwise the first online one, otherwise the last one
+ *  used or the first offered (so an all-offline house still names one),
+ *  or null when none is offered (a house with only ESPHome bridge
+ *  receivers keeps the listen that hears everything). */
+export function pickReceiver(
+    choices: readonly ListenChoice[],
+    lastUsed: string | null,
+    online: (entityId: string) => boolean = () => true,
+): ListenChoice | null {
+    const last = choices.find((c) => c.entityId === lastUsed);
+    if (last && online(last.entityId)) return last;
+    return choices.find((c) => online(c.entityId)) ?? last ?? choices[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// The capture switch picker
+// ---------------------------------------------------------------------------
+
+/** The domains a hand-made choice may come from, as the server allows. */
+export const CHOOSABLE_DOMAINS = ["switch", "input_boolean"] as const;
+
+export interface PickerEntity {
+    entityId: string;
+    name: string;
+}
+
+/** The "Choose another..." list: every ``switch`` and ``input_boolean``
+ *  in ``hass.states``, matching the query on the friendly name or the
+ *  entity id, ignoring case, sorted by name. */
+export function pickerEntities(states: States | undefined, query: string): PickerEntity[] {
+    const q = query.trim().toLocaleLowerCase();
+    const out: PickerEntity[] = [];
+    for (const [entityId, st] of Object.entries(states ?? {})) {
+        const domain = entityId.split(".", 1)[0];
+        if (!(CHOOSABLE_DOMAINS as readonly string[]).includes(domain)) continue;
+        const name = String(st?.attributes?.friendly_name ?? entityId);
+        if (q && !name.toLocaleLowerCase().includes(q) && !entityId.toLocaleLowerCase().includes(q)) {
+            continue;
+        }
+        out.push({ entityId, name });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name) || a.entityId.localeCompare(b.entityId));
+}
+
+/** The switch menu behind the RX-CAPTURE chip's caret (owner ruling,
+ *  2026-10-20): every capture device has it, even with one option.
+ *  - Declared (``source: "declared"``): that switch alone, checked.
+ *    Nothing else on the device is offered, so an RM4 Pro's RF capture
+ *    never appears, and there is no "Choose another...".
+ *  - Otherwise: the switches on the receiver's device, the current one
+ *    checked (the only switch is already picked; with several, none is
+ *    until the user picks), then "Choose another...". A current choice
+ *    from elsewhere (a helper, a switch on another device) is listed
+ *    first so the menu always shows what is in use.
+ *  Nothing else: no Remove, no Always listening. */
+export interface PickerMenuItem {
+    kind: "switch" | "other";
+    entityId?: string;
+    name?: string;
+    current?: boolean;
+}
+
+export function pickerMenu(row: CaptureReceiverRow, currentName?: string): PickerMenuItem[] {
+    const items: PickerMenuItem[] = [];
+    const current = row.switch_entity_id;
+    if (current && row.source === "declared") {
+        const own = row.device_switches.find((s) => s.entity_id === current);
+        return [{ kind: "switch", entityId: current, name: own?.name ?? currentName ?? current, current: true }];
+    }
+    if (current && !row.device_switches.some((s) => s.entity_id === current)) {
+        items.push({ kind: "switch", entityId: current, name: currentName ?? current, current: true });
+    }
+    for (const s of row.device_switches) {
+        items.push({ kind: "switch", entityId: s.entity_id, name: s.name, current: s.entity_id === current });
+    }
+    items.push({ kind: "other" });
+    return items;
 }

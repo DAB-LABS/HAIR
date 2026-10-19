@@ -11,11 +11,28 @@
  * Replaces ir-create-signal-dialog (create) and the read-only
  * ir-pronto-popover (view/copy). Snap is layered on in a later step.
  */
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing, svg, type PropertyValues } from "lit";
+import { keyed } from "lit/directives/keyed.js";
+import { healthDotClass, isEntityOnline } from "./entity-health.js";
+import { healthDotStyles } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
+import {
+    LAST_RECEIVER_KEY,
+    listenChoices,
+    pickReceiver,
+    planFill,
+    type FillPlan,
+    type ListenChoice,
+} from "./ir-listen-state.js";
+import {
+    NO_CAPTURE_SWITCH,
+    RECEIVER_ARM_FAILED,
+    RECEIVER_UNAVAILABLE,
+    type ReceiverArmFailedEvent,
+} from "./types.js";
 import type {
     ProntoValidation,
     RepeatVote,
@@ -52,6 +69,29 @@ const isOnStandard = (hz: number): boolean =>
 // mdi:content-copy -- corner copy/select affordance on the code box.
 const ICON_COPY =
     "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
+
+// mdi:menu-down and mdi:check, for Listen's receiver picker.
+const CARET = svg`<path d="M7,10L12,15L17,10H7Z" />`;
+const CHECK = svg`<path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z" />`;
+
+/** The receiver last listened on, per browser. Storage can be missing
+ *  or refuse (a private window); Listen then starts on the first
+ *  receiver, which is all a lost preference costs. */
+function readLastReceiver(): string | null {
+    try {
+        return window.localStorage.getItem(LAST_RECEIVER_KEY);
+    } catch {
+        return null;
+    }
+}
+
+function writeLastReceiver(entityId: string): void {
+    try {
+        window.localStorage.setItem(LAST_RECEIVER_KEY, entityId);
+    } catch {
+        // Not remembered; nothing else changes.
+    }
+}
 
 @customElement("ir-signal-editor")
 export class IrSignalEditor extends LitElement {
@@ -137,8 +177,9 @@ export class IrSignalEditor extends LitElement {
      * unit the panel is showing (T5) rather than the lattice's own. */
     @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
 
-    /** Only for installUnit; this dialog reads nothing else off it. */
-    @property({ attribute: false }) public hass: unknown = null;
+    /** For installUnit, and for the capture window's deadline while
+     *  Listen holds one open (``window_ends_at`` on the receiver). */
+    @property({ attribute: false }) public hass: any = null;
 
     /** Set once an apply has been refused for an undeclared
      * cross-reading, or once three presses in a row have read as
@@ -221,6 +262,23 @@ export class IrSignalEditor extends LitElement {
 
     private _debounce: ReturnType<typeof setTimeout> | null = null;
     private _unlisten: (() => Promise<void>) | null = null;
+
+    /** LISTEN PICKS A RECEIVER (windowed receivers, round 3; owner chose
+     * the split button, 2026-10-19). The receivers Listen can use, with
+     * the capture devices marked, read once when the dialog opens. Empty
+     * when HAIR hears only through the legacy ESPHome bridge, which has
+     * no receiver entity to name: Listen is then the one that hears
+     * everything, as before. */
+    @state() private _rxChoices: ListenChoice[] = [];
+    /** The receiver Listen uses: the last one used in this browser. */
+    @state() private _rxCurrent: string | null = null;
+    @state() private _rxMenu = false;
+    /** The receiver a running listen is on, which can differ from
+     *  ``_rxCurrent`` only until the picker is next opened. */
+    private _rxActive: string | null = null;
+    /** The drain across Listen while a capture device's window is open,
+     *  from the receiver's own deadline, fixed per deadline. */
+    private _drain: FillPlan | null = null;
 
     private get _isCommand(): boolean {
         return this.commandId !== null;
@@ -410,6 +468,82 @@ export class IrSignalEditor extends LitElement {
             void this._validate();
         }
         void this._refreshSpacingInfo();
+        if (this._isCommand || this._isTangle) void this._loadReceivers();
+    }
+
+    /** Best-effort: without the lists, Listen hears everything, as it
+     *  always did. */
+    private async _loadReceivers(): Promise<void> {
+        try {
+            const [receivers, captureRows] = await Promise.all([
+                this.api.listReceivers(),
+                this.api.captureReceivers().catch(() => []),
+            ]);
+            this._rxChoices = listenChoices(receivers, captureRows);
+            this._rxCurrent =
+                pickReceiver(this._rxChoices, readLastReceiver(), (id) => this._rxOnline(id))
+                    ?.entityId ?? null;
+        } catch {
+            this._rxChoices = [];
+            this._rxCurrent = null;
+        }
+    }
+
+    private get _rxChoice(): ListenChoice | null {
+        return this._rxChoices.find((c) => c.entityId === this._rxCurrent) ?? null;
+    }
+
+    private get _anyListening(): boolean {
+        return this._listening || this._tangleListening;
+    }
+
+    protected willUpdate(changed: PropertyValues): void {
+        if (!changed.has("hass") && !changed.has("_listening") && !changed.has("_tangleListening")) {
+            return;
+        }
+        // The drain follows the receiver's own deadline while a listen
+        // holds its window open; a new deadline (a sliding window moved
+        // by a code) plans afresh, so the fill snaps back to full.
+        const rx = this._anyListening ? this._rxActive : null;
+        const st = rx ? this.hass?.states?.[rx] : undefined;
+        const ends = st?.attributes?.capturing === true ? st.attributes.window_ends_at : null;
+        if (typeof ends !== "string" || !ends) {
+            this._drain = null;
+        } else if (this._drain?.endsAt !== ends) {
+            this._drain = planFill(ends, Date.now());
+        }
+    }
+
+    /** The words for a listen a capture device refused, in the user's
+     *  language, from the door's error code. */
+    private _receiverError(err: unknown): string | null {
+        const code = (err as { code?: unknown } | null)?.code;
+        const name = this._rxChoices.find((c) => c.entityId === this._rxActive)?.name ?? "";
+        if (code === RECEIVER_ARM_FAILED) return t("listen.arm_failed", { name });
+        if (code === NO_CAPTURE_SWITCH) return t("listen.no_switch_error", { name });
+        if (code === RECEIVER_UNAVAILABLE) return t("listen.offline_title", { name });
+        return null;
+    }
+
+    private _armFailedWords(event: ReceiverArmFailedEvent): string {
+        return t("listen.arm_failed", { name: event.name });
+    }
+
+    /** A receiver's health, live from hass (entity-health.ts's rule). */
+    private _rxOnline(entityId: string): boolean {
+        return isEntityOnline(this.hass?.states, entityId);
+    }
+
+    /** The shared health dot: green while HA reaches the receiver, the
+     *  ember ring while it does not (ember, 2026-10-19). */
+    private _rxDot(entityId: string) {
+        return html`<span class="dot rx-dot ${healthDotClass(this._rxOnline(entityId))}"></span>`;
+    }
+
+    private _pickReceiver(entityId: string): void {
+        this._rxMenu = false;
+        this._rxCurrent = entityId;
+        writeLastReceiver(entityId);
     }
 
     updated(): void {
@@ -839,18 +973,23 @@ export class IrSignalEditor extends LitElement {
         this._error = null;
         try {
             await this._tangleTeardown();
+            this._rxMenu = false;
+            this._rxActive = this._rxCurrent;
             this._tangleListening = true;
             this._tangleMessage = null;
             this._tangleUnlisten = await this.api.tangleListen(
                 this.deviceId,
                 (event) => void this._onTangleEvent(event),
                 this.tangleTarget as string,
+                this._rxActive ?? undefined,
             );
+            if (this._rxActive) writeLastReceiver(this._rxActive);
         } catch (err) {
             // The arm never took. Say so and leave it re-armable
             // rather than pretending it is listening.
             this._tangleListening = false;
-            this._tangleMessage = IrSignalEditor._tangleError(err);
+            this._tangleMessage =
+                this._receiverError(err) ?? IrSignalEditor._tangleError(err);
         } finally {
             this._tangleArming = false;
         }
@@ -867,13 +1006,18 @@ export class IrSignalEditor extends LitElement {
      * proving one already-correct code -- has no such axis problem and
      * uses ``matches`` directly. */
     private async _onTangleEvent(event: TangleListenEvent): Promise<void> {
-        if (event.type === "tangle_listen_timeout") {
+        if (event.type === "tangle_listen_timeout" || event.type === "receiver_arm_failed") {
             // The server has already torn this arm down, so the stored
-            // unsubscribe is dead and must not be called (issue 4).
+            // unsubscribe is dead and must not be called (issue 4). A
+            // capture device whose window would not stay open ends the
+            // listen the same way, with its own words.
             this._tangleUnlisten = null;
             this._tangleListening = false;
             this._tangleHeard = false;
-            this._tangleMessage = t("tangles.listen_timeout");
+            this._tangleMessage =
+                event.type === "receiver_arm_failed"
+                    ? this._armFailedWords(event)
+                    : t("tangles.listen_timeout");
             return;
         }
         const capture = event as TangleCaptureEvent;
@@ -1206,19 +1350,24 @@ export class IrSignalEditor extends LitElement {
         }
         this._error = null;
         this._listenMissed = false;
+        this._rxMenu = false;
+        this._rxActive = this._rxCurrent;
         this._listening = true;
         try {
             this._unlisten = await this.api.commandListen((event) => {
                 if (event.type === "command_capture") {
                     this._onCaptured(event);
+                } else if (event.type === "receiver_arm_failed") {
+                    this._error = this._armFailedWords(event);
                 } else {
                     this._listenMissed = true;
                 }
                 void this._stopListening();
-            });
+            }, this._rxActive ?? undefined);
+            if (this._rxActive) writeLastReceiver(this._rxActive);
         } catch (err: any) {
             this._listening = false;
-            this._error = err?.message ?? String(err);
+            this._error = this._receiverError(err) ?? err?.message ?? String(err);
         }
     }
 
@@ -1283,28 +1432,104 @@ export class IrSignalEditor extends LitElement {
     private _renderTangleListenButton() {
         if (!this._isTangle) return "";
         const waiting = this._tangleListening && !this._tangleHeard;
+        return this._renderListenSplit(
+            "up",
+            html`
+                <button
+                    class="action-btn listen-btn ${this._tangleHeard
+                        ? "heard"
+                        : waiting
+                          ? "pulsing"
+                          : ""}"
+                    ?disabled=${this._busy ||
+                    this._tangleArming ||
+                    this._tangleHeard}
+                    @click=${() => void this._armTangle()}
+                >
+                    ${waiting ? this._renderDrain() : nothing}
+                    ${this._tangleHeard
+                        ? t("tangles.listen_heard")
+                        : waiting
+                          ? html`<span class="pulse"
+                                ><span class="dot"></span
+                                ><span class="dot"></span
+                                ><span class="dot"></span
+                            ></span>`
+                          : t("tangles.listen")}
+                </button>
+            `,
+        );
+    }
+
+    /** The capture window's drain behind Listen, when there is one. */
+    private _renderDrain() {
+        const d = this._drain;
+        if (!d) return nothing;
+        return keyed(
+            d.endsAt,
+            html`<span
+                class="drain"
+                style="--fill-start:${d.start};animation-duration:${d.durationMs}ms"
+            ></span>`,
+        );
+    }
+
+    /** LISTEN, SPLIT WITH ITS RECEIVER (owner, 2026-10-19). The Listen
+     * button keeps its look in each place (outlined in the editor, the
+     * amber filled button in the Fix window's ruled corner), and beside
+     * it a picker half names the receiver it will use. Tapping Listen
+     * listens there; the caret opens the receivers, each saying whether
+     * it opens a capture window or is always listening. With no receiver
+     * to name, Listen stands alone and hears everything, as before.
+     * Each receiver's dot is its health (ember, 2026-10-19): the green
+     * dot, or the ember ring while HA cannot reach it. Whether it opens
+     * a capture window is said in words under its name. */
+    private _renderListenSplit(direction: "up" | "down", button: unknown) {
+        const current = this._rxChoice;
+        if (!current) return button;
+        const health = t(this._rxOnline(current.entityId) ? "common.online" : "common.offline");
         return html`
-            <button
-                class="action-btn listen-btn ${this._tangleHeard
-                    ? "heard"
-                    : waiting
-                      ? "pulsing"
-                      : ""}"
-                ?disabled=${this._busy ||
-                this._tangleArming ||
-                this._tangleHeard}
-                @click=${() => void this._armTangle()}
-            >
-                ${this._tangleHeard
-                    ? t("tangles.listen_heard")
-                    : waiting
-                      ? html`<span class="pulse"
-                            ><span class="dot"></span
-                            ><span class="dot"></span
-                            ><span class="dot"></span
-                        ></span>`
-                      : t("tangles.listen")}
-            </button>
+            <span class="split">
+                ${button}
+                <button
+                    class="action-btn rx-pick"
+                    title="${t("listen.pick_receiver")}: ${current.name}, ${health}"
+                    aria-haspopup="menu"
+                    aria-expanded=${this._rxMenu ? "true" : "false"}
+                    ?disabled=${this._busy || this._anyListening}
+                    @click=${() => (this._rxMenu = !this._rxMenu)}
+                >
+                    ${this._rxDot(current.entityId)}
+                    <span class="rx-name">${t("editor.listen_on", { name: current.name })}</span>
+                    <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">${CARET}</svg>
+                </button>
+                ${this._rxMenu
+                    ? html`<div class="rx-menu ${direction}" role="menu">
+                          ${this._rxChoices.map(
+                              (c) => html`<button
+                                  class="rx-item ${c.entityId === current.entityId ? "cur" : ""}"
+                                  role="menuitemradio"
+                                  aria-checked=${c.entityId === current.entityId ? "true" : "false"}
+                                  title="${c.name}, ${t(this._rxOnline(c.entityId) ? "common.online" : "common.offline")} · ${c.entityId}"
+                                  @click=${() => this._pickReceiver(c.entityId)}
+                              >
+                                  ${this._rxDot(c.entityId)}
+                                  <span class="rx-txt">
+                                      <span>${c.name}</span>
+                                      <span class="rx-sub"
+                                          >${c.capture
+                                              ? t("listen.opens_window")
+                                              : t("listen.always")}</span
+                                      >
+                                  </span>
+                                  ${c.entityId === current.entityId
+                                      ? html`<svg class="check" viewBox="0 0 24 24" aria-hidden="true">${CHECK}</svg>`
+                                      : nothing}
+                              </button>`,
+                          )}
+                      </div>`
+                    : nothing}
+            </span>
         `;
     }
 
@@ -1356,7 +1581,7 @@ export class IrSignalEditor extends LitElement {
                             : ""}"
                         rows="4"
                         .value=${this._pronto}
-                        placeholder="0000 006D ..."
+                        placeholder=${t("editor.code_placeholder")}
                         ?autofocus=${!this._isTangle}
                         spellcheck="false"
                         @focus=${() => (this._codeFocused = true)}
@@ -1391,17 +1616,17 @@ export class IrSignalEditor extends LitElement {
             <div class="replace">
                 <div class="replace-head">${t("editor.replace_title")}</div>
                 <div class="replace-row">
-                    <button
-                        class="action-btn listen-btn ${this._listening
-                            ? "on"
-                            : ""}"
-                        @click=${this._listen}
-                        ?disabled=${this._busy}
-                    >
-                        ${this._listening
-                            ? t("editor.listening")
-                            : t("editor.listen")}
-                    </button>
+                    ${this._renderListenSplit(
+                        "down",
+                        html`<button
+                            class="action-btn listen-btn ${this._listening ? "on" : ""}"
+                            @click=${this._listen}
+                            ?disabled=${this._busy}
+                        >
+                            ${this._listening ? this._renderDrain() : nothing}
+                            ${this._listening ? t("editor.listening") : t("editor.listen")}
+                        </button>`,
+                    )}
                     <span class="replace-status">
                         ${this._listening
                             ? t("editor.listen_hint")
@@ -1650,13 +1875,19 @@ export class IrSignalEditor extends LitElement {
                      is downstairs in the footer and the reason is
                      upstairs in the header, so what is left here is
                      only what has to be read on the way. Everywhere
-                     else the code box leads exactly as it always has,
-                     and the validation, pill and snap keep following
-                     the box they describe either way. -->
+                     else the code box leads, and the validation, pill
+                     and snap keep following the box they describe either
+                     way. In the command editor "Replace this code" and
+                     its Listen sit ABOVE the box (windowed receivers,
+                     round 3), so the box, its validation, its pill and
+                     its snap read together; the repair's order is
+                     unchanged. -->
                 ${this._isTangle
                     ? html`${this._renderTangleIntro()}
                       ${this._renderTangleStatus()} ${this._renderCodeBox()}`
-                    : html`${this._renderCodeBox()} ${this._renderReplace()}`}
+                    : this._isCommand
+                      ? html`${this._renderReplace()} ${this._renderCodeBox()}`
+                      : html`${this._renderCodeBox()}`}
                 ${this._renderFeedback()}
                 ${this._renderPill()} ${this._renderSnap()}
 
@@ -2043,13 +2274,12 @@ export class IrSignalEditor extends LitElement {
             font-size: 0.78rem;
             color: var(--secondary-text-color);
         }
-        /* Replace this code. A divider above it rather than a box
-           around it: it is a second way to fill the field above, not a
-           separate thing the dialog does. */
+        /* Replace this code, above the box it fills (windowed
+           receivers, round 3). No divider and no box around it: it is a
+           way to fill the field below, not a separate thing the dialog
+           does, and the box's own label is the separation. */
         .replace {
-            margin: 10px 0 4px;
-            padding-top: 10px;
-            border-top: 1px solid var(--divider-color);
+            margin: 2px 0 12px;
         }
         .replace-head {
             font-size: 0.78rem;
@@ -2060,6 +2290,7 @@ export class IrSignalEditor extends LitElement {
         }
         .replace-row {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 10px;
         }
@@ -2070,6 +2301,143 @@ export class IrSignalEditor extends LitElement {
         }
         .listen-btn {
             flex: 0 0 auto;
+            position: relative;
+            overflow: hidden;
+            isolation: isolate;
+        }
+        /* The capture window's drain behind Listen: full when a
+           deadline shows, empty at it, full again on a new one. */
+        .drain {
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            transform-origin: left center;
+            transform: scaleX(var(--fill-start, 1));
+            background: color-mix(in srgb, currentColor 18%, transparent);
+            animation-name: listen-drain;
+            animation-timing-function: linear;
+            animation-fill-mode: forwards;
+        }
+        @keyframes listen-drain {
+            from {
+                transform: scaleX(var(--fill-start, 1));
+            }
+            to {
+                transform: scaleX(0);
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .drain {
+                animation: none;
+            }
+        }
+        /* Listen, split with its receiver: one control in two halves. */
+        .split {
+            position: relative;
+            display: inline-flex;
+            align-items: stretch;
+            flex: 0 0 auto;
+            max-width: 100%;
+        }
+        .split .listen-btn {
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+        .rx-pick {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            max-width: 220px;
+            margin-left: -1px;
+            padding: 0 8px 0 10px;
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+            color: var(--secondary-text-color);
+            text-transform: none;
+        }
+        .rx-pick:hover:not(:disabled) {
+            background: var(--secondary-background-color);
+        }
+        .rx-name {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        /* The health dot's size; its colour and ring come from the
+           shared healthDotStyles (loaded last), as in the pickers. */
+        .rx-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            flex: none;
+            --hair-ring: 7px;
+        }
+        .caret {
+            width: 16px;
+            height: 16px;
+            flex: none;
+            fill: currentColor;
+        }
+        .rx-menu {
+            position: absolute;
+            z-index: 5;
+            left: 0;
+            top: calc(100% + 4px);
+            min-width: 230px;
+            max-width: min(320px, 80vw);
+            background: var(--card-background-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+            padding: 6px 0;
+        }
+        .rx-menu.up {
+            top: auto;
+            bottom: calc(100% + 4px);
+        }
+        .rx-item {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            width: 100%;
+            padding: 8px 14px;
+            border: none;
+            background: none;
+            font: inherit;
+            font-size: 0.85rem;
+            text-align: left;
+            color: var(--primary-text-color);
+            cursor: pointer;
+        }
+        .rx-item:hover,
+        .rx-item:focus-visible {
+            outline: none;
+            background: var(--secondary-background-color);
+        }
+        .rx-item.cur {
+            background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+        }
+        .rx-item .rx-dot {
+            width: 7px;
+            height: 7px;
+            --hair-ring: 8px;
+        }
+        .rx-txt {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .rx-sub {
+            font-size: 0.72rem;
+            color: var(--secondary-text-color);
+        }
+        .rx-item .check {
+            width: 14px;
+            height: 14px;
+            flex: none;
+            margin-left: auto;
+            fill: var(--primary-color);
         }
         /* Amber, not red: this is a notice about the capture, not a
            refusal of it. The code is already in the box. */
@@ -2226,6 +2594,15 @@ export class IrSignalEditor extends LitElement {
         .dialog-actions {
             align-items: center;
             justify-content: flex-start;
+            flex-wrap: wrap;
+            row-gap: 10px;
+        }
+        /* On a phone, Listen and its receiver take the footer's first
+           line, and Cancel and the primary move to a second. */
+        @media (max-width: 500px) {
+            .dialog-actions .split {
+                flex: 1 0 100%;
+            }
         }
         .spacer {
             flex: 1;
@@ -2255,6 +2632,7 @@ export class IrSignalEditor extends LitElement {
             border-color: #2e7d32;
         }
     `,
+        healthDotStyles,
     ];
 }
 

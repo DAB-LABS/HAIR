@@ -275,7 +275,7 @@ class TestTheOtherListenersAreUnchanged:
         _device, monitor, _store, _timers = _wire(
             fake_hass, komeco, donor.pronto)
         connection = _conn()
-        ws_command_listen(fake_hass, connection,
+        await ws_command_listen(fake_hass, connection,
                           {"id": 4, "type": "hair/command/listen"})
 
         _press(monitor)

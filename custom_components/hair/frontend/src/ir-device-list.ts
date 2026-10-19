@@ -49,14 +49,13 @@ import { PINNING_UI_ENABLED, PIN_BLUE } from "./ir-pin-flag.js";
 import type { HairApi } from "./api.js";
 import { landedManyNotice } from "./api.js";
 import { BROADSNIFF_URL } from "./types.js";
-import type { BroadSniffReceiverRow } from "./types.js";
+import type { CaptureReceiverRow } from "./types.js";
 import "./ir-listen-chip.js";
 import { LISTEN_GOLD, LISTEN_GREEN } from "./ir-listen-chip.js";
-import { listenLive, listenOnline, rxCaptureMatch } from "./ir-listen-state.js";
+import { captureSignature, listenLive, listenOnline, rxCaptureMatch } from "./ir-listen-state.js";
 import type { MatrixCardPick } from "./ir-matrix-card.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
-    CaptureProviderInfo,
     CombSummary,
     DeviceSummary,
     DeviceTypeId,
@@ -66,6 +65,7 @@ import type {
     MatrixCellDetail,
     MatrixSummary,
     PluckedStoreRecord,
+    ReceiverHardwareInfo,
     ReceiverInfo,
     ReverseSupersessionBlock,
     TriggerDrawerInfo,
@@ -206,14 +206,17 @@ export class IrDeviceList extends LitElement {
     @property({ attribute: false }) public expandedDeviceId: string | null = null;
 
     @state() private _emitters: { entity_id: string; name: string; fullName: string }[] = [];
-    @state() private _captureProviders: CaptureProviderInfo[] = [];
-    /** One row per BroadSniff remote (``hair/broadsniff/receivers``):
-     *  what the RX-CAPTURE chip on a hardware card toggles. */
-    @state() private _listenRows: BroadSniffReceiverRow[] = [];
-    /** The ``hass.entities`` the rows were read for. Re-read only when
-     *  the registry changes (a remote added or removed), not on every
-     *  state update, which is how often ``hass`` changes. */
+    @state() private _receiverHardware: ReceiverHardwareInfo[] = [];
+    /** One row per capture device (``hair/receivers/capture``): what
+     *  the RX-CAPTURE chip on a hardware card toggles, and what its
+     *  switch menu shows. */
+    @state() private _listenRows: CaptureReceiverRow[] = [];
+    /** The ``hass.entities`` and ``captureSignature`` the rows were read
+     *  for. Re-read only when either changes (a receiver added, removed,
+     *  loaded, gone unavailable or back), not on every state update,
+     *  which is how often ``hass`` changes. */
     private _listenRowsFor: unknown = Symbol("never read");
+    private _listenRowsSig: string | undefined = undefined;
     @state() private _pluckBlasters: {
         integration: string;
         entity_id: string;
@@ -380,8 +383,13 @@ export class IrDeviceList extends LitElement {
     updated(changed: PropertyValues): void {
         if (changed.has("hass") || changed.has("api")) {
             this._discoverHardware();
-            if (this.api && this.hass?.entities !== this._listenRowsFor) {
+            const sig = captureSignature(this.hass?.states);
+            if (
+                this.api &&
+                (this.hass?.entities !== this._listenRowsFor || sig !== this._listenRowsSig)
+            ) {
                 this._listenRowsFor = this.hass?.entities;
+                this._listenRowsSig = sig;
                 void this._loadListenRows();
             }
         }
@@ -584,6 +592,10 @@ export class IrDeviceList extends LitElement {
                 // Pre-2026.6 or non-fatal error.
             }
         }
+        // A capture device whose integration has not loaded is on no
+        // receiver list, but its entity can still be in the states,
+        // unavailable; it is a receiver, never an emitter.
+        for (const row of this._listenRows) receiverEntityIds.add(row.receiver_entity_id);
 
         // Emitters from hass.states (exclude receiver entities)
         const states = (this.hass?.states ?? {}) as Record<
@@ -611,10 +623,10 @@ export class IrDeviceList extends LitElement {
         }
         this._emitters = emitters;
 
-        // Capture providers (RX hardware) from API
+        // Receiving hardware from the API
         if (this.api) {
             try {
-                this._captureProviders = await this.api.listCaptureProviders();
+                this._receiverHardware = await this.api.listReceiverHardware();
             } catch {
                 // Non-fatal
             }
@@ -1766,7 +1778,7 @@ export class IrDeviceList extends LitElement {
 
     /** Resolve integration domain for navigation. */
     private _resolveNavType(
-        cp: CaptureProviderInfo,
+        cp: ReceiverHardwareInfo,
         nativeEntityId: string | undefined,
     ): string {
         if (cp.type === "native" && nativeEntityId) {
@@ -1780,8 +1792,8 @@ export class IrDeviceList extends LitElement {
     }
 
     /**
-     * Classify capture providers, merging native + bridge entries for the
-     * same physical HA device into one entry with both flags set.
+     * Classify the receiving hardware, merging native + bridge entries for
+     * the same physical HA device into one entry with both flags set.
      *
      * Receivers = every capture-capable device.
      * Proxies   = subset that also has an emitter on the same HA device.
@@ -1796,7 +1808,7 @@ export class IrDeviceList extends LitElement {
         const txDeviceIds = new Set(txByDevice.keys());
         const byDeviceId = new Map<string, MergedHardwareEntry>();
 
-        for (const cp of this._captureProviders) {
+        for (const cp of this._receiverHardware) {
             // For native providers the backend stashes the entity_id in
             // ``cp.device_id``; the real HA device-registry ID has to be
             // looked up via ``hass.entities``.
@@ -1837,25 +1849,53 @@ export class IrDeviceList extends LitElement {
             byDeviceId.set(haDeviceId, entry);
         }
 
+        // A capture device whose integration has not loaded is on no
+        // receiver list, but HAIR remembers it (windowed receivers,
+        // round 3): its card stays, RX-CAPTURE with the chip disabled.
+        const shown = new Set(
+            Array.from(byDeviceId.values()).map((e) => e.native_entity_id).filter(Boolean),
+        );
+        for (const row of this._listenRows) {
+            if (shown.has(row.receiver_entity_id)) continue;
+            const haDeviceId = row.ha_device_id ?? row.receiver_entity_id;
+            if (byDeviceId.has(haDeviceId)) continue;
+            byDeviceId.set(haDeviceId, {
+                device_id: haDeviceId,
+                name: row.name,
+                nav_type:
+                    this.hass?.entities?.[row.receiver_entity_id]?.platform ?? "infrared",
+                has_native: true,
+                has_bridge: false,
+                has_tx: txDeviceIds.has(haDeviceId),
+                tx_entity_ids: txByDevice.get(haDeviceId) ?? [],
+                native_entity_id: row.receiver_entity_id,
+            });
+        }
+
         const merged = Array.from(byDeviceId.values());
         const proxies = merged.filter((e) => e.has_tx);
         return { receivers: merged, proxies };
     }
 
-    /** Best-effort: without BroadSniff, or on a failed read, there are
-     *  no rows and every card keeps its RX-NATIVE badge. */
+    /** Best-effort: without a capture device, or on a failed read, there
+     *  are no rows and every card keeps its RX-NATIVE badge. */
     private async _loadListenRows(): Promise<void> {
         try {
-            this._listenRows = (await this.api?.broadsniffReceivers()) ?? [];
+            this._listenRows = (await this.api?.captureReceivers()) ?? [];
         } catch {
             this._listenRows = [];
         }
+        // The emitter list leaves capture devices out, so it follows them.
+        void this._discoverHardware();
     }
 
     /** Whether a card's receiver hears only while a capture window is
-     *  open, and whether HAIR can open it (see rxCaptureMatch). */
+     *  open (see rxCaptureMatch). Matched by the receiver entity, then
+     *  by the HA device. */
     private _rxCapture(entry: MergedHardwareEntry) {
-        const row = this._listenRows.find((r) => r.ha_device_id === entry.device_id);
+        const row =
+            this._listenRows.find((r) => r.receiver_entity_id === entry.native_entity_id) ??
+            this._listenRows.find((r) => r.ha_device_id !== null && r.ha_device_id === entry.device_id);
         const attributes = entry.native_entity_id
             ? this.hass?.states?.[entry.native_entity_id]?.attributes
             : undefined;
@@ -1902,20 +1942,28 @@ export class IrDeviceList extends LitElement {
     }
 
     /** A capture device's state for its card glyph, which follows the
-     *  RX-CAPTURE chip: null for a card that is not a capture device. */
-    private _captureGlyphState(entry: MergedHardwareEntry): { online: boolean; listening: boolean } | null {
+     *  RX-CAPTURE chip: null for a card that is not a capture device.
+     *  ``waiting`` while no switch is resolved: the glyph is grey until
+     *  one is, then gold (owner, 2026-10-20). */
+    private _captureGlyphState(
+        entry: MergedHardwareEntry,
+    ): { online: boolean; listening: boolean; waiting: boolean } | null {
         const capture = this._rxCapture(entry);
         if (capture.kind === null) return null;
         const states = this.hass?.states;
         if (capture.kind === "chip" && capture.row && this.api) {
             const online = listenOnline(states, capture.row);
-            return { online, listening: online && listenLive(states, capture.row).on };
+            return {
+                online,
+                listening: online && listenLive(states, capture.row).on,
+                waiting: capture.row.switch_entity_id === null,
+            };
         }
         const online = this._anyOnline([entry.native_entity_id]);
         const capturing = entry.native_entity_id
             ? states?.[entry.native_entity_id]?.attributes?.capturing === true
             : false;
-        return { online, listening: online && capturing };
+        return { online, listening: online && capturing, waiting: false };
     }
 
     /** "OFFLINE", plain ember capitals tucked into the card's top-right
@@ -1930,17 +1978,19 @@ export class IrDeviceList extends LitElement {
         >`;
     }
 
-    /** The receiver badge. A windowed receiver (round 2) gets
-     *  RX-CAPTURE in place of RX-NATIVE (owner, 2026-10-17): as the
-     *  Listen chip itself when HAIR knows its switch, so a click here
-     *  starts it listening the way the Sniffer's chip does, or as a
-     *  static badge when it does not. */
+    /** The receiver badge. A capture device gets RX-CAPTURE in place of
+     *  RX-NATIVE (owner, 2026-10-17): as the Listen chip itself, so a
+     *  click here starts it listening the way the Sniffer's chip does,
+     *  split since the owner's ruling of 2026-10-20, its caret opening
+     *  the menu of what opens its window; or as a static badge before
+     *  its row has arrived. Receivers and Proxies cards alike. */
     private _renderNativeBadge(entry: MergedHardwareEntry) {
         const capture = this._rxCapture(entry);
         // Health on the badge (owner bench, 2026-10-19): green, or the
         // capture gold, while the receiver answers; ember while it is
         // unavailable. The Listen chip below judges its own (receiver
-        // and BroadSniff's switch) and goes ember the same way.
+        // and the entity that opens its window) and goes ember the same
+        // way, caret included.
         const online = this._anyOnline([entry.native_entity_id]);
         if (capture.kind === "chip" && capture.row && this.api) {
             return html`<ir-listen-chip
@@ -1948,6 +1998,7 @@ export class IrDeviceList extends LitElement {
                 .hass=${this.hass}
                 .api=${this.api}
                 .row=${capture.row}
+                @capture-switch-changed=${() => void this._loadListenRows()}
             ></ir-listen-chip>`;
         }
         if (capture.kind !== null) {
@@ -3337,6 +3388,11 @@ export class IrDeviceList extends LitElement {
         }
         .hw-card.hw-glyph-online .card-header ha-svg-icon {
             color: ${ONLINE_VAR};
+        }
+        /* A capture device with no switch yet: the solid icon in the
+           card icons' own grey, like its dimmed chip. */
+        .hw-card.hw-glyph-waiting .card-header ha-svg-icon {
+            color: var(--secondary-text-color);
         }
         .hw-card.hw-glyph-ready .card-header ha-svg-icon {
             color: ${unsafeCSS(LISTEN_GOLD)};

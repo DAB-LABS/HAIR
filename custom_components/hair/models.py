@@ -10,8 +10,6 @@ from .const import (
     DEFAULT_CARRIER_FREQUENCY,
     DEFAULT_REPEAT_COUNT,
     TRIGGER_ALIAS_HISTORY_MAX,
-    CaptureProviderType,
-    CaptureState,
     CommandCategory,
     CommandSource,
     DeviceType,
@@ -532,14 +530,21 @@ def power_settle_seconds(device: IRDevice) -> float:
 
 
 # Keys IRDevice.from_dict consumes (0.10.1 item 2).
+_RETIRED_DEVICE_KEYS = ("capture_device_id", "capture_provider_type")
+
 _KNOWN_DEVICE = frozenset({
     "id", "name", "device_type", "manufacturer", "model",
     "emitter_entity_ids", "power_sensor_entity_id", "power_off_below_w",
     "power_on_above_w", "power_settle_s", "temperature_sensor_entity_id",
-    "humidity_sensor_entity_id", "capture_device_id",
-    "capture_provider_type", "commands", "entity_config", "database_id",
+    "humidity_sensor_entity_id", "commands", "entity_config", "database_id",
     "climate_matrix", "source_wig_id", "source_file", "source_remote_id",
     "origin", "created_at", "updated_at", "tangle_attestations",
+    # RETIRED, consumed so they are dropped: the Learn dialog's capture
+    # hardware fields (windowed receivers round 3, owner ruling
+    # 2026-10-18). Listed here rather than deleted so a stored device
+    # that still carries them loads, and the next save leaves them out
+    # instead of carrying them forever as unknown keys.
+    *_RETIRED_DEVICE_KEYS,
 })
 
 
@@ -582,7 +587,6 @@ class IRDevice:
     # this field just holds whatever was last saved.
     temperature_sensor_entity_id: str | None = None
     humidity_sensor_entity_id: str | None = None
-    capture_device_id: str | None = None
     #: The KEEP outcome of the fix flow: findings a person looked at,
     #: tested on their own hardware, and vouched for as working anyway.
     #:
@@ -593,7 +597,6 @@ class IRDevice:
     #: key stops matching, the attestation stops applying, and the
     #: finding is open again. Nothing schedules that and nothing has to.
     tangle_attestations: list[dict[str, Any]] = field(default_factory=list)
-    capture_provider_type: CaptureProviderType = CaptureProviderType.ESPHOME
     commands: list[IRCommand] = field(default_factory=list)
     entity_config: EntityConfig = field(default_factory=EntityConfig)
     database_id: str | None = None
@@ -770,8 +773,6 @@ class IRDevice:
             power_settle_s=self.power_settle_s,
             temperature_sensor_entity_id=self.temperature_sensor_entity_id,
             humidity_sensor_entity_id=self.humidity_sensor_entity_id,
-            capture_device_id=self.capture_device_id,
-            capture_provider_type=self.capture_provider_type,
             commands=cloned_commands,
             entity_config=cloned_entity_config,
             database_id=self.database_id,
@@ -831,9 +832,7 @@ class IRDevice:
             "power_on_above_w": self.power_on_above_w,
             "temperature_sensor_entity_id": self.temperature_sensor_entity_id,
             "humidity_sensor_entity_id": self.humidity_sensor_entity_id,
-            "capture_device_id": self.capture_device_id,
             "tangle_attestations": [dict(a) for a in self.tangle_attestations],
-            "capture_provider_type": str(self.capture_provider_type),
             "commands": [c.to_dict() for c in self.commands],
             "entity_config": self.entity_config.to_dict(),
             "database_id": self.database_id,
@@ -885,16 +884,12 @@ class IRDevice:
             humidity_sensor_entity_id=(
                 data.get("humidity_sensor_entity_id") or None
             ),
-            capture_device_id=data.get("capture_device_id"),
             # Absent on every device made before the fix flow existed,
             # which reads correctly as "nobody has vouched for anything".
             tangle_attestations=[
                 a for a in (data.get("tangle_attestations") or [])
                 if isinstance(a, dict)
             ],
-            capture_provider_type=CaptureProviderType(
-                data.get("capture_provider_type", CaptureProviderType.ESPHOME)
-            ),
             commands=[
                 IRCommand.from_dict(c) for c in (data.get("commands") or [])
             ],
@@ -1460,33 +1455,6 @@ class CaptureResult:
             "raw_timings": list(self.raw_timings),
             "frequency": self.frequency,
             "confidence": self.confidence,
-        }
-
-
-@dataclass
-class CaptureSession:
-    """Active capture session state."""
-
-    session_id: str = field(default_factory=_new_id)
-    device_id: str = ""
-    provider_type: CaptureProviderType = CaptureProviderType.ESPHOME
-    state: CaptureState = CaptureState.IDLE
-    started_at: str = field(default_factory=_now_iso)
-    result: CaptureResult | None = None
-    # Why an ERROR session ended, when the provider said, and a short
-    # machine-readable code the panel can translate (BroadSniff's
-    # "could not start listening" today). Not serialized.
-    error: str | None = None
-    error_code: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "session_id": self.session_id,
-            "device_id": self.device_id,
-            "provider_type": str(self.provider_type),
-            "state": str(self.state),
-            "started_at": self.started_at,
-            "result": self.result.to_dict() if self.result else None,
         }
 
 

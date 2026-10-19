@@ -11,7 +11,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE, Platform
 from homeassistant.core import Event, HomeAssistant
 
-from .capture_orchestrator import CaptureOrchestrator
 from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL, PLUCKABLE_DIRNAME
 from .device_manager import DeviceManager, prime_localized_auto_map
 from .entity_factory import EntityFactory, reconcile_orphan_entities
@@ -82,6 +81,14 @@ async def async_setup_entry(
     signal_store = SignalStore(hass)
     await signal_store.async_load()
 
+    # Capture devices HAIR has seen, and the switch the user chose for
+    # each (receiver_window.py). Keyed by registry entry id; loaded after
+    # the entity registry, which is all it consults on load.
+    from .receiver_window import CaptureReceiverStore
+
+    capture_receivers = CaptureReceiverStore(hass)
+    await capture_receivers.async_load()
+
     # The one backfill that needs both stores loaded: a trigger minted
     # from a Clipper or Plucker row was stamped "remote" before the
     # origin vocabulary could say otherwise, and only the signal store
@@ -104,7 +111,6 @@ async def async_setup_entry(
     await hass.async_add_executor_job(ensure_wigs_dir, hass.config.config_dir)
 
     entity_factory = EntityFactory(hass)
-    orchestrator = CaptureOrchestrator(hass)
     power_monitor = PowerMonitor(hass, store)
     device_manager = DeviceManager(
         hass, store, entity_factory, entry.entry_id, power_monitor
@@ -136,7 +142,7 @@ async def async_setup_entry(
         "store": store,
         "signal_store": signal_store,
         "device_manager": device_manager,
-        "orchestrator": orchestrator,
+        "capture_receivers": capture_receivers,
         "entity_factory": entity_factory,
         "signal_monitor": signal_monitor,
         "power_monitor": power_monitor,
@@ -322,12 +328,6 @@ async def async_unload_entry(
 
     data = hass.data[DOMAIN].pop(entry.entry_id, None)
     if data is not None:
-        orchestrator: CaptureOrchestrator = data["orchestrator"]
-        if orchestrator.is_capturing and orchestrator.active_session is not None:
-            await orchestrator.cancel_capture(
-                orchestrator.active_session.session_id
-            )
-
         monitor: SignalMonitor | None = data.get("signal_monitor")
         if monitor is not None:
             await monitor.async_stop()
