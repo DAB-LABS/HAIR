@@ -30,6 +30,9 @@ import type { TriggerRemoteInfo } from "./types.js";
 @customElement("ir-duplicate-trigger-remote-dialog")
 export class IrDuplicateTriggerRemoteDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
+    /** Home Assistant, passed through to the receiver picker so its
+     *  chips show each receiver's health live (ember, 2026-10-19). */
+    @property({ attribute: false }) public hass?: any;
 
     /** Id of the trigger remote being duplicated. */
     @property({ attribute: false }) public sourceId = "";
@@ -132,6 +135,7 @@ export class IrDuplicateTriggerRemoteDialog extends LitElement {
 
                 <ir-receiver-picker
                     .api=${this.api}
+                    .hass=${this.hass}
                     .value=${this._receiverIds}
                     ?disabled=${this._busy}
                     @receivers-changed=${(e: CustomEvent) =>

@@ -1407,45 +1407,41 @@ class TestEveryFittingIsADisclosure:
         assert 't("claims.show_all"' not in text
 
 
-class TestEmittersHaveThreeStates:
-    """Assigned-and-reachable, off, and assigned-but-down.
+class TestEmittersShowSelectionAndHealth:
+    """Selection on the pill, health on the dot (ember, 2026-10-19).
 
-    The third one is the whole point. HA knows, device_manager skips
-    unavailable and unknown emitters at send time, and the picker was
-    reading that very state object for the friendly name and throwing
-    the rest away. A device could list a blaster unplugged for a week
-    with nothing on screen to say so.
+    Rewritten from TestEmittersHaveThreeStates. That class pinned the
+    old picker: health shown only for an assigned emitter, in amber,
+    through a DEAD_STATES set and three "picker.state_*" words. The
+    point it made still stands, and is why this class keeps its place:
+    HA knows which emitters are unreachable, device_manager skips them
+    at send time, and a picker that throws that away can list a blaster
+    unplugged for a week with nothing on screen to say so. What changed
+    is the model: every chip shows health, selected or not, and offline
+    is ember (owner, 2026-10-18 and 2026-10-19).
     """
 
-    def test_the_picker_reads_availability(self):
-        # The emitter list moved to emitter-options.ts (header doubled
-        # name), so read both files.
-        text = _read("ir-emitter-picker.ts") + _read("emitter-options.ts")
-        assert "available" in text
-        # GH #83: "unknown" means never-used, not down. The dead set
-        # must contain exactly "unavailable" -- painting a brand-new
-        # emitter amber told every fresh install its hardware was
-        # broken.
-        dead = text.split("const DEAD_STATES = new Set(", 1)[1]
-        dead = dead.split(")", 1)[0]
-        assert '"unavailable"' in dead
-        assert '"unknown"' not in dead
+    def test_the_picker_reads_health_from_the_shared_rule(self):
+        options = " ".join(_read("emitter-options.ts").split())
+        assert "available: isEntityOnline(states, entityId)," in options
+        assert "DEAD_STATES" not in options
+        assert "DEAD_STATES" not in _read("ir-emitter-picker.ts")
+        # GH #83: "unknown" means never-used, not down. The one rule
+        # names only "unavailable", and a missing state.
+        rule = _read("entity-health.ts")
+        body = rule.split("export function isEntityOnline", 1)[1].split("\n}", 1)[0]
+        assert "if (!st) return false;" in body
+        assert 'return st.state !== "unavailable";' in body
+        assert '"unknown"' not in body
 
-    def test_all_three_states_are_rendered(self):
-        text = _read("ir-emitter-picker.ts")
-        for key in (
-            "picker.state_on",
-            "picker.state_off",
-            "picker.state_unavailable",
-        ):
-            assert key in text, key
-
-    def test_only_an_assigned_emitter_reports_being_down(self):
-        """An unassigned emitter that happens to be unreachable is
-        simply off. Nothing is expected of it, so it has nothing to
-        complain about."""
+    def test_every_chip_shows_health_selected_or_not(self):
+        """The old picker said nothing about an unassigned emitter that
+        was down. The new one shows the ring whether or not it is
+        assigned; only the alarm is kept for the assigned case."""
         text = " ".join(_read("ir-emitter-picker.ts").split())
-        assert "const down = on && !em.available;" in text
+        assert "const down = on && !em.available;" not in text
+        assert "const cls = healthChipClass(on, em.available);" in text
+        assert '<span class="dot ${healthDotClass(em.available)}"></span>' in text
 
     def test_the_state_word_is_not_printed_beside_the_name(self):
         """The dot is the state. A word spelled out beside every chip
@@ -1453,11 +1449,38 @@ class TestEmittersHaveThreeStates:
         which is the opposite of what the capsule is for."""
         text = _read("ir-emitter-picker.ts")
         assert 'class="st"' not in text
-        # It still reaches anyone who needs it.
-        assert "aria-label=" in text and "title=" in text
+        # It still reaches anyone who needs it: "{name}, online, selected".
+        assert "const word = healthPhrase(em.available, on, t);" in text
+        assert 'aria-label="${em.name}, ${word}"' in text
+        assert "title=" in text
+
+    def test_no_amber_on_an_emitter_chip(self):
+        """Amber read as "attention", the same gold family the Listen
+        chip uses for "ready". The down state is ember now."""
+        for name in ("ir-emitter-picker.ts", "ir-header-chip-styles.ts"):
+            text = _read(name)
+            assert "217, 164, 65" not in text, name
+            assert "#d9a441" not in text, name
+            assert "#e8dcc2" not in text, name
 
     @pytest.mark.parametrize("locale", LOCALE_NAMES)
-    def test_every_locale_carries_the_four_new_keys(self, locale):
+    def test_every_locale_carries_the_health_words(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for key in (
+            "common.online",
+            "common.offline",
+            "common.selected",
+            "common.not_selected",
+            "devlist.offline_label",
+            "devlist.offline_title",
+            "listen.offline_title",
+        ):
+            assert key in data, f"{locale} missing {key}"
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_the_old_state_words_are_retired(self, locale):
         data = json.loads(
             (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
         )
@@ -1466,7 +1489,11 @@ class TestEmittersHaveThreeStates:
             "picker.state_off",
             "picker.state_unavailable",
         ):
-            assert key in data, f"{locale} missing {key}"
+            assert key not in data, f"{locale} still carries {key}"
+
+    def test_nothing_reads_the_old_state_words(self):
+        for path in sorted(SRC.glob("*.ts")):
+            assert "picker.state_" not in path.read_text(encoding="utf-8"), path.name
 
     @pytest.mark.parametrize("locale", LOCALE_NAMES)
     def test_the_dropdown_keys_are_gone(self, locale):

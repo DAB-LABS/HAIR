@@ -509,11 +509,13 @@ class TestTheReceiverCard:
         badge = devlist[devlist.index("private _renderNativeBadge"):]
         badge = badge[: badge.index("/** Render TX/RX-NATIVE")]
         chip = badge.index("<ir-listen-chip")
-        static = badge.index('class="badge rx-capture"')
-        native = badge.index('class="badge rx-native"')
+        # Since the owner's bench (ember, 2026-10-19) each badge carries
+        # its health in its class, tooltip and accessible name.
+        static = badge.index('class="badge rx-capture ${online ? "" : "offline"}"')
+        native = badge.index('class="badge rx-native ${online ? "" : "offline"}"')
         assert chip < native and static < native
         assert badge.count("return html`") == 3
-        assert 'title=${t("devlist.rx_capture_title")}' in badge
+        assert 'this._badgeName("RX-CAPTURE", online, t("devlist.rx_capture_title"))' in badge
         rx = devlist[devlist.index("private _renderRxBadges"):]
         assert rx.index("${this._renderNativeBadge(entry)}") < rx.index("${entry.has_bridge")
 
@@ -545,7 +547,13 @@ class TestTheReceiverCard:
         assert "${this.compact ? RX_CAPTURE_LABEL : row.name}" in chip
         # Owner addendum 2026-10-17: like TX-NATIVE and RX-NATIVE, no dot.
         # The dot stays on the Sniffer's chip.
-        assert '${this.compact ? nothing : html`<span class="dot"></span>`}' in chip
+        # Chip health (ember, 2026-10-19): the full chip's dot turns into
+        # the ember ring when offline; the compact form still has none.
+        assert re.search(
+            r"\$\{this\.compact\s*\?\s*nothing\s*:\s*"
+            r'html`<span class="dot \$\{online \? "" : "offline"\}"></span>`\}',
+            chip,
+        )
         toggle = re.search(r":host\(\[compact\]\) \.listen-toggle \{([^}]*)\}", chip).group(1)
         assert "padding: 2px 4px;" in toggle  # the .badge padding
         assert re.search(r"\$\{this\.compact\s*\?\s*nothing\s*:\s*renderExitToEntityBtn", chip)
@@ -556,13 +564,16 @@ class TestTheReceiverCard:
 
     def test_the_receivers_card_gets_the_finger_and_the_proxy_keeps_the_tower(self):
         devlist = _src("ir-device-list.ts")
+        # Since chip health (ember, owner bench 2026-10-19) each card icon
+        # is a solid and outline pair (card-icons.ts). The capture card
+        # keeps the finger online; offline it draws record-circle-outline
+        # (gesture-tap-button has no outline twin; owner ruling).
         assert re.search(
-            r"\.path=\$\{this\._rxCapture\(entry\)\.kind !== null\s*\?\s*"
-            r"ICON_CAPTURE_RECEIVER\s*:\s*ICON_RECEIVER\}",
+            r"\.path=\$\{cardIconPath\(\s*this\._rxCapture\(entry\)\.kind !== null"
+            r"\s*\?\s*\"capture\"\s*:\s*\"receiver\",\s*glyph,\s*\)\}",
             devlist,
         )
-        assert devlist.count("ICON_CAPTURE_RECEIVER") == 2  # defined, used once
-        assert "<ha-svg-icon .path=${ICON_PROXY}></ha-svg-icon>" in devlist
+        assert '<ha-svg-icon .path=${cardIconPath("proxy", glyph)}></ha-svg-icon>' in devlist
 
     def test_a_narrow_card_wraps_its_badges_instead_of_breaking_them(self):
         devlist = _src("ir-device-list.ts")

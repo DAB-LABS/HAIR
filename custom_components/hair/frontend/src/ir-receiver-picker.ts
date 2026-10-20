@@ -21,11 +21,13 @@
  * all-grey state IS the explanation, same as an emitter picker with
  * nothing lit needs no caption.
  *
- * Deliberately does NOT reuse ir-emitter-picker's three-state
- * (on/down/off) treatment: the ruling only ever describes ON/OFF for
- * receivers, and ReceiverInfo carries no availability flag to key a
- * third state on (unlike emitters, whose availability comes off
- * `hass.states`). Two states, not three.
+ * Selection on the pill, health on the dot (ember, 2026-10-19), the
+ * same model as ir-emitter-picker.ts: a receiver's health is read live
+ * from `hass.states` (entity-health.ts), so a receiver that drops off
+ * shows a hollow ember ring, and the ember alarm when it is selected,
+ * and turns green again without a reload. That needs `.hass`, which
+ * every consumer now passes; without it the chips keep the plain dot
+ * rather than calling every receiver offline.
  *
  * Stored semantics are unchanged: zero chips selected still serializes
  * as empty/unscoped ("any receiver"), so a remote created with nothing
@@ -37,6 +39,7 @@
  * Usage:
  *   <ir-receiver-picker
  *       .api=${this.api}
+ *       .hass=${this.hass}
  *       .value=${["infrared.garage_receiver"]}
  *       @receivers-changed=${(e) => this._ids = e.detail.value}
  *   ></ir-receiver-picker>
@@ -48,11 +51,22 @@ import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
 import type { ReceiverInfo } from "./types.js";
+import {
+    healthChipClass,
+    healthDotClass,
+    healthPhrase,
+    isEntityOnline,
+} from "./entity-health.js";
+import { healthDotStyles, ONLINE_VAR } from "./ir-header-chip-styles.js";
 
 @customElement("ir-receiver-picker")
 export class IrReceiverPicker extends LitElement {
     /** HAIR API client. Required -- the receiver list comes from it. */
     @property({ attribute: false }) public api?: HairApi;
+
+    /** Home Assistant, for each receiver's health. Live: a new hass
+     *  object re-renders the chips. */
+    @property({ attribute: false }) public hass?: any;
 
     /** Currently selected receiver entity IDs. */
     @property({ attribute: false }) public value: string[] = [];
@@ -119,25 +133,34 @@ export class IrReceiverPicker extends LitElement {
 
     private _renderChip(r: ReceiverInfo) {
         const on = this.value.includes(r.entity_id);
-        const word = on ? t("picker.state_on") : t("picker.state_off");
+        // No hass, no health: a plain dot, never a false "offline".
+        const health = this.hass !== undefined;
+        const online = health && isEntityOnline(this.hass.states, r.entity_id);
+        const cls = health ? healthChipClass(on, online) : on ? "on" : "";
+        const word = health
+            ? healthPhrase(online, on, t)
+            : t(on ? "common.selected" : "common.not_selected");
         return html`
             <button
-                class="rx ${on ? "on" : ""}"
+                class="rx ${cls}"
                 role="switch"
                 aria-checked=${on ? "true" : "false"}
                 aria-label="${r.name}, ${word}"
                 ?disabled=${this.disabled}
-                title="${r.entity_id} · ${word}"
+                title="${r.name}, ${word} · ${r.entity_id}"
                 @click=${() => this._toggle(r.entity_id)}
             >
-                <span class="dot"></span>
+                <span class="dot ${health ? healthDotClass(online) : ""}"></span>
                 <span class="rx-name">${r.name}</span>
             </button>
         `;
     }
 
-    static styles = css`
+    static styles = [css`
         :host {
+            /* The offline ring, one pixel wider than this picker's
+               7px dot (healthDotStyles). */
+            --hair-ring: 8px;
             display: var(--picker-host-display, block);
             align-items: var(--picker-host-align, flex-start);
             gap: var(--picker-host-gap, 0);
@@ -199,16 +222,17 @@ export class IrReceiverPicker extends LitElement {
             background: rgba(79, 158, 90, 0.12);
             color: var(--primary-text-color);
         }
-        .rx.on .dot {
-            background: #6cbf78;
-            box-shadow: 0 0 5px rgba(108, 191, 120, 0.6);
+        /* Without hass (no health to show) a selected chip keeps the
+           plain lit dot it always had, from the shared token. */
+        .rx.on .dot:not(.online):not(.offline) {
+            background: ${ONLINE_VAR};
         }
         .no-receivers {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
             font-style: italic;
         }
-    `;
+    `, healthDotStyles];
 }
 
 declare global {

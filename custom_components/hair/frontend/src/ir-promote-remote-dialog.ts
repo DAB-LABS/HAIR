@@ -52,6 +52,9 @@ import type { HairApi } from "./api.js";
 @customElement("ir-promote-remote-dialog")
 export class IrPromoteRemoteDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
+    /** Home Assistant, passed through to the receiver picker so its
+     *  chips show each receiver's health live (ember, 2026-10-19). */
+    @property({ attribute: false }) public hass?: any;
 
     /** Pre-filled remote name from the source's own label. */
     @property() public suggestedName = "";
@@ -187,6 +190,7 @@ export class IrPromoteRemoteDialog extends LitElement {
 
                 <ir-receiver-picker
                     .api=${this.api}
+                    .hass=${this.hass}
                     .value=${this._receiverIds}
                     ?disabled=${this._busy}
                     @receivers-changed=${(e: CustomEvent) =>

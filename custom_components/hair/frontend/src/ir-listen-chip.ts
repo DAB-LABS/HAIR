@@ -39,6 +39,15 @@
  *   addendum, 2026-10-17: the dot belongs to the header-style chips)
  *   and no glyph (the card around it is already a link). The tone,
  *   the fill and the bloom are the same.
+ * OFFLINE (ember, 2026-10-19): when HA cannot reach the receiver or
+ * BroadSniff's switch (ir-listen-state.ts listenOnline), the chip is
+ * disabled, keeps its gold outline dimmed, wears the shared ember ring
+ * for a dot, and its tooltip and accessible name say offline. Gold and green still mean ready and
+ * listening: that is the capture window, not health. The compact
+ * RX-CAPTURE badge has no dot; it goes ember instead, like the hardware
+ * card's other badges (owner bench, 2026-10-19), is not clickable, and
+ * says its health first.
+ *
  * Every click and keydown stops at the chip. The hardware card around
  * the compact form navigates on click, and its keydown handler cancels
  * Enter and Space, which would otherwise swallow the chip button's own
@@ -48,13 +57,14 @@ import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { keyed } from "lit/directives/keyed.js";
 import type { HairApi } from "./api.js";
 import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
-import { headerChipStyles } from "./ir-header-chip-styles.js";
+import { EMBER_VAR, headerChipStyles } from "./ir-header-chip-styles.js";
 import { exitToEntityButtonStyles, renderExitToEntityBtn } from "./ir-icons.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import {
     listenBlooms,
     listenLive,
+    listenOnline,
     planFill,
     windowMs,
     type FillPlan,
@@ -149,16 +159,29 @@ export class IrListenChip extends LitElement {
     render() {
         if (!this.row) return nothing;
         const row = this.row;
-        const live = this._live();
+        // Offline (ember, 2026-10-19): the capture window cannot open,
+        // so the chip shows no window state at all. It stays gold,
+        // dimmed rather than grey so it still reads as a capture device
+        // that is down, its dot becomes the ember ring, and it cannot be
+        // pressed until HA reaches the remote again.
+        const online = listenOnline(this.hass?.states, row);
+        const live = online ? this._live() : { on: false, endsAt: null, codes: null };
         const fill = live.on ? this._fill : undefined;
-        const word = this._failed
-            ? t("listen.failed", { name: row.name })
-            : live.on
-              ? t("listen.on_title", { name: row.name })
-              : t("listen.off_title", { name: row.name });
+        const said = !online
+            ? t("listen.offline_title", { name: row.name })
+            : this._failed
+              ? t("listen.failed", { name: row.name })
+              : live.on
+                ? t("listen.on_title", { name: row.name })
+                : t("listen.off_title", { name: row.name });
+        // The compact form is a hardware badge, and every badge on the
+        // card says its health first: "RX-CAPTURE, online: ...".
+        const word = this.compact
+            ? `${RX_CAPTURE_LABEL}, ${t(online ? "common.online" : "common.offline")}: ${said}`
+            : said;
         return html`
             <span
-                class="chip listen ${live.on ? "on" : "idle"} ${this._failed ? "failed" : ""} ${this._bloomed ? "bloom" : ""}"
+                class="chip listen ${live.on ? "on" : "idle"} ${online ? "" : "offline"} ${this._failed && online ? "failed" : ""} ${this._bloomed && online ? "bloom" : ""}"
                 style="--tone:${live.on ? LISTEN_GREEN : LISTEN_GOLD}"
                 @click=${this._stop}
                 @keydown=${this._stop}
@@ -178,10 +201,12 @@ export class IrListenChip extends LitElement {
                     aria-checked=${live.on ? "true" : "false"}
                     aria-label=${word}
                     title=${word}
-                    ?disabled=${this._busy}
+                    ?disabled=${this._busy || !online}
                     @click=${() => void this._toggle(live.on)}
                 >
-                    ${this.compact ? nothing : html`<span class="dot"></span>`}
+                    ${this.compact
+                        ? nothing
+                        : html`<span class="dot ${online ? "" : "offline"}"></span>`}
                     <span class="chip-name">${this.compact ? RX_CAPTURE_LABEL : row.name}</span>
                 </button>
                 ${this.compact
@@ -227,6 +252,31 @@ export class IrListenChip extends LitElement {
             }
             .chip.listen.failed {
                 border-style: dashed;
+            }
+            /* Offline (ember, 2026-10-19): the gold outline dimmed, no
+               wash, quiet text, and the shared ember ring in place of
+               the gold dot (healthDotStyles draws the ring; this only
+               keeps the gold background off it). */
+            .chip.listen.offline {
+                border-color: color-mix(in srgb, var(--tone) 45%, transparent);
+                background: none;
+                color: var(--secondary-text-color);
+            }
+            .chip.listen .dot.offline {
+                background: transparent;
+                box-shadow: none;
+            }
+            .chip.listen.offline .listen-toggle:disabled {
+                cursor: not-allowed;
+            }
+            /* The compact RX-CAPTURE badge offline (owner bench,
+               2026-10-19): ember like the hardware card's other badges,
+               on a 13 percent ember ground, and not clickable. */
+            :host([compact]) .chip.listen.offline {
+                background: color-mix(in srgb, ${EMBER_VAR} 13%, transparent);
+            }
+            :host([compact]) .chip.listen.offline .listen-toggle {
+                color: ${EMBER_VAR};
             }
             .listen-toggle {
                 display: inline-flex;

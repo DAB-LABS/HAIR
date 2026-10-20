@@ -1579,6 +1579,7 @@ export class IrClips extends LitElement {
             ${this._promoteRemoteTarget
                 ? html`<ir-promote-remote-dialog
                       .api=${this.api}
+                      .hass=${this.hass}
                       .suggestedName=${this._promoteRemoteTarget.suggestedName}
                       .sourceUnknownId=${this._promoteRemoteTarget
                           .sourceUnknownId ?? ""}
@@ -1664,6 +1665,7 @@ export class IrClips extends LitElement {
             ${this._triggerDialog
                 ? html`<ir-trigger-dialog
                       .api=${this.api}
+                      .hass=${this.hass}
                       .signalFingerprint=${this._triggerDialog.signal.fingerprint}
                       .byteHash=${this._triggerDialog.signal.byte_hash ?? null}
                       .decodedFingerprint=${this._triggerDialog.signal.decoded_fingerprint ?? null}
@@ -1679,6 +1681,7 @@ export class IrClips extends LitElement {
             ${this._triggerEditDialog
                 ? html`<ir-trigger-dialog
                       .api=${this.api}
+                      .hass=${this.hass}
                       .trigger=${this._triggerEditDialog}
                       @trigger-saved=${this._onTriggerSaved}
                       @closed=${this._closeTriggerDialog}

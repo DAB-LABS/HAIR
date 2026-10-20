@@ -8,7 +8,7 @@
  * Emits ``device-selected`` and ``add-device`` events for HAIR devices.
  * Emitter/receiver/proxy cards link to their HA integration page.
  */
-import { LitElement, html, css, nothing, type PropertyValues } from "lit";
+import { LitElement, html, css, nothing, unsafeCSS, type PropertyValues } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
@@ -51,7 +51,8 @@ import { landedManyNotice } from "./api.js";
 import { BROADSNIFF_URL } from "./types.js";
 import type { BroadSniffReceiverRow } from "./types.js";
 import "./ir-listen-chip.js";
-import { rxCaptureMatch } from "./ir-listen-state.js";
+import { LISTEN_GOLD, LISTEN_GREEN } from "./ir-listen-chip.js";
+import { listenLive, listenOnline, rxCaptureMatch } from "./ir-listen-state.js";
 import type { MatrixCardPick } from "./ir-matrix-card.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
@@ -73,6 +74,9 @@ import type {
     WigInfo,
 } from "./types.js";
 import { entityDisplayName, entityFullName } from "./entity-names.js";
+import { cardGlyph, cardHealth, isEntityOnline, partsHealth } from "./entity-health.js";
+import { cardIconPath } from "./card-icons.js";
+import { EMBER_VAR, ONLINE_VAR } from "./ir-header-chip-styles.js";
 
 /**
  * Sentinel "device id" for the single HAIR Triggers drawer card, reusing
@@ -128,25 +132,9 @@ const ICON_DEVICES_TV =
     "73-6.608,3.773-10.638 c0-7.759-5.216-15.61-15.188-15.61c-4.672,0-8.617,1.722-11.415,4.972c-2.433,2.828-3.773,6.609-3.773,10.638 C396.723,224.294,401.938,232.147,411.912,232.147z M413.537,249.715c-4.667,0-8.612,1.727-11.41,4.977c-2.433,2.823-3.778,6.606-3.778,10.633 c0,7.759,5.215,15.61,15.184,15.61c" +
     "4.672,0,8.617-1.717,11.41-4.967c2.432-2.834,3.777-6.611,3.777-10.644 C428.725,257.575,423.504,249.715,413.537,249.715z";
 
-// MDI: upload-outline for emitters (mirrors download-outline for receivers)
-const ICON_EMITTER =
-    "M9,10V16H15V10H19L12,3L5,10H9M12,5.8L14.2,8H13V14H11V8H9.8L12,5.8M19,18H5V20H19V18Z";
-
-// MDI: download-outline for receivers
-const ICON_RECEIVER =
-    "M13,5V11H14.17L12,13.17L9.83,11H11V5H13M15,3H9V9H5L12,16L19,9H15V3M19,18H5V20H19V18Z";
-
-// MDI: gesture-tap-button for a receiver that hears only while a
-// capture window is open (a BroadSniff Broadlink): a finger pressing a
-// button, the gesture people know from the device itself (BroadSniff
-// Listen round 2). From @mdi/js 7.4.47, the same package and version as
-// the download and upload glyphs above (checked byte for byte).
-const ICON_CAPTURE_RECEIVER =
-    "M13 5C15.21 5 17 6.79 17 9C17 10.5 16.2 11.77 15 12.46V11.24C15.61 10.69 16 9.89 16 9C16 7.34 14.66 6 13 6S10 7.34 10 9C10 9.89 10.39 10.69 11 11.24V12.46C9.8 11.77 9 10.5 9 9C9 6.79 10.79 5 13 5M20 20.5C19.97 21.32 19.32 21.97 18.5 22H13C12.62 22 12.26 21.85 12 21.57L8 17.37L8.74 16.6C8.93 16.39 9.2 16.28 9.5 16.28H9.7L12 18V9C12 8.45 12.45 8 13 8S14 8.45 14 9V13.47L15.21 13.6L19.15 15.79C19.68 16.03 20 16.56 20 17.14V20.5M20 2H4C2.9 2 2 2.9 2 4V12C2 13.11 2.9 14 4 14H8V12L4 12L4 4H20L20 12H18V14H20V13.96L20.04 14C21.13 14 22 13.09 22 12V4C22 2.9 21.11 2 20 2Z";
-
-// MDI: radio-tower for proxies
-const ICON_PROXY =
-    "M12,10A2,2 0 0,1 14,12C14,12.5 13.82,12.94 13.53,13.29L16.7,22H14.57L12,14.93L9.43,22H7.3L10.47,13.29C10.18,12.94 10,12.5 10,12A2,2 0 0,1 12,10M12,8A4,4 0 0,0 8,12C8,12.5 8.1,13 8.28,13.46L7.4,15.86C6.53,14.81 6,13.47 6,12A6,6 0 0,1 12,6A6,6 0 0,1 18,12C18,13.47 17.47,14.81 16.6,15.86L15.72,13.46C15.9,13 16,12.5 16,12A4,4 0 0,0 12,8M12,4A8,8 0 0,0 4,12C4,14.36 5,16.5 6.64,17.94L5.92,19.94C3.54,18.11 2,15.23 2,12A10,10 0 0,1 12,2A10,10 0 0,1 22,12C22,15.23 20.46,18.11 18.08,19.94L17.36,17.94C19,16.5 20,14.36 20,12A8,8 0 0,0 12,4Z";
+// The hardware cards' icons (emitter, receiver, proxy, capture) live in
+// card-icons.ts as solid and outline pairs: the icon is the card's
+// health signal (ember, 2026-10-19).
 
 // MDI: flash (lightning bolt) for triggers
 const ICON_TRIGGER =
@@ -1143,14 +1131,16 @@ export class IrDeviceList extends LitElement {
     //     ir-device-detail.ts's _onEmittersChanged) ---
 
     /** Every known receiver (this._receivers -- already loaded, no new
-     *  fetch), mapped to header-chip-group's row shape. Two states
-     *  only, same as ir-receiver-picker.ts: receivers carry no
-     *  availability flag to key a `down` state on. */
+     *  fetch), mapped to header-chip-group's row shape. `online` is read
+     *  live from hass.states (entity-health.ts), so a receiver that
+     *  drops off shows its ember ring, and the alarm when the remote
+     *  listens through it, and turns green again without a reload. */
     private _receiverRows(remote: TriggerRemoteInfo): HeaderChipRow[] {
         return this._receivers.map((r) => ({
             id: r.entity_id,
             name: r.name,
             on: remote.receiver_scope.includes(r.entity_id),
+            online: isEntityOnline(this.hass?.states, r.entity_id),
         }));
     }
 
@@ -1872,6 +1862,74 @@ export class IrDeviceList extends LitElement {
         return { row, ...rxCaptureMatch(attributes, row !== undefined) };
     }
 
+    /** A hardware card's health (ember, 2026-10-19), live from hass:
+     *  "none" when the card's device has no infrared entity (an ESPHome
+     *  event bridge, RX-BRIDGE), "offline" when it has some and every
+     *  one is unavailable, "online" otherwise. `ids` are the card's own
+     *  entities, used when the registry has no device for them. */
+    private _hwHealth(deviceId: string | null | undefined, ids: (string | undefined)[]) {
+        return cardHealth(
+            this.hass,
+            deviceId,
+            ids.filter((id): id is string => typeof id === "string"),
+        );
+    }
+
+    /** Whether any of a card's own entities is online: a proxy's TX
+     *  badge follows its emitters, so one live emitter keeps it green. */
+    private _anyOnline(ids: (string | undefined)[]): boolean {
+        return ids.some((id) => typeof id === "string" && isEntityOnline(this.hass?.states, id));
+    }
+
+    /** A hardware badge's tooltip and accessible name, with its health
+     *  (owner bench, 2026-10-19): "TX-NATIVE, offline: Transmits via
+     *  ...". */
+    private _badgeName(label: string, online: boolean, description: string): string {
+        return `${label}, ${t(online ? "common.online" : "common.offline")}: ${description}`;
+    }
+
+    /** TX-NATIVE, green while its emitter answers and ember while it
+     *  is unavailable. */
+    private _renderTxBadge(ids: (string | undefined)[]) {
+        const online = this._anyOnline(ids);
+        const name = this._badgeName("TX-NATIVE", online, t("devlist.tx_native_title"));
+        return html`<span
+            class="badge tx-native ${online ? "" : "offline"}"
+            role="img"
+            aria-label=${name}
+            title=${name}
+        >TX-NATIVE</span>`;
+    }
+
+    /** A capture device's state for its card glyph, which follows the
+     *  RX-CAPTURE chip: null for a card that is not a capture device. */
+    private _captureGlyphState(entry: MergedHardwareEntry): { online: boolean; listening: boolean } | null {
+        const capture = this._rxCapture(entry);
+        if (capture.kind === null) return null;
+        const states = this.hass?.states;
+        if (capture.kind === "chip" && capture.row && this.api) {
+            const online = listenOnline(states, capture.row);
+            return { online, listening: online && listenLive(states, capture.row).on };
+        }
+        const online = this._anyOnline([entry.native_entity_id]);
+        const capturing = entry.native_entity_id
+            ? states?.[entry.native_entity_id]?.attributes?.capturing === true
+            : false;
+        return { online, listening: online && capturing };
+    }
+
+    /** "OFFLINE", plain ember capitals tucked into the card's top-right
+     *  corner, positioned absolutely so the name row keeps its full
+     *  width; only when every infrared entity on the card's device is
+     *  unavailable. The ember edge comes from the card's is-offline
+     *  class, the hollow glyph from hw-glyph-offline. */
+    private _renderOfflineCorner(health: "none" | "online" | "offline") {
+        if (health !== "offline") return nothing;
+        return html`<span class="hw-offline" title=${t("devlist.offline_title")}
+            >${t("devlist.offline_label")}</span
+        >`;
+    }
+
     /** The receiver badge. A windowed receiver (round 2) gets
      *  RX-CAPTURE in place of RX-NATIVE (owner, 2026-10-17): as the
      *  Listen chip itself when HAIR knows its switch, so a click here
@@ -1879,6 +1937,11 @@ export class IrDeviceList extends LitElement {
      *  static badge when it does not. */
     private _renderNativeBadge(entry: MergedHardwareEntry) {
         const capture = this._rxCapture(entry);
+        // Health on the badge (owner bench, 2026-10-19): green, or the
+        // capture gold, while the receiver answers; ember while it is
+        // unavailable. The Listen chip below judges its own (receiver
+        // and BroadSniff's switch) and goes ember the same way.
+        const online = this._anyOnline([entry.native_entity_id]);
         if (capture.kind === "chip" && capture.row && this.api) {
             return html`<ir-listen-chip
                 compact
@@ -1888,15 +1951,21 @@ export class IrDeviceList extends LitElement {
             ></ir-listen-chip>`;
         }
         if (capture.kind !== null) {
+            const name = this._badgeName("RX-CAPTURE", online, t("devlist.rx_capture_title"));
             return html`<span
-                class="badge rx-capture"
-                title=${t("devlist.rx_capture_title")}
+                class="badge rx-capture ${online ? "" : "offline"}"
+                role="img"
+                aria-label=${name}
+                title=${name}
             >RX-CAPTURE</span>`;
         }
         if (!entry.has_native) return nothing;
+        const name = this._badgeName("RX-NATIVE", online, t("devlist.rx_native_title"));
         return html`<span
-            class="badge rx-native"
-            title=${t("devlist.rx_native_title")}
+            class="badge rx-native ${online ? "" : "offline"}"
+            role="img"
+            aria-label=${name}
+            title=${name}
         >RX-NATIVE</span>`;
     }
 
@@ -2539,10 +2608,19 @@ export class IrDeviceList extends LitElement {
                           <span class="section-count">${this._emitters.length}</span>
                       </div>
                       <div class="grid">
-                          ${this._emitters.map(
-                              (em) => html`
+                          ${this._emitters.map((em) => {
+                              const health = this._hwHealth(
+                                  this.hass?.entities?.[em.entity_id]?.device_id,
+                                  [em.entity_id],
+                              );
+                              // The icon follows the emitter alone.
+                              const glyph = cardGlyph(
+                                  partsHealth(this.hass?.states, [em.entity_id]),
+                                  null,
+                              );
+                              return html`
                                   <div
-                                      class="card hw-card"
+                                      class="card hw-card hw-glyph-${glyph} ${health === "offline" ? "is-offline" : ""}"
                                       tabindex="0"
                                       @click=${() =>
                                           this._navigateIntegration(
@@ -2557,21 +2635,19 @@ export class IrDeviceList extends LitElement {
                                           }
                                       }}
                                   >
+                                      ${this._renderOfflineCorner(health)}
                                       <div class="card-header">
-                                          <ha-svg-icon .path=${ICON_EMITTER}></ha-svg-icon>
+                                          <ha-svg-icon .path=${cardIconPath("emitter", glyph)}></ha-svg-icon>
                                           <div class="card-name" title=${em.fullName}>${em.name}</div>
                                       </div>
                                       <div class="card-meta">${em.entity_id}</div>
                                       <div class="card-footer">
-                                          <span
-                                              class="badge tx-native"
-                                              title=${t("devlist.tx_native_title")}
-                                          >TX-NATIVE</span>
+                                          ${this._renderTxBadge([em.entity_id])}
                                       </div>
                                       ${this._renderBroadSniffHint(em.entity_id)}
                                   </div>
-                              `,
-                          )}
+                              `;
+                          })}
                       </div>
                   `
                 : nothing}
@@ -2584,10 +2660,19 @@ export class IrDeviceList extends LitElement {
                           <span class="section-count">${receivers.length}</span>
                       </div>
                       <div class="grid">
-                          ${receivers.map(
-                              (entry) => html`
+                          ${receivers.map((entry) => {
+                              const health = this._hwHealth(entry.device_id, [
+                                  entry.native_entity_id,
+                                  ...entry.tx_entity_ids,
+                              ]);
+                              // The icon follows the receiver alone.
+                              const glyph = cardGlyph(
+                                  partsHealth(this.hass?.states, [entry.native_entity_id]),
+                                  this._captureGlyphState(entry),
+                              );
+                              return html`
                                   <div
-                                      class="card hw-card"
+                                      class="card hw-card hw-glyph-${glyph} ${health === "offline" ? "is-offline" : ""}"
                                       tabindex="0"
                                       @click=${() => this._navigateIntegration(entry.nav_type)}
                                       @keydown=${(e: KeyboardEvent) => {
@@ -2597,11 +2682,15 @@ export class IrDeviceList extends LitElement {
                                           }
                                       }}
                                   >
+                                      ${this._renderOfflineCorner(health)}
                                       <div class="card-header">
                                           <ha-svg-icon
-                                              .path=${this._rxCapture(entry).kind !== null
-                                                  ? ICON_CAPTURE_RECEIVER
-                                                  : ICON_RECEIVER}
+                                              .path=${cardIconPath(
+                                                  this._rxCapture(entry).kind !== null
+                                                      ? "capture"
+                                                      : "receiver",
+                                                  glyph,
+                                              )}
                                           ></ha-svg-icon>
                                           <div class="card-name">${entry.name}</div>
                                       </div>
@@ -2610,8 +2699,8 @@ export class IrDeviceList extends LitElement {
                                           ${this._renderRxBadges(entry)}
                                       </div>
                                   </div>
-                              `,
-                          )}
+                              `;
+                          })}
                       </div>
                   `
                 : nothing}
@@ -2624,10 +2713,23 @@ export class IrDeviceList extends LitElement {
                           <span class="section-count">${proxies.length}</span>
                       </div>
                       <div class="grid">
-                          ${proxies.map(
-                              (entry) => html`
+                          ${proxies.map((entry) => {
+                              const health = this._hwHealth(entry.device_id, [
+                                  entry.native_entity_id,
+                                  ...entry.tx_entity_ids,
+                              ]);
+                              // The icon goes ember if any part is down;
+                              // the TX and RX badges say which.
+                              const glyph = cardGlyph(
+                                  partsHealth(this.hass?.states, [
+                                      entry.native_entity_id,
+                                      ...entry.tx_entity_ids,
+                                  ]),
+                                  this._captureGlyphState(entry),
+                              );
+                              return html`
                                   <div
-                                      class="card hw-card"
+                                      class="card hw-card hw-glyph-${glyph} ${health === "offline" ? "is-offline" : ""}"
                                       tabindex="0"
                                       @click=${() => this._navigateIntegration(entry.nav_type)}
                                       @keydown=${(e: KeyboardEvent) => {
@@ -2637,8 +2739,9 @@ export class IrDeviceList extends LitElement {
                                           }
                                       }}
                                   >
+                                      ${this._renderOfflineCorner(health)}
                                       <div class="card-header">
-                                          <ha-svg-icon .path=${ICON_PROXY}></ha-svg-icon>
+                                          <ha-svg-icon .path=${cardIconPath("proxy", glyph)}></ha-svg-icon>
                                           <div class="card-name">${entry.name}</div>
                                       </div>
                                       ${entry.tx_entity_ids[0]
@@ -2646,15 +2749,12 @@ export class IrDeviceList extends LitElement {
                                           : nothing}
                                       <div class="card-meta">${entry.native_entity_id ?? entry.nav_type}</div>
                                       <div class="card-footer">
-                                          <span
-                                              class="badge tx-native"
-                                              title=${t("devlist.tx_native_title")}
-                                          >TX-NATIVE</span>
+                                          ${this._renderTxBadge(entry.tx_entity_ids)}
                                           ${this._renderRxBadges(entry)}
                                       </div>
                                   </div>
-                              `,
-                          )}
+                              `;
+                          })}
                       </div>
                   `
                 : nothing}
@@ -2663,6 +2763,7 @@ export class IrDeviceList extends LitElement {
                 ? html`
                       <ir-trigger-dialog
                           .api=${this.api}
+                          .hass=${this.hass}
                           .trigger=${this._editTrigger}
                           @trigger-saved=${this._onTriggerUpdated}
                           @closed=${this._closeEditTrigger}
@@ -2674,6 +2775,7 @@ export class IrDeviceList extends LitElement {
                 ? html`
                       <ir-trigger-dialog
                           .api=${this.api}
+                          .hass=${this.hass}
                           .remoteId=${this._mintTrigger.remoteId}
                           origin="matrix"
                           .presetName=${this._mintTrigger.name ??
@@ -2721,6 +2823,7 @@ export class IrDeviceList extends LitElement {
                 ? html`
                       <ir-duplicate-trigger-remote-dialog
                           .api=${this.api}
+                          .hass=${this.hass}
                           .sourceId=${this._duplicateRemoteTarget.id}
                           .sourceName=${this._duplicateRemoteTarget.name}
                           .sourceReceiverScope=${this._duplicateRemoteTarget.receiver_scope}
@@ -2786,6 +2889,7 @@ export class IrDeviceList extends LitElement {
                 ? html`
                       <ir-promote-remote-dialog
                           .api=${this.api}
+                          .hass=${this.hass}
                           .sourceDeviceId=${this._makeRemoteSource.id}
                           .suggestedName=${this._makeRemoteSource.name}
                           .previewCount=${this._eligibleCommandCount(
@@ -3202,6 +3306,64 @@ export class IrDeviceList extends LitElement {
         /* --- Hardware cards inherit shared .card styles --- */
         .hw-card {
             /* Neutral -- no per-section color backgrounds */
+            /* The anchor for the OFFLINE corner word (ember, 2026-10-19). */
+            position: relative;
+        }
+        /* Health on a hardware card (ember, 2026-10-19; reworked on the
+           owner's bench). The badges carry each entity's health:
+           TX-NATIVE, RX-NATIVE and RX-CAPTURE keep their colour while
+           their own entity answers and turn ember, on a 13 percent
+           ember ground in the .badge shape, while it is unavailable, so
+           a proxy's TX and RX read independently. The icon is the
+           card's own signal (entity-health.ts cardGlyph and
+           partsHealth, card-icons.ts) and follows its own part: an
+           Emitters card its emitter, a Receivers card its receiver, a
+           Proxies card every part, ember if any is down. Answering, it
+           is the solid icon in online green, or a capture device's gold
+           or green following its chip; offline, the outline icon in
+           ember, so it reads by shape as well as colour. Only a card
+           whose infrared entities are all unavailable gets the ember
+           edge at 40 percent and OFFLINE in its top-right corner.
+           RX-BRIDGE and a card with no infrared entity keep today's
+           look. */
+        .badge.tx-native.offline,
+        .badge.rx-native.offline,
+        .badge.rx-capture.offline {
+            color: ${EMBER_VAR};
+            background: color-mix(in srgb, ${EMBER_VAR} 13%, transparent);
+        }
+        .hw-card.is-offline {
+            border-color: color-mix(in srgb, ${EMBER_VAR} 40%, transparent);
+        }
+        .hw-card.hw-glyph-online .card-header ha-svg-icon {
+            color: ${ONLINE_VAR};
+        }
+        .hw-card.hw-glyph-ready .card-header ha-svg-icon {
+            color: ${unsafeCSS(LISTEN_GOLD)};
+        }
+        .hw-card.hw-glyph-listening .card-header ha-svg-icon {
+            color: ${unsafeCSS(LISTEN_GREEN)};
+        }
+        /* Offline: the icon's outline twin (card-icons.ts) in ember, as
+           drawn, with no stroke added; a stroke on top read heavy and
+           blurry in HA's ha-svg-icon. Hollow against the online icon's
+           solid, so it reads by shape as well as colour. */
+        .hw-card.hw-glyph-offline .card-header ha-svg-icon {
+            color: ${EMBER_VAR};
+        }
+        /* About 20 percent under the badges' text, in capitals with a
+           little tracking, out of the name row's flow. */
+        .hw-offline {
+            position: absolute;
+            top: 5px;
+            right: 8px;
+            font-size: 0.6rem;
+            font-weight: 500;
+            line-height: 1;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: ${EMBER_VAR};
+            pointer-events: none;
         }
         /* "Open in Plucker" badge -- standard badge form, no stroke. */
         .pluck-badge {

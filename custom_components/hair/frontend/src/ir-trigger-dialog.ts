@@ -35,6 +35,9 @@ import type { IRTrigger, TriggerRemoteInfo } from "./types.js";
 @customElement("ir-trigger-dialog")
 export class IrTriggerDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
+    /** Home Assistant, passed through to the receiver picker so its
+     *  chips show each receiver's health live (ember, 2026-10-19). */
+    @property({ attribute: false }) public hass?: any;
 
     /** For create mode: signal details. */
     @property() public signalFingerprint = "";
@@ -440,6 +443,7 @@ export class IrTriggerDialog extends LitElement {
                               <div class="receiver-field">
                                   <ir-receiver-picker
                                       .api=${this.api}
+                                      .hass=${this.hass}
                                       .value=${this._receiverIds}
                                       ?disabled=${this._busy}
                                       @receivers-changed=${(e: CustomEvent) => {
@@ -492,6 +496,7 @@ export class IrTriggerDialog extends LitElement {
                 ? html`
                       <ir-add-trigger-remote-dialog
                           .api=${this.api}
+                          .hass=${this.hass}
                           @closed=${this._closeAddRemote}
                           @remote-created=${this._onRemoteCreated}
                       ></ir-add-trigger-remote-dialog>

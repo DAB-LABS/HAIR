@@ -4,6 +4,8 @@ HAIR does not talk to IR hardware directly. It sits on Home Assistant's native `
 
 Use this page to choose what to buy. Ready-made ESPHome configs live under [`esphome/`](../esphome/).
 
+Power proxies from a wall adapter, not a TV's USB port; most TVs cut USB power when they turn off.
+
 ## Quick pick
 
 | Tier | Device | Vendor | Best for | Typical price | Buy | HAIR / ESPHome status | Config |
