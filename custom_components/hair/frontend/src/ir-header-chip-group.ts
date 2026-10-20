@@ -71,12 +71,15 @@
  * to say "open"; this component already had an explicit close
  * affordance and it stays.
  *
- * Three visual chip states, not two: `on` (assigned, glows), `down`
- * (assigned but unreachable -- only emitters ever set this, mirroring
- * ir-emitter-picker.ts's own three-state treatment so the header
- * summary doesn't quietly drop the "this blaster is unplugged" signal
- * that component was built to surface), and `off` (unassigned, hidden
- * while collapsed).
+ * Selection on the pill, health on the dot (ember, 2026-10-19). The
+ * pill says whether a row is on (tone border and wash) or off (grey,
+ * hidden while collapsed). A row that sets `online` also gets a health
+ * dot on every chip, on or off: solid green when HA can reach it, a
+ * hollow ember ring when it cannot, and the one alarm, an ember edge
+ * and wash, when it is on and offline. The Emitters and Receivers rows
+ * set it; the Pin rows leave it undefined, because a Remote or a
+ * Device has no health of its own, and keep the tone dot. The shared
+ * healthDotStyles in ir-header-chip-styles.ts draws all of it.
  *
  * (The `readonly` prop retired in signpost 4, Track 4. It existed so
  * the gated Pin groups could be browsed while having no backend to
@@ -100,15 +103,17 @@
 import { LitElement, html } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { headerChipStyles } from "./ir-header-chip-styles.js";
+import { healthChipClass, healthDotClass, healthPhrase } from "./entity-health.js";
 import { t } from "./localize.js";
 
 export interface HeaderChipRow {
     id: string;
     name: string;
     on: boolean;
-    /** Assigned but unreachable -- meaningless unless `on` is also
-     *  true. Only emitters use this; receivers/pin rows never set it. */
-    down?: boolean;
+    /** Health, for emitter and receiver rows: whether HA can reach the
+     *  entity (entity-health.ts). Undefined on Pin rows, which keep the
+     *  plain tone dot. */
+    online?: boolean;
     /** Tooltip name when it should differ from `name`: an emitter's
      *  chip says its name once, its tooltip keeps HA's full one. */
     title?: string;
@@ -205,23 +210,32 @@ export class IrHeaderChipGroup extends LitElement {
     }
 
     private _renderChip(row: HeaderChipRow) {
-        const cls = row.on ? (row.down ? "down" : "on") : "off";
-        const word = row.on
-            ? row.down
-                ? t("picker.state_unavailable")
-                : t("picker.state_on")
-            : t("picker.state_off");
+        const health = row.online !== undefined;
+        const cls = health
+            ? healthChipClass(row.on, row.online === true) || "off"
+            : row.on
+              ? "on"
+              : "off";
+        const dot = health ? `dot ${healthDotClass(row.online === true)}` : "dot";
+        // "{name}, online, selected": the word stays off the chip and
+        // reaches the tooltip and the accessible name. A Pin row has no
+        // health to report and says only whether it is selected.
+        const words = health
+            ? healthPhrase(row.online === true, row.on, t)
+            : row.on
+              ? t("common.selected")
+              : t("common.not_selected");
         return html`
             <button
                 class="chip ${cls}"
                 role="switch"
                 aria-checked=${row.on ? "true" : "false"}
-                aria-label="${row.name}, ${word}"
+                aria-label="${row.name}, ${words}"
                 ?disabled=${this.disabled}
-                title="${row.title ?? row.name} · ${word}"
+                title="${row.title ?? row.name}, ${words}"
                 @click=${() => this._toggleChip(row)}
             >
-                <span class="dot"></span>
+                <span class=${dot}></span>
                 <span class="chip-name">${row.name}</span>
             </button>
         `;

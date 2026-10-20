@@ -711,6 +711,7 @@ export class IrAddTriggerRemoteDialog extends LitElement {
                 <div class="dlg-section-head"><h5>${t("devlist.receivers")}</h5></div>
                 <ir-receiver-picker
                     .api=${this.api}
+                    .hass=${this.hass}
                     .value=${this._receiverIds}
                     ?disabled=${this._busy}
                     @receivers-changed=${(e: CustomEvent) =>

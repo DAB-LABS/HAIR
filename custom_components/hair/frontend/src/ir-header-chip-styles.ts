@@ -9,8 +9,83 @@
  * chip toggles on one tap and carries a countdown), not in look, and
  * one style module keeps them from drifting apart. Change the look
  * here, once.
+ *
+ * Chip health (ember, 2026-10-19) lives here too: healthDotStyles is
+ * the one fragment every emitter and receiver chip reads for its
+ * online dot, offline ring and selected-offline alarm, and
+ * hairHealthTokens declares the colours on the panel host.
  */
-import { css } from "lit";
+import { css, unsafeCSS } from "lit";
+import { EMBER, EMBER_RGB, ONLINE_GREEN } from "./entity-health.js";
+
+/* Chip health (ember, 2026-10-19): the colours, read from the panel
+   host's custom properties. The literal values live once, in
+   entity-health.ts; they are only the fallback here, for a chip
+   mounted outside the panel. */
+export const EMBER_VAR = css`var(--hair-ember, ${unsafeCSS(EMBER)})`;
+export const ONLINE_VAR = css`var(--hair-online, ${unsafeCSS(ONLINE_GREEN)})`;
+
+/** The health colours as custom properties. The panel host
+ *  (ha-panel-ir-devices.ts) declares them, so every surface under it
+ *  reads one definition. */
+export const hairHealthTokens = css`
+    :host {
+        --hair-ember: ${unsafeCSS(EMBER)};
+        --hair-ember-rgb: ${unsafeCSS(EMBER_RGB)};
+        --hair-online: ${unsafeCSS(ONLINE_GREEN)};
+    }
+`;
+
+/** Selection on the pill, health on the dot (ember, 2026-10-19).
+ *
+ *  One fragment for every emitter and receiver chip: the device
+ *  header's Emitters row, the Remote header's Receivers row, the
+ *  emitter and receiver pickers and the Listen chip's offline ring. (The
+ *  Devices tab's hardware cards carry health on their badges instead,
+ *  in ember from the same token.) Each surface keeps its own dot size and its own
+ *  "on" class for selection; this adds only the health states, and only
+ *  to a dot that carries `online` or `offline`, so a filter chip's dot
+ *  (Mirror, Closet) is never touched.
+ *
+ *    not selected, online   grey pill, solid green dot
+ *    not selected, offline  grey pill, hollow ember ring
+ *    selected, online       tone pill, green dot, glow
+ *    selected, offline      ember edge and wash, ember ring, no glow
+ *
+ *  The ring is a shape change as well as a colour change, so it reads
+ *  for red-green colour blindness. It is one pixel wider than the
+ *  surface's dot (--hair-ring, 7px here, 8px in the pickers). Glow is
+ *  the mark of live and in use, so nothing offline glows.
+ *
+ *  Load it after the surface's own chip rules: its selected-state
+ *  rules tie on specificity with them and win on order. */
+export const healthDotStyles = css`
+    .dot.online {
+        background: ${ONLINE_VAR};
+        box-shadow: none;
+    }
+    .dot.offline {
+        box-sizing: border-box;
+        width: var(--hair-ring, 7px);
+        height: var(--hair-ring, 7px);
+        background: transparent;
+        border: 1.6px solid ${EMBER_VAR};
+        box-shadow: none;
+    }
+    .on .dot.online {
+        background: ${ONLINE_VAR};
+        box-shadow: 0 0 5px color-mix(in srgb, ${ONLINE_VAR} 65%, transparent);
+    }
+    .on .dot.offline {
+        background: transparent;
+        box-shadow: none;
+    }
+    /* The one alarm: selected and offline. */
+    .on.down {
+        border-color: color-mix(in srgb, ${EMBER_VAR} 60%, transparent);
+        background: color-mix(in srgb, ${EMBER_VAR} 9%, transparent);
+    }
+`;
 
 export const headerChipStyles = css`
     /* The host fills the header's row column rather than shrinking
@@ -102,18 +177,6 @@ export const headerChipStyles = css`
         background: var(--tone);
         box-shadow: 0 0 5px color-mix(in srgb, var(--tone) 65%, transparent);
     }
-    /* Assigned but unreachable (emitters only) -- amber, same
-     *  treatment ir-emitter-picker.ts uses, deliberately NOT the
-     *  group's own tone color (this state means "trouble", not
-     *  "on", regardless of which group it's in). */
-    .chip.down {
-        border-color: rgba(217, 164, 65, 0.45);
-        color: #e8dcc2;
-    }
-    .chip.down .dot {
-        background: #d9a441;
-        box-shadow: none;
-    }
     .add-btn {
         display: inline-flex;
         align-items: center;
@@ -180,4 +243,5 @@ export const headerChipStyles = css`
         outline: none;
         border-color: var(--tone, var(--primary-color));
     }
+    ${healthDotStyles}
 `;

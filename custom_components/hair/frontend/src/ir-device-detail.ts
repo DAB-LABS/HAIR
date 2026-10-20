@@ -476,8 +476,8 @@ export class IrDeviceDetail extends LitElement {
     /** Every assignable emitter (getEmitterOptions -- the same
      *  infrared.* / receiver-exclusion / hair_observer filter
      *  ir-emitter-picker.ts itself uses), mapped to header-chip-group's
-     *  row shape. `down` mirrors that component's own three-state
-     *  logic: assigned but HA reports it unreachable. The chip says
+     *  row shape. `online` is the entity's health (entity-health.ts),
+     *  shown on every chip whether it is assigned or not. The chip says
      *  the name once; its tooltip keeps HA's full friendly name. */
     private _emitterRows(): HeaderChipRow[] {
         const receiverIds = new Set(this.receivers.map((r) => r.entity_id));
@@ -487,7 +487,8 @@ export class IrDeviceDetail extends LitElement {
             name: em.name,
             title: em.fullName,
             on: value.includes(em.entity_id),
-            down: value.includes(em.entity_id) && !em.available,
+            // Health on every chip, selected or not (ember, 2026-10-19).
+            online: em.available,
         }));
     }
 
@@ -2023,6 +2024,7 @@ export class IrDeviceDetail extends LitElement {
                 ? html`
                       <ir-trigger-dialog
                           .api=${this.api}
+                          .hass=${this.hass}
                           .protocol=${this._triggerCommand.protocol}
                           .code=${this._triggerCommand.code}
                           .byteHash=${this._triggerCommand.byte_hash ?? null}
@@ -2038,6 +2040,7 @@ export class IrDeviceDetail extends LitElement {
                 ? html`
                       <ir-trigger-dialog
                           .api=${this.api}
+                          .hass=${this.hass}
                           .trigger=${this._triggerEdit}
                           @trigger-saved=${this._onTriggerSaved}
                           @closed=${this._closeTriggerDialog}

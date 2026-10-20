@@ -8,6 +8,7 @@
  * source grep cannot see. Nothing here imports Lit or touches the DOM.
  */
 import type { BroadSniffReceiverRow } from "./types.js";
+import { isEntityOnline } from "./entity-health.js";
 
 /** BroadSniff's own default window, for a remote whose window entity
  *  has no readable state. */
@@ -36,6 +37,17 @@ export interface FillPlan {
 }
 
 type States = Record<string, { state?: string; attributes?: Record<string, any> } | undefined>;
+
+/** Whether the chip can listen at all (ember, 2026-10-19): online only
+ *  when HA can reach both the receiver and BroadSniff's switch. Arming
+ *  goes through the switch and hearing through the receiver, so either
+ *  one unavailable or missing is offline (entity-health.ts's rule). */
+export function listenOnline(states: States | undefined, row: BroadSniffReceiverRow): boolean {
+    return (
+        isEntityOnline(states, row.receiver_entity_id) &&
+        isEntityOnline(states, row.switch_entity_id)
+    );
+}
 
 export function listenLive(states: States | undefined, row: BroadSniffReceiverRow): ListenLive {
     const all = states ?? {};

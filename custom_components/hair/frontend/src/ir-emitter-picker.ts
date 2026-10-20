@@ -10,23 +10,31 @@
  * added. Every emitter renders now, and being assigned is simply the
  * chip's on state.
  *
- * THREE STATES, and the third is the point. HA already knows which
- * emitters are unreachable, and device_manager skips `unavailable` and
- * `unknown` ones at send time. This picker was reading the very same
- * state object for the friendly name and throwing the rest away, so a
- * device could sit there listing a blaster that had been unplugged for
- * a week with nothing to show for it.
+ * SELECTION ON THE PILL, HEALTH ON THE DOT (ember, 2026-10-19). HA
+ * already knows which emitters are unreachable, and device_manager
+ * skips `unavailable` ones at send time. This picker once read the
+ * very same state object for the friendly name and threw the rest
+ * away; then it showed health only for an assigned emitter, in amber,
+ * which read as "attention" rather than "down". Now every chip shows
+ * both, selected or not (entity-health.ts decides online):
  *
- *   assigned + reachable  -> green border, lit dot,  "On"
- *   not assigned          -> divider border, dead dot, "Off"
- *   assigned + unreachable-> amber border, flat dot, "Unavailable"
+ *   not assigned, online   -> grey pill, green dot
+ *   not assigned, offline  -> grey pill, hollow ember ring
+ *   assigned, online       -> green pill, green dot, glow
+ *   assigned, offline      -> ember edge and wash, ember ring, no glow
+ *
+ * The shared healthDotStyles (ir-header-chip-styles.ts) draws the dot
+ * and the alarm, so the picker, the header chips, the Listen chip and
+ * the Devices tab cards cannot drift apart. An offline emitter stays
+ * listed and can still be assigned or removed.
  *
  * The state word is not printed beside the name. The dot is the state,
  * which is what keeps a row of three emitters reading as three things
  * rather than six. The word still reaches anyone who needs it, through
- * the tooltip and the accessible name. Where it is spoken it is "On"
- * and not "Sending": a chip reading Sending on an idle emitter claims
- * a transmission that is not happening.
+ * the tooltip and the accessible name: "{name}, online, selected".
+ * Where it is spoken it is "selected" and not "sending": a chip saying
+ * sending on an idle emitter claims a transmission that is not
+ * happening.
  *
  * Usage:
  *   <ir-emitter-picker
@@ -61,6 +69,8 @@ import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
 import { getEmitterOptions, type EmitterInfo } from "./emitter-options.js";
+import { healthChipClass, healthDotClass, healthPhrase } from "./entity-health.js";
+import { healthDotStyles } from "./ir-header-chip-styles.js";
 
 export { getEmitterOptions, type EmitterInfo };
 
@@ -176,27 +186,16 @@ export class IrEmitterPicker extends LitElement {
 
     private _renderChip(em: EmitterInfo) {
         const on = this.value.includes(em.entity_id);
-        // Only an emitter being ASKED to send has anything to say about
-        // being unreachable. An unassigned one that happens to be down
-        // is simply off, because nothing is expected of it.
-        const down = on && !em.available;
-        const cls = down ? "down" : on ? "on" : "";
-        const word = down
-            ? t("picker.state_unavailable")
-            : on
-              ? t("picker.state_on")
-              : t("picker.state_off");
+        const cls = healthChipClass(on, em.available);
+        const word = healthPhrase(em.available, on, t);
         // The dot carries the state and the name carries itself. A word
         // spelled out beside every chip turned a row of three into a row
         // of six things to read, which is the opposite of what the
         // chip row is for. The word still reaches anyone who needs it:
         // the tooltip and the accessible name both say it.
         // The chip says the name once (entity-names.ts); the tooltip
-        // keeps HA's full friendly name ahead of the entity id.
-        const who =
-            em.fullName === em.entity_id
-                ? em.entity_id
-                : `${em.fullName} · ${em.entity_id}`;
+        // keeps HA's full friendly name, then the entity id:
+        // "{full name}, online, selected · {entity id}".
         return html`
             <button
                 class="em ${cls}"
@@ -204,18 +203,21 @@ export class IrEmitterPicker extends LitElement {
                 aria-checked=${on ? "true" : "false"}
                 aria-label="${em.name}, ${word}"
                 ?disabled=${this.disabled}
-                title="${who} · ${word}"
+                title="${em.fullName}, ${word}${em.fullName === em.entity_id ? "" : ` · ${em.entity_id}`}"
                 @click=${() => this._toggle(em.entity_id)}
             >
-                <span class="dot"></span>
+                <span class="dot ${healthDotClass(em.available)}"></span>
                 <span class="em-name">${em.name}</span>
             </button>
         `;
     }
 
-    static styles = css`
+    static styles = [css`
         :host {
             display: block;
+            /* The offline ring, one pixel wider than this picker's
+               7px dot (healthDotStyles). */
+            --hair-ring: 8px;
         }
         /* Comp L1: the label sits ABOVE its control rather than in a
            fixed gutter beside it. Small, quiet and out of the way, so
@@ -269,34 +271,19 @@ export class IrEmitterPicker extends LitElement {
             background: #4d5359;
             flex: none;
         }
-        /* ON. Green, and the dot glows, because this one is live. */
+        /* SELECTED. The pill takes the green; the dot is health and
+           comes from healthDotStyles, loaded after this block. */
         .em.on {
             border-color: rgba(79, 158, 90, 0.5);
             background: rgba(79, 158, 90, 0.12);
             color: var(--primary-text-color);
-        }
-        .em.on .dot {
-            background: #6cbf78;
-            box-shadow: 0 0 5px rgba(108, 191, 120, 0.6);
-        }
-        /* ASSIGNED BUT DOWN. Amber edge and a warm name, and the dot
-           does NOT glow: the glow is the panel's mark for something
-           that is working, and this is the one case where the device is
-           asking an emitter to fire and HA will skip it. */
-        .em.down {
-            border-color: rgba(217, 164, 65, 0.45);
-            color: #e8dcc2;
-        }
-        .em.down .dot {
-            background: #d9a441;
-            box-shadow: none;
         }
         .no-emitters {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
             font-style: italic;
         }
-    `;
+    `, healthDotStyles];
 }
 
 declare global {

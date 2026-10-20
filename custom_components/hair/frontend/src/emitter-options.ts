@@ -11,6 +11,7 @@
  * doubled-name rule is applied here and nowhere downstream.
  */
 import { entityDisplayName, entityFullName } from "./entity-names.js";
+import { isEntityOnline } from "./entity-health.js";
 
 export interface EmitterInfo {
     entity_id: string;
@@ -20,17 +21,14 @@ export interface EmitterInfo {
     /** The friendly name as HA composes it, or the entity id. The
      *  tooltip keeps this one. */
     fullName: string;
-    /** HA's own verdict. device_manager.py skips these at send time and
-     * the panel never used to say so. */
+    /** Online, by the one shared rule (entity-health.ts): HA can reach
+     *  it. device_manager.py skips an unavailable emitter at send time,
+     *  and every emitter chip shows this on its dot. `unknown` counts
+     *  as online: an emitter's state is its last-send timestamp,
+     *  unknown until the first send, so a brand-new blaster is
+     *  unproven, not down (GH #83). */
     available: boolean;
 }
-
-/** The one state that means "this entity is not answering".
- * "unknown" is deliberately NOT here: an emitter's state is its
- * last-send timestamp, unknown until the first send, so a brand-new
- * blaster in "unknown" is unproven, not down -- painting it amber
- * told every fresh install its hardware was broken (GH #83). */
-const DEAD_STATES = new Set(["unavailable"]);
 
 /** Every `infrared.*` entity that can be assigned as an emitter: not a
  *  known receiver, not flagged `hair_observer`, not in `excludeIds`.
@@ -64,7 +62,7 @@ export function getEmitterOptions(
                 entity_id: entityId,
                 name: entityDisplayName(hass, entityId),
                 fullName: entityFullName(hass, entityId),
-                available: !DEAD_STATES.has(st.state ?? ""),
+                available: isEntityOnline(states, entityId),
             });
         }
     }

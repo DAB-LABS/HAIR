@@ -25,6 +25,7 @@ import type {
     TriggerRemoteInfo,
 } from "./types.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
+import { hairHealthTokens } from "./ir-header-chip-styles.js";
 
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
@@ -644,7 +645,10 @@ export class HaPanelIrDevices extends LitElement {
         `;
     }
 
-    static styles = css`
+    // The health tokens (--hair-ember, --hair-ember-rgb, --hair-online)
+    // are declared here, on the panel host, so every chip, picker and
+    // card under it reads one definition (ember, 2026-10-19).
+    static styles = [hairHealthTokens, css`
         :host {
             display: block;
             background: var(--primary-background-color);
@@ -892,7 +896,7 @@ export class HaPanelIrDevices extends LitElement {
         .mobile-nav-button ha-svg-icon {
             --mdc-icon-size: 22px;
         }
-    `;
+    `];
 }
 
 declare global {

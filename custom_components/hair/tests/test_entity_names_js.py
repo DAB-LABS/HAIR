@@ -309,9 +309,13 @@ class TestEverySurfaceNamesOnce:
         assert 'aria-label="${em.name}, ${word}"' in text
 
     def test_the_picker_tooltip_keeps_the_full_name(self):
+        # Since chip health (ember): "{full name}, online, selected ·
+        # {entity id}", still leading with HA's full name.
         text = _flat("ir-emitter-picker.ts")
-        assert "`${em.fullName} · ${em.entity_id}`" in text
-        assert 'title="${who} · ${word}"' in text
+        assert (
+            'title="${em.fullName}, ${word}${em.fullName === em.entity_id '
+            '? "" : ` · ${em.entity_id}`}"'
+        ) in text
 
     def test_the_shared_list_names_through_the_rule(self):
         text = _flat("emitter-options.ts")
@@ -329,7 +333,7 @@ class TestEverySurfaceNamesOnce:
     def test_the_header_chip_tooltip_prefers_the_row_title(self):
         text = _flat("ir-header-chip-group.ts")
         assert "title?: string;" in text
-        assert 'title="${row.title ?? row.name} · ${word}"' in text
+        assert 'title="${row.title ?? row.name}, ${words}"' in text
         assert '<span class="chip-name">${row.name}</span>' in text
 
     def test_the_devices_tab_cards_name_once(self):
