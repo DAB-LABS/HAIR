@@ -688,6 +688,19 @@ reviewed as of v0.8.0); native-speaker reviews
 and new languages are welcome as small PRs guarded by parity tests (see
 CONTRIBUTING.md, "Adding a language").
 
+Panel layout (0.18.0): below 768px the tabs are one sideways-scrolling row,
+the panel draws its own menu button only when Home Assistant's is hidden,
+and rows reflow for the width. Every panel element registers through the
+guarded customElement in decorators.ts, so a newer bundle loading over an
+open page does not throw on a tag already defined. Emitter names are said
+once: entity-names.ts is the panel's twin of entity_names.py and drops a
+leading device name only when the entity's own name repeats it exactly.
+
+Chip health (0.18.0): every emitter and receiver chip shows selection on the
+pill and health on the dot. entity-health.ts holds the one rule (a state of
+unavailable, or no state, is offline; unknown is online), and offline is
+ember (--hair-ember). Devices tab cards carry it on their badges and icons.
+
 Every device also gets a remote entity for raw Pronto hex codes and a button entity
 per learned command for direct dashboard or automation access.
 
@@ -717,6 +730,20 @@ Receiver architecture:
   (esphome.remote_received events) automatically.
 - Both paths convert signals to Pronto hex at the entry point for consistent
   fingerprinting.
+- Capture windows (0.18.0): some receivers hear only while a capture window
+  is open, such as a Broadlink RM through BroadSniff (DAB-LABS/broadsniff).
+  Any integration marks its infrared receiver as one through state
+  attributes: capturing (required), capture_switch, window_ends_at and
+  capture_mode. The contract is docs/windowed-receivers.md, and
+  receiver_window.py is all HAIR knows of it; no integration is named in
+  code. HAIR toggles only a switch on the receiver's own device or one the
+  user chose, and a declared capture_switch is final. hair/receivers/capture
+  lists capture devices, hair/receivers/listen opens or closes a window (it
+  takes a receiver, never a switch), hair/receivers/capture_switch stores the
+  user's choice and hair/receivers/hardware lists receiver hardware. The panel
+  shows a Listen row in the Sniffer, a split RX-CAPTURE chip on Devices tab
+  cards (the chip listens, its arrow picks the switch) and a receiver pick on
+  Listen in the code editor and Fix.
 
 ## Repositories
 
