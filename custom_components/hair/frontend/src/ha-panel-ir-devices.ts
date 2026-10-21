@@ -30,7 +30,7 @@ import { hairHealthTokens } from "./ir-header-chip-styles.js";
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
 // can identify the installed HAIR version without opening Settings.
-const HAIR_VERSION = "0.18.0";
+const HAIR_VERSION = "0.18.1";
 
 type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror" | "wigs";
 
