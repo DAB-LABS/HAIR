@@ -113,13 +113,13 @@ To turn a set of codes into a Device or Remote:
 
 The Clipper is for pasting a code by hand (Pronto, or a Tuya or Broadlink base64 code); the Plucker pulls codes already learned into a vendor blaster, such as a Tuya Local IR blaster, without transmitting anything over the air.
 
-For a Device, open it afterward and click **ACTIONS** on a command to map it to an entity action, such as `turn_on` or `volume_up`; only mapped actions show up as controls, so an entity never claims a feature your remote does not have.
+For a Device, open it afterward and click **ACTIONS** on a command to map it to an entity action, such as `turn_on` or `volume_up`; only mapped actions show up as controls, so an entity never claims a feature your remote does not have. The entity follows every send HAIR makes to the Device through those mapped actions, whether it came from the entity, a HAIR button, `remote.send_command`, the panel or a pinned Remote.
 
 You can also click the dashed tile at the end of the grid to start one from scratch, or drop a code file onto it so HAIR opens the add dialog already filled in; dropping does not create anything by itself, and completing the dialog files the codes as a wig in your Closet at the same time it creates the Device or Remote. To duplicate a Device instead, use its card; commands and emitter assignments come with it, so you only rename the clone.
 
 <!-- screenshot: dashed add tile, Devices/Remotes grid -->
 
-Each Remote you make is its own device in Home Assistant, so its triggers show up by name under Device in the automation editor; click its header's Home Assistant glyph to jump there.
+Each Remote you make is its own device in Home Assistant, so its triggers show up by name under Device in the automation editor; click its header's Home Assistant glyph to jump there. Each Remote also has a **Last pressed** event entity whose event types are its buttons, for one automation that reacts to whichever button was pressed.
 
 A Device can also build you a matching Remote, and a Remote a matching Device: open the gear, click **Make a Remote** or **Make a Device**, and name it. HAIR then asks whether to pin the two together; see [Set up triggers](#set-up-triggers).
 

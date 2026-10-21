@@ -499,12 +499,20 @@ Key components:
 - Action Mapping: explicitly binds learned IR commands to HA entity features via a
   popover UI. A media_player only exposes volume control if commands are mapped to
   the volume actions, keeping entities clean and avoiding features the remote does
-  not support.
+  not support. Every send HAIR makes to a Device (its own entity, a HAIR button,
+  remote.send_command, the panel, a pinned Remote's retransmit) moves that Device's
+  entity through the same mapping (send_follow.py, on SIGNAL_DEVICE_SENT); an
+  entity's own service calls are marked ORIGIN_ENTITY and skipped, and a power
+  sensor's verdict still has the last word on on/off.
 - Trigger Manager: turns received IR signals into native HA event entities that
   fire hair_ir_command_received events. Any HA automation can consume them. A
   configurable min-hits threshold prevents accidental triggers from a single
   misfire. To the best of the project's knowledge, HAIR is the only HA integration
   turning received IR into automation triggers as of HA 2026.6.
+  Each named Remote also has one "Last pressed" event entity
+  (hair_remote_<id>_last_pressed) whose event types are its buttons' names as
+  written, " (2)" for a repeated name; it fires on every trigger fire of that
+  Remote with the button name, trigger id and per-trigger entity id in the data.
   Location-aware (v0.5.7): the fire payload also carries receiver_entity_id plus
   receiver_area_id and receiver_area_name, resolved from the entity/device/area
   registry chain at fire time (so area renames and device moves need no migration).

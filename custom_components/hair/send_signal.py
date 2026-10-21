@@ -9,17 +9,24 @@ conditioner and left the card where it was. GH #105 is the report; the
 owner's ruling in the same breath was that ANY send HAIR makes to a
 climate Device should move the card.
 
+EVERY PLATFORM FOLLOWS IT (heard state round 1, GH discussion #172).
+Media player, fan, light, switch and cover subscribe too, and read a
+send through the Device's own ``command_mapping`` (``send_follow``): a
+TV turned off by a pinned Remote or a HAIR button entity shows off.
+Every entity marks its own service calls ``ORIGIN_ENTITY`` and skips
+them here, because its setter has already written the state.
+
 SENT ONLY. This is dispatched from the SEND path and nowhere else. A
-matrix Remote hearing the wall handset does not touch the card unless it
-is PINNED, and then it is the pinned SEND that does, through this same
-door. Nothing here is wired to the hear path, deliberately.
+Remote hearing its handset does not move a Device unless it is PINNED,
+and then it is the pinned SEND that does, through this same door.
+Nothing here is wired to the hear path, deliberately.
 
 Exactly the ``SIGNAL_POWER_VERDICT`` pattern that already exists between
 ``power_monitor`` and ``climate``, and it layers UNDER it: a send moves
 mode, fan, swing, temp and power as BELIEF, and the plug remains the last
 word on on/off whenever it speaks.
 
-WHY A MODULE OF ITS OWN. So ``climate.py`` imports a constant and a
+WHY A MODULE OF ITS OWN. So the platforms import a constant and a
 dataclass rather than the device manager, which imports the entity
 factory, which the platforms import. One small leaf keeps that direction
 one-way.

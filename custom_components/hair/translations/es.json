@@ -33,5 +33,12 @@
       "button_pressed": "{subtype} pulsado",
       "state_heard": "Estado oído"
     }
+  },
+  "entity": {
+    "event": {
+      "last_pressed": {
+        "name": "Última pulsación"
+      }
+    }
   }
 }

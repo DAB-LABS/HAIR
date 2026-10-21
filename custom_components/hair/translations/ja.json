@@ -33,5 +33,12 @@
             "button_pressed": "{subtype}が押されました",
             "state_heard": "状態を受信"
         }
+    },
+    "entity": {
+        "event": {
+            "last_pressed": {
+                "name": "最後に押されたボタン"
+            }
+        }
     }
 }

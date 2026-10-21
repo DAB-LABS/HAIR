@@ -33,5 +33,12 @@
             "button_pressed": "{subtype} gedrückt",
             "state_heard": "Zustand gehört"
         }
+    },
+    "entity": {
+        "event": {
+            "last_pressed": {
+                "name": "Zuletzt gedrückt"
+            }
+        }
     }
 }

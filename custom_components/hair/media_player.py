@@ -22,8 +22,16 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
+from .send_follow import mapped_keys, one_of, power_after
+from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 
 _LOGGER = logging.getLogger(__name__)
+
+#: The stored states that mean the set was on. Playback itself is not
+#: restored (HAIR cannot know it still holds), only that it was on.
+# The stored states that restore as ON. These are MediaPlayerState's
+# string values (a StrEnum, so a stored state compares equal to them).
+_RESTORES_ON = frozenset({STATE_ON, "playing", "paused", "idle", "buffering"})
 
 
 async def async_setup_entry(
@@ -89,6 +97,8 @@ class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
         # Power monitoring (Device Settings, 0.9.8). None until
         # async_added_to_hass connects; None again after removal.
         self._power_verdict_unsub: CALLBACK_TYPE | None = None
+        # What HAIR sends from anywhere else (heard state, round 1).
+        self._device_sent_unsub: CALLBACK_TYPE | None = None
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -140,11 +150,21 @@ class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
         self._power_verdict_unsub = async_dispatcher_connect(
             self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
         )
+        # The entity follows what HAIR sends, as climate has since GH
+        # #105: a button entity, remote.send_command, a panel send or a
+        # pinned Remote's retransmit. Layered UNDER the power verdict
+        # above: a send is belief, the plug is evidence.
+        self._device_sent_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_DEVICE_SENT, self._handle_device_sent
+        )
 
     async def async_will_remove_from_hass(self) -> None:
         if self._power_verdict_unsub is not None:
             self._power_verdict_unsub()
             self._power_verdict_unsub = None
+        if self._device_sent_unsub is not None:
+            self._device_sent_unsub()
+            self._device_sent_unsub = None
 
     async def _async_restore_state(self) -> None:
         """Reboot survival (Device Settings, 0.9.8). Seeds assumed
@@ -155,8 +175,12 @@ class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
 
         PLAYBACK STATE STAYS CLAMPED to plain ON/OFF, like the verdict
         handler: HAIR has no way to know whether a restored PLAYING/
-        PAUSED/IDLE state still holds, so it isn't restored. That part
-        is deliberate and correct and is not what changed here.
+        PAUSED/IDLE state still holds, so it isn't restored. But every
+        one of those says the set was ON, so it restores as ON (owner
+        ruling 2026-10-21, heard state round 1). Before, only a literal
+        "on" did, and once sends moved the entity into PLAYING or
+        PAUSED, a restart turned a playing TV "off". Off, standby,
+        unknown and unavailable restore as OFF, as before.
 
         VOLUME AND MUTE ADDED 2026-08-23 (state-restore-audit.md, GH
         #115). They were dropped by the same 0.9.8 scoping rule that
@@ -180,7 +204,7 @@ class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
             return
         self._state = (
             MediaPlayerState.ON
-            if last_state.state == STATE_ON
+            if last_state.state in _RESTORES_ON
             else MediaPlayerState.OFF
         )
 
@@ -206,6 +230,49 @@ class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
             return
         self._state = MediaPlayerState.ON if verdict == "on" else MediaPlayerState.OFF
         self.async_write_ha_state()
+
+    @callback
+    def _handle_device_sent(self, sent: DeviceSent) -> None:
+        """Follow a landed send from anywhere in HAIR but this entity.
+
+        Lands where this entity's own setter for the same key would
+        have: on, off, a 0.05 volume step, mute flipped, PLAYING,
+        PAUSED or IDLE. Rules for a command mapped to several keys are
+        in ``send_follow``.
+        """
+        if sent.device_id != self._device.id or sent.origin == ORIGIN_ENTITY:
+            return
+        keys = mapped_keys(self._device, sent)
+        if not keys:
+            return
+        before = (self._state, self._volume_level, self._is_muted)
+        power = power_after(keys, self._state != MediaPlayerState.OFF)
+        if power is not None:
+            self._state = MediaPlayerState.ON if power else MediaPlayerState.OFF
+        if self._state != MediaPlayerState.OFF:
+            if "play" in keys and "pause" in keys and "stop" not in keys:
+                # One Play/Pause button.
+                self._state = (
+                    MediaPlayerState.PAUSED
+                    if self._state == MediaPlayerState.PLAYING
+                    else MediaPlayerState.PLAYING
+                )
+            else:
+                playback = one_of(keys, "play", "pause", "stop")
+                if playback is not None:
+                    self._state = {
+                        "play": MediaPlayerState.PLAYING,
+                        "pause": MediaPlayerState.PAUSED,
+                        "stop": MediaPlayerState.IDLE,
+                    }[playback]
+        step = one_of(keys, "volume_up", "volume_down")
+        if step is not None and self._volume_level is not None:
+            delta = 0.05 if step == "volume_up" else -0.05
+            self._volume_level = max(0.0, min(1.0, self._volume_level + delta))
+        if "mute" in keys:
+            self._is_muted = not self._is_muted
+        if (self._state, self._volume_level, self._is_muted) != before:
+            self.async_write_ha_state()
 
     async def async_turn_on(self) -> None:
         await self._send("turn_on", "power_toggle")
@@ -268,8 +335,11 @@ class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
                 continue
             command = self._device.get_command_by_name(command_name)
             if command is not None:
+                # ORIGIN_ENTITY: the setter writes its own state, so the
+                # send-follow handler above must skip this send, or a
+                # power_toggle would turn the TV on and straight off.
                 await self._manager.async_send_command(
-                    self._device.id, command.id
+                    self._device.id, command.id, origin=ORIGIN_ENTITY
                 )
                 return
         _LOGGER.warning(

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Every named Remote has a "Last pressed" event entity whose event types are its buttons, so one automation can react to "Last pressed: Power" or any other button. The event carries the button's name, its trigger id and its own event entity; the event type is the button's name as written, so renaming a button renames its event type, and an automation that must survive a rename can use the button's own event entity instead. A Remote with no buttons yet has the entity too, so it shows up in Home Assistant as a device with one entity.
+
+### Changed
+
+- A Device's media player, fan, light, switch or screen entity now follows every send HAIR makes to that Device, as the air-conditioner card already did: a HAIR button entity, `remote.send_command`, a send from the panel or a pinned Remote's retransmit moves its state, read through the Device's mapped actions. A command mapped as a toggle flips the state, and a power sensor, where one is set, still has the last word on on and off.
+
+### Fixed
+
+- A media player that was playing, paused, idle or buffering when Home Assistant stopped now comes back on after the restart. It came back off, so the next press of a toggle showed it on while the TV went off. Off, standby, unknown and unavailable still come back off.
+
 ## [0.18.0] - 2026-10-21 -- BroadSniffed
 
 ### Added

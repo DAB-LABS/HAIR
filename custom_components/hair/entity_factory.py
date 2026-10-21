@@ -57,6 +57,16 @@ def button_unique_id(device_id: str, command_id: str) -> str:
     return f"hair_{device_id}{_BUTTON_MARKER}{command_id}"
 
 
+def remote_last_pressed_unique_id(remote_id: str) -> str:
+    """The unique id one Remote's "Last pressed" event entity builds.
+
+    Mirrors ``HAIRRemoteLastPressedEntity.__init__``. Deliberately not a
+    family ``classify_unique_id`` knows, so the orphan sweep never
+    touches these rows; deleting a Remote forgets its row directly.
+    """
+    return f"{_HAIR_PREFIX}remote_{remote_id}_last_pressed"
+
+
 def trigger_unique_id(trigger_id: str) -> str:
     """The unique id one trigger's event entity builds for itself.
 
