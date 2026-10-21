@@ -25,6 +25,8 @@ from homeassistant.util.percentage import (
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
+from .send_follow import mapped_keys, one_of, power_after
+from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,6 +94,8 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
         # Power monitoring (Device Settings, 0.9.8). None until
         # async_added_to_hass connects; None again after removal.
         self._power_verdict_unsub: CALLBACK_TYPE | None = None
+        # What HAIR sends from anywhere else (heard state, round 1).
+        self._device_sent_unsub: CALLBACK_TYPE | None = None
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -138,11 +142,19 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
         self._power_verdict_unsub = async_dispatcher_connect(
             self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
         )
+        # The entity follows what HAIR sends, as climate has since GH
+        # #105, layered UNDER the power verdict above.
+        self._device_sent_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_DEVICE_SENT, self._handle_device_sent
+        )
 
     async def async_will_remove_from_hass(self) -> None:
         if self._power_verdict_unsub is not None:
             self._power_verdict_unsub()
             self._power_verdict_unsub = None
+        if self._device_sent_unsub is not None:
+            self._device_sent_unsub()
+            self._device_sent_unsub = None
 
     async def _async_restore_state(self) -> None:
         """Reboot survival (Device Settings, 0.9.8). Seeds assumed
@@ -201,6 +213,39 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
             return
         self._is_on = verdict == "on"
         self.async_write_ha_state()
+
+    @callback
+    def _handle_device_sent(self, sent: DeviceSent) -> None:
+        """Follow a landed send from anywhere in HAIR but this entity.
+
+        Lands where this entity's own setter for the same key would
+        have: on, off, a ``speed_N`` step's percentage (and on), a 25
+        step up or down, oscillation flipped. Rules for a command mapped
+        to several keys are in ``send_follow``.
+        """
+        if sent.device_id != self._device.id or sent.origin == ORIGIN_ENTITY:
+            return
+        keys = mapped_keys(self._device, sent)
+        if not keys:
+            return
+        before = (self._is_on, self._percentage, self._oscillating)
+        power = power_after(keys, self._is_on)
+        if power is not None:
+            self._is_on = power
+        mapping = self._device.entity_config.command_mapping
+        steps = self._mapped_speed_steps(mapping)
+        speed = one_of(keys, *steps) if steps else None
+        if speed is not None and power is not False:
+            self._percentage = ordered_list_item_to_percentage(steps, speed)
+            self._is_on = True
+        step = one_of(keys, "speed_up", "speed_down")
+        if step is not None:
+            delta = 25 if step == "speed_up" else -25
+            self._percentage = max(0, min(100, (self._percentage or 0) + delta))
+        if "oscillate" in keys:
+            self._oscillating = not self._oscillating
+        if (self._is_on, self._percentage, self._oscillating) != before:
+            self.async_write_ha_state()
 
     async def async_turn_on(
         self,
@@ -273,8 +318,11 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
                 continue
             command = self._device.get_command_by_name(command_name)
             if command is not None:
+                # ORIGIN_ENTITY: the setter writes its own state, so the
+                # send-follow handler must skip this send, or a
+                # power_toggle would apply twice and undo itself.
                 await self._manager.async_send_command(
-                    self._device.id, command.id
+                    self._device.id, command.id, origin=ORIGIN_ENTITY
                 )
                 return True
         _LOGGER.warning(

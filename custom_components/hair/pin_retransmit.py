@@ -4,8 +4,12 @@ A confirmed trigger fire on a pinned Remote retransmits the mapped
 command out each pinned Device's own emitters. This module owns the
 dispatch POLICY only; the send itself is the device's ordinary send
 path, so send_count, the transmit gate's per-emitter stagger, the
-emitter loop, assumed state and the Mirror's echo expectation all
-apply unchanged -- the device's command, sent the device's way.
+emitter loop and the Mirror's echo expectation all apply as for any
+other send -- the device's command, sent the device's way. The send
+also moves the Device's state: every platform follows
+``SIGNAL_DEVICE_SENT`` (climate since GH #105, the other five since
+heard state round 1), so a pinned press of Power moves the TV entity
+exactly as the TV's own button entity would.
 
 Why a policy is needed at all. ``_fire_trigger`` is a synchronous
 callback on the capture path, so a retransmit cannot be awaited there

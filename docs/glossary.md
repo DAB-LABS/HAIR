@@ -130,6 +130,11 @@ commands: press a button on the handset and its trigger fires. Each Remote is
 its own device in Home Assistant, so its buttons show up by name in the
 automation editor.
 
+**Last pressed.** The event entity every named Remote has, whose event types
+are its buttons by name. It fires whenever one of the Remote's triggers fires,
+so one automation can react to "Last pressed: Power" or to any button. A
+renamed button's event type follows the new name. HAIR Triggers has none.
+
 **HAIR Triggers.** The built-in, catch-all Remote that has always been there.
 Any trigger you do not give to a named Remote lives here, and it is the only
 Remote whose triggers can be scoped to particular receivers.

@@ -11,12 +11,15 @@ from homeassistant.components.cover import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_CLOSED, STATE_OPEN
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
+from .send_follow import mapped_keys, one_of
+from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +80,8 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
         self._attr_unique_id = f"hair_{device.id}_cover"
         self._attr_name = None
         self._is_closed: bool | None = None
+        # What HAIR sends from anywhere else (heard state, round 1).
+        self._device_sent_unsub: CALLBACK_TYPE | None = None
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -105,6 +110,17 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
 
     async def async_added_to_hass(self) -> None:
         await self._async_restore_state()
+        # The entity follows what HAIR sends, as climate has since GH
+        # #105. There is still no power-verdict subscription here (see
+        # the restore docstring below); this is the send side only.
+        self._device_sent_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_DEVICE_SENT, self._handle_device_sent
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._device_sent_unsub is not None:
+            self._device_sent_unsub()
+            self._device_sent_unsub = None
 
     async def _async_restore_state(self) -> None:
         """Reboot survival (restore completeness, 2026-08-23).
@@ -143,6 +159,24 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
         elif last_state.state == STATE_OPEN:
             self._is_closed = False
 
+    @callback
+    def _handle_device_sent(self, sent: DeviceSent) -> None:
+        """Follow a landed send from anywhere in HAIR but this entity:
+        open or closed, as this entity's own setters land. ``stop_cover``
+        moves nothing, and a command mapped to both open and close is a
+        contradiction that moves nothing either."""
+        if sent.device_id != self._device.id or sent.origin == ORIGIN_ENTITY:
+            return
+        move = one_of(
+            mapped_keys(self._device, sent), "open_cover", "close_cover"
+        )
+        if move is None:
+            return
+        closed = move == "close_cover"
+        if self._is_closed != closed:
+            self._is_closed = closed
+            self.async_write_ha_state()
+
     async def async_open_cover(self, **kwargs: Any) -> None:
         await self._send("open_cover")
         self._is_closed = False
@@ -176,8 +210,10 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
                 continue
             command = self._device.get_command_by_name(command_name)
             if command is not None:
+                # ORIGIN_ENTITY: the setter writes its own state, so the
+                # send-follow handler must skip this send.
                 await self._manager.async_send_command(
-                    self._device.id, command.id
+                    self._device.id, command.id, origin=ORIGIN_ENTITY
                 )
                 return
         _LOGGER.warning(

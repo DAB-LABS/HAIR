@@ -542,9 +542,18 @@ class TriggerManager:
             "receiver_area_name": receiver_area_name,
         }
 
-        # Fire the event entity.
+        # Fire the event entity. Guarded like the subscriber loop below:
+        # an entity that cannot take the event (one whose add failed, or
+        # a future bug in the platform) must not cost the bus event the
+        # device triggers listen on, the panel glow or a pinned
+        # retransmit, all of which run after this line.
         if self._entity_fire_callback is not None:
-            self._entity_fire_callback(trigger.id, event_data)
+            try:
+                self._entity_fire_callback(trigger.id, event_data)
+            except Exception:
+                _LOGGER.exception(
+                    "Error firing the event entities for trigger %s", trigger.id
+                )
 
         # Fire a general HA bus event (for automations listening directly).
         self._hass.bus.async_fire(EVENT_TRIGGER_FIRED, event_data)
@@ -649,9 +658,11 @@ class TriggerManager:
         """Send one bound target the device's own way.
 
         Goes through the device's normal send so send_count, the tx
-        gate's stagger, the emitter loop, assumed state and the
-        Mirror's echo expectation all apply without this path
-        reimplementing any of them.
+        gate's stagger, the emitter loop and the Mirror's echo
+        expectation all apply without this path reimplementing any of
+        them. The send's ``SIGNAL_DEVICE_SENT`` moves the Device's
+        entity whatever its type (``send_follow``), so the retransmit
+        needs no state handling of its own.
 
         A target whose command id carries the cell prefix is a heard
         STATE driving a pinned matrix Device (signpost 4, Track 4)

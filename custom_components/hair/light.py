@@ -18,6 +18,8 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
+from .send_follow import mapped_keys, power_after
+from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +82,8 @@ class HAIRLightEntity(RestoreEntity, LightEntity):
         # Power monitoring (Device Settings, 0.9.8). None until
         # async_added_to_hass connects; None again after removal.
         self._power_verdict_unsub: CALLBACK_TYPE | None = None
+        # What HAIR sends from anywhere else (heard state, round 1).
+        self._device_sent_unsub: CALLBACK_TYPE | None = None
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -110,11 +114,19 @@ class HAIRLightEntity(RestoreEntity, LightEntity):
         self._power_verdict_unsub = async_dispatcher_connect(
             self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
         )
+        # The entity follows what HAIR sends, as climate has since GH
+        # #105, layered UNDER the power verdict above.
+        self._device_sent_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_DEVICE_SENT, self._handle_device_sent
+        )
 
     async def async_will_remove_from_hass(self) -> None:
         if self._power_verdict_unsub is not None:
             self._power_verdict_unsub()
             self._power_verdict_unsub = None
+        if self._device_sent_unsub is not None:
+            self._device_sent_unsub()
+            self._device_sent_unsub = None
 
     async def _async_restore_state(self) -> None:
         """Reboot survival (Device Settings, 0.9.8). Seeds assumed
@@ -139,6 +151,19 @@ class HAIRLightEntity(RestoreEntity, LightEntity):
             return
         self._is_on = verdict == "on"
         self.async_write_ha_state()
+
+    @callback
+    def _handle_device_sent(self, sent: DeviceSent) -> None:
+        """Follow a landed send from anywhere in HAIR but this entity:
+        on, off or flipped, as ``send_follow.power_after`` decides.
+        This entity tracks no brightness, so a brightness key moves
+        nothing."""
+        if sent.device_id != self._device.id or sent.origin == ORIGIN_ENTITY:
+            return
+        power = power_after(mapped_keys(self._device, sent), self._is_on)
+        if power is not None and power != self._is_on:
+            self._is_on = power
+            self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self._send("turn_on", "power_toggle")
@@ -169,8 +194,11 @@ class HAIRLightEntity(RestoreEntity, LightEntity):
                 continue
             command = self._device.get_command_by_name(command_name)
             if command is not None:
+                # ORIGIN_ENTITY: the setter writes its own state, so the
+                # send-follow handler must skip this send, or a
+                # power_toggle would apply twice and undo itself.
                 await self._manager.async_send_command(
-                    self._device.id, command.id
+                    self._device.id, command.id, origin=ORIGIN_ENTITY
                 )
                 return
         _LOGGER.warning(

@@ -491,7 +491,19 @@ class _EventEntity:
     _attr_event_types: list[str] = []  # noqa: RUF012
     hass = None  # mirrors HA's Entity class attribute (None pre-registration)
     def __init_subclass__(cls, **kw): pass
-    def _trigger_event(self, event_type, event_attributes=None): pass
+
+    @property
+    def event_types(self):
+        return self._attr_event_types
+
+    def _trigger_event(self, event_type, event_attributes=None):
+        # As HA's EventEntity: a type outside event_types is refused,
+        # which is what a "Last pressed" fire racing its sync would hit.
+        if event_type not in self.event_types:
+            raise ValueError(f"Invalid event type {event_type}")
+        self._last_event_type = event_type
+        self._last_event_attributes = event_attributes
+
     def async_write_ha_state(self): pass
 
 _stub("homeassistant.components.event", {

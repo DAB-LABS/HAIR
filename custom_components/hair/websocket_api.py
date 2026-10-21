@@ -3548,6 +3548,10 @@ async def ws_create_trigger(
 
     entry_id = data["config_entry"].entry_id
     sync_trigger_entities(hass, entry_id, trigger=trigger)
+    # Its Remote's "Last pressed" gains the button as an event type.
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
 
     connection.send_result(msg["id"], trigger.to_dict())
 
@@ -3617,6 +3621,10 @@ async def ws_update_trigger(
     entity = entities.get(trigger.id)
     if entity is not None:
         entity.update_trigger(trigger)
+    # A rename renames the button's "Last pressed" event type.
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
 
     connection.send_result(msg["id"], trigger.to_dict())
 
@@ -3652,6 +3660,9 @@ async def ws_delete_trigger(
 
     entry_id = data["config_entry"].entry_id
     sync_trigger_entities(hass, entry_id, removed_id=msg["trigger_id"])
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
 
     connection.send_result(msg["id"], {"removed": True})
 
@@ -3718,6 +3729,10 @@ async def ws_reorder_triggers(
         connection.send_error(msg["id"], "invalid_format", str(err))
         return
     await store.async_save()
+    # "Last pressed" lists a Remote's buttons in its button order.
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
     connection.send_result(msg["id"], {"reordered": True})
 
 
@@ -4073,6 +4088,11 @@ async def ws_create_trigger_remote(
             trigger_count = len(copy.get("triggers", []))
         await monitor.mark_promoted_remote(source_unknown, remote.id)
 
+    # Its "Last pressed" entity, with or without buttons yet.
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
+
     connection.send_result(msg["id"], {
         **remote.to_dict(),
         "ha_device_id": ha_device_id,
@@ -4126,6 +4146,9 @@ async def ws_rename_trigger_remote(
 
     entry_id = data["config_entry"].entry_id
     resync_remote_name(hass, entry_id, remote.id, name)
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
 
     registry = dr.async_get(hass)
     ha_device = device_by_identifier(
@@ -4251,6 +4274,10 @@ async def ws_delete_trigger_remote(
     entry_id = data["config_entry"].entry_id
     for trigger in removed:
         sync_trigger_entities(hass, entry_id, removed_id=trigger.id)
+    # Its "Last pressed" goes with it, registry row included.
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, entry_id, removed_remote_id=msg["remote_id"])
 
     registry = dr.async_get(hass)
     ha_device = device_by_identifier(
@@ -4478,6 +4505,9 @@ async def ws_duplicate_trigger_remote(
         copied.append(new_trigger)
 
     await store.async_save()
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
 
     ha_device_id = _register_trigger_remote_ha_device(
         hass, entry_id, clone
@@ -7136,6 +7166,9 @@ async def ws_wig_make_remote(
     entry_id = data["config_entry"].entry_id
     for trig in triggers:
         sync_trigger_entities(hass, entry_id, trigger=trig)
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
 
     result = {
         **remote.to_dict(),
@@ -7270,6 +7303,9 @@ async def ws_device_make_remote(
     entry_id = data["config_entry"].entry_id
     for trig in triggers:
         sync_trigger_entities(hass, entry_id, trigger=trig)
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
 
     result = {
         **remote.to_dict(),

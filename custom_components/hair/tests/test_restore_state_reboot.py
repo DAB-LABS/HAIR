@@ -164,10 +164,25 @@ async def test_media_player_restores_on():
 
 
 @pytest.mark.asyncio
-async def test_media_player_playing_clamps_to_off():
-    # HAIR has no way to know whether a restored PLAYING state still
-    # holds, so anything other than literal "on" clamps to OFF.
-    last = State("media_player.x", "playing", {})
+@pytest.mark.parametrize(
+    "stored", ["on", "playing", "paused", "idle", "buffering"],
+)
+async def test_media_player_any_on_state_restores_as_on(stored):
+    # Playback is not restored (HAIR cannot know it still holds), but
+    # every one of these says the set was on (owner ruling 2026-10-21).
+    last = State("media_player.x", stored, {})
+    entity, _ = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.state == MediaPlayerState.ON
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stored", ["off", "standby", "unknown", "unavailable"],
+)
+async def test_media_player_off_and_unknown_states_restore_as_off(stored):
+    last = State("media_player.x", stored, {})
     entity, _ = await _restored_entity(
         HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
     )
@@ -488,7 +503,9 @@ async def test_added_to_hass_restores_before_dispatcher_connects(monkeypatch):
 
     await entity.async_added_to_hass()
 
-    assert calls == ["restore", "dispatcher_connect"]
+    # Both subscriptions, the power verdict and the sent-state signal
+    # (heard state round 1), are wired after the restore.
+    assert calls == ["restore", "dispatcher_connect", "dispatcher_connect"]
     assert entity.is_on is True
 
 
@@ -668,7 +685,7 @@ async def test_media_playing_still_clamps_to_on_while_volume_restores():
     entity, _ = await _restored_entity(
         HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
     )
-    assert entity.state == MediaPlayerState.OFF
+    assert entity.state == MediaPlayerState.ON
     assert entity.volume_level == pytest.approx(0.7)
     assert entity.is_volume_muted is True
 

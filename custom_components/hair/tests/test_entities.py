@@ -284,7 +284,7 @@ class TestHAIRMediaPlayerEntity:
             commands=[power_cmd],
         )
         await entity.async_turn_on()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._state == MediaPlayerState.ON
 
     @pytest.mark.asyncio
@@ -295,7 +295,7 @@ class TestHAIRMediaPlayerEntity:
             commands=[power_cmd],
         )
         await entity.async_turn_off()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._state == MediaPlayerState.OFF
 
     @pytest.mark.asyncio
@@ -367,7 +367,7 @@ class TestHAIRMediaPlayerEntity:
             commands=[play_cmd],
         )
         await entity.async_media_play()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._state == MediaPlayerState.PLAYING
 
     @pytest.mark.asyncio
@@ -378,7 +378,7 @@ class TestHAIRMediaPlayerEntity:
             commands=[pause_cmd],
         )
         await entity.async_media_pause()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._state == MediaPlayerState.PAUSED
 
     @pytest.mark.asyncio
@@ -389,7 +389,7 @@ class TestHAIRMediaPlayerEntity:
             commands=[stop_cmd],
         )
         await entity.async_media_stop()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._state == MediaPlayerState.IDLE
 
     def test_update_device(self):
@@ -733,7 +733,7 @@ class TestHAIRFanEntity:
             commands=[power_cmd],
         )
         await entity.async_turn_on()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._is_on is True
 
     @pytest.mark.asyncio
@@ -831,7 +831,7 @@ class TestHAIRFanEntity:
         mapping = {f"speed_{i}": f"S{i}" for i in range(1, 11)}
         entity, mgr = self._make(command_mapping=mapping, commands=speed_cmds)
         await entity.async_set_percentage(100)
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c10")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c10", origin="entity")
         assert entity._percentage == 100
 
     @pytest.mark.asyncio
@@ -844,7 +844,7 @@ class TestHAIRFanEntity:
             command_mapping=mapping, commands=[off_cmd, *speed_cmds]
         )
         await entity.async_set_percentage(0)
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c0")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c0", origin="entity")
         assert entity._is_on is False
 
 
@@ -900,7 +900,7 @@ class TestHAIRLightEntity:
             commands=[on_cmd],
         )
         await entity.async_turn_on()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._is_on is True
 
     @pytest.mark.asyncio
@@ -911,7 +911,7 @@ class TestHAIRLightEntity:
             commands=[off_cmd],
         )
         await entity.async_turn_off()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._is_on is False
 
     def test_update_device(self):
@@ -964,7 +964,7 @@ class TestHAIRSwitchEntity:
             commands=[on_cmd],
         )
         await entity.async_turn_on()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._is_on is True
 
     @pytest.mark.asyncio
@@ -975,7 +975,7 @@ class TestHAIRSwitchEntity:
             commands=[off_cmd],
         )
         await entity.async_turn_off()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._is_on is False
 
     def test_update_device(self):
@@ -1043,7 +1043,7 @@ class TestHAIRCoverEntity:
             commands=[open_cmd],
         )
         await entity.async_open_cover()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._is_closed is False
 
     @pytest.mark.asyncio
@@ -1054,7 +1054,7 @@ class TestHAIRCoverEntity:
             commands=[close_cmd],
         )
         await entity.async_close_cover()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
         assert entity._is_closed is True
 
     @pytest.mark.asyncio
@@ -1065,7 +1065,7 @@ class TestHAIRCoverEntity:
             commands=[stop_cmd],
         )
         await entity.async_stop_cover()
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1", origin="entity")
 
     def test_update_device(self):
         entity, _ = self._make()

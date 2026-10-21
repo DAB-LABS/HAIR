@@ -33,5 +33,12 @@
             "button_pressed": "Naciśnięto {subtype}",
             "state_heard": "Usłyszano stan"
         }
+    },
+    "entity": {
+        "event": {
+            "last_pressed": {
+                "name": "Ostatnio naciśnięty"
+            }
+        }
     }
 }
