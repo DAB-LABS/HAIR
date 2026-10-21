@@ -16,7 +16,7 @@ The device ships as a complete unit. Plug it in via USB-C, flash via ESPHome, an
 | GPIO4 | IR RX | Built-in IR receiver (inverted) |
 | GPIO5 | Touch sensor | D3, capacitive touch pad (full variant only) |
 | GPIO6 | Vibration motor | D4, haptic feedback (full variant only) |
-| GPIO7 | RGB LED | D5, WS2812, WiFi status indicator (full variant only) |
+| GPIO7 | RGB LED | D5, WS2812, blinks dim red while WiFi is down (full variant only) |
 
 ## Flashing
 
@@ -27,7 +27,7 @@ The device ships as a complete unit. Plug it in via USB-C, flash via ESPHome, an
 
 ## Required secrets.yaml entries
 
-For the minimal variant:
+Both variants use the same entries:
 
 ```yaml
 api_encryption_key: "<your-api-encryption-key>"
@@ -37,8 +37,6 @@ wifi_password: "<your-wifi-password>"
 ap_password: "<your-fallback-ap-password>"
 ```
 
-For the full variant, replace `#ENCRYPTION_KEY#` and `#PASSWORD#` placeholders directly in the YAML, or switch them to `!secret` references (recommended).
-
 Generate an API encryption key with: `python3 -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"`
 
 ## Compatibility
@@ -47,13 +45,17 @@ Generate an API encryption key with: `python3 -c "import secrets,base64; print(b
 |---|---|
 | HAIR | 0.1.2 |
 | HA Core | 2026.5.2 |
-| ESPHome | 2026.4.5 |
+| ESPHome | 2026.9.1 |
 
 ## Variants
 
 **Minimal** (`xiao-ir-mate-minimal.yaml`): Smallest config that gets IR TX + RX working with HAIR. Touch sensor, RGB LED, and vibration motor are not configured. Start here if you just want HAIR working.
 
-**Full** (`xiao-ir-mate-full.yaml`): Preserves all XIAO IR Mate hardware features -- touch sensor with haptic feedback, RGB LED for WiFi status, factory reset and restart buttons. Contributed by [@Didgeridrew](https://community.home-assistant.io/u/Didgeridrew) on the HA Community Forum, blending the official [esphome/infrared-proxies](https://github.com/esphome/infrared-proxies) config with Seeed Studio's stock XIAO features.
+**Full** (`xiao-ir-mate-full.yaml`): Preserves all XIAO IR Mate hardware features -- touch sensor with haptic feedback, RGB LED for WiFi status, factory reset and restart buttons. The LED stays dark while connected, blinks dim red while WiFi is down, and is hidden from Home Assistant. Contributed by [@Didgeridrew](https://community.home-assistant.io/u/Didgeridrew) on the HA Community Forum, blending the official [esphome/infrared-proxies](https://github.com/esphome/infrared-proxies) config with Seeed Studio's stock XIAO features.
+
+## The status LED and areas
+
+The full variant's LED is internal. If you remove `internal: true`, it becomes a light entity, and once the IR Mate is in an area, area-wide light commands (`light.turn_on` with `area_id`, occupancy automations, voice commands, the area card) turn it on too. Target light entities instead of `area_id`, or leave the LED internal.
 
 ## Attribution
 

@@ -11,7 +11,7 @@
 #   HAIR:            0.1.2
 #   HA Core:         2026.5.2
 #   ESPHome:         2026.9.1
-# Last verified:     2026-10-03
+# Last verified:     2026-10-20
 # Purpose:           RX+TX
 # Hardware purchase: https://www.seeedstudio.com/Seeed-XIAO-Smart-IR-Mate.html
 # GPIO map:
@@ -22,17 +22,18 @@
 #   GPIO7            RGB LED WS2812 (D5)
 # Notes:
 #   - Full config preserving all XIAO IR Mate hardware features: touch
-#     sensor with 300ms debounce, RGB LED for WiFi status, vibration motor.
+#     sensor with a haptic pulse, RGB LED for WiFi status, vibration motor.
+#   - The RGB LED stays dark while WiFi is up and blinks dim red while it
+#     is down. It is internal (hidden from Home Assistant); read the
+#     README's note on areas before exposing it.
 #   - Blended from esphome/infrared-proxies official config and Seeed
 #     Studio's stock XIAO features. Integration work by @Didgeridrew.
-#   - Replace #ENCRYPTION_KEY# and #PASSWORD# placeholders with your own
-#     values, or switch to !secret references (recommended).
+#   - Uses the same secrets.yaml entries as the minimal variant (see README).
 #   - For a stripped-down version with just IR, see xiao-ir-mate-minimal.yaml.
 #   - Needs ESPHome 2026.8.0 or later. The LED is set with `channel_colors`,
 #     which replaced `rgb_order` in that release, and `min_version` enforces it.
-#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-03
-#     (placeholders filled in). The HAIR and HA Core lines above record
-#     the last hardware run.
+#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-20.
+#     The HAIR and HA Core lines above record the last hardware run.
 # ============================================================================
 
 substitutions:
@@ -54,11 +55,11 @@ logger:
 
 api:
   encryption:
-    key: "#ENCRYPTION_KEY#"
+    key: !secret api_encryption_key
 
 ota:
   - platform: esphome
-    password: "#PASSWORD#"
+    password: !secret ota_password
 
 wifi:
   ssid: !secret wifi_ssid
@@ -67,15 +68,21 @@ wifi:
     - globals.set:
         id: is_wifi_connected
         value: 'true'
-    - light.turn_on: rgb_light
+    - light.turn_off: rgb_light
   on_disconnect:
     - globals.set:
         id: is_wifi_connected
         value: 'false'
-    - light.turn_off: rgb_light
+    - light.turn_on:
+        id: rgb_light
+        red: 100%
+        green: 0%
+        blue: 0%
+        brightness: 15%
+        effect: Slow Blink
   ap:
     ssid: "${friendly_name} Fallback"
-    password: "#PASSWORD#"
+    password: !secret ap_password
 
 captive_portal:
 
@@ -87,13 +94,6 @@ globals:
   - id: is_wifi_connected
     type: bool
     initial_value: 'false'
-  - id: reset_press_time
-    type: uint32_t
-    initial_value: '0'
-  - id: touch_timer
-    type: unsigned long
-    restore_value: no
-    initial_value: '0'
 
 # --- System Buttons ---
 button:
@@ -160,32 +160,27 @@ infrared:
     remote_receiver_id: ir_rx
 
 # --- Touch Pad (GPIO5 / D3) ---
-# Capacitive touch sensor. Fires a vibration pulse on touch and triggers
-# the touch_sensor event entity above. The 300ms debounce in the
-# check_touch_delay script prevents double-fires from noisy touches.
+# Capacitive touch sensor. Each touch gives one vibration pulse and one
+# event on the touch_sensor event entity above. Releasing the pad does
+# nothing.
 binary_sensor:
   - platform: gpio
     id: touch_pad
     pin:
       number: GPIO5
       mode: INPUT_PULLDOWN
-    on_state:
+    on_press:
       then:
-        - lambda: |-
-            id(vibe).execute(100);
-            id(touch_timer) = millis();
-            if (id(check_touch_delay).is_running()) {
-              id(check_touch_delay).stop();
-              delay(10);
-            }
-            id(check_touch_delay).execute();
+        - script.execute:
+            id: vibe
+            delay_ms: 100
         - event.trigger:
             id: touch_sensor
             event_type: "single"
 
 # --- Vibration Motor (GPIO6 / D4) ---
 # Haptic feedback motor. The vibe script pulses it for a configurable
-# duration in milliseconds.
+# duration in milliseconds; a new pulse restarts one already running.
 output:
   - platform: gpio
     id: vibration_output
@@ -193,16 +188,13 @@ output:
 
 script:
   - id: vibe
+    mode: restart
     parameters:
       delay_ms: int
     then:
       - switch.turn_on: vibration_switch
       - delay: !lambda return delay_ms;
       - switch.turn_off: vibration_switch
-
-  - id: check_touch_delay
-    then:
-      - delay: 300ms
 
 switch:
   - platform: output
@@ -212,7 +204,8 @@ switch:
     internal: true
 
 # --- RGB LED (GPIO7 / D5) ---
-# WS2812 status LED. Turns on when WiFi connects, off when disconnected.
+# WS2812 status LED. Dark while WiFi is up; a dim red blink (on 0.5s,
+# off 2.5s) while it is down. It starts off at boot.
 light:
   - platform: esp32_rmt_led_strip
     channel_colors: GRB
@@ -222,3 +215,18 @@ light:
     name: "RGB Light"
     id: rgb_light
     rmt_symbols: 48
+    internal: true          # hidden from Home Assistant; remove this line to control the LED from HA (see the README on areas)
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 0s
+    effects:
+      - strobe:
+          name: Slow Blink
+          colors:
+            - state: true
+              red: 100%
+              green: 0%
+              blue: 0%
+              brightness: 15%
+              duration: 500ms
+            - state: false
+              duration: 2500ms
