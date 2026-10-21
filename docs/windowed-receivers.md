@@ -57,10 +57,6 @@ your integration's own controls is left as it is.
 
 HAIR resolves the entity that opens the window in this order:
 
-The capture device's card on the Devices tab shows one RX-CAPTURE chip, split
-in two: the main part starts and stops a capture, and its caret opens a menu of
-switches with the one in use checked. The chip's tooltip names that switch.
-
 1. **Your declaration**, the receiver's `capture_switch`, when it passes the
    safety rule below. It cannot be overridden: the card's menu lists your
    switch alone, and HAIR refuses to store a choice for the receiver. HAIR
@@ -79,6 +75,20 @@ switches with the one in use checked. The chip's tooltip names that switch.
    opens the menu, until the user chooses. HAIR does not guess between several
    switches by name: a wrong guess would toggle something the user never
    chose, such as a power switch.
+
+The capture device's card on the Devices tab shows one RX-CAPTURE chip, split
+in two: the main part starts and stops a capture, and its caret opens a menu of
+switches with the one in use checked. The chip's tooltip names that switch.
+
+### Use a switch, not a button
+
+Expose the window as a `switch`: on while the window is open, and off once it
+closes, whether it timed out, heard its code or was turned off. Turning it off
+only closes the window. The switch's state tells HAIR and the user whether the
+device is listening, and lets HAIR stop a window early. A `button` can only
+start a window: HAIR has nothing to press to stop it and nothing to read but
+`capturing`. HAIR toggles switches and toggle helpers only, so a device that
+offers just a learn button cannot be driven from HAIR yet.
 
 ## The safety rule
 
