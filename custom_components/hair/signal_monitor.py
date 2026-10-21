@@ -1272,15 +1272,32 @@ class SignalMonitor:
         # phantom "unknown send" row (found chasing a bench artifact:
         # the integration reasserting its real state over a Dev Tools
         # override fires the same shape of not-a-send transition).
-        if getattr(old_state, "state", None) in (
-            None, "unknown", "unavailable",
-        ):
+        #
+        # EXCEPT FROM "unknown" FOR HAIR'S OWN SEND (echo-first-send,
+        # owner-ruled 2026-10-21). An emitter's state is "unknown" until
+        # its first send, and comes back "unknown" after a restart it was
+        # offline for, because core restores anything but "unavailable".
+        # Its next send writes unknown -> timestamp, and when HAIR made
+        # that send this beacon is the only thing that arms its echo
+        # ticket: returning here left the ticket unarmed, and the echo a
+        # receiver handed back ~180 ms later fired the Remote's trigger
+        # and its pinned send (VM999, 2026-10-21). Core restores before
+        # an entity's first write, so a restore never starts from
+        # "unknown"; foreign beacons still keep the old rule.
+        old_value = getattr(old_state, "state", None)
+        if old_value in (None, "unavailable"):
             return
-        if new_state.state == getattr(old_state, "state", None):
+        if new_state.state == old_value:
             return
         now = monotonic()
         own_mark = self._own_send_marks.get(entity_id)
-        if own_mark is not None and now - own_mark < MIRROR_OWN_BEACON_WINDOW_S:
+        own = (
+            own_mark is not None
+            and now - own_mark < MIRROR_OWN_BEACON_WINDOW_S
+        )
+        if old_value == "unknown" and not own:
+            return
+        if own:
             # HAIR's own send; already recorded with full identity. This
             # beacon is also the moment IR actually left, so it is what
             # arms this send's tickets (Track 3a). Before anchoring, the

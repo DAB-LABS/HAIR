@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A media player that was playing, paused, idle or buffering when Home Assistant stopped now comes back on after the restart. It came back off, so the next press of a toggle showed it on while the TV went off. Off, standby, unknown and unavailable still come back off.
+- The first code HAIR sends through an emitter that had never sent, or was offline when Home Assistant last stopped, is now recognised as HAIR's own when another receiver hears it. It was taken for a press of the remote, so a Remote's trigger fired and a pinned Remote sent the code again; every later send was already recognised.
 
 ## [0.18.0] - 2026-10-21 -- BroadSniffed
 
