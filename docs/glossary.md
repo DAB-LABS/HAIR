@@ -29,6 +29,13 @@ receiver module and an emitter LED, SMLIGHT Ultima.
 Home Assistant's infrared platform uses for the listening half of any setup.
 The Devices tab lists yours under Receivers.
 
+**Capture device.** A receiver that hears only while a capture window is
+open, for a few seconds at a time, such as a Broadlink with BroadSniff
+installed. Any integration can make its receiver one (see
+[Windowed receivers](windowed-receivers.md)). The Devices tab marks it
+RX-CAPTURE: click the chip to listen, or its arrow to choose which switch
+opens the window.
+
 **Half duplex and full duplex.** Borrowed from radio, and the precise way to
 say the above. Half duplex means the device can send or receive, but only one
 at a time, and on an IR blaster it only receives when told to. Full duplex
@@ -92,6 +99,10 @@ during a pluck.
 **Closet.** Your shelf of portable code sets. Holds both the code library that
 ships with Home Assistant's infrared library and your own files, organized by
 brand.
+
+**Listen row.** In the Sniffer, one chip per capture device. Gold means it is
+ready and green means it is listening; a click starts or stops it. The chip
+drains over the window and glows each time a code is heard.
 
 **Mirror.** A log of every infrared command Home Assistant sends, whether
 anything heard it or not. Useful for working out whether a send actually went

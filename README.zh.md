@@ -46,4 +46,4 @@
 
 ---
 
-*译自英文 README，截至 v0.17.5。本文件由编程助手起草，随每次发布刷新。欢迎母语者接手，详见 [Adding a language](CONTRIBUTING.md#adding-a-language)。*
+*译自英文 README，截至 v0.18.0。本文件由编程助手起草，随每次发布刷新。欢迎母语者接手，详见 [Adding a language](CONTRIBUTING.md#adding-a-language)。*
