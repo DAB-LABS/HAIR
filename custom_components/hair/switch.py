@@ -13,8 +13,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, DeviceType
-from .models import IRDevice
+from .models import EntityConfig, IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
+from .remote_state import RemoteStateMixin, register_remote_platform
 from .send_follow import mapped_keys, power_after
 from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 
@@ -58,6 +59,10 @@ async def async_setup_entry(
         "switch", on_add=_on_add, on_remove=_on_remove, on_update=_on_update
     )
     factory.register_platform("switch", async_add_entities)
+    # A typed Remote's own switch (heard state, round 2a).
+    register_remote_platform(
+        hass, entry.entry_id, "switch", async_add_entities, HAIRRemoteSwitchEntity
+    )
 
     for device in device_manager.get_all_devices():
         _on_add(device)
@@ -75,12 +80,25 @@ class HAIRSwitchEntity(RestoreEntity, SwitchEntity):
         self._manager = device_manager
         self._attr_unique_id = f"hair_{device.id}_switch"
         self._attr_name = None
-        self._is_on = False
+        self._init_state()
         # Power monitoring (Device Settings, 0.9.8). None until
         # async_added_to_hass connects; None again after removal.
         self._power_verdict_unsub: CALLBACK_TYPE | None = None
         # What HAIR sends from anywhere else (heard state, round 1).
         self._device_sent_unsub: CALLBACK_TYPE | None = None
+
+    def _init_state(self) -> None:
+        """The assumed state before any restore or press."""
+        self._is_on = False
+
+    @property
+    def _entity_config(self) -> EntityConfig:
+        """Where this entity reads its mapping and settings (round 2a).
+
+        A typed Remote's entity subclasses this class and answers with
+        the Remote's own config (``remote_state.RemoteStateMixin``).
+        """
+        return self._device.entity_config
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -144,7 +162,17 @@ class HAIRSwitchEntity(RestoreEntity, SwitchEntity):
         on, off or flipped, as ``send_follow.power_after`` decides."""
         if sent.device_id != self._device.id or sent.origin == ORIGIN_ENTITY:
             return
-        power = power_after(mapped_keys(self._device, sent), self._is_on)
+        keys = mapped_keys(self._device, sent)
+        if keys:
+            self._apply_keys(keys)
+
+    @callback
+    def _apply_keys(self, keys: frozenset[str]) -> None:
+        """Apply the keys one command carries, and write if anything moved.
+
+        Shared by a Device's sends and a typed Remote's presses.
+        """
+        power = power_after(keys, self._is_on)
         if power is not None and power != self._is_on:
             self._is_on = power
             self.async_write_ha_state()
@@ -171,7 +199,7 @@ class HAIRSwitchEntity(RestoreEntity, SwitchEntity):
         self.async_write_ha_state()
 
     async def _send(self, *feature_keys: str) -> None:
-        mapping = self._device.entity_config.command_mapping
+        mapping = self._entity_config.command_mapping
         for key in feature_keys:
             command_name = mapping.get(key)
             if command_name is None:
@@ -190,3 +218,14 @@ class HAIRSwitchEntity(RestoreEntity, SwitchEntity):
             self._device.name,
             feature_keys,
         )
+
+
+class HAIRRemoteSwitchEntity(RemoteStateMixin, HAIRSwitchEntity):
+    """A typed Remote's switch (heard state, round 2a).
+
+    Every state rule, setter, feature and restore is HAIRSwitchEntity's; the
+    mixin makes it read the Remote's own mapping, follow the Remote's
+    own presses, and send nothing.
+    """
+
+    _remote_platform = "switch"

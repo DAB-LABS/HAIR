@@ -19,6 +19,9 @@ _LOGGER = logging.getLogger(__name__)
 _HAIR_PREFIX = "hair_"
 _TRIGGER_PREFIX = "hair_trigger_"
 _BUTTON_MARKER = "_btn_"
+# A named Remote's own entities: "Last pressed" and, on a typed Remote,
+# its state entity (heard state, round 2a).
+_REMOTE_PREFIX = "hair_remote_"
 
 
 DEVICE_TYPE_TO_PLATFORM: dict[str, str] = {
@@ -60,11 +63,21 @@ def button_unique_id(device_id: str, command_id: str) -> str:
 def remote_last_pressed_unique_id(remote_id: str) -> str:
     """The unique id one Remote's "Last pressed" event entity builds.
 
-    Mirrors ``HAIRRemoteLastPressedEntity.__init__``. Deliberately not a
-    family ``classify_unique_id`` knows, so the orphan sweep never
-    touches these rows; deleting a Remote forgets its row directly.
+    Mirrors ``HAIRRemoteLastPressedEntity.__init__``. The orphan sweep
+    reads it as the "remote" family and keeps the row while its Remote
+    exists (round 2a); deleting a Remote also forgets it directly.
     """
-    return f"{_HAIR_PREFIX}remote_{remote_id}_last_pressed"
+    return f"{_REMOTE_PREFIX}{remote_id}_last_pressed"
+
+
+def remote_state_unique_id(remote_id: str, platform: str) -> str:
+    """The unique id a typed Remote's state entity builds (round 2a).
+
+    Mirrors ``remote_state.RemoteStateMixin.__init__``, and written down
+    here for the reason ``platform_unique_id`` is: a type change has to
+    find the old platform's row after its entity is gone.
+    """
+    return f"{_REMOTE_PREFIX}{remote_id}_{platform}"
 
 
 def trigger_unique_id(trigger_id: str) -> str:
@@ -90,11 +103,12 @@ PLATFORM_ROW_PLATFORMS: tuple[str, ...] = tuple(
 class HairEntityRow:
     """What a HAIR-shaped unique id says about who owns the row."""
 
-    family: str  # "button" | "trigger" | "platform"
+    family: str  # "button" | "trigger" | "platform" | "remote"
     device_id: str | None = None
     command_id: str | None = None
     trigger_id: str | None = None
     platform: str | None = None
+    remote_id: str | None = None
 
 
 def classify_unique_id(unique_id: object) -> HairEntityRow | None:
@@ -119,6 +133,16 @@ def classify_unique_id(unique_id: object) -> HairEntityRow | None:
         if not trigger_id:
             return None
         return HairEntityRow(family="trigger", trigger_id=trigger_id)
+    if unique_id.startswith(_REMOTE_PREFIX):
+        # A named Remote's own row (round 2a): "Last pressed" or a typed
+        # Remote's state entity. Read BEFORE the platform family, which
+        # would otherwise take "hair_remote_<id>_media_player" for a
+        # Device whose id is "remote_<id>" and sweep it on every setup.
+        # Remote ids are uuid4, so the id ends at the first underscore.
+        remote_id, sep, suffix = unique_id[len(_REMOTE_PREFIX):].partition("_")
+        if not remote_id or not sep or not suffix:
+            return None
+        return HairEntityRow(family="remote", remote_id=remote_id)
     rest = unique_id[len(_HAIR_PREFIX):]
     if _BUTTON_MARKER in rest:
         device_id, _, command_id = rest.partition(_BUTTON_MARKER)
@@ -196,10 +220,14 @@ def reconcile_orphan_entities(
     cannot be mistaken for an orphan and every live row is re-registered
     a moment later.
 
-    It removes exactly three kinds of row, each identified by unique id
+    It removes exactly four kinds of row, each identified by unique id
     (see ``classify_unique_id``) and each only when its owner is not in
-    the store: one command's button, one trigger's event entity, and one
-    device's platform entity. A row it cannot classify is never touched,
+    the store: one command's button, one trigger's event entity, one
+    device's platform entity, and one named Remote's own entity ("Last
+    pressed", or a typed Remote's state entity, round 2a) -- the last
+    kept while its Remote exists, whatever its suffix, so a Remote
+    deleted while Home Assistant was down, or a crash mid-delete, still
+    gets its rows cleaned up. A row it cannot classify is never touched,
     nor is a row belonging to another config entry -- the walk is scoped
     to this entry to begin with.
 
@@ -260,6 +288,11 @@ def reconcile_orphan_entities(
     }
     live_triggers = {trigger_unique_id(t.id) for t in triggers}
     device_ids = {device.id for device in devices}
+    # A store without Remotes to ask about leaves every Remote row alone.
+    get_remotes = getattr(store, "get_all_trigger_remotes", None)
+    remote_ids: set[str] | None = (
+        {remote.id for remote in get_remotes()} if get_remotes else None
+    )
 
     removed = 0
     for row, owner in candidates:
@@ -268,6 +301,8 @@ def reconcile_orphan_entities(
             gone = unique_id not in live_buttons
         elif owner.family == "trigger":
             gone = unique_id not in live_triggers
+        elif owner.family == "remote":
+            gone = remote_ids is not None and owner.remote_id not in remote_ids
         else:
             gone = owner.device_id not in device_ids
         if not gone:

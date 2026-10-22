@@ -135,6 +135,12 @@ are its buttons by name. It fires whenever one of the Remote's triggers fires,
 so one automation can react to "Last pressed: Power" or to any button. A
 renamed button's event type follows the new name. HAIR Triggers has none.
 
+**Remote state.** The entity a Remote gets once you give it a type (media
+player, fan, light, switch or screen). It is named as the remote and follows
+the Remote's own handset presses through its mapped buttons; its controls
+change only its own state and never send IR. It is separate from the Device's
+state, which follows what HAIR sends, and the two are never synced.
+
 **HAIR Triggers.** The built-in, catch-all Remote that has always been there.
 Any trigger you do not give to a named Remote lives here, and it is the only
 Remote whose triggers can be scoped to particular receivers.

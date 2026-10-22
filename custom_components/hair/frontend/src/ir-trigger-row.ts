@@ -54,6 +54,7 @@ import {
 } from "./ir-icons.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { bloomStyles } from "./ir-bloom-styles.js";
+import { mapActionStyles } from "./ir-map-action-styles.js";
 import { relTime, triggerRowStyles } from "./ir-trigger-row-styles.js";
 import "./ir-protocol-chip.js";
 import type {
@@ -87,6 +88,12 @@ export class IrTriggerRow extends LitElement {
      *  Gates the whole treatment, so an unpinned remote's rows stay
      *  quiet instead of every one of them reading "unmapped". */
     @property({ type: Boolean }) public showMappings = false;
+    /** A typed Remote (heard state, round 2a): show the action label a
+     *  Device's command rows show, and say which action this button is
+     *  mapped to (its label, or null for unmapped). An untyped Remote's
+     *  rows show nothing. */
+    @property({ type: Boolean }) public showActionMapping = false;
+    @property({ attribute: false }) public actionLabel: string | null = null;
 
     @state() private _editingName = false;
     @state() private _draftName = "";
@@ -262,6 +269,26 @@ export class IrTriggerRow extends LitElement {
         return html`<span class="alive-text">${body}</span>`;
     }
 
+    /** The same label ir-command-row.ts draws, without its width
+     *  reservation: a Remote's rows carry the alive phrase's reserved
+     *  width instead, which already holds the column steady. */
+    private _renderActionLabel() {
+        if (!this.showActionMapping) return nothing;
+        return html`<button
+            class="map-action-label"
+            ?data-mapped=${!!this.actionLabel}
+            ?disabled=${this.busy}
+            @click=${(e: Event) => this._emit("map-action", e)}
+            title=${t("cmdrow.map_action")}
+            aria-label=${t("cmdrow.map_action")}
+        ><span class="action-visible">${this.actionLabel
+            ? html`<span class="map-arrow" aria-hidden="true">&#8594;</span
+                  ><span class="map-label">${this.actionLabel}</span>`
+            : html`<span class="map-plus" aria-hidden="true">+</span
+                  ><span class="map-label">${t("cmdrow.map_action_label")}</span>`}</span
+        ></button>`;
+    }
+
     render() {
         const trig = this.trigger;
         const minHits = trig.min_hits;
@@ -319,6 +346,7 @@ export class IrTriggerRow extends LitElement {
                         ></ir-protocol-chip>
                     </div>
                     <div class="trow-controls">
+                        ${this._renderActionLabel()}
                         ${this._renderMappings()} ${this._renderScope()}
                         ${this._renderAlive()}
                         <button
@@ -360,6 +388,7 @@ export class IrTriggerRow extends LitElement {
         editButtonStyles,
         actionChipStyles,
         bloomStyles,
+        mapActionStyles,
         // The two-line row shape, shared with the matrix Remote's LAST
         // HEARD row (Track M, decision 8). Everything below is what
         // only a real trigger has.

@@ -25,8 +25,9 @@ from homeassistant.util.percentage import (
 )
 
 from .const import DOMAIN, DeviceType
-from .models import SPEED_CYCLE_TURN_ON_SPEED_1, EntityConfig, IRDevice
+from .models import SPEED_CYCLE_TURN_ON_SPEED_1, EntityConfig, IRDevice, TriggerRemote
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
+from .remote_state import RemoteStateMixin, register_remote_platform
 from .send_follow import SPEED_CYCLE, cycle_step, mapped_keys, one_of, power_after
 from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 
@@ -87,6 +88,10 @@ async def async_setup_entry(
         "fan", on_add=_on_add, on_remove=_on_remove, on_update=_on_update
     )
     factory.register_platform("fan", async_add_entities)
+    # A typed Remote's own fan (heard state, round 2a).
+    register_remote_platform(
+        hass, entry.entry_id, "fan", async_add_entities, HAIRRemoteFanEntity
+    )
 
     for device in device_manager.get_all_devices():
         _on_add(device)
@@ -104,14 +109,23 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
         self._manager = device_manager
         self._attr_unique_id = f"hair_{device.id}_fan"
         self._attr_name = None
-        self._is_on = False
-        self._percentage: int | None = None
-        self._oscillating: bool = False
+        self._init_state()
         # Power monitoring (Device Settings, 0.9.8). None until
         # async_added_to_hass connects; None again after removal.
         self._power_verdict_unsub: CALLBACK_TYPE | None = None
         # What HAIR sends from anywhere else (heard state, round 1).
         self._device_sent_unsub: CALLBACK_TYPE | None = None
+
+    def _init_state(self) -> None:
+        """The assumed state before any restore or press.
+
+        The speed cycle's bookkeeping lives here too, so a typed Remote's
+        fan (which builds itself through ``RemoteStateMixin`` rather
+        than this ``__init__``) counts its cycle presses the same way.
+        """
+        self._is_on = False
+        self._percentage: int | None = None
+        self._oscillating: bool = False
         # Speed cycle (GH Discussion #201). ``_cycle_pos`` is HAIR's own
         # count of where the fan is: 0 = off when off is in the cycle,
         # else 0 = speed 1. It is derived from on/off and the
@@ -379,8 +393,15 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
         if sent.device_id != self._device.id or sent.origin == ORIGIN_ENTITY:
             return
         keys = mapped_keys(self._device, sent)
-        if not keys:
-            return
+        if keys:
+            self._apply_keys(keys)
+
+    @callback
+    def _apply_keys(self, keys: frozenset[str]) -> None:
+        """Apply the keys one command carries, and write if anything moved.
+
+        Shared by a Device's sends and a typed Remote's presses.
+        """
         before = (self._is_on, self._percentage, self._oscillating)
         moved = False
         power = power_after(keys, self._is_on)
@@ -635,3 +656,31 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
             feature_keys,
         )
         return False
+
+
+class HAIRRemoteFanEntity(RemoteStateMixin, HAIRFanEntity):
+    """A typed Remote's fan (heard state, round 2a).
+
+    Every state rule, setter, feature and restore is HAIRFanEntity's; the
+    mixin makes it read the Remote's own mapping and settings, follow the
+    Remote's own presses, and send nothing. The speed cycle comes with
+    it: a heard cycle press steps the Remote's own count, and with the
+    Remote's own ``fan_speed_steps`` set the speed can be set by hand.
+    """
+
+    _remote_platform = "fan"
+
+    async def _press_gap(self) -> None:
+        """No gap: a Remote's presses go nowhere, so there is no fan to
+        give time between them. Setting a speed lands at once."""
+
+    @callback
+    def update_remote(self, remote: TriggerRemote) -> None:
+        """New cycle settings re-read the count from what is shown, as a
+        Device's ``update_device`` does."""
+        self._remote = remote
+        shape = self._current_cycle_shape()
+        if shape != self._cycle_shape:
+            self._cycle_shape = shape
+            self._cycle_pos = self._derive_cycle_pos()
+        super().update_remote(remote)

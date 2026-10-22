@@ -1245,6 +1245,8 @@ _KNOWN_REMOTE = frozenset({
     "id", "name", "receiver_scope", "origin", "source_wig_id",
     "source_device_id", "pinned_device_ids", "bindings", "climate_matrix",
     "last_heard", "created_at", "updated_at",
+    # Typed Remote (heard state, round 2a).
+    "device_type", "entity_config",
 })
 
 
@@ -1332,6 +1334,19 @@ class TriggerRemote:
     # receiver_area_name. A loose dict rather than a dataclass because
     # nothing computes on it -- it is stamped whole and rendered whole.
     last_heard: dict[str, Any] | None = None
+    # A TYPED REMOTE (heard state, round 2a, owner model 2026-10-21).
+    # One of the Device types that has a state entity (media_player,
+    # fan, light, switch, screen), or None: no state entity, Last
+    # pressed only, as before. An AC Remote never has one; its STATE
+    # MATRIX is its state.
+    device_type: str | None = None
+    # The Device's own dataclass, so every per-type setting a Device
+    # grows is there for a Remote too. ONE DIFFERENCE: command_mapping
+    # maps an action key to a TRIGGER ID, not a command name. A
+    # Remote's buttons often share a name ("Power" twice), and an id
+    # makes a rename free. Kept when the type is cleared, so setting
+    # it back restores the mapping.
+    entity_config: EntityConfig = field(default_factory=EntityConfig)
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     # Keys this parser did not consume, written back last so a newer
@@ -1341,7 +1356,17 @@ class TriggerRemote:
     )
 
     def to_dict(self) -> dict[str, Any]:
-        return _with_extra({
+        out = self._base_dict()
+        # Omitted while unset, so an untyped Remote stores exactly what
+        # it stored before round 2a.
+        if self.device_type is not None:
+            out["device_type"] = self.device_type
+        if self.device_type is not None or self.entity_config.command_mapping:
+            out["entity_config"] = self.entity_config.to_dict()
+        return _with_extra(out, self._extra)
+
+    def _base_dict(self) -> dict[str, Any]:
+        return {
             "id": self.id,
             "name": self.name,
             "receiver_scope": list(self.receiver_scope),
@@ -1358,7 +1383,7 @@ class TriggerRemote:
             ),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-        }, self._extra)
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TriggerRemote:
@@ -1394,6 +1419,14 @@ class TriggerRemote:
                 dict(lh)
                 if isinstance(lh := data.get("last_heard"), dict)
                 else None
+            ),
+            device_type=(
+                str(data["device_type"]) if data.get("device_type") else None
+            ),
+            entity_config=(
+                EntityConfig.from_dict(ec)
+                if isinstance(ec := data.get("entity_config"), dict)
+                else EntityConfig()
             ),
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
@@ -1443,6 +1476,12 @@ class TriggerRemote:
             receiver_scope=list(self.receiver_scope),
             origin="manual",
             climate_matrix=self.climate_matrix,
+            # The type and its settings are part of what this remote IS.
+            # The mapping names THIS remote's trigger ids, so the caller
+            # translates it once the copy's triggers exist
+            # (ws_duplicate_trigger_remote).
+            device_type=self.device_type,
+            entity_config=EntityConfig.from_dict(self.entity_config.to_dict()),
             # Whatever a newer build knew and this one does not
             # (0.10.1 item 2). Same argument as climate_matrix: it is
             # part of what this remote IS.

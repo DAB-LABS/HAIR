@@ -177,11 +177,17 @@ def sync_remote_entities(
     for triggers), and pushes every Remote's current name and event
     types, writing state only when either changed. Called from every
     place that changes a Remote or its buttons; a fire that lands before
-    such a call syncs its own Remote first (``fire_press``).
+    such a call syncs its own Remote first (``fire_press``). Also keeps
+    typed Remotes' state entities in step (``remote_state``).
     """
     data = hass.data.get(DOMAIN, {}).get(entry_id)
     if data is None:
         return
+    # A typed Remote's state entity rides every call site this function
+    # already has (heard state, round 2a).
+    from .remote_state import sync_remote_state_entities
+
+    sync_remote_state_entities(hass, entry_id, removed_remote_id)
     remote_entities: dict[str, HAIRRemoteLastPressedEntity] | None = data.get(
         "_remote_last_pressed_entities"
     )

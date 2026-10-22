@@ -207,6 +207,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_pin_trigger_remote_device)
     websocket_api.async_register_command(hass, ws_unpin_trigger_remote_device)
     websocket_api.async_register_command(hass, ws_set_trigger_remote_receiver_scope)
+    # Typed Remotes (heard state, round 2a).
+    websocket_api.async_register_command(hass, ws_set_trigger_remote_type)
+    websocket_api.async_register_command(hass, ws_update_trigger_remote_mapping)
 
 
 def _get_first_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
@@ -4067,8 +4070,203 @@ async def ws_list_trigger_remotes(
             "disabled_count": len(triggers) - enabled_count,
             "pin_map": pin_map,
             "matrix": matrix_summary_block,
+            **_remote_state_payload(hass, remote),
         })
     connection.send_result(msg["id"], result)
+
+
+def _remote_state_payload(hass: HomeAssistant, remote: Any) -> dict[str, Any]:
+    """What the panel needs about a Remote's type (heard state, round 2a).
+
+    ``command_mapping`` is the part the entity reads (trackable keys
+    only), ``action_options`` the keys a button can be mapped to, and
+    ``state_entity_id`` the entity a type change would remove, which the
+    panel names in its warning.
+    """
+    from .remote_state import (
+        remote_action_options,
+        remote_state_entity_id,
+        tracked_mapping,
+    )
+
+    return {
+        "device_type": remote.device_type,
+        "command_mapping": tracked_mapping(
+            remote.device_type, remote.entity_config.command_mapping
+        ),
+        "action_options": remote_action_options(remote.device_type),
+        "state_entity_id": remote_state_entity_id(hass, remote),
+    }
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/set-type",
+    vol.Required("remote_id"): str,
+    vol.Required("device_type"): vol.Any(str, None),
+    vol.Optional("dry_run", default=False): bool,
+})
+@websocket_api.async_response
+async def ws_set_trigger_remote_type(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Give a Remote a type, change it, or clear it (round 2a).
+
+    A type gives the Remote a state entity of that type; changing or
+    clearing it removes the old entity for good (its registry row is
+    forgotten, GH #186) and the panel warns before it asks. The mapping
+    is kept across a clear, so setting the type back restores it. An AC
+    (matrix) Remote has its STATE MATRIX and takes no type.
+
+    PICKING A TYPE FILLS THE BUTTONS (owner bench, 2026-10-22) when the
+    Remote maps none this type can track: from the one pinned Device of
+    that type, through the pin's bindings, else by the buttons' names
+    (``remote_state.plan_fill``). A mapping that is there is never
+    touched.
+
+    ``dry_run`` reports what would happen and changes nothing, so the
+    panel's confirm dialog can say it first: ``fill_source`` (``kept``,
+    ``pin``, ``names``, ``none``, or None on a clear), ``fill_count``,
+    ``fill_device_name`` and ``removed_entity_id``.
+
+    Returns the Remote's state payload plus those fields;
+    ``removed_entity_id`` is the entity that went (or would go), if any.
+    """
+    from .remote_state import (
+        REMOTE_TYPES,
+        apply_fill,
+        plan_fill,
+        remote_state_entity_id,
+    )
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+    device_type = msg["device_type"] or None
+    if device_type is not None and device_type not in REMOTE_TYPES:
+        connection.send_error(
+            msg["id"], "invalid_format", f"A Remote cannot be a {device_type}"
+        )
+        return
+    if device_type is not None and remote.climate_matrix:
+        connection.send_error(
+            msg["id"], "invalid_format",
+            "An air-conditioner Remote keeps its state matrix and takes no type",
+        )
+        return
+
+    changed = device_type != remote.device_type
+    removed_entity_id = remote_state_entity_id(hass, remote) if changed else None
+    plan = plan_fill(store, remote, device_type) if changed and device_type else None
+    fill = {
+        "fill_source": plan.source if plan is not None else None,
+        "fill_count": plan.count if plan is not None else 0,
+        "fill_device_name": plan.device_name if plan is not None else None,
+    }
+    if msg.get("dry_run", False):
+        connection.send_result(msg["id"], {
+            "remote_id": remote.id,
+            "dry_run": True,
+            "removed_entity_id": removed_entity_id,
+            **fill,
+            **_remote_state_payload(hass, remote),
+        })
+        return
+
+    if changed:
+        from datetime import UTC, datetime
+
+        remote.device_type = device_type
+        if plan is not None:
+            apply_fill(remote, plan)
+        remote.updated_at = datetime.now(UTC).isoformat()
+        store.update_trigger_remote(remote)
+        await store.async_save()
+
+        from .event import sync_remote_entities
+
+        sync_remote_entities(hass, data["config_entry"].entry_id)
+
+    connection.send_result(msg["id"], {
+        "remote_id": remote.id,
+        "removed_entity_id": removed_entity_id,
+        **fill,
+        **_remote_state_payload(hass, remote),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/update-mapping",
+    vol.Required("remote_id"): str,
+    vol.Required("trigger_id"): str,
+    vol.Optional("action_key"): vol.Any(str, None),
+})
+@websocket_api.async_response
+async def ws_update_trigger_remote_mapping(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Map one of a Remote's buttons to an action, or clear it (round 2a).
+
+    The same rules as ``device/update-mapping``: a button carries one
+    key, and a key reassigned to another button moves. Only a key the
+    Remote's entity can track is accepted (no dead controls).
+    """
+    from .remote_state import REMOTE_TRACKED_KEYS
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+    trigger = store.get_trigger(msg["trigger_id"])
+    if trigger is None or trigger.trigger_remote_id != remote.id:
+        connection.send_error(msg["id"], "not_found", "Button not found on this Remote")
+        return
+    action_key = msg.get("action_key") or None
+    if action_key is not None and action_key not in REMOTE_TRACKED_KEYS.get(
+        remote.device_type or "", frozenset()
+    ):
+        connection.send_error(
+            msg["id"], "invalid_format",
+            f"A {remote.device_type or 'Remote with no type'} cannot follow {action_key}",
+        )
+        return
+
+    mapping = remote.entity_config.command_mapping
+    for key, value in list(mapping.items()):
+        if value == trigger.id:
+            del mapping[key]
+    if action_key is not None:
+        mapping[action_key] = trigger.id
+
+    from datetime import UTC, datetime
+
+    remote.updated_at = datetime.now(UTC).isoformat()
+    store.update_trigger_remote(remote)
+    await store.async_save()
+
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
+    connection.send_result(msg["id"], {
+        "remote_id": remote.id,
+        **_remote_state_payload(hass, remote),
+    })
 
 
 @websocket_api.require_admin
@@ -4382,6 +4580,23 @@ async def ws_pin_trigger_remote_device(
         rederive_remote(store, remote)
         store.update_trigger_remote(remote)
         await store.async_save()
+    # A typed Remote that maps nothing takes its buttons from the Device
+    # it is pinned to, once the bindings above say which button is which
+    # (owner bench, 2026-10-27; ``remote_state.fill_on_pin``). Run on a
+    # repeated pin too, so pinning again fills a Remote typed before the
+    # fill existed. Never over a mapping that is there.
+    from .remote_state import fill_on_pin
+
+    fill = fill_on_pin(store, remote, device_id)
+    if fill is not None:
+        from datetime import UTC, datetime
+
+        remote.updated_at = datetime.now(UTC).isoformat()
+        store.update_trigger_remote(remote)
+        await store.async_save()
+        from .event import sync_remote_entities
+
+        sync_remote_entities(hass, data["config_entry"].entry_id)
     # A pinned matrix device's index is what a send reads its merged
     # groups from, and nothing else builds it for a device pinned while
     # running whose words match its remote's: without this the dial
@@ -4398,6 +4613,10 @@ async def ws_pin_trigger_remote_device(
         listener.warm_index(device_id)
     connection.send_result(msg["id"], {
         "pinned_device_ids": list(remote.pinned_device_ids),
+        # What the pin filled, as set-type reports it.
+        "fill_source": fill.source if fill is not None else None,
+        "fill_count": fill.count if fill is not None else 0,
+        "fill_device_name": fill.device_name if fill is not None else None,
     })
 
 
@@ -4526,6 +4745,7 @@ async def ws_duplicate_trigger_remote(
 
     entry_id = data["config_entry"].entry_id
     copied: list[IRTrigger] = []
+    new_ids: dict[str, str] = {}
     for trig in store.get_triggers_for_remote(source.id):
         new_trigger = IRTrigger(
             name=trig.name,
@@ -4551,6 +4771,16 @@ async def ws_duplicate_trigger_remote(
         store.add_trigger(new_trigger)
         sync_trigger_entities(hass, entry_id, trigger=new_trigger)
         copied.append(new_trigger)
+        new_ids[trig.id] = new_trigger.id
+
+    # A typed Remote's copy keeps its type, and its mapping follows the
+    # buttons to their new ids (round 2a). A key whose button did not
+    # copy is dropped.
+    clone.entity_config.command_mapping = {
+        key: new_ids[trigger_id]
+        for key, trigger_id in clone.entity_config.command_mapping.items()
+        if trigger_id in new_ids
+    }
 
     await store.async_save()
     from .event import sync_remote_entities
@@ -7022,6 +7252,16 @@ async def ws_trigger_remote_make_device(
 
     copied = 0
     triggers = store.get_triggers_for_remote(remote.id)
+    # Make a Device from a typed Remote copies its button mapping to the
+    # new Device when the Device takes the Remote's type (owner ruling
+    # 2026-10-22, round 2a): the Remote's mapping, in the new command
+    # names, replaces what auto-map would guess.
+    copy_mapping = (
+        remote.device_type is not None
+        and not device.climate_matrix
+        and str(device.device_type) == remote.device_type
+    )
+    command_name_by_trigger: dict[str, str] = {}
     for i, trig in enumerate(triggers, start=1):
         # THE REPAIR RULE (GH #134). This door used to copy the
         # trigger's decoded_fingerprint across and fill in none of the
@@ -7047,8 +7287,18 @@ async def ws_trigger_remote_make_device(
             ),
         )
         device.add_command(command)
-        manager._auto_map_command(device, command)
+        command_name_by_trigger[trig.id] = command.name
+        if not copy_mapping:
+            manager._auto_map_command(device, command)
         copied += 1
+
+    if copy_mapping:
+        from .remote_state import copy_remote_settings, device_mapping_from_remote
+
+        device.entity_config.command_mapping = device_mapping_from_remote(
+            remote, command_name_by_trigger
+        )
+        copy_remote_settings(remote, device.entity_config)
 
     await manager.async_update_device(device)
     result = await _device_full(hass, device)
@@ -7339,6 +7589,13 @@ async def ws_device_make_remote(
         )
         store.add_trigger(trigger)
         triggers.append(trigger)
+
+    # The new Remote takes the Device's type and its mapping, followed
+    # through the buttons just made from the commands (round 2a).
+    from .remote_state import seed_from_device
+
+    seed_from_device(remote, device, triggers)
+    store.update_trigger_remote(remote)
 
     await store.async_save()
 

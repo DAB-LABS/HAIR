@@ -64,9 +64,18 @@ export class IrPinPromptDialog extends LitElement {
         this._busy = true;
         this._error = null;
         try {
-            await this.api.pinTriggerRemoteDevice(this.remoteId, this.deviceId);
+            const result = await this.api.pinTriggerRemoteDevice(
+                this.remoteId,
+                this.deviceId,
+            );
+            // The result rides along so a host can say what the pin
+            // filled (round 2a polish); hosts that ignore it are fine.
             this.dispatchEvent(
-                new CustomEvent("pinned", { bubbles: true, composed: true }),
+                new CustomEvent("pinned", {
+                    detail: result,
+                    bubbles: true,
+                    composed: true,
+                }),
             );
         } catch (err) {
             this._error = (err as Error).message;

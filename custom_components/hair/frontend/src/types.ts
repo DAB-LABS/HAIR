@@ -823,6 +823,42 @@ export interface TriggerRemoteInfo {
     matrix: MatrixSummary | null;
     // The most recent state heard, or null for "Nothing heard yet".
     last_heard: LastHeard | null;
+    // A typed Remote (heard state, round 2a): its type, or null for
+    // none; its mapping from action key to TRIGGER id (trackable keys
+    // only); the keys a button can be mapped to; and the state entity a
+    // type change would remove, named in the panel's warning.
+    device_type: RemoteTypeId | null;
+    command_mapping: Record<string, string>;
+    action_options: ActionOption[];
+    state_entity_id: string | null;
+}
+
+/** The Device types a Remote can take: the ones with a state entity. */
+export type RemoteTypeId = "media_player" | "fan" | "light" | "switch" | "screen";
+
+export const REMOTE_TYPES: RemoteTypeId[] = [
+    "media_player",
+    "fan",
+    "light",
+    "switch",
+    "screen",
+];
+
+/** What hair/trigger-remote/set-type and /update-mapping answer. */
+export interface RemoteStateResult {
+    remote_id: string;
+    removed_entity_id?: string | null;
+    // What picking the type does to the buttons (set-type only): kept,
+    // pin, names or none, or null on a clear. With dry_run, nothing
+    // has changed yet; the panel's confirm dialog reads these first.
+    dry_run?: boolean;
+    fill_source?: "kept" | "pin" | "names" | "none" | null;
+    fill_count?: number;
+    fill_device_name?: string | null;
+    device_type: RemoteTypeId | null;
+    command_mapping: Record<string, string>;
+    action_options: ActionOption[];
+    state_entity_id: string | null;
 }
 
 /** The most recent decoded state a matrix Remote heard (signpost 4,

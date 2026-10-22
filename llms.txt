@@ -513,6 +513,12 @@ Key components:
   (hair_remote_<id>_last_pressed) whose event types are its buttons' names as
   written, " (2)" for a repeated name; it fires on every trigger fire of that
   Remote with the button name, trigger id and per-trigger entity id in the data.
+  Typed Remote (remote_state.py): a Remote with device_type (media_player, fan,
+  light, switch, screen) and entity_config.command_mapping (action key -> trigger
+  id) gets a state entity hair_remote_<id>_<platform>, a subclass of the Device
+  platform's entity (RemoteStateMixin) that applies its own presses
+  (SIGNAL_REMOTE_PRESSED from _fire_trigger) with the Device rules and sends no IR.
+  The Device's state and the Remote's are never synced.
   Location-aware (v0.5.7): the fire payload also carries receiver_entity_id plus
   receiver_area_id and receiver_area_name, resolved from the entity/device/area
   registry chain at fire time (so area renames and device moves need no migration).
