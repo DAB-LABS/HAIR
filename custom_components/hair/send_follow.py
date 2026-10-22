@@ -9,6 +9,10 @@ one of those platforms asks, so none of them reimplements the rules:
 - which feature keys name the sent command (``mapped_keys``), and
 - what that does to power (``power_after``).
 
+A typed Remote (round 2a) reads its own handset presses through the
+same rules: ``keys_for_trigger`` is its ``mapped_keys``, and each
+Remote entity applies the keys with its Device class's own code.
+
 ONE COMMAND, SEVERAL KEYS. A handset's single Power button is often
 mapped to more than one key, and the keys can disagree. The rules:
 
@@ -70,6 +74,19 @@ def mapped_keys(device: Any, sent: DeviceSent) -> frozenset[str]:
         key
         for key, mapped in device.entity_config.command_mapping.items()
         if mapped and str(mapped).casefold() == wanted
+    )
+
+
+def keys_for_trigger(mapping: dict[str, str], trigger_id: str) -> frozenset[str]:
+    """Every action key a typed Remote maps to one of its buttons.
+
+    The Remote-side twin of ``mapped_keys`` (heard state, round 2a). A
+    Remote's ``command_mapping`` names trigger ids rather than command
+    names, so this is an exact match; the rules applied to the keys it
+    returns are this module's, for a Remote exactly as for a Device.
+    """
+    return frozenset(
+        key for key, mapped in mapping.items() if mapped and mapped == trigger_id
     )
 
 

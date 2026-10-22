@@ -17,7 +17,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, DeviceType
-from .models import IRDevice
+from .models import EntityConfig, IRDevice
+from .remote_state import RemoteStateMixin, register_remote_platform
 from .send_follow import mapped_keys, one_of
 from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 
@@ -61,6 +62,10 @@ async def async_setup_entry(
         "cover", on_add=_on_add, on_remove=_on_remove, on_update=_on_update
     )
     factory.register_platform("cover", async_add_entities)
+    # A typed Remote's own screen (heard state, round 2a).
+    register_remote_platform(
+        hass, entry.entry_id, "cover", async_add_entities, HAIRRemoteCoverEntity
+    )
 
     for device in device_manager.get_all_devices():
         _on_add(device)
@@ -79,9 +84,22 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
         self._manager = device_manager
         self._attr_unique_id = f"hair_{device.id}_cover"
         self._attr_name = None
-        self._is_closed: bool | None = None
+        self._init_state()
         # What HAIR sends from anywhere else (heard state, round 1).
         self._device_sent_unsub: CALLBACK_TYPE | None = None
+
+    def _init_state(self) -> None:
+        """The assumed state before any restore or press."""
+        self._is_closed: bool | None = None
+
+    @property
+    def _entity_config(self) -> EntityConfig:
+        """Where this entity reads its mapping and settings (round 2a).
+
+        A typed Remote's entity subclasses this class and answers with
+        the Remote's own config (``remote_state.RemoteStateMixin``).
+        """
+        return self._device.entity_config
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -95,7 +113,7 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
     @property
     def supported_features(self) -> CoverEntityFeature:
         features = CoverEntityFeature(0)
-        mapping = self._device.entity_config.command_mapping
+        mapping = self._entity_config.command_mapping
         if "open_cover" in mapping:
             features |= CoverEntityFeature.OPEN
         if "close_cover" in mapping:
@@ -167,9 +185,17 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
         contradiction that moves nothing either."""
         if sent.device_id != self._device.id or sent.origin == ORIGIN_ENTITY:
             return
-        move = one_of(
-            mapped_keys(self._device, sent), "open_cover", "close_cover"
-        )
+        keys = mapped_keys(self._device, sent)
+        if keys:
+            self._apply_keys(keys)
+
+    @callback
+    def _apply_keys(self, keys: frozenset[str]) -> None:
+        """Apply the keys one command carries, and write if anything moved.
+
+        Shared by a Device's sends and a typed Remote's presses.
+        """
+        move = one_of(keys, "open_cover", "close_cover")
         if move is None:
             return
         closed = move == "close_cover"
@@ -203,7 +229,7 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
         self.async_write_ha_state()
 
     async def _send(self, *feature_keys: str) -> None:
-        mapping = self._device.entity_config.command_mapping
+        mapping = self._entity_config.command_mapping
         for key in feature_keys:
             command_name = mapping.get(key)
             if command_name is None:
@@ -221,3 +247,14 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
             self._device.name,
             feature_keys,
         )
+
+
+class HAIRRemoteCoverEntity(RemoteStateMixin, HAIRCoverEntity):
+    """A typed Remote's screen (heard state, round 2a).
+
+    Every state rule, setter, feature and restore is HAIRCoverEntity's; the
+    mixin makes it read the Remote's own mapping, follow the Remote's
+    own presses, and send nothing.
+    """
+
+    _remote_platform = "cover"

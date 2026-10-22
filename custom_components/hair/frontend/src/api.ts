@@ -75,6 +75,8 @@ import type {
     TriggerDrawerInfo,
     TriggerFiredEvent,
     TriggerRemoteInfo,
+    RemoteStateResult,
+    RemoteTypeId,
     UnknownDevice,
     UnknownDeviceSummary,
     UnknownSignal,
@@ -1454,6 +1456,38 @@ export class HairApi {
      * same field the Add Trigger Remote dialog's footer picker
      * already writes at creation.
      */
+    /**
+     * Give a Remote a type, change it, or clear it (heard state, round
+     * 2a). A change or clear removes the old state entity for good;
+     * the panel warns first.
+     */
+    setTriggerRemoteType(
+        remoteId: string,
+        deviceType: RemoteTypeId | null,
+        dryRun = false,
+    ): Promise<RemoteStateResult> {
+        return this.hass.connection.sendMessagePromise<RemoteStateResult>({
+            type: "hair/trigger-remote/set-type",
+            remote_id: remoteId,
+            device_type: deviceType,
+            dry_run: dryRun,
+        });
+    }
+
+    /** Map one of a Remote's buttons to an action, or clear it (round 2a). */
+    updateTriggerRemoteMapping(
+        remoteId: string,
+        triggerId: string,
+        actionKey: string | null,
+    ): Promise<RemoteStateResult> {
+        return this.hass.connection.sendMessagePromise<RemoteStateResult>({
+            type: "hair/trigger-remote/update-mapping",
+            remote_id: remoteId,
+            trigger_id: triggerId,
+            action_key: actionKey,
+        });
+    }
+
     setTriggerRemoteReceiverScope(
         remoteId: string,
         receiverScope: string[],
@@ -1476,7 +1510,7 @@ export class HairApi {
     pinTriggerRemoteDevice(
         remoteId: string,
         deviceId: string,
-    ): Promise<{ pinned_device_ids: string[] }> {
+    ): Promise<PinResult> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/trigger-remote/pin",
             remote_id: remoteId,
@@ -1845,6 +1879,32 @@ export class HairApi {
 export interface LandedNotice {
     key: string;
     params: Record<string, string | number>;
+}
+
+/** What hair/trigger-remote/pin answers. A typed Remote that mapped
+ *  nothing is filled from the Device just pinned (round 2a polish), and
+ *  the fill_* fields say so, as set-type's do. */
+export interface PinResult {
+    pinned_device_ids: string[];
+    fill_source?: "pin" | null;
+    fill_count?: number;
+    fill_device_name?: string | null;
+}
+
+/** The sentence a pin that filled buttons flashes: remotetype.fill_pin,
+ *  the type pick's own words. Null when the pin filled nothing. Returns
+ *  the key and its values so callers translate with tp(), as
+ *  landedManyNotice below does. */
+export function pinFillNotice(
+    result: PinResult | null | undefined,
+): { key: string; count: number; params: Record<string, string> } | null {
+    const count = result?.fill_count ?? 0;
+    if (result?.fill_source !== "pin" || count <= 0) return null;
+    return {
+        key: "remotetype.fill_pin",
+        count,
+        params: { device: result.fill_device_name ?? "" },
+    };
 }
 
 export function landedManyNotice(

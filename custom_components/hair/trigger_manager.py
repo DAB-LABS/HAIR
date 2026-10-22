@@ -33,6 +33,7 @@ from homeassistant.helpers import (
 from homeassistant.helpers import (
     entity_registry as er,
 )
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     EVENT_TRIGGER_FIRED,
@@ -553,6 +554,24 @@ class TriggerManager:
             except Exception:
                 _LOGGER.exception(
                     "Error firing the event entities for trigger %s", trigger.id
+                )
+
+        # A typed Remote's state entity follows its own presses (heard
+        # state, round 2a). Same confirmed fire as the event entities,
+        # and guarded the same way: a Remote entity that cannot take the
+        # press must not cost the bus event or a pinned retransmit.
+        if trigger.trigger_remote_id is not None:
+            try:
+                from .remote_state import SIGNAL_REMOTE_PRESSED, RemotePressed
+
+                async_dispatcher_send(
+                    self._hass,
+                    SIGNAL_REMOTE_PRESSED,
+                    RemotePressed(trigger.trigger_remote_id, trigger.id),
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "Error moving the Remote state for trigger %s", trigger.id
                 )
 
         # Fire a general HA bus event (for automations listening directly).

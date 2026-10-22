@@ -352,8 +352,13 @@ def test_the_unique_id_and_device_and_name():
     assert entity.device_info == trigger_entity.device_info
 
 
-def test_the_orphan_sweep_never_touches_its_row():
-    assert classify_unique_id(remote_last_pressed_unique_id("abc123")) is None
+def test_the_orphan_sweep_reads_its_row_as_its_remotes():
+    """Round 2a (strategist, 2026-10-22): the sweep keeps a Remote's own
+    rows while the Remote exists and cleans them up once it is gone, so
+    the row is read as the Remote's rather than left alone forever."""
+    row = classify_unique_id(remote_last_pressed_unique_id("abc123"))
+    assert row is not None
+    assert (row.family, row.remote_id) == ("remote", "abc123")
 
 
 def test_every_translation_names_it():

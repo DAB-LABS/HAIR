@@ -957,10 +957,22 @@ class HAIRStore:
         self._triggers[trigger.id] = trigger
 
     def remove_trigger(self, trigger_id: str) -> bool:
-        if trigger_id in self._triggers:
-            del self._triggers[trigger_id]
-            return True
-        return False
+        trigger = self._triggers.pop(trigger_id, None)
+        if trigger is None:
+            return False
+        # A typed Remote's mapping names its buttons by id (round 2a):
+        # a deleted button takes its keys with it, so nothing points at
+        # a trigger that is gone.
+        remote = (
+            self._trigger_remotes.get(trigger.trigger_remote_id)
+            if trigger.trigger_remote_id is not None
+            else None
+        )
+        if remote is not None:
+            mapping = remote.entity_config.command_mapping
+            for key in [k for k, v in mapping.items() if v == trigger_id]:
+                del mapping[key]
+        return True
 
     def _next_trigger_order(self) -> int:
         """Return the next ``order`` value for a newly created trigger.

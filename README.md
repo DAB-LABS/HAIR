@@ -121,6 +121,8 @@ You can also click the dashed tile at the end of the grid to start one from scra
 
 Each Remote you make is its own device in Home Assistant, so its triggers show up by name under Device in the automation editor; click its header's Home Assistant glyph to jump there. Each Remote also has a **Last pressed** event entity whose event types are its buttons, for one automation that reacts to whichever button was pressed.
 
+A Remote can also keep its own state. Give it a **Type** under its name (media player, fan, light, switch or screen) and map its buttons with **ACTIONS**, as on a Device, and the Remote gets an entity of that type, named as the remote. There are then two kinds of state, and HAIR never syncs them: the Device is the TV as HAIR believes it is, from what HAIR sends it, while the Remote is what its handset last did. Pressing Power on the handset turns the Remote's entity on; turning the Device on from Home Assistant leaves the Remote's entity where it was. Picking a type maps the buttons for you if none are mapped yet, from the Device the Remote is pinned to or by the buttons' names, and the panel says what it will do first. The Remote's controls change only its own state and never send IR, so you can correct it when it drifts. Automate against, or expose to a voice assistant, whichever fits.
+
 A Device can also build you a matching Remote, and a Remote a matching Device: open the gear, click **Make a Remote** or **Make a Device**, and name it. HAIR then asks whether to pin the two together; see [Set up triggers](#set-up-triggers).
 
 <!-- screenshot: add dialog, source tabs, Device/Remote choice -->

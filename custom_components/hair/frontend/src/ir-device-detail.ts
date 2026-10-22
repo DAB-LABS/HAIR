@@ -5,7 +5,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
-import { t, tv } from "./localize.js";
+import { t, tp, tv } from "./localize.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -45,6 +45,7 @@ import { thinReceipt } from "./matrix-thin.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-popover.js";
+import "./ir-action-popover.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 // The house wig, from images/wig.svg. Same glyph the closet wears,
 // because this button is the door into it (FR5).
@@ -61,6 +62,7 @@ import {
 } from "./ir-icons.js";
 import "./ir-device-settings-dialog.js";
 import type { HairApi } from "./api.js";
+import { pinFillNotice } from "./api.js";
 import "./ir-tangle-section.js";
 import type {
     ActionOption,
@@ -166,8 +168,6 @@ export class IrDeviceDetail extends LitElement {
     // changing "temp_28" to "temp_30" no longer requires delete+reimport.
     // A key outside the known vocabulary stores but drives no entity;
     // the ACTIONS badge renders it as typed, so a typo stays visible.
-    @state() private _customActionOpen = false;
-    @state() private _customActionValue = "";
     private _dismissHandler: ((e: MouseEvent) => void) | null = null;
 
     // Inline name editing
@@ -520,7 +520,10 @@ export class IrDeviceDetail extends LitElement {
         this._busy = true;
         try {
             for (const remoteId of added) {
-                await this.api.pinTriggerRemoteDevice(remoteId, this.device.id);
+                const notice = pinFillNotice(
+                    await this.api.pinTriggerRemoteDevice(remoteId, this.device.id),
+                );
+                if (notice) this._flash(tp(notice.key, notice.count, notice.params));
             }
             for (const remoteId of removed) {
                 await this.api.unpinTriggerRemoteDevice(
@@ -893,7 +896,7 @@ export class IrDeviceDetail extends LitElement {
         requestAnimationFrame(() => {
             this._dismissHandler = (ev: MouseEvent) => {
                 const path = ev.composedPath();
-                const popover = this.shadowRoot?.querySelector(".action-popover");
+                const popover = this.shadowRoot?.querySelector("ir-action-popover");
                 if (popover && !path.includes(popover)) {
                     this._closePopover();
                 }
@@ -904,8 +907,6 @@ export class IrDeviceDetail extends LitElement {
 
     private _closePopover() {
         this._mappingCommandName = null;
-        this._customActionOpen = false;
-        this._customActionValue = "";
         if (this._dismissHandler) {
             document.removeEventListener("click", this._dismissHandler, true);
             this._dismissHandler = null;
@@ -1054,12 +1055,6 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
-    /** Get the command name currently mapped to a given action key. */
-    private _getCommandForAction(actionKey: string): string | null {
-        const mapping = this.device.entity_config?.command_mapping ?? {};
-        return mapping[actionKey] ?? null;
-    }
-
     private async _selectAction(commandName: string, actionKey: string | null) {
         this._closePopover();
         this._busy = true;
@@ -1085,6 +1080,19 @@ export class IrDeviceDetail extends LitElement {
         } finally {
             this._busy = false;
         }
+    }
+
+    /** Each key mapped to ANOTHER command, with that command's name:
+     *  what the popover shows beside an option a pick would move. */
+    private _actionHolders(commandName: string): Record<string, string> {
+        const mapping = this.device.entity_config?.command_mapping ?? {};
+        const holders: Record<string, string> = {};
+        for (const [key, val] of Object.entries(mapping)) {
+            if (val && val.toLowerCase() !== commandName.toLowerCase()) {
+                holders[key] = val;
+            }
+        }
+        return holders;
     }
 
     /** Find the action key currently mapped to a command name. */
@@ -1763,98 +1771,16 @@ export class IrDeviceDetail extends LitElement {
 
                     ${this._mappingCommandName
                         ? html`
-                              <div
-                                  class="action-popover"
-                                  style="top:${this._popoverTop}px; left:${this._popoverLeft}px"
-                              >
-                                  <div class="popover-header">${t("devdetail.map_action")}</div>
-                                  ${this._getCurrentActionKey(this._mappingCommandName)
-                                      ? html`
-                                            <button
-                                                class="popover-item clear"
-                                                @click=${() => this._selectAction(this._mappingCommandName!, null)}
-                                            >
-                                                <span class="popover-label">${t("devdetail.none_clear")}</span>
-                                            </button>
-                                        `
-                                      : ""}
-                                  ${this._actionOptions.map((opt) => {
-                                      const current = this._getCurrentActionKey(this._mappingCommandName!);
-                                      const isCurrent = current === opt.key;
-                                      const existing = this._getCommandForAction(opt.key);
-                                      const isOther = existing && existing.toLowerCase() !== this._mappingCommandName!.toLowerCase();
-                                      return html`
-                                          <button
-                                              class="popover-item ${isCurrent ? "active" : ""}"
-                                              @click=${() => this._selectAction(this._mappingCommandName!, opt.key)}
-                                          >
-                                              <span class="popover-label">${tv(opt.label)}</span>
-                                              ${isCurrent
-                                                  ? html`<span class="popover-check">&#10003;</span>`
-                                                  : isOther
-                                                    ? html`<span class="popover-existing">${existing}</span>`
-                                                    : ""}
-                                          </button>
-                                      `;
-                                  })}
-                                  ${this._customActionOpen
-                                      ? html`
-                                            <div class="custom-action-row">
-                                                <input
-                                                    class="custom-action-input"
-                                                    type="text"
-                                                    placeholder=${t("devdetail.custom_action_placeholder")}
-                                                    .value=${this._customActionValue}
-                                                    @input=${(e: Event) =>
-                                                        (this._customActionValue = (
-                                                            e.target as HTMLInputElement
-                                                        ).value)}
-                                                    @keydown=${(e: KeyboardEvent) => {
-                                                        if (
-                                                            e.key === "Enter" &&
-                                                            this._customActionValue.trim()
-                                                        ) {
-                                                            void this._selectAction(
-                                                                this._mappingCommandName!,
-                                                                this._customActionValue.trim(),
-                                                            );
-                                                        }
-                                                    }}
-                                                />
-                                                <button
-                                                    class="custom-action-set"
-                                                    ?disabled=${!this._customActionValue.trim()}
-                                                    @click=${() =>
-                                                        this._selectAction(
-                                                            this._mappingCommandName!,
-                                                            this._customActionValue.trim(),
-                                                        )}
-                                                >
-                                                    ${t("devdetail.set")}
-                                                </button>
-                                            </div>
-                                        `
-                                      : html`
-                                            <button
-                                                class="popover-item custom-action-open"
-                                                @click=${(e: Event) => {
-                                                    e.stopPropagation();
-                                                    this._customActionOpen = true;
-                                                    this.updateComplete.then(() => {
-                                                        this.shadowRoot
-                                                            ?.querySelector<HTMLInputElement>(
-                                                                ".custom-action-input",
-                                                            )
-                                                            ?.focus();
-                                                    });
-                                                }}
-                                            >
-                                                <span class="popover-label"
-                                                    >${t("devdetail.custom_action")}</span
-                                                >
-                                            </button>
-                                        `}
-                              </div>
+                              <ir-action-popover
+                                  .options=${this._actionOptions}
+                                  .currentKey=${this._getCurrentActionKey(this._mappingCommandName)}
+                                  .holders=${this._actionHolders(this._mappingCommandName)}
+                                  .top=${this._popoverTop}
+                                  .left=${this._popoverLeft}
+                                  allowCustom
+                                  @select=${(e: CustomEvent<{ key: string | null }>) =>
+                                      this._selectAction(this._mappingCommandName!, e.detail.key)}
+                              ></ir-action-popover>
                           `
                         : ""}
                 </div>
@@ -2471,48 +2397,8 @@ export class IrDeviceDetail extends LitElement {
             z-index: 100;
         }
 
-        /* Custom action entry (free-form key) inside the Map action
-           popover. Input + Set on one row, matching popover chrome. */
-        .custom-action-row {
-            display: flex;
-            gap: 6px;
-            padding: 6px 10px 8px;
-            align-items: center;
-        }
-        .custom-action-input {
-            flex: 1;
-            min-width: 0;
-            padding: 5px 8px;
-            border-radius: 4px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-            font-size: 0.8rem;
-            font-family: var(--code-font-family, monospace);
-            box-sizing: border-box;
-        }
-        .custom-action-input:focus {
-            outline: none;
-            border-color: var(--primary-color);
-        }
-        .custom-action-set {
-            border: 1px solid var(--divider-color);
-            background: none;
-            border-radius: 4px;
-            padding: 5px 10px;
-            font-size: 0.78rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            color: var(--primary-text-color);
-        }
-        .custom-action-set:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        .custom-action-set:hover:not(:disabled) {
-            background: var(--secondary-background-color);
-        }
+        /* The Map action popover's own styles, custom-action entry
+           included, moved with it to ir-action-popover.ts (round 2a). */
     `,
     ];
 }

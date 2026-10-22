@@ -113,6 +113,27 @@ AUTO_MAP_RULES: dict[str, str] = {
 }
 
 
+def auto_map_feature(name: str, device_type: str | None) -> str | None:
+    """The action key a command or button NAME maps to, or None.
+
+    The one lookup behind auto-map: the English rules, then the
+    localized synonyms every shipped locale adds (vocabulary.py), then,
+    on an air conditioner, the "Temp 24" pattern. Pure, so a Device's
+    commands (``DeviceManager._auto_map_command``) and a typed Remote's
+    buttons (``remote_state.fill_mapping``, round 2a) map the same name
+    to the same key.
+    """
+    folded = name.casefold()
+    feature = AUTO_MAP_RULES.get(folded)
+    if feature is None:
+        feature = localized_auto_map(AUTO_MAP_RULES).get(folded)
+    if feature is None and device_type == DeviceType.AC:
+        match = _TEMP_COMMAND_PATTERN.fullmatch(name.strip())
+        if match is not None:
+            feature = f"temp_{int(match.group(1))}"
+    return feature
+
+
 class DeviceManager:
     """Manage IR device lifecycle."""
 
@@ -1549,17 +1570,20 @@ class DeviceManager:
         )
 
     def _auto_map_command(self, device: IRDevice, command: IRCommand) -> None:
-        feature = AUTO_MAP_RULES.get(command.name.casefold())
+        # The name lookup is ``auto_map_feature``: the English rules, the
+        # localized template names (v0.6.8 "French Braid": accepting a
+        # localized template stores the localized string as the command
+        # name, which the synonyms table recognizes across every shipped
+        # locale at once), and the AC "Temp 24" pattern.
+        feature = auto_map_feature(command.name, device.device_type)
         if feature is None:
-            # Localized template names (v0.6.8 "French Braid"): accepting
-            # a localized template stores the localized string as the
-            # command name, so the English rules above miss it. The
-            # synonyms table recognizes the same vocabulary across every
-            # shipped locale at once (see vocabulary.py).
-            feature = localized_auto_map(AUTO_MAP_RULES).get(
-                command.name.casefold()
-            )
-        if feature is None:
+            return
+        device.entity_config.command_mapping[feature] = command.name
+        if (
+            device.device_type == DeviceType.AC
+            and feature.startswith("temp_")
+            and feature[5:].isdigit()
+        ):
             # Pattern rule (v0.6.1, GH #45): "Temp 24" / "Temp: 24" /
             # "Temperature 24" on an AC device maps to the temp_24
             # feature the climate entity already dispatches to, and
@@ -1567,23 +1591,12 @@ class DeviceManager:
             # card gains the step. Unit-agnostic: presets are plain
             # integers interpreted in the installation's unit system,
             # so 16..30 behaves as Celsius on a metric install.
-            if device.device_type == DeviceType.AC:
-                match = _TEMP_COMMAND_PATTERN.fullmatch(command.name.strip())
-                if match is not None:
-                    degrees = int(match.group(1))
-                    device.entity_config.command_mapping[
-                        f"temp_{degrees}"
-                    ] = command.name
-                    presets = list(
-                        device.entity_config.temperature_presets or []
-                    )
-                    if degrees not in presets:
-                        presets.append(degrees)
-                        device.entity_config.temperature_presets = sorted(
-                            presets
-                        )
+            degrees = int(feature[5:])
+            presets = list(device.entity_config.temperature_presets or [])
+            if degrees not in presets:
+                presets.append(degrees)
+                device.entity_config.temperature_presets = sorted(presets)
             return
-        device.entity_config.command_mapping[feature] = command.name
 
         # Track surfaced HVAC and fan modes for the climate entity so the
         # supported_features dynamic computation has something to read.

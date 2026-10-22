@@ -3049,10 +3049,19 @@ class TestRemoteCardDropsTheTriggerCountLine:
     (drawer's own and the per-remote's) are untouched now."""
 
     def test_the_overview_card_no_longer_shows_the_count_line(self):
+        # Between the name and the footer there is only a typed Remote's
+        # type line now (heard state round 2a, the Device card's meta
+        # line); still no trigger count.
         text = _read("ir-device-list.ts")
         assert (
             '<div class="card-name">${remote.name}</div>\n'
             "                            </div>\n"
+            "                            ${remote.device_type\n"
+            '                                ? html`<div class="card-meta">\n'
+            "                                      "
+            "${t(DEVICE_TYPE_LABEL_KEYS[remote.device_type])}\n"
+            "                                  </div>`\n"
+            "                                : nothing}\n"
             '                            <div class="card-footer">'
         ) in text
 

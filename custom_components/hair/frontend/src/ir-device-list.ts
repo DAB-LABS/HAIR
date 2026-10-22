@@ -11,7 +11,7 @@
 import { LitElement, html, css, nothing, unsafeCSS, type PropertyValues } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { customElement, property, state } from "./decorators.js";
-import { t, tp } from "./localize.js";
+import { t, tp, tv } from "./localize.js";
 import {
     ICON_TRASH,
     TRASH_VIEWBOX,
@@ -29,6 +29,7 @@ import Sortable from "sortablejs";
 import "./ir-device-detail.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-row.js";
+import "./ir-action-popover.js";
 // Signpost 4, Track M: the remote detail's hear-side pair. The card is
 // the device page's lattice in "hear" mode; the row is the readout of
 // the one state most recently heard through it.
@@ -47,7 +48,8 @@ import "./ir-ghost-tile.js";
 import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
 import { PINNING_UI_ENABLED, PIN_BLUE } from "./ir-pin-flag.js";
 import type { HairApi } from "./api.js";
-import { landedManyNotice } from "./api.js";
+import { landedManyNotice, pinFillNotice } from "./api.js";
+import type { PinResult } from "./api.js";
 import { BROADSNIFF_URL } from "./types.js";
 import type { CaptureReceiverRow } from "./types.js";
 import "./ir-listen-chip.js";
@@ -71,8 +73,11 @@ import type {
     TriggerDrawerInfo,
     TriggerFiredEvent,
     TriggerRemoteInfo,
+    RemoteStateResult,
+    RemoteTypeId,
     WigInfo,
 } from "./types.js";
+import { REMOTE_TYPES } from "./types.js";
 import { entityDisplayName, entityFullName } from "./entity-names.js";
 import { cardGlyph, cardHealth, isEntityOnline, partsHealth } from "./entity-health.js";
 import { cardIconPath } from "./card-icons.js";
@@ -269,6 +274,24 @@ export class IrDeviceList extends LitElement {
         deviceName: string;
     } | null = null;
     @state() private _confirmDeleteRemote: TriggerRemoteInfo | null = null;
+    /** A typed Remote (heard state, round 2a): a type change or clear
+     *  waiting on the warning, the header select while one saves, and
+     *  the button whose Map action popover is open. */
+    @state() private _remoteTypeConfirm: {
+        remote: TriggerRemoteInfo;
+        newType: RemoteTypeId | null;
+        plan: RemoteStateResult;
+    } | null = null;
+    @state() private _remoteTypeBusy = false;
+    @state() private _toast: string | null = null;
+    private _toastTimer: number | undefined;
+    @state() private _remoteActionTarget: {
+        remoteId: string;
+        triggerId: string;
+        top: number;
+        left: number;
+    } | null = null;
+    private _remoteActionDismiss: ((e: MouseEvent) => void) | null = null;
     /** Which ghost tile is reading a dropped file right now (F10). */
     @state() private _dropBusy: "device" | "remote" | null = null;
     /** A drop whose wig the closet already has a newer version of
@@ -361,6 +384,7 @@ export class IrDeviceList extends LitElement {
 
     disconnectedCallback(): void {
         super.disconnectedCallback();
+        this._closeRemoteActionPopover();
         void this._unsubscribeTriggerFired();
         this._devicesSortable?.destroy();
         this._devicesSortable = null;
@@ -978,6 +1002,237 @@ export class IrDeviceList extends LitElement {
         }
     }
 
+    // --- A typed Remote (heard state, round 2a): the header's Type
+    //     select, its warning, and the Map action popover on each
+    //     button row, all as a Device's work ---
+
+    /** Every type change asks first, from none included (owner bench,
+     *  2026-10-22): the dialog says what is added, what is removed, and
+     *  how the buttons will be filled, read from a dry run so nothing
+     *  changes until the user says so. */
+    private async _onRemoteTypeChanged(remote: TriggerRemoteInfo, e: Event): Promise<void> {
+        const select = e.target as HTMLSelectElement;
+        const newType = (select.value || null) as RemoteTypeId | null;
+        select.value = remote.device_type ?? "";
+        if (newType === remote.device_type || !this.api) return;
+        this._remoteTypeBusy = true;
+        try {
+            const plan = await this.api.setTriggerRemoteType(remote.id, newType, true);
+            this._remoteTypeConfirm = { remote, newType, plan };
+        } catch {
+            // Non-fatal; the select stays on the Remote's current type.
+        } finally {
+            this._remoteTypeBusy = false;
+        }
+    }
+
+    /** The confirm dialog's words, one sentence per fact. */
+    private _remoteTypeMessage(
+        remote: TriggerRemoteInfo,
+        newType: RemoteTypeId | null,
+        plan: RemoteStateResult,
+    ): string {
+        const parts: string[] = [];
+        if (newType) {
+            parts.push(t("remotetype.adds", { type: t(DEVICE_TYPE_LABEL_KEYS[newType]) }));
+        }
+        if (remote.device_type) {
+            parts.push(
+                t("remotetype.clear_msg", {
+                    entity:
+                        plan.removed_entity_id ??
+                        remote.state_entity_id ??
+                        t("remotetype.this_entity"),
+                }),
+            );
+        }
+        if (newType) {
+            const count = plan.fill_count ?? 0;
+            switch (plan.fill_source) {
+                case "pin":
+                    parts.push(
+                        tp("remotetype.fill_pin", count, {
+                            device: plan.fill_device_name ?? "",
+                        }),
+                    );
+                    break;
+                case "names":
+                    parts.push(tp("remotetype.fill_names", count));
+                    break;
+                case "kept":
+                    parts.push(tp("remotetype.fill_kept", count));
+                    break;
+                default:
+                    parts.push(t("remotetype.fill_none"));
+            }
+            if (count > 0) parts.push(t("remotetype.fill_after"));
+        }
+        return parts.join(" ");
+    }
+
+    private async _applyRemoteType(
+        remote: TriggerRemoteInfo,
+        newType: RemoteTypeId | null,
+    ): Promise<void> {
+        if (!this.api) return;
+        this._remoteTypeBusy = true;
+        try {
+            await this.api.setTriggerRemoteType(remote.id, newType);
+            this.dispatchEvent(
+                new CustomEvent("remote-type-changed", { bubbles: true, composed: true }),
+            );
+        } catch {
+            // Non-fatal; the select reverts to the parent-refreshed type.
+        } finally {
+            this._remoteTypeBusy = false;
+        }
+    }
+
+    private _renderRemoteTypeConfirm() {
+        const pending = this._remoteTypeConfirm;
+        if (!pending) return nothing;
+        const { remote, newType, plan } = pending;
+        const adding = !remote.device_type;
+        const message = this._remoteTypeMessage(remote, newType, plan);
+        return html`<ir-confirm-dialog
+            title=${adding
+                ? t("remotetype.set_title")
+                : newType
+                  ? t("remotetype.change_title")
+                  : t("remotetype.clear_title")}
+            message=${message}
+            confirmLabel=${adding
+                ? t("remotetype.set_confirm")
+                : newType
+                  ? t("remotetype.change_confirm")
+                  : t("remotetype.clear_confirm")}
+            .destructive=${!adding}
+            @confirmed=${() => {
+                const { remote, newType } = pending;
+                this._remoteTypeConfirm = null;
+                void this._applyRemoteType(remote, newType);
+            }}
+            @closed=${() => (this._remoteTypeConfirm = null)}
+        ></ir-confirm-dialog>`;
+    }
+
+    /** The label a typed Remote's button row shows: its action's name,
+     *  or null for unmapped. */
+    private _remoteActionLabel(remote: TriggerRemoteInfo, triggerId: string): string | null {
+        for (const [key, value] of Object.entries(remote.command_mapping ?? {})) {
+            if (value !== triggerId) continue;
+            const option = (remote.action_options ?? []).find((o) => o.key === key);
+            return option ? tv(option.label) : key;
+        }
+        return null;
+    }
+
+    private _openRemoteActionPopover(remote: TriggerRemoteInfo, ev: CustomEvent): void {
+        const { trigger, buttonRect } = ev.detail as {
+            trigger: IRTrigger;
+            buttonRect: DOMRect | null;
+        };
+        this._remoteActionTarget = {
+            remoteId: remote.id,
+            triggerId: trigger.id,
+            top: buttonRect ? buttonRect.bottom + 4 : 80,
+            left: buttonRect ? Math.max(8, buttonRect.right - 220) : 8,
+        };
+        // Dismiss on an outside click, next tick so this click doesn't
+        // close it straight away (the Device popover's own rule).
+        requestAnimationFrame(() => {
+            this._remoteActionDismiss = (e: MouseEvent) => {
+                const popover = this.renderRoot.querySelector("ir-action-popover");
+                if (popover && !e.composedPath().includes(popover)) {
+                    this._closeRemoteActionPopover();
+                }
+            };
+            document.addEventListener("click", this._remoteActionDismiss, true);
+        });
+    }
+
+    private _closeRemoteActionPopover(): void {
+        this._remoteActionTarget = null;
+        if (this._remoteActionDismiss) {
+            document.removeEventListener("click", this._remoteActionDismiss, true);
+            this._remoteActionDismiss = null;
+        }
+    }
+
+    private async _selectRemoteAction(key: string | null): Promise<void> {
+        const target = this._remoteActionTarget;
+        this._closeRemoteActionPopover();
+        if (!target || !this.api) return;
+        try {
+            await this.api.updateTriggerRemoteMapping(target.remoteId, target.triggerId, key);
+            this.dispatchEvent(
+                new CustomEvent("remote-type-changed", { bubbles: true, composed: true }),
+            );
+        } catch {
+            // Non-fatal; the row keeps the parent-refreshed mapping.
+        }
+    }
+
+    private _renderRemoteActionPopover() {
+        const target = this._remoteActionTarget;
+        if (!target) return nothing;
+        const remote = this.triggerRemotes.find((r) => r.id === target.remoteId);
+        if (!remote) return nothing;
+        const mapping = remote.command_mapping ?? {};
+        const names = new Map(
+            this._remoteTriggers(remote.id).map((trig) => [trig.id, trig.name]),
+        );
+        let currentKey = "";
+        const holders: Record<string, string> = {};
+        for (const [key, triggerId] of Object.entries(mapping)) {
+            if (triggerId === target.triggerId) currentKey = key;
+            else holders[key] = names.get(triggerId) ?? "";
+        }
+        return html`<ir-action-popover
+            .options=${remote.action_options ?? []}
+            .currentKey=${currentKey}
+            .holders=${holders}
+            .top=${target.top}
+            .left=${target.left}
+            @select=${(e: CustomEvent<{ key: string | null }>) =>
+                this._selectRemoteAction(e.detail.key)}
+        ></ir-action-popover>`;
+    }
+
+    /** Type, under the name, in the spot a Device's sits (owner ruling
+     *  2026-10-22). An AC Remote keeps its STATE MATRIX and has none. */
+    private _renderRemoteTypeSelect(remote: TriggerRemoteInfo) {
+        const unmapped =
+            !!remote.device_type &&
+            Object.keys(remote.command_mapping ?? {}).length === 0;
+        return html`${this._renderRemoteTypeStack(remote)}${unmapped
+            ? html`<div class="remote-type-hint">${t("remotetype.unmapped_hint")}</div>`
+            : nothing}`;
+    }
+
+    private _renderRemoteTypeStack(remote: TriggerRemoteInfo) {
+        return html`<div class="stack">
+            <span class="sl">${t("devdetail.type")}</span>
+            <select
+                .value=${remote.device_type ?? ""}
+                ?disabled=${this._remoteTypeBusy}
+                @change=${(e: Event) => void this._onRemoteTypeChanged(remote, e)}
+            >
+                <option value="" ?selected=${!remote.device_type}>
+                    ${t("remotetype.none")}
+                </option>
+                ${REMOTE_TYPES.map(
+                    (type) => html`<option
+                        value=${type}
+                        ?selected=${remote.device_type === type}
+                    >
+                        ${t(`device_type.${type}`)}
+                    </option>`,
+                )}
+            </select>
+        </div>`;
+    }
+
     // --- Named remote rename-in-place (Track 5, mirrors the drawer's
     //     own _startEditDrawerName/_saveDrawerName/_onDrawerNameKeydown
     //     trio further down this file) ---
@@ -1095,7 +1350,18 @@ export class IrDeviceList extends LitElement {
      *
      * Both sides are told, not one: whichever object the user opens
      * next, the mint could have gone in either direction. */
-    private _onPinPromptPinned(): void {
+    /** A pin that filled a typed Remote's buttons says so for a moment,
+     *  in the type pick's own sentence (round 2a polish). */
+    private _flashPinFill(result: PinResult | null | undefined): void {
+        const notice = pinFillNotice(result);
+        if (!notice) return;
+        this._toast = tp(notice.key, notice.count, notice.params);
+        window.clearTimeout(this._toastTimer);
+        this._toastTimer = window.setTimeout(() => (this._toast = null), 2400);
+    }
+
+    private _onPinPromptPinned(e?: CustomEvent<PinResult>): void {
+        this._flashPinFill(e?.detail);
         this._pinPromptTarget = null;
         this.dispatchEvent(
             new CustomEvent("remote-pins-changed", {
@@ -1185,7 +1451,9 @@ export class IrDeviceList extends LitElement {
         const removed = [...before].filter((id) => !next.has(id));
         try {
             for (const deviceId of added) {
-                await this.api.pinTriggerRemoteDevice(remote.id, deviceId);
+                this._flashPinFill(
+                    await this.api.pinTriggerRemoteDevice(remote.id, deviceId),
+                );
             }
             for (const deviceId of removed) {
                 await this.api.unpinTriggerRemoteDevice(remote.id, deviceId);
@@ -2391,6 +2659,11 @@ export class IrDeviceList extends LitElement {
                                 <ha-svg-icon class="trigger-icon" .path=${ICON_TRIGGER}></ha-svg-icon>
                                 <div class="card-name">${remote.name}</div>
                             </div>
+                            ${remote.device_type
+                                ? html`<div class="card-meta">
+                                      ${t(DEVICE_TYPE_LABEL_KEYS[remote.device_type])}
+                                  </div>`
+                                : nothing}
                             <div class="card-footer">
                                 <span class="badge cmd-badge"
                                     >${t("devlist.on_badge", {
@@ -2445,6 +2718,9 @@ export class IrDeviceList extends LitElement {
                                                         )
                                                       : nothing}
                                               </div>
+                                              ${remote.climate_matrix
+                                                  ? nothing
+                                                  : this._renderRemoteTypeSelect(remote)}
                                           </div>
                                           <div class="rdetail-divider"></div>
                                           <div class="hdr-rows">
@@ -2537,6 +2813,10 @@ export class IrDeviceList extends LitElement {
                                                                     .receivers=${this._receivers}
                                                                     .mappings=${remote.pin_map?.[trig.id] ?? []}
                                                                     .showMappings=${(remote.pinned_device_ids ?? []).length > 0}
+                                                                    .showActionMapping=${!!remote.device_type}
+                                                                    .actionLabel=${this._remoteActionLabel(remote, trig.id)}
+                                                                    @map-action=${(ev: CustomEvent) =>
+                                                                        this._openRemoteActionPopover(remote, ev)}
                                                                     .bloom=${this._glowTriggerIds.has(trig.id)}
                                                                     @rename-trigger=${this._onRenameTrigger}
                                                                     @toggle-enabled=${(ev: CustomEvent) =>
@@ -2898,6 +3178,11 @@ export class IrDeviceList extends LitElement {
                 : nothing}
 
             ${this._renderDropSupersede()}
+            ${this._renderRemoteTypeConfirm()}
+            ${this._toast
+                ? html`<div class="toast" role="status">${this._toast}</div>`
+                : nothing}
+            ${this._renderRemoteActionPopover()}
 
             ${this._confirmDeleteRemote
                 ? html`
@@ -3544,6 +3829,52 @@ export class IrDeviceList extends LitElement {
             gap: 6px;
             flex-shrink: 0;
             min-width: 0;
+        }
+        /* A typed Remote's Type (round 2a): the Device header's .stack,
+           same label and select, under the name. */
+        .rdetail-top .stack {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .rdetail-top .stack .sl {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--secondary-text-color);
+            white-space: nowrap;
+        }
+        /* The pin fill's flash: the Device detail's own toast. */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary-color);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+        }
+        /* A typed Remote with nothing mapped (owner bench, 2026-10-22):
+           a quiet line under Type saying why its entity will not move. */
+        .rdetail-top .remote-type-hint {
+            font-size: 0.75rem;
+            color: var(--secondary-text-color);
+            max-width: 280px;
+            line-height: 1.35;
+        }
+        .rdetail-top .stack select {
+            box-sizing: border-box;
+            padding: 3px 10px 3px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--divider-color);
+            background: var(--card-background-color);
+            color: var(--primary-text-color);
+            font-family: inherit;
+            font-size: 11.5px;
         }
         /* Full height of the header block, restored from the original
            comps -- it was a short stub (a left border on the old
