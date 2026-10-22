@@ -11,7 +11,7 @@
 #   HAIR:            0.1.2
 #   HA Core:         2026.5.2
 #   ESPHome:         2026.9.1
-# Last verified:     2026-10-20
+# Last verified:     2026-10-22
 # Purpose:           RX+TX
 # Hardware purchase: https://www.seeedstudio.com/Seeed-XIAO-Smart-IR-Mate.html
 # GPIO map:
@@ -30,9 +30,13 @@
 #     Studio's stock XIAO features. Integration work by @Didgeridrew.
 #   - Uses the same secrets.yaml entries as the minimal variant (see README).
 #   - For a stripped-down version with just IR, see xiao-ir-mate-minimal.yaml.
-#   - Needs ESPHome 2026.8.0 or later. The LED is set with `channel_colors`,
-#     which replaced `rgb_order` in that release, and `min_version` enforces it.
-#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-20.
+#   - Needs ESPHome 2026.9.1 or later, which `min_version` enforces. The LED
+#     is set with `channel_colors`, which replaced `rgb_order` in 2026.8.0.
+#     OTA updates are encrypted with the `api` key (`ota: encryption:`),
+#     which ESPHome added in 2026.9.0; 2026.9.1 keeps that key in safe mode,
+#     so recovery uploads work there too.
+#   - Checked with `esphome config` on ESPHome 2026.9.1 and 2026.10.0 on
+#     2026-10-22.
 #     The HAIR and HA Core lines above record the last hardware run.
 # ============================================================================
 
@@ -44,7 +48,7 @@ esphome:
   name: ${name}
   name_add_mac_suffix: true
   friendly_name: ${friendly_name}
-  min_version: 2026.8.0
+  min_version: 2026.9.1
 
 esp32:
   board: seeed_xiao_esp32c3
@@ -59,7 +63,7 @@ api:
 
 ota:
   - platform: esphome
-    password: !secret ota_password
+    encryption:
 
 wifi:
   ssid: !secret wifi_ssid

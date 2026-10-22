@@ -35,13 +35,14 @@ This is a board-specific quirk, not an ESPHome or HAIR issue. Other ESP32 boards
 
 ```yaml
 api_encryption_key: "<your-api-encryption-key>"
-ota_password: "<your-ota-password>"
 wifi_ssid: "<your-wifi-ssid>"
 wifi_password: "<your-wifi-password>"
 ap_password: "<your-fallback-ap-password>"
 ```
 
 Generate an API encryption key with: `python3 -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"`
+
+Already running this config with an OTA password? If the device's firmware was built with ESPHome 2026.9.0 or newer (Home Assistant shows the version on the device page), install the new config as usual and take `ota_password` out of your secrets. If it is older, install your current config once more with ESPHome 2026.9.1 or newer first, then the new one; ESPHome refuses to send the new config to older firmware and says so. ESPHome stops accepting that route in 2027.3.0, after which an older device has to be flashed over USB.
 
 ## Compatibility
 

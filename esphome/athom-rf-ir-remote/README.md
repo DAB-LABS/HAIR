@@ -29,3 +29,18 @@ HAIR subscribes to the native `InfraredReceiverEntity` that the `ir_rf_proxy` pl
 - RF RX: GPIO19 (433 MHz)
 - Status LED: GPIO27
 - Button: GPIO0
+
+## Required secrets.yaml entries
+
+```yaml
+api_encryption_key: "<your-api-encryption-key>"
+wifi_ssid: "<your-wifi-ssid>"
+wifi_password: "<your-wifi-password>"
+ap_password: "<your-fallback-ap-password>"   # minimal only
+web_username: "<your-web-page-username>"     # full only
+web_password: "<your-web-page-password>"     # full only
+```
+
+The full config's built-in web page asks for `web_username` and `web_password`. The page still takes firmware uploads for recovery, and OTA encryption does not cover those, so the login keeps them from anyone else on your network.
+
+Already running one of these configs? If the device's firmware was built with ESPHome 2026.9.0 or newer (Home Assistant shows the version on the device page), install the new config as usual; the minimal one no longer needs `ota_password` in your secrets. If it is older, install your current config once more with ESPHome 2026.9.1 or newer first, then the new one; ESPHome refuses to send the new config to older firmware and says so. ESPHome stops accepting that route in 2027.3.0, after which an older device has to be flashed over USB.

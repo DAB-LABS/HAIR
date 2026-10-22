@@ -11,7 +11,7 @@
 #   HAIR:            0.2.0
 #   HA Core:         2026.5.2
 #   ESPHome:         2026.9.1
-# Last verified:     2026-10-03
+# Last verified:     2026-10-22
 # Purpose:           RX+TX
 # Hardware purchase: https://www.athom.tech/
 # GPIO map:
@@ -29,7 +29,16 @@
 #   - RF hardware components are included but only IR is used by HAIR.
 #   - BLE proxy, climate IR, and improv are included. Remove any sections
 #     you do not need.
-#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-03.
+#   - Needs ESPHome 2026.9.1 or later, which `min_version` enforces. OTA
+#     updates are encrypted with the `api` key (`ota: encryption:`), which
+#     ESPHome added in 2026.9.0; 2026.9.1 keeps that key in safe mode, so
+#     recovery uploads work there too.
+#   - The built-in web page asks for `web_username` and `web_password`
+#     from secrets.yaml. It still takes firmware uploads for recovery, and
+#     OTA encryption does not cover those, so the login keeps them from
+#     anyone else on the network.
+#   - Checked with `esphome config` on ESPHome 2026.9.1 and 2026.10.0 on
+#     2026-10-22.
 #     The HAIR and HA Core lines above record the last hardware run.
 # ============================================================================
 
@@ -52,7 +61,7 @@ esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   name_add_mac_suffix: false
-  min_version: 2026.5.1
+  min_version: 2026.9.1
   project:
     name: "${project_name}"
     version: "${project_version}"
@@ -93,6 +102,7 @@ api:
 
 ota:
   - platform: esphome
+    encryption:
 
 logger:
   baud_rate: 0
@@ -104,6 +114,10 @@ mdns:
 web_server:
   port: 80
   version: 3
+  auth:
+    type: digest  # basic would send the password in a reversible form
+    username: !secret web_username
+    password: !secret web_password
 
 wifi:
   ssid: !secret wifi_ssid
