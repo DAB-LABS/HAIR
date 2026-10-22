@@ -51,6 +51,8 @@ COMMAND_TEMPLATES: dict[DeviceType, list[CommandTemplate]] = {
         CommandTemplate("Power", CommandCategory.POWER, essential=True),
         CommandTemplate("Speed Up", CommandCategory.FAN_SPEED, essential=True),
         CommandTemplate("Speed Down", CommandCategory.FAN_SPEED, essential=True),
+        # One button that steps round the speeds (GH Discussion #201).
+        CommandTemplate("Speed Cycle", CommandCategory.FAN_SPEED, essential=False),
         CommandTemplate("Oscillate", CommandCategory.CUSTOM, essential=False),
         CommandTemplate("Timer", CommandCategory.CUSTOM, essential=False),
         CommandTemplate("Speed 1", CommandCategory.FAN_SPEED, essential=False),
@@ -151,6 +153,7 @@ ACTION_OPTIONS: dict[DeviceType, list[tuple[str, str]]] = {
         ("power_toggle", "Power Toggle"),
         ("speed_up", "Speed Up"),
         ("speed_down", "Speed Down"),
+        ("speed_cycle", "Speed Cycle"),
         ("oscillate", "Oscillate"),
         ("speed_1", "Speed 1"),
         ("speed_2", "Speed 2"),

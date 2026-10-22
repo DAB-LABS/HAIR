@@ -437,7 +437,31 @@ class CommandTemplate:
 _KNOWN_ENTITY_CONFIG = frozenset({
     "platform", "command_mapping", "starred", "temperature_presets",
     "hvac_modes", "fan_modes", "swing_modes",
+    "fan_speed_steps", "speed_cycle_includes_off", "speed_cycle_turn_on",
 })
+
+# Fan speed cycle (GH Discussion #201): a fan whose one speed button
+# steps 1, 2, 3, back to 1. ``fan_speed_steps`` is the number of speeds
+# (the name agreed in GH #46, so the step counts there reuse it). Two to
+# ten: a one-speed fan is just on and off, and ten is HAIR's speed cap.
+FAN_SPEED_STEPS_MIN = 2
+FAN_SPEED_STEPS_MAX = 10
+# Where a cycle without off lands when the fan is turned on.
+SPEED_CYCLE_TURN_ON_RESUME = "resume"
+SPEED_CYCLE_TURN_ON_SPEED_1 = "speed_1"
+SPEED_CYCLE_TURN_ON_CHOICES = (
+    SPEED_CYCLE_TURN_ON_RESUME,
+    SPEED_CYCLE_TURN_ON_SPEED_1,
+)
+
+
+def valid_fan_speed_steps(value: Any) -> bool:
+    """A usable number of speeds: an int (not a bool) in range."""
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and FAN_SPEED_STEPS_MIN <= value <= FAN_SPEED_STEPS_MAX
+    )
 
 
 @dataclass
@@ -467,6 +491,14 @@ class EntityConfig:
     # Absent in stored JSON reads as empty; empty means the entity
     # never advertises PRESET_MODE at all.
     starred: list[str] = field(default_factory=list)
+    # Fan speed cycle (GH Discussion #201), set in the device editor:
+    # the number of speeds the cycle steps through, whether off is one
+    # of its positions, and, when it is not, where turning the fan on
+    # lands. Written to the record only when set, so a device that
+    # never uses them stores exactly what it stored before.
+    fan_speed_steps: int | None = None
+    speed_cycle_includes_off: bool = False
+    speed_cycle_turn_on: str = SPEED_CYCLE_TURN_ON_RESUME
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
@@ -474,7 +506,7 @@ class EntityConfig:
     )
 
     def to_dict(self) -> dict[str, Any]:
-        return _with_extra({
+        out: dict[str, Any] = {
             "platform": self.platform,
             "command_mapping": dict(self.command_mapping),
             "starred": list(self.starred),
@@ -484,7 +516,14 @@ class EntityConfig:
             "hvac_modes": list(self.hvac_modes) if self.hvac_modes else None,
             "fan_modes": list(self.fan_modes) if self.fan_modes else None,
             "swing_modes": list(self.swing_modes) if self.swing_modes else None,
-        }, self._extra)
+        }
+        if self.fan_speed_steps is not None:
+            out["fan_speed_steps"] = self.fan_speed_steps
+        if self.speed_cycle_includes_off:
+            out["speed_cycle_includes_off"] = True
+        if self.speed_cycle_turn_on != SPEED_CYCLE_TURN_ON_RESUME:
+            out["speed_cycle_turn_on"] = self.speed_cycle_turn_on
+        return _with_extra(out, self._extra)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EntityConfig:
@@ -496,6 +535,16 @@ class EntityConfig:
             hvac_modes=data.get("hvac_modes"),
             fan_modes=data.get("fan_modes"),
             swing_modes=data.get("swing_modes"),
+            # Tolerant: a value this build cannot use reads as unset
+            # rather than raising, the same as the restore paths.
+            fan_speed_steps=data.get("fan_speed_steps")
+            if valid_fan_speed_steps(data.get("fan_speed_steps"))
+            else None,
+            speed_cycle_includes_off=data.get("speed_cycle_includes_off")
+            is True,
+            speed_cycle_turn_on=data.get("speed_cycle_turn_on")
+            if data.get("speed_cycle_turn_on") in SPEED_CYCLE_TURN_ON_CHOICES
+            else SPEED_CYCLE_TURN_ON_RESUME,
         ), data, _KNOWN_ENTITY_CONFIG)
 
 

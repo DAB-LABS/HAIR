@@ -230,6 +230,13 @@ Exact on ESPHome and Broadlink emitters; approximate elsewhere, and the
 editor says which. Rows saved before it existed keep transmitting as they
 always did until they are opened and saved.
 
+**Speed cycle.** A fan button that steps through the speeds, 1, 2, 3 and back
+to 1 (some fans pass through off on the way round). Map it to Speed Cycle and
+set the number of speeds in the fan's settings, and HAIR presses it as many
+times as it takes to reach the speed you pick. HAIR keeps its own count of
+presses, so a press the fan misses puts it a step out; turning the fan off and
+on lines the count up again.
+
 **Hidden.** A remote in the Sniffer you have put out of the way with the eye
 at the bottom-right corner of its row. It keeps a "hidden" badge, comes back
 with Show hidden, and the open eye restores it. Hiding is not deleting: a

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Fans whose one speed button steps through the speeds can now have their speed set. Map the button to the new Speed Cycle action, then enter the number of speeds in the fan's settings, along with whether off is one of the steps and, if not, whether turning the fan on resumes the last speed or starts at speed 1. HAIR presses the button as many times as it takes, half a second apart. The speed is HAIR's own count of presses, including presses sent through a pinned Remote, so a press the fan misses leaves it a step out; turning the fan off and on lines it up again (GH Discussion #201).
+
 ## [0.18.1] - 2026-10-21 -- Deeper Condition
 
 ### Added

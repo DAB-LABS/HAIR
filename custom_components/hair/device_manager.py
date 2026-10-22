@@ -77,6 +77,9 @@ AUTO_MAP_RULES: dict[str, str] = {
     "fan: auto": "fan_auto",
     "speed up": "speed_up",
     "speed down": "speed_down",
+    # The full name only. A bare "speed" is left unmapped: it names
+    # too many different buttons to guess which one it is.
+    "speed cycle": "speed_cycle",
     "speed 1": "speed_1",
     "speed 2": "speed_2",
     "speed 3": "speed_3",
