@@ -768,7 +768,15 @@ export interface EntityConfig {
     // because a payload written before the field existed simply
     // omits it -- read it as empty, never as a missing device.
     starred?: string[];
+    // Fan speed cycle (GH Discussion #201). Absent while unset: the
+    // backend writes them only once someone sets them.
+    fan_speed_steps?: number | null;
+    speed_cycle_includes_off?: boolean;
+    speed_cycle_turn_on?: SpeedCycleTurnOn;
 }
+
+/** Where a fan whose speed cycle has no off lands when turned on. */
+export type SpeedCycleTurnOn = "resume" | "speed_1";
 
 /** Add Popups signpost 2, Track 1B/3: a named trigger remote --
  * position-independent from any single device, position-dependent on

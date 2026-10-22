@@ -37,7 +37,16 @@ from .identity import (
     SignalIdentity,
     canonical_fingerprint,
 )
-from .models import MAX_POWER_SETTLE_S, IRDevice, IRTrigger, TriggerRemote
+from .models import (
+    FAN_SPEED_STEPS_MAX,
+    FAN_SPEED_STEPS_MIN,
+    MAX_POWER_SETTLE_S,
+    SPEED_CYCLE_TURN_ON_CHOICES,
+    IRDevice,
+    IRTrigger,
+    TriggerRemote,
+    valid_fan_speed_steps,
+)
 from .pasted_code import (
     CARRIER_NOTE,
     SOURCE_BROADLINK,
@@ -714,6 +723,11 @@ async def ws_create_device(
     vol.Optional("power_settle_s"): vol.Any(vol.Coerce(float), None),
     vol.Optional("temperature_sensor_entity_id"): vol.Any(str, None),
     vol.Optional("humidity_sensor_entity_id"): vol.Any(str, None),
+    # Fan speed cycle (GH Discussion #201). Range-checked in the
+    # handler, together, before anything on the device is touched.
+    vol.Optional("fan_speed_steps"): vol.Any(int, None),
+    vol.Optional("speed_cycle_includes_off"): bool,
+    vol.Optional("speed_cycle_turn_on"): str,
 })
 @websocket_api.async_response
 async def ws_update_device(
@@ -729,6 +743,31 @@ async def ws_update_device(
     device = manager.get_device(msg["device_id"])
     if device is None:
         connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    # The speed cycle settings are checked before ANY field is
+    # written, so a refused request leaves the device as it was.
+    if "fan_speed_steps" in msg and not (
+        msg["fan_speed_steps"] is None
+        or valid_fan_speed_steps(msg["fan_speed_steps"])
+    ):
+        connection.send_error(
+            msg["id"],
+            "invalid_format",
+            f"fan_speed_steps must be from {FAN_SPEED_STEPS_MIN} to "
+            f"{FAN_SPEED_STEPS_MAX}",
+        )
+        return
+    if (
+        "speed_cycle_turn_on" in msg
+        and msg["speed_cycle_turn_on"] not in SPEED_CYCLE_TURN_ON_CHOICES
+    ):
+        connection.send_error(
+            msg["id"],
+            "invalid_format",
+            "speed_cycle_turn_on must be one of "
+            + ", ".join(SPEED_CYCLE_TURN_ON_CHOICES),
+        )
         return
 
     if "name" in msg:
@@ -865,6 +904,15 @@ async def ws_update_device(
             return
         device.temperature_sensor_entity_id = new_temp_sensor
         device.humidity_sensor_entity_id = new_humidity_sensor
+
+    # Fan speed cycle: validated at the top; each key is independent.
+    config = device.entity_config
+    if "fan_speed_steps" in msg:
+        config.fan_speed_steps = msg["fan_speed_steps"]
+    if "speed_cycle_includes_off" in msg:
+        config.speed_cycle_includes_off = msg["speed_cycle_includes_off"]
+    if "speed_cycle_turn_on" in msg:
+        config.speed_cycle_turn_on = msg["speed_cycle_turn_on"]
 
     await manager.async_update_device(device)
     connection.send_result(msg["id"], await _device_full(hass, device))

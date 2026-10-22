@@ -290,13 +290,15 @@ On a state-matrix climate device the same dialog also takes a temperature sensor
 |------|-----------|----------|
 | Media Player | `media_player` | Power, volume, mute, source, channels, navigation, transport |
 | AC | `climate` | HVAC modes, temperature presets or a full state matrix, fan modes, swing |
-| Fan | `fan` | Power, speed stepping or direct speed levels (1-10), oscillate |
+| Fan | `fan` | Power, speed stepping, direct speed levels (1-10) or one speed-cycle button, oscillate |
 | Light | `light` | On/off, brightness stepping |
 | Switch | `switch` | On/off |
 | Screen | `cover` | Open, close, stop |
 | Other | `remote` | Generic IR command sender |
 
 Every device also gets a `remote` entity for arbitrary Pronto codes and a `button` entity for each learned command.
+
+A fan with one button that steps through its speeds gets speed control once that button is mapped to Speed Cycle and the fan's settings say how many speeds it has; HAIR presses it as many times as it takes, and since it counts presses rather than reading the fan, turning the fan off and on lines the count up again. One known gap: a handset pinned to the fan in the same room is heard by the fan and re-sent by HAIR, so the fan moves two steps while HAIR counts one.
 
 ### ESPHome hardware
 

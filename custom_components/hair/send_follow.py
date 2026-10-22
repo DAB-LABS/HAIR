@@ -24,6 +24,12 @@ mapped to more than one key, and the keys can disagree. The rules:
 - Power is decided first. A command that turns the entity off turns
   nothing else on.
 
+ONE BUTTON THAT STEPS ROUND THE SPEEDS. ``speed_cycle`` is relative,
+like a toggle: each send moves the fan one position on (``cycle_step``),
+wrapping back to the start, and only the count kept by the entity says
+where that is. The entity's own presses carry ``ORIGIN_ENTITY`` and are
+skipped, exactly as for a toggle, or a burst would count twice.
+
 A send is BELIEF. The power sensor's verdict (``SIGNAL_POWER_VERDICT``)
 still has the last word on on/off, exactly as for climate.
 
@@ -38,6 +44,7 @@ from .send_signal import DeviceSent
 TURN_ON = "turn_on"
 TURN_OFF = "turn_off"
 POWER_TOGGLE = "power_toggle"
+SPEED_CYCLE = "speed_cycle"
 
 
 def mapped_keys(device: Any, sent: DeviceSent) -> frozenset[str]:
@@ -86,3 +93,9 @@ def one_of(keys: frozenset[str], *choices: str) -> str | None:
     carries none of them or more than one (a contradiction)."""
     present = [choice for choice in choices if choice in keys]
     return present[0] if len(present) == 1 else None
+
+
+def cycle_step(position: int, length: int) -> int:
+    """Where one press of a cycle button leaves a cycle of ``length``
+    positions: the next one, wrapping from the last back to 0."""
+    return (position + 1) % length

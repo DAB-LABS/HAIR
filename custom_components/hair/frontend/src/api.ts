@@ -49,6 +49,7 @@ import type {
     SignalRemovedEvent,
     SignalSourceId,
     SignalUpdatedEvent,
+    SpeedCycleTurnOn,
     SupersedeResult,
     SupersessionBlock,
     TangleApplyBatchResult,
@@ -156,6 +157,11 @@ export class HairApi {
             // -- either clears on its own with a null.
             temperature_sensor_entity_id: string | null;
             humidity_sensor_entity_id: string | null;
+            // Fan speed cycle (GH Discussion #201): null clears the
+            // number of speeds, which turns speed control back off.
+            fan_speed_steps: number | null;
+            speed_cycle_includes_off: boolean;
+            speed_cycle_turn_on: SpeedCycleTurnOn;
         }>,
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({

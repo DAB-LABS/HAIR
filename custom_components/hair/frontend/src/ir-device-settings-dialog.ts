@@ -65,9 +65,15 @@ import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { DeviceTypeId, IRDevice } from "./types.js";
+import type { DeviceTypeId, IRDevice, SpeedCycleTurnOn } from "./types.js";
+import {
+    MAX_SPEED_STEPS,
+    MIN_SPEED_STEPS,
+    hasSpeedCycle,
+    speedStepsForSave,
+} from "./speed-cycle-settings.js";
 
-export type SettingsSectionId = "power" | "climate";
+export type SettingsSectionId = "power" | "climate" | "speed_cycle";
 
 const POWER_ELIGIBLE_TYPES: ReadonlySet<DeviceTypeId> = new Set([
     "ac",
@@ -82,13 +88,18 @@ const POWER_ELIGIBLE_TYPES: ReadonlySet<DeviceTypeId> = new Set([
  * settings button (ir-device-detail.ts) and this dialog. CLIMATE
  * (climate-sensors.md) is matrix-gated, not device-type-gated: a
  * device's full payload carries `matrix` exactly when it has a loaded
- * climate lattice, so that field alone decides it. */
+ * climate lattice, so that field alone decides it. SPEED CYCLE (GH
+ * Discussion #201) is for a fan with a Speed Cycle command mapped. */
 export function settingsSections(
-    device: Pick<IRDevice, "device_type" | "matrix">,
+    device: Pick<IRDevice, "device_type" | "matrix"> &
+        Partial<Pick<IRDevice, "entity_config">>,
 ): SettingsSectionId[] {
     const sections: SettingsSectionId[] = [];
     if (POWER_ELIGIBLE_TYPES.has(device.device_type)) {
         sections.push("power");
+    }
+    if (hasSpeedCycle(device)) {
+        sections.push("speed_cycle");
     }
     if (device.matrix) {
         sections.push("climate");
@@ -136,6 +147,10 @@ export class IrDeviceSettingsDialog extends LitElement {
     // cleared without touching the other.
     @state() private _temperatureChoice = "";
     @state() private _humidityChoice = "";
+    // Fan speed cycle. "" = no number of speeds set.
+    @state() private _speedSteps = "";
+    @state() private _cycleIncludesOff = false;
+    @state() private _cycleTurnOn: SpeedCycleTurnOn = "resume";
     @state() private _busy = false;
     @state() private _error: string | null = null;
 
@@ -153,6 +168,11 @@ export class IrDeviceSettingsDialog extends LitElement {
             String(DEFAULT_SETTLE_S);
         this._temperatureChoice = this.device.temperature_sensor_entity_id ?? "";
         this._humidityChoice = this.device.humidity_sensor_entity_id ?? "";
+        const config = this.device.entity_config;
+        this._speedSteps = config?.fan_speed_steps?.toString() ?? "";
+        this._cycleIncludesOff = config?.speed_cycle_includes_off === true;
+        this._cycleTurnOn =
+            config?.speed_cycle_turn_on === "speed_1" ? "speed_1" : "resume";
     }
 
     private _candidateSensors(): SensorCandidate[] {
@@ -223,6 +243,12 @@ export class IrDeviceSettingsDialog extends LitElement {
     }
 
     private get _validationError(): string | null {
+        if (
+            settingsSections(this.device).includes("speed_cycle") &&
+            Number.isNaN(speedStepsForSave(this._speedSteps))
+        ) {
+            return t("devsettings.validation_speed_steps");
+        }
         if (!this._sensorChoice) return null;
         const off = parseFloat(this._offBelow);
         const on = parseFloat(this._onAbove);
@@ -333,6 +359,11 @@ export class IrDeviceSettingsDialog extends LitElement {
             patch.temperature_sensor_entity_id = this._temperatureChoice || null;
             patch.humidity_sensor_entity_id = this._humidityChoice || null;
         }
+        if (sections.includes("speed_cycle")) {
+            patch.fan_speed_steps = speedStepsForSave(this._speedSteps);
+            patch.speed_cycle_includes_off = this._cycleIncludesOff;
+            patch.speed_cycle_turn_on = this._cycleTurnOn;
+        }
         try {
             await this.api.updateDevice(this.device.id, patch);
             // Bare event, no detail -- matches the house convention
@@ -375,6 +406,12 @@ export class IrDeviceSettingsDialog extends LitElement {
             </div>
             <div class="section-slot" ?hidden=${!sections.includes("power")}>
                 ${this._renderPowerSection()}
+            </div>
+            <div
+                class="section-slot"
+                ?hidden=${!sections.includes("speed_cycle")}
+            >
+                ${this._renderSpeedCycleSection()}
             </div>
             <div class="section-slot" ?hidden=${!sections.includes("climate")}>
                 ${this._renderClimateSection()}
@@ -547,6 +584,89 @@ export class IrDeviceSettingsDialog extends LitElement {
         `;
     }
 
+    /** Fan speed cycle (GH Discussion #201): the number of speeds the
+     * one button steps through, whether off is one of them, and where
+     * turning the fan on lands when it is not. The last line is the
+     * honest part: HAIR counts presses, it does not read the speed. */
+    private _renderSpeedCycleSection() {
+        return html`
+            <section class="settings-section section-speed-cycle">
+                <h3 class="section-label">
+                    ${t("devsettings.speed_cycle_section_label")}
+                </h3>
+
+                <p class="section-explainer">
+                    ${t("devsettings.speed_cycle_intro")}
+                </p>
+
+                <div class="field">
+                    <label>${t("devsettings.speed_steps_label")}</label>
+                    <input
+                        type="number"
+                        min=${MIN_SPEED_STEPS}
+                        max=${MAX_SPEED_STEPS}
+                        step="1"
+                        .value=${this._speedSteps}
+                        @input=${(e: Event) =>
+                            (this._speedSteps = (
+                                e.target as HTMLInputElement
+                            ).value)}
+                        ?disabled=${this._busy}
+                    />
+                </div>
+
+                <label class="check-row">
+                    <input
+                        type="checkbox"
+                        .checked=${this._cycleIncludesOff}
+                        @change=${(e: Event) =>
+                            (this._cycleIncludesOff = (
+                                e.target as HTMLInputElement
+                            ).checked)}
+                        ?disabled=${this._busy}
+                    />
+                    <span>${t("devsettings.speed_cycle_off_label")}</span>
+                </label>
+
+                ${this._cycleIncludesOff
+                    ? ""
+                    : html`
+                      <div class="field">
+                          <label>${t("devsettings.speed_cycle_turn_on_label")}</label>
+                          <div class="select-wrap">
+                              <select
+                                  .value=${this._cycleTurnOn}
+                                  @change=${(e: Event) =>
+                                      (this._cycleTurnOn = (
+                                          e.target as HTMLSelectElement
+                                      ).value as SpeedCycleTurnOn)}
+                                  ?disabled=${this._busy}
+                              >
+                                  <option
+                                      value="resume"
+                                      ?selected=${this._cycleTurnOn === "resume"}
+                                  >
+                                      ${t("devsettings.speed_cycle_turn_on_resume")}
+                                  </option>
+                                  <option
+                                      value="speed_1"
+                                      ?selected=${this._cycleTurnOn === "speed_1"}
+                                  >
+                                      ${t("devsettings.speed_cycle_turn_on_speed_1")}
+                                  </option>
+                              </select>
+                              <span class="select-chevron" aria-hidden="true"></span>
+                          </div>
+                      </div>
+                      `}
+
+                <p class="section-explainer">
+                    ${t("devsettings.speed_cycle_drift")}
+                </p>
+            </section>
+        `;
+    }
+
     /** No per-field explainer here (design ruling 2026-08-09, matches
      * the power section's own post-launch trim) -- field labels carry
      * the whole story. Two independent pickers: either can be picked,
@@ -678,6 +798,15 @@ export class IrDeviceSettingsDialog extends LitElement {
             ha-alert {
                 display: block;
                 margin: 8px 0;
+            }
+            .check-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin: 4px 0 12px;
+                font-size: 14px;
+                color: var(--primary-text-color);
+                cursor: pointer;
             }
             .pair-grid {
                 display: grid;
@@ -840,7 +969,8 @@ export class IrDeviceSettingsDialog extends LitElement {
              * sections so it doesn't reach into the shared
              * dialogStyles .field label rule other dialogs use. */
             .section-power label,
-            .section-climate label {
+            .section-climate label,
+            .section-speed-cycle .field > label {
                 font-weight: 600;
             }
             /* dialogStyles only styles input[type="text"]/select --
@@ -893,7 +1023,8 @@ export class IrDeviceSettingsDialog extends LitElement {
                 position: relative;
             }
             .section-power select,
-            .section-climate select {
+            .section-climate select,
+            .section-speed-cycle select {
                 appearance: none;
                 -webkit-appearance: none;
                 padding-right: 32px;
@@ -920,6 +1051,22 @@ export class IrDeviceSettingsDialog extends LitElement {
                 transform: translateY(-50%);
                 pointer-events: none;
                 background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%2358a6d8' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: center;
+                background-size: 18px;
+            }
+            /* Speed cycle (GH Discussion #201) has no accent of its
+             * own yet: neutral borders, and the chevron in the
+             * secondary text grey. */
+            .section-speed-cycle .select-chevron {
+                position: absolute;
+                top: 50%;
+                right: 10px;
+                width: 18px;
+                height: 18px;
+                transform: translateY(-50%);
+                pointer-events: none;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888888' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
                 background-repeat: no-repeat;
                 background-position: center;
                 background-size: 18px;
