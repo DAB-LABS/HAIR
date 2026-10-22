@@ -11,7 +11,7 @@
 #   HAIR:            0.3.4
 #   HA Core:         2026.6.1
 #   ESPHome:         2026.9.1
-# Last verified:     2026-10-03
+# Last verified:     2026-10-22
 # Purpose:           RX+TX
 # Hardware purchase: https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit
 #                    https://shop.m5stack.com/products/ir-unit
@@ -23,7 +23,12 @@
 #     of the devices.
 #   - The AtomS3 Lite also has a tiny IR LED on-board (GPIO4), which is not used
 #     here. Instead, the transmitter LED of the IR Unit is used.
-#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-03.
+#   - Needs ESPHome 2026.9.1 or later, which `min_version` enforces. OTA
+#     updates are encrypted with the `api` key (`ota: encryption:`), which
+#     ESPHome added in 2026.9.0; 2026.9.1 keeps that key in safe mode, so
+#     recovery uploads work there too.
+#   - Checked with `esphome config` on ESPHome 2026.9.1 and 2026.10.0 on
+#     2026-10-22.
 #     The HAIR and HA Core lines above record the last hardware run.
 # ============================================================================
 
@@ -35,6 +40,7 @@ esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
   comment: "M5Stack AtomS3 Lite & IR Unit Infrared Proxy"
+  min_version: 2026.9.1
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -43,7 +49,7 @@ esp32:
 
 ota:
   - platform: esphome
-    password: !secret ir_proxy_ota_password
+    encryption:
 
 wifi:
   ssid: !secret wifi_ssid

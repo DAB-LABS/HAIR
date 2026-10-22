@@ -25,6 +25,8 @@ the [AtomS3 Lite](https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit)
 3. Add required entries to your `secrets.yaml`
 4. Flash via the ESPHome Dashboard or CLI
 
+Already running this config with an OTA password? If the device's firmware was built with ESPHome 2026.9.0 or newer (Home Assistant shows the version on the device page), install the new config as usual and take `ir_proxy_ota_password` out of your secrets. If it is older, install your current config once more with ESPHome 2026.9.1 or newer first, then the new one; ESPHome refuses to send the new config to older firmware and says so. ESPHome stops accepting that route in 2027.3.0, after which an older device has to be flashed over USB.
+
 ## Compatibility
 
 | Component | Version |

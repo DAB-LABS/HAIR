@@ -15,7 +15,7 @@
 #   HAIR:            not yet run on hardware
 #   HA Core:         not yet run on hardware
 #   ESPHome:         2026.9.1
-# Last verified:     2026-10-04
+# Last verified:     2026-10-22
 # Purpose:           RX+TX
 # Hardware purchase: https://www.kincony.com/esp32s3-smart-ir-rf-controller.html
 # GPIO map:
@@ -33,7 +33,12 @@
 #     configured.
 #   - PSRAM is left out on purpose: IR does not need it, and a wrong PSRAM
 #     mode stops the board booting.
-#   - Checked with `esphome config` on ESPHome 2026.9.1 on 2026-10-04.
+#   - Needs ESPHome 2026.9.1 or later, which `min_version` enforces. OTA
+#     updates are encrypted with the `api` key (`ota: encryption:`), which
+#     ESPHome added in 2026.9.0; 2026.9.1 keeps that key in safe mode, so
+#     recovery uploads work there too.
+#   - Checked with `esphome config` on ESPHome 2026.9.1 and 2026.10.0 on
+#     2026-10-22.
 #     Hardware verification pending.
 # ============================================================================
 
@@ -44,6 +49,7 @@ substitutions:
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
+  min_version: 2026.9.1
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -62,7 +68,7 @@ api:
 
 ota:
   - platform: esphome
-    password: !secret ota_password
+    encryption:
 
 wifi:
   ssid: !secret wifi_ssid
