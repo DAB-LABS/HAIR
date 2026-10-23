@@ -69,9 +69,17 @@ def _looks_pronto(value: object) -> bool:
     return len(parts) >= 5 and all(_WORD.match(p) for p in parts)
 
 
+# A Harmony command's ``prontoRepeat`` is a copy of its Pronto's repeat
+# section, a lone ditto. The reader ignores it and HAIR never stores it,
+# so it is not a code in this corpus (import phase 2).
+_NOT_CODES = {"prontoRepeat"}
+
+
 def _walk(node, sink: list[str]) -> None:
     if isinstance(node, dict):
         for key, value in node.items():
+            if key in _NOT_CODES:
+                continue
             if _looks_pronto(key):
                 sink.append(key)
             _walk(value, sink)
@@ -234,8 +242,11 @@ def test_the_corpus_is_the_one_the_measurement_was_taken_on():
     tdc38-stretched-lead.json, 2026-10-09). 186 on the external side since
     the normalized-tier air captures landed (fixtures/air-path/
     normalized-tier.json.gz, 2026-10-08): 105 real receiver captures,
-    MITSUBISHI144, PANASONIC216 and TCL112."""
-    assert len(JSON_CORPUS) == 942
+    MITSUBISHI144, PANASONIC216 and TCL112. 950 on the JSON side since
+    the import phase 2 Harmony fixtures landed: eight NEC codes, each a
+    two-section Pronto closed by its ditto's gap, shared by every
+    Harmony fixture."""
+    assert len(JSON_CORPUS) == 950
     assert len(EXT_CORPUS) == 186
 
 
@@ -356,8 +367,9 @@ def test_only_the_tail_class_moves():
     # fixtures added. A gap tail is exactly the class that must not
     # move, so the new codes land on the holding side by construction.
     # 90 since the TDC-38 bench's seven captures, each closed by the
-    # receiver's 80 ms idle, which is a gap tail.
-    assert len(still) == 90
+    # receiver's 80 ms idle, which is a gap tail. 98 since the import
+    # phase 2 Harmony fixtures' eight codes, gap-tailed the same way.
+    assert len(still) == 98
     assert {_tail_class(c) for c in still} == {"gap"}
     assert sorted(_tail_class(c) for c in set(moved)) == (
         sorted(["zero"] * 844 + ["sub"] * 8)

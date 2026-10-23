@@ -58,6 +58,15 @@ CENSUS: dict[str, str | None] = {
     "smartir_light_brightness.json": "smartir",
     "smartir_climate_swing.json": "smartir_climate",
     "smartir_fork_climate_presets.json": "smartir_fork_climate",
+    # Harmony (import phase 2): every shape the reader takes or refuses,
+    # codes rendered by HAIR's own encoder.
+    "harmony_codeset_7f3a09c2d4e5b6a1.json": "harmony",
+    "harmony_codeset_keyed_by_hash.json": "harmony",
+    "harmony_codeset_network_only.json": "harmony",
+    "harmony_device_naming_codeset_hash.json": "harmony",
+    "harmony_device_pointing_to_codeset_file.json": "harmony",
+    "harmony_device_with_commands_fixture_audio_fa-2100.json": "harmony",
+    "harmony_several_codesets.json": "harmony",
     # Truncated on purpose: not valid JSON, so nothing claims it.
     "smartir_climate_1000_HEADER_ONLY.json.partial": None,
 }

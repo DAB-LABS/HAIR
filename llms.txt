@@ -142,12 +142,19 @@ Key components:
   on the command width), LIRC lircd.conf (raw codes + SPACE_ENC
   reconstruction + RC5 / RC6 through HAIR's own encoders at 36 kHz, with
   the toggle located from toggle_bit_mask or toggle_bit and pinned to 0),
-  and Girr (IrScrutinizer's XML; ccf Pronto verbatim, raw
+  Girr (IrScrutinizer's XML; ccf Pronto verbatim, raw
   synthesized, parameters-only skipped; any of the four spec root elements
-  accepted since v0.7.1) all convert INTO
+  accepted since v0.7.1), and Logitech Harmony device files and code sets (import phase 2: Pronto
+  verbatim, send_count 1 whatever the keycode's press hint says,
+  deviceType to kind through a small table, nothing from the file stored
+  as an identifier; non-IR and damaged rows receipted by name; a device
+  file without its commands, or a file holding several code sets, is
+  refused saying what to drop instead) all convert INTO
   wigs on drop, with skip reasons appended to the wig's notes -- one funnel,
   one-way doors. Format identification is a probe registry (import phase 1):
-  each probe declares a rank and a predicate, the highest matched rank wins,
+  each probe declares a rank and a predicate, the highest matched rank wins
+  (smartir_fork_climate 60, girr 50, smartir_climate 40, harmony 35,
+  smartir 30, flipper_library 25, flipper 20, lirc 10),
   a genuine tie is refused rather than guessed and a filename extension may
   only choose between tied candidates, never add one (GH #108). A Flipper
   universal library file ("Filetype: IR library file") is recognised and

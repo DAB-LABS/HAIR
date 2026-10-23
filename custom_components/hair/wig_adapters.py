@@ -30,6 +30,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .ir_command import carrier_or_default, raw_to_pronto
+from .pronto_validator import validate_pronto
 from .tuya_ir import tuya_b64_to_pronto
 from .wig_format import Wig, WigSignal
 
@@ -137,6 +138,17 @@ def _probe_fork_climate(text: str, parsed: object) -> bool:
     return isinstance(presets, list) and len(presets) > 0
 
 
+def _probe_harmony(text: str, parsed: object) -> bool:
+    """A Logitech Harmony device or code-set file, in any of its shapes.
+
+    No other format HAIR reads names a command's ``keycode`` (or
+    ``KeyCode``), and SmartIR's ``commands`` is an object where the
+    Harmony files carry a list, so the claim is made on structure alone.
+    The shapes are told apart by ``_harmony_shape``.
+    """
+    return _harmony_shape(parsed) is not None
+
+
 def _probe_girr(text: str, parsed: object) -> bool:
     return text.lstrip().startswith("<") and (
         "harctoolbox.org/Girr" in text or "girrVersion" in text
@@ -198,6 +210,7 @@ _PROBES: tuple[FormatProbe, ...] = (
     FormatProbe("smartir_fork_climate", 60, _probe_fork_climate),
     FormatProbe("girr", 50, _probe_girr),
     FormatProbe("smartir_climate", 40, _probe_smartir_climate),
+    FormatProbe("harmony", 35, _probe_harmony),
     FormatProbe("smartir", 30, _probe_smartir),
     FormatProbe("flipper_library", 25, _probe_flipper_library),
     FormatProbe("flipper", 20, _probe_flipper),
@@ -214,7 +227,7 @@ _HINT_FORMATS: dict[str, tuple[str, ...]] = {
     ".girr": ("girr",),
     ".xml": ("girr",),
     ".json": (
-        "smartir_fork_climate", "smartir_climate", "smartir",
+        "smartir_fork_climate", "smartir_climate", "smartir", "harmony",
     ),
 }
 
@@ -299,6 +312,8 @@ def convert(text: str, name_hint: str = "") -> AdapterResult:
         return _convert_lirc(text, name_hint)
     if fmt == "girr":
         return _convert_girr(text, name_hint)
+    if fmt == "harmony":
+        return _convert_harmony(text, name_hint)
     return AdapterResult(format="unknown", error="not a recognized format")
 
 
@@ -2274,6 +2289,261 @@ def _convert_girr(text: str, name_hint: str) -> AdapterResult:
         result.error = result.error or (
             "no convertible remotes in this Girr file"
         )
+    return result
+
+
+# --- Logitech Harmony device files and code sets (import phase 2) ---
+#
+# Four shapes reach the door, told apart by their fields:
+#
+#   device   a device file with its commands: ``manufacturer``,
+#            ``model``, ``deviceType`` and a ``commands`` list. Brand,
+#            model and kind come from the file.
+#   codeset  a code set on its own: ``{"commands": [...]}``, or the same
+#            list keyed by the set's hash with Logitech's own field names
+#            (``Name``, ``KeyCode``). No device fields, so the name comes
+#            from the filename.
+#   device without commands
+#            a device file whose ``codeset`` names the set (by path or by
+#            hash) instead of holding it: refused, saying what to drop.
+#
+# EVERY INFRARED COMMAND CARRIES ITS PRONTO, and the Pronto is the code.
+# A command without one is not infrared (USB HID, a network protocol, a
+# 433 MHz remote) or its keycode was damaged at source; both are receipted
+# by name, and no keycode is ever rendered into a code here.
+
+# Logitech's device-type numbers to HAIR's kind list: 1 and 48 tv,
+# 13 monitor, 3, 4, 25 and 34 player, 5
+# receiver, 19 amplifier, 21 minisystem, 22 soundbar, 7 projector, 12,
+# 14, 16 and 18 settopbox, 24 light, 30 avswitch. Type
+# 45 is Logitech's climate bucket (fans, heaters and air conditioners
+# together) and 36 is a radio tuner, which HAIR has no kind for: both
+# stay blank, as does every number not listed.
+_HARMONY_KIND: dict[int, str] = {
+    1: "tv", 48: "tv",
+    13: "monitor",
+    3: "player", 4: "player", 25: "player", 34: "player",
+    5: "receiver",
+    19: "amplifier",
+    21: "minisystem",
+    22: "soundbar",
+    7: "projector",
+    12: "settopbox", 14: "settopbox", 16: "settopbox", 18: "settopbox",
+    24: "light",
+    30: "avswitch",
+}
+
+_HARMONY_HASH = re.compile(r"^[0-9a-f]{16}$")
+
+
+def _harmony_commands(value: object, key: str) -> bool:
+    """A list of command objects, at least one of them naming ``key``."""
+    return (
+        isinstance(value, list)
+        and all(isinstance(item, dict) for item in value)
+        and any(key in item for item in value)
+    )
+
+
+def _harmony_device_entry(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("device"), dict)
+        and isinstance(value.get("codeset"), str)
+    )
+
+
+def _harmony_shape(parsed: object) -> str | None:
+    """Which Harmony file this is, or None when it is not one.
+
+    ``device`` and ``codeset`` convert; ``device_pointer`` (a device file
+    naming its code set by path), ``device_entry`` (one naming it by
+    hash), ``device_entries`` and ``codesets`` (several in one file) are
+    refused.
+    """
+    if not isinstance(parsed, dict) or not parsed:
+        return None
+    commands = parsed.get("commands")
+    if isinstance(commands, list):
+        if "globalDeviceId" in parsed:
+            # A device file with its commands. One with no commands has
+            # an empty list, and is still recognisably a device file.
+            if not commands or _harmony_commands(commands, "keycode"):
+                return "device"
+            return None
+        if set(parsed) == {"commands"} and _harmony_commands(
+            commands, "keycode"
+        ):
+            return "codeset"
+        return None
+    if "globalDeviceId" in parsed and "codeset" in parsed:
+        return "device_pointer"
+    if _harmony_device_entry(parsed):
+        return "device_entry"
+    keys = list(parsed)
+    values = list(parsed.values())
+    if all(k.isdigit() for k in keys) and all(
+        _harmony_device_entry(v) for v in values
+    ):
+        return "device_entry" if len(keys) == 1 else "device_entries"
+    if all(_HARMONY_HASH.match(k) for k in keys) and all(
+        _harmony_commands(v, "KeyCode") for v in values
+    ):
+        return "codeset" if len(keys) == 1 else "codesets"
+    return None
+
+
+def _harmony_reason(name: str, protocol: str) -> str:
+    """Why a command arrived without a code, in plain words."""
+    label = protocol or "no protocol named"
+    lowered = protocol.lower()
+    if lowered.endswith(" ip"):
+        return f"{name}: not infrared (network, {label})"
+    if lowered.startswith("hid"):
+        return f"{name}: not infrared (USB HID, {label})"
+    if lowered.startswith("ati "):
+        return f"{name}: not infrared (radio, {label})"
+    return f"{name}: keycode damaged in the source file, no code to send"
+
+
+def _harmony_protocol(command: dict) -> str:
+    """The protocol name, from the field or from a ``G:<protocol>:`` key."""
+    named = command.get("protocol")
+    if isinstance(named, str) and named.strip():
+        return named.strip()
+    keycode = command.get("keycode") or command.get("KeyCode") or ""
+    parts = str(keycode).split(":")
+    return parts[1].strip() if len(parts) > 2 else ""
+
+
+def _harmony_signals(
+    commands: list, result: AdapterResult
+) -> list[WigSignal]:
+    signals: list[WigSignal] = []
+    for index, command in enumerate(commands):
+        if not isinstance(command, dict):
+            continue
+        raw_name = str(command.get("name") or command.get("Name") or "")
+        alias = _humanize_key(raw_name) if raw_name.strip() \
+            else f"Signal {index + 1}"
+        pronto = command.get("pronto")
+        if not isinstance(pronto, str) or not pronto.strip():
+            result.skipped.append(
+                _harmony_reason(alias, _harmony_protocol(command))
+            )
+            continue
+        pronto = " ".join(pronto.split())
+        if not validate_pronto(pronto).valid:
+            result.skipped.append(f"{alias}: unreadable Pronto in the file")
+            continue
+        # send_count stays 1: the keycode's trailing ":3" is Logitech's
+        # press hint, not part of the waveform, and recording it would
+        # triple every send. prontoRepeat is ignored: it is always a copy
+        # of the Pronto's own repeat section.
+        signals.append(WigSignal(
+            alias=alias,
+            pronto=pronto,
+            send_count=1,
+            extra=_carrier_from_pronto(pronto, "declared"),
+        ))
+    return signals
+
+
+def _harmony_codeset_name(parsed: dict, name_hint: str) -> str:
+    """A code set's name: the file's own, unless that is only its hash.
+
+    A code set is often filed under a hash of its contents, and a title-
+    cased hash ("62Dc079Fc37C8F83") is not a name. The hash is kept, in
+    its own spelling, so the person can still find the file it came from.
+    """
+    stem = re.sub(r"\.json$", "", (name_hint or "").strip(), flags=re.I)
+    found = re.search(r"[0-9a-f]{16}", stem)
+    keys = [k for k in parsed if _HARMONY_HASH.match(k)]
+    code_hash = keys[0] if keys else (found.group(0) if found else None)
+    if code_hash and (not stem or found):
+        return f"Harmony code set {code_hash}"
+    return _stem(name_hint) or "Harmony Import"
+
+
+def _convert_harmony(text: str, name_hint: str) -> AdapterResult:
+    result = AdapterResult(format="harmony")
+    parsed = json.loads(text)
+    shape = _harmony_shape(parsed)
+    if shape == "device_pointer":
+        target = parsed.get("codeset")
+        if isinstance(target, str) and target.strip():
+            result.error = (
+                "this Harmony file lists the device but not its codes. Drop "
+                "the device file that includes its commands, or its code set."
+            )
+        else:
+            result.error = (
+                "this Harmony file lists the device but has no codes for it, "
+                "so there is nothing to import."
+            )
+        return result
+    if shape == "device_entry":
+        entry = parsed if "device" in parsed else next(iter(parsed.values()))
+        result.error = (
+            "this Harmony file describes the device but not its codes. "
+            f"Drop its code set ({entry['codeset']}) instead."
+        )
+        return result
+    if shape in ("device_entries", "codesets"):
+        kind = "devices" if shape == "device_entries" else "code sets"
+        result.error = (
+            f"this file holds {len(parsed)} Harmony {kind}. HAIR imports "
+            "one at a time: save the one you want on its own and drop that."
+        )
+        return result
+
+    if shape == "device":
+        commands = parsed.get("commands") or []
+    elif "commands" in parsed:
+        commands = parsed["commands"]
+    else:
+        commands = next(iter(parsed.values()))
+    signals = _harmony_signals(commands, result)
+    if not signals:
+        result.error = (
+            "no infrared commands in this Harmony file"
+            + (f" ({'; '.join(result.skipped[:3])})" if result.skipped else "")
+        )
+        return result
+
+    if shape == "device":
+        manufacturer = str(parsed.get("manufacturer") or "").strip()
+        model = str(parsed.get("model") or "").strip()
+        name = str(parsed.get("name") or "").strip() or " ".join(
+            part for part in (manufacturer, model) if part
+        ) or _stem(name_hint) or "Harmony Import"
+        device_type = _int_or_none(parsed.get("deviceType"))
+        kind = _HARMONY_KIND.get(device_type) if device_type is not None \
+            else None
+        notes = "Imported from a Logitech Harmony device file."
+        power = parsed.get("power")
+        if isinstance(power, dict) and str(power.get("type") or "").strip():
+            notes += f" Power: {str(power['type']).strip()}."
+        result.wigs.append(Wig(
+            name=name,
+            signals=signals,
+            brand=manufacturer or None,
+            model=model or None,
+            kind=kind,
+            notes=notes,
+            origin="converted:harmony",
+        ))
+        return result
+
+    result.wigs.append(Wig(
+        name=_harmony_codeset_name(parsed, name_hint),
+        signals=signals,
+        notes=(
+            "Imported from a Logitech Harmony code-set file. A code set "
+            "carries no brand or model; add them when saving."
+        ),
+        origin="converted:harmony",
+    ))
     return result
 
 

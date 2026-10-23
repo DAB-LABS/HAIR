@@ -1,0 +1,5 @@
+{"commands": [
+{"keycode":"G:Fixture IP:(Key)(Back):3","name":"Back","protocol":"Fixture IP"},
+{"keycode":"G:Fixture IP:(Key)(Home):3","name":"Home","protocol":"Fixture IP"},
+{"keycode":"G:Fixture IP:(Key)(Select):3","name":"Select","protocol":"Fixture IP"}
+]}
