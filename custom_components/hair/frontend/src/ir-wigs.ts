@@ -142,8 +142,10 @@ const DROP_FORMAT_LINKS: Record<string, { label: string; url?: string }> = {
     lirc: { label: "LIRC", url: "https://lirc.sourceforge.net/remotes/" },
     girr: { label: "Girr", url: "https://www.harctoolbox.org/Girr.html" },
     harmony: { label: "Harmony" },
+    globalcache: { label: "Global Cache", url: "https://www.globalcache.com/" },
 };
-const DROP_FORMAT_SPLIT = /\{(wig|smartir|flipper|lirc|girr|harmony)\}/g;
+const DROP_FORMAT_SPLIT =
+    /\{(wig|smartir|flipper|lirc|girr|harmony|globalcache)\}/g;
 
 @customElement("ir-wigs")
 export class IrWigs extends LitElement {
@@ -958,7 +960,7 @@ export class IrWigs extends LitElement {
         const input = document.createElement("input");
         input.type = "file";
         input.accept =
-            ".json,.ir,.conf,.girr,.xml,application/json,text/plain";
+            ".json,.ir,.conf,.girr,.xml,.csv,.txt,application/json,text/plain,text/csv";
         input.onchange = async () => {
             const files = Array.from(input.files ?? []);
             if (files.length === 0) return;

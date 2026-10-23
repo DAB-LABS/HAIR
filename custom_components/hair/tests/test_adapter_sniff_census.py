@@ -67,6 +67,11 @@ CENSUS: dict[str, str | None] = {
     "harmony_device_pointing_to_codeset_file.json": "harmony",
     "harmony_device_with_commands_fixture_audio_fa-2100.json": "harmony",
     "harmony_several_codesets.json": "harmony",
+    # Global Cache (import phase 2): the Control Tower code-set
+    # CSV, a pasted copy of it, and the single-code email.
+    "globalcache_codeset.csv": "globalcache",
+    "globalcache_codeset_curly_quotes.txt": "globalcache",
+    "globalcache_single_code_email.txt": "globalcache",
     # Truncated on purpose: not valid JSON, so nothing claims it.
     "smartir_climate_1000_HEADER_ONLY.json.partial": None,
 }

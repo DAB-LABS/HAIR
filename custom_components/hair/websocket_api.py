@@ -49,8 +49,6 @@ from .models import (
 )
 from .pasted_code import (
     CARRIER_NOTE,
-    SOURCE_BROADLINK,
-    SOURCE_TUYA,
     coerce_pasted_code,
 )
 from .pronto_validator import validate_pronto
@@ -2874,9 +2872,9 @@ async def ws_clip_validate_pronto(
         result.warnings = []
         result.frequency_khz = None
         result.burst_pair_count = None
-    converted = pasted.source in (SOURCE_TUYA, SOURCE_BROADLINK)
+    converted = pasted.source in CARRIER_NOTE
     if converted:
-        result.warnings.insert(0, CARRIER_NOTE[pasted.source])
+        result.warnings[0:0] = [CARRIER_NOTE[pasted.source], *pasted.notes]
     # Surface the recognized protocol (NEC today) during the paste scan, so
     # the dialog can show "Recognized as NEC". Decode lives here, not in the
     # pure validator. infrared-protocols is imported once at setup, so this

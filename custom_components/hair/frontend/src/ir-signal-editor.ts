@@ -34,6 +34,7 @@ import {
     type ReceiverArmFailedEvent,
 } from "./types.js";
 import type {
+    PasteSource,
     ProntoValidation,
     RepeatVote,
     SendSpacingInfo,
@@ -47,6 +48,14 @@ import type {
 import { isDittoable } from "./ir-tx-knobs.js";
 import { claimedFor, fieldWords, sameReading } from "./ir-tangle-copy.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
+
+// The note under a code the server converted from another format, one
+// per source (pasted_code.CARRIER_NOTE says the same in English).
+const CONVERTED_NOTE: Record<PasteSource, string> = {
+    tuya: "editor.converted_from_tuya",
+    broadlink: "editor.converted_from_broadlink",
+    globalcache: "editor.converted_from_globalcache",
+};
 
 // Mirrors PRONTO_SL_THRESHOLD / PRONTO_GAP_THRESHOLD in const.py. Used only
 // for the dialog's S/L preview; the stored pattern is computed server-side.
@@ -213,7 +222,7 @@ export class IrSignalEditor extends LitElement {
      *  (paste acceptance, slice 1). It outlives the revalidation of that
      *  Pronto, which no longer says where it came from, and clears only
      *  when the person edits the text or a capture replaces it. */
-    @state() private _convertedFrom: "tuya" | "broadlink" | null = null;
+    @state() private _convertedFrom: PasteSource | null = null;
     @state() private _alias = "";
     @state() private _sendCount = 1;
     @state() private _spacingMs: number | null = null;
@@ -1742,11 +1751,7 @@ export class IrSignalEditor extends LitElement {
                           </div>
                           ${this._convertedFrom
                               ? html`<div class="converted">
-                                    ${t(
-                                        this._convertedFrom === "tuya"
-                                            ? "editor.converted_from_tuya"
-                                            : "editor.converted_from_broadlink",
-                                    )}
+                                    ${t(CONVERTED_NOTE[this._convertedFrom])}
                                 </div>`
                               : ""}
                           ${sl
