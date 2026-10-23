@@ -111,7 +111,7 @@ To turn a set of codes into a Device or Remote:
 3. Choose **Make a Device** or **Make a Remote**, name it, and pick hardware -- emitters for a Device, receivers for a Remote.
 4. Click Create.
 
-The Clipper is for pasting a code by hand (Pronto, a Tuya or Broadlink base64 code, or a Global Cache `sendir` code); the Plucker pulls codes already learned into a vendor blaster, such as a Tuya Local IR blaster, without transmitting anything over the air.
+The Clipper is for pasting a code by hand (Pronto, a Tuya or Broadlink base64 code, a Global Cache `sendir` code, or a Tasmota code); the Plucker pulls codes already learned into a vendor blaster, such as a Tuya Local IR blaster, without transmitting anything over the air.
 
 For a Device, open it afterward and click **ACTIONS** on a command to map it to an entity action, such as `turn_on` or `volume_up`; only mapped actions show up as controls, so an entity never claims a feature your remote does not have. The entity follows every send HAIR makes to the Device through those mapped actions, whether it came from the entity, a HAIR button, `remote.send_command`, the panel or a pinned Remote.
 
@@ -168,6 +168,7 @@ These formats convert on drop: wig files (`.wig.json`, filed as-is), SmartIR JSO
 
 - Logitech Harmony device files and code sets.
 - Global Cache code sets from Control Tower: the code-set CSV or the single-code email (a single `sendir` code also pastes straight into the code box).
+- Tasmota IR codes kept as text: `IRsend` commands and `IrReceived` console lines, one per line with an optional name in front (a single one also pastes into the code box).
 
 Anything a conversion has to skip is written into the wig's notes with a reason, so a partial import is never silent.
 
@@ -273,7 +274,7 @@ The tab splits into two sections. **DEVICES** holds the things HAIR sends codes 
 
 ### Editing signals and commands
 
-Every signal and command has a copy/edit glyph that opens a single editor: read the raw Pronto code, copy it, or replace it by pasting a new code or pressing **LISTEN** to capture it fresh off the remote, on the receiver named beside the button (its menu lists the others). The box takes one code at a time, as Pronto, as a Tuya or Broadlink base64 code, or as a Global Cache `sendir` code; any of those is converted to Pronto and the editor says which format it came from. A file of many codes goes to the Closet instead. Editing updates the fingerprint and decoded identity, and moves any trigger bound to that signal along with it. Renaming a command updates any action mapping that pointed at the old name. A device command is a copy of the signal it was assigned from, so editing a catalog signal in the Sniffer or Clipper does not change commands already assigned from it; edit the command on the device itself to change what that device transmits. If a signal's carrier reads off the common IR standards, the editor offers a "Snap to N kHz" button that re-encodes it to the nearest standard (30, 33, 36, 38, 40, or 56 kHz) before you save.
+Every signal and command has a copy/edit glyph that opens a single editor: read the raw Pronto code, copy it, or replace it by pasting a new code or pressing **LISTEN** to capture it fresh off the remote, on the receiver named beside the button (its menu lists the others). The box takes one code at a time, as Pronto, as a Tuya or Broadlink base64 code, as a Global Cache `sendir` code, or as a Tasmota code; any of those is converted to Pronto and the editor says which format it came from. A file of many codes goes to the Closet instead. Editing updates the fingerprint and decoded identity, and moves any trigger bound to that signal along with it. Renaming a command updates any action mapping that pointed at the old name. A device command is a copy of the signal it was assigned from, so editing a catalog signal in the Sniffer or Clipper does not change commands already assigned from it; edit the command on the device itself to change what that device transmits. If a signal's carrier reads off the common IR standards, the editor offers a "Snap to N kHz" button that re-encodes it to the nearest standard (30, 33, 36, 38, 40, or 56 kHz) before you save.
 
 The same editor carries the two transmit knobs. **Send times** is how many times the whole code goes out as independent presses, for gear that needs a repeat to register. **Spacing** is the gap between those presses, measured from the start of one to the start of the next, and it turns on as soon as send times rises above 1. The box opens on what the code is spaced at today, so the number you adjust is the cadence the command already has rather than a blank.
 

@@ -1369,14 +1369,19 @@ export interface ProntoValidation {
     normalized: string;
     recognized_protocol?: string | null;
     /** Present only when the paste was a code in another format (a Tuya
-     *  or Broadlink base64 code, a Global Cache sendir command) that the
-     *  server read into Pronto; ``normalized`` is then that Pronto.
-     *  Absent for every Pronto paste. */
+     *  or Broadlink base64 code, a Global Cache sendir command, a Tasmota
+     *  code) that the server read into Pronto; ``normalized`` is then that
+     *  Pronto. Absent for every Pronto paste. */
     source_format?: PasteSource;
 }
 
 /** The formats the paste box converts into Pronto. */
-export type PasteSource = "tuya" | "broadlink" | "globalcache";
+export type PasteSource =
+    | "tuya"
+    | "broadlink"
+    | "globalcache"
+    | "tasmota"
+    | "tasmota_raw";
 
 export interface UnknownSignalEvent {
     device_id: string;

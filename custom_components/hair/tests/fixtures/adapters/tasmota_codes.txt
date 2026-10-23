@@ -1,0 +1,28 @@
+# Living room, Tasmota IR codes (fixture)
+
+| Button | Code |
+|---|---|
+| Power | IRsend {"Protocol":"NEC","Bits":32,"Data":"0x48B7807F"} |
+| Volume Up | IRsend {"Protocol":"NEC","Bits":32,"Data":"0x48B740BF"} |
+
+Volume Down: IRsend {"Protocol":"NEC","Bits":32,"DataLSB":"0x12ED03FC"}
+Mute = IRsend2 {"Protocol":"SAMSUNG","Bits":32,"Data":"0xD0D0F00F"}
+Input: IRsend {"Protocol":"SONY","Bits":12,"Data":"0x6B4"}
+Menu: IRsend {"Protocol":"RC5","Bits":12,"Data":"0x40C"}
+Guide: IRsend {"Protocol":"RC6","Bits":20,"Data":"0x1002A"}
+Panel: IRsend {"Protocol":"PANASONIC","Bits":48,"Data":"0x400401009C9D"}
+Panel Old: IRsend {"Protocol":"PANASONIC","Bits":16388,"Data":"0x01009C9D"}
+Sharp Power: IRsend {"Protocol":"SHARP","Bits":15,"Data":"0x41A2"}
+Pioneer Power: IRsend {"Protocol":"PIONEER","Bits":64,"Data":"0x659A38C7659A38C7"}
+Fan: IRsend 0,+9000-4500+560cC-1685CcCcCdCcCcCcCdCcCdCdCcCdCdCdCcCcCcCcCcCdCcCcCdCdCdCdCdCcCdCdC
+Light: IRsend 38000,9000,4500,562,562,562,1687,562,562,562,562,562,1687,562,562,562,562,562,562,562,1687,562,562,562,1687,562,1687,562,562,562,1687,562,1687,562,1687,562,1687,562,562,562,562,562,562,562,562,562,1687,562,562,562,562,562,562,562,1687,562,1687,562,1687,562,1687,562,562,562,1687,562,1687,562
+Raw Bits: IRsend raw,0,9000,4500,560,560,1690,01001000101101110100010010111011
+Global: IRsend gc,38000,1,1,342,171,21,21,21,64,21,21,21,21,21,64,21,21,21,21,21,21,21,64,21,21,21,64,21,64,21,21,21,64,21,64,21,64,21,64,21,64,21,21,21,21,21,21,21,64,21,21,21,21,21,21,21,21,21,64,21,64,21,64,21,21,21,64,21,64,21,1520
+LG TV: IRsend {"Protocol":"LG","Bits":28,"Data":"0x8812345"}
+Climate: IRhvac {"Vendor":"DAIKIN","Power":"On","Mode":"Cool","Temp":22}
+
+Console, pressing the remote at the receiver:
+12:34:56.789 MQT: tele/tasmota_ir/RESULT = {"IrReceived":{"Protocol":"NEC","Bits":32,"Data":"0x48B708F7","DataLSB":"0x12ED10EF","Repeat":0}}
+12:35:01.002 MQT: tele/tasmota_ir/RESULT = {"IrReceived":{"Protocol":"UNKNOWN","Bits":32,"Data":"0x8F21A3C4","RawData":"+9000-4500+560cCcC-1685CdCcCdCdCcCdCdCcCcCdCcCcCdCcCcCcCcCdCdCcCcCdCdCdCdCcCcCdCdC-40000","RawDataInfo":[68,68,0]}}
+12:35:04.410 MQT: tele/tasmota_ir/RESULT = {"IrReceived":{"Protocol":"LG","Bits":28,"Data":"0x8812345","RawData":"+9000-4500+560cCcC-1685CcCcCcCcCcCdCdCcCdCdCdCdCdCdCcCcCcCdCdCcCcCcCdCdCdCcCcCdCdC","RawDataInfo":[67,67,0]}}
+12:35:09.120 MQT: tele/tasmota_ir/STATE = {"Time":"2026-10-22T12:35:09","Uptime":"0T00:12:01"}

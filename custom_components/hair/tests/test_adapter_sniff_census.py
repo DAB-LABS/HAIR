@@ -72,6 +72,13 @@ CENSUS: dict[str, str | None] = {
     "globalcache_codeset.csv": "globalcache",
     "globalcache_codeset_curly_quotes.txt": "globalcache",
     "globalcache_single_code_email.txt": "globalcache",
+    # Tasmota (import phase 2), written in the documented shapes: a notes
+    # file of codes and console lines, and one JSON payload on its own.
+    "tasmota_codes.txt": "tasmota",
+    "tasmota_irsend_payload.json": "tasmota",
+    # The tie: a Global Cache row and a Tasmota line in one file. Both
+    # text probes hold rank 15, so nothing claims it.
+    "ambiguous_globalcache_and_tasmota.txt": None,
     # Truncated on purpose: not valid JSON, so nothing claims it.
     "smartir_climate_1000_HEADER_ONLY.json.partial": None,
 }
@@ -167,14 +174,12 @@ class TestThePinCanFail:
 
 
 class TestHintAndTies:
-    """The tie machinery, which no shipped pair can reach.
+    """The tie machinery.
 
-    Every rank in the registry is distinct, so exactly one probe always
-    holds the top matched rank and the refusal below cannot fire on any
-    file. It is here for phase 2, which adds formats identified by
-    punctuation rather than by a header word, and these tests reach it
-    the only way it can be reached: by registering a second probe at a
-    rank another one already holds.
+    Global Cache and Tasmota share rank 15, and test_import_tasmota.py
+    refuses a fixture holding both. The tests here cover the hint rules
+    on their own, with a second probe registered at a rank another one
+    already holds.
     """
 
     def _with_probe(self, monkeypatch, probe: FormatProbe):
@@ -184,11 +189,18 @@ class TestHintAndTies:
             wig_adapters, "_PROBES", (*wig_adapters._PROBES, probe)
         )
 
-    def test_no_shipped_pair_can_tie(self):
+    def test_exactly_one_shipped_pair_shares_a_rank(self):
+        """Global Cache and Tasmota, on purpose; nothing else ties."""
+        from collections import Counter
+
         from custom_components.hair.wig_adapters import _PROBES
 
-        ranks = [p.rank for p in _PROBES]
-        assert len(ranks) == len(set(ranks))
+        ranks = Counter(p.rank for p in _PROBES)
+        shared = {r for r, n in ranks.items() if n > 1}
+        assert shared == {15}
+        assert {p.name for p in _PROBES if p.rank == 15} == {
+            "globalcache", "tasmota",
+        }
 
     def test_a_tie_no_hint_can_settle_is_refused_and_names_both(
         self, monkeypatch

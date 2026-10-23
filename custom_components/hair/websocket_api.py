@@ -4967,7 +4967,7 @@ async def ws_wigs_upload(
     def _upload() -> dict[str, Any]:
         from datetime import UTC, datetime
 
-        from .wig_adapters import convert, sniff_format
+        from .wig_adapters import convert, sniff
         from .wig_climate import matrix_summary
         from .wig_comb import comb_wig, receipt_summary, stamp_receipt
         from .wig_format import (
@@ -5144,8 +5144,11 @@ async def ws_wigs_upload(
 
         # Not a wig: sniff for a foreign format before reporting the
         # wig-schema errors (a SmartIR file failing wig validation is
-        # noise; the real answer is "convert it").
-        if sniff_format(text) is None:
+        # noise; the real answer is "convert it"). A file two formats
+        # claim at the same rank is not "nothing": convert() answers it
+        # with the refusal naming both, which is the useful message.
+        sniffed = sniff(text, msg.get("filename", ""))
+        if sniffed.format is None and not sniffed.candidates:
             return {"success": False, "errors": result.errors}
         converted = convert(text, msg.get("filename", ""))
         if converted.error and not converted.wigs:

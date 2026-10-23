@@ -224,6 +224,23 @@ def _probe_globalcache(text: str, parsed: object) -> bool:
     )
 
 
+def _probe_tasmota(text: str, parsed: object) -> bool:
+    """Tasmota IR codes: ``IRsend`` commands, console captures, raw lists.
+
+    THE ONE TEXT PROBE THAT ALSO TAKES JSON. A file holding a single
+    Tasmota payload (``{"Protocol": "NEC", ...}``) is a JSON object, so
+    the "a brace means JSON" guard the other text probes carry would
+    refuse it; the object's own keys decide instead.
+    """
+    from .tasmota_ir import find_code, is_ir_object
+
+    if parsed is not None:
+        return is_ir_object(parsed)
+    if text.lstrip().startswith("{"):
+        return False
+    return any(find_code(line) for line in text.splitlines())
+
+
 def _probe_lirc(text: str, parsed: object) -> bool:
     return not text.lstrip().startswith("{") and bool(
         re.search(r"^\s*begin remote\b", text, re.MULTILINE)
@@ -244,7 +261,11 @@ _PROBES: tuple[FormatProbe, ...] = (
     FormatProbe("smartir", 30, _probe_smartir),
     FormatProbe("flipper_library", 25, _probe_flipper_library),
     FormatProbe("flipper", 20, _probe_flipper),
+    # SAME RANK, ON PURPOSE. Both read lines of text and neither has a
+    # header word that rules the other out, so a file holding codes of
+    # both kinds matches both and is refused rather than read as either.
     FormatProbe("globalcache", 15, _probe_globalcache),
+    FormatProbe("tasmota", 15, _probe_tasmota),
     FormatProbe("lirc", 10, _probe_lirc),
 )
 
@@ -272,13 +293,11 @@ def sniff(text: str, name_hint: str = "") -> SniffResult:
     a refusal naming both, which the file's extension may break if it
     names one of them.
 
-    NO SHIPPED PAIR CAN TIE TODAY. Every rank in the table is distinct,
-    so ``max`` is always held by one probe and the refusal below is
-    unreachable from any file. It is here for phase 2, which adds
-    formats identified by punctuation rather than by a header word, and
-    it is tested by registering a probe at a rank another one already
-    holds. Saying that plainly is the point: a reader should not take
-    the code below for a guard that fires today.
+    ONE SHIPPED PAIR TIES, ON PURPOSE. Global Cache and Tasmota both
+    read lines of text and both hold rank 15, so a file holding codes of
+    both kinds reaches the refusal below (import phase 2; the test file
+    is ``ambiguous_globalcache_and_tasmota.txt``). A ``.csv`` name
+    settles it for Global Cache; nothing settles it for a ``.txt``.
     """
     parsed: object = None
     stripped = text.lstrip()
@@ -348,6 +367,8 @@ def convert(text: str, name_hint: str = "") -> AdapterResult:
         return _convert_harmony(text, name_hint)
     if fmt == "globalcache":
         return _convert_globalcache(text, name_hint)
+    if fmt == "tasmota":
+        return _convert_tasmota(text, name_hint)
     return AdapterResult(format="unknown", error="not a recognized format")
 
 
@@ -2756,6 +2777,75 @@ def _convert_globalcache(text: str, name_hint: str) -> AdapterResult:
         signals=signals,
         notes=notes + ".",
         origin="converted:globalcache",
+    ))
+    return result
+
+
+# --- Tasmota IR codes (import phase 2) ---
+#
+# Tasmota has no export, so a "Tasmota file" is whatever its user kept:
+# notes or a markdown table of IRsend commands, console lines copied off
+# the device, or one JSON payload. The accepted shape is one code per
+# line, a name optionally leading it (``Power: IRsend ...``, ``Power =
+# ...``, ``| Power | IRsend ... |``), console and MQTT prefixes allowed.
+# Lines with no code are passed over and counted. ``tasmota_ir.py`` reads
+# each code, and the paste box reads a single one the same way.
+
+
+def _convert_tasmota(text: str, name_hint: str) -> AdapterResult:
+    from .tasmota_ir import TasmotaError, find_code, render
+
+    result = AdapterResult(format="tasmota")
+    stripped = text.lstrip("\ufeff").strip()
+    if stripped.startswith("{"):
+        items: list[tuple[str | None, str]] = [(None, stripped)]
+        passed_over = 0
+    else:
+        items = []
+        passed_over = 0
+        for line in stripped.splitlines():
+            found = find_code(line)
+            if found is None:
+                passed_over += line.strip() != ""
+            else:
+                items.append(found)
+    signals: list[WigSignal] = []
+    for index, (name, code) in enumerate(items, start=1):
+        alias = name or f"Signal {index}"
+        try:
+            rendered = render(code)
+        except TasmotaError as err:
+            result.skipped.append(f"{alias}: {err}")
+            continue
+        result.skipped.extend(f"{alias}: {note}" for note in rendered.notes)
+        if rendered.repeat > 0:
+            result.folds.append(
+                f"{alias}: Tasmota sends this {rendered.repeat + 1} times; "
+                "HAIR stores it once (set the send count to match)"
+            )
+        signals.append(WigSignal(
+            alias=alias,
+            pronto=rendered.pronto,
+            bypass_protocol=rendered.bypass,
+            extra=_carrier_extra(rendered.carrier_hz, rendered.carrier_source),
+        ))
+    if not signals:
+        result.error = (
+            "no convertible codes in this Tasmota file"
+            + (f" ({'; '.join(result.skipped[:3])})" if result.skipped else "")
+        )
+        return result
+    notes = "Imported from Tasmota IR codes."
+    if passed_over:
+        notes += (
+            f" {passed_over} line{'s' if passed_over != 1 else ''} without "
+            "a code passed over."
+        )
+    result.wigs.append(Wig(
+        name=_stem(name_hint) or "Tasmota Import",
+        signals=signals,
+        notes=notes,
+        origin="converted:tasmota",
     ))
     return result
 

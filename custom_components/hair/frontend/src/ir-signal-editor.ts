@@ -55,6 +55,8 @@ const CONVERTED_NOTE: Record<PasteSource, string> = {
     tuya: "editor.converted_from_tuya",
     broadlink: "editor.converted_from_broadlink",
     globalcache: "editor.converted_from_globalcache",
+    tasmota: "editor.converted_from_tasmota",
+    tasmota_raw: "editor.converted_from_tasmota_raw",
 };
 
 // Mirrors PRONTO_SL_THRESHOLD / PRONTO_GAP_THRESHOLD in const.py. Used only
