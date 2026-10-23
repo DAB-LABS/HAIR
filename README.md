@@ -164,7 +164,11 @@ To import a file:
 3. If the codes are already in your closet, the receipt turns yellow and lists every place they already hang. If the file supersedes a wig you already have, HAIR offers to replace the old one instead of filing a duplicate.
 4. Click **USE** to make a Device or Remote from the entry, or **CLIP** to test it on the Clipper first.
 
-Five formats convert on drop: wig files (`.wig.json`, filed as-is), SmartIR JSON (media player, fan, and climate, in all four SmartIR encodings), Flipper Zero `.ir` files, LIRC `lircd.conf` files, and Girr exports. Anything a conversion has to skip is written into the wig's notes with a reason, so a partial import is never silent.
+These formats convert on drop: wig files (`.wig.json`, filed as-is), SmartIR JSON (media player, fan, and climate, in all four SmartIR encodings), Flipper Zero `.ir` files, LIRC `lircd.conf` files, and Girr exports, plus:
+
+- Logitech Harmony device files and code sets.
+
+Anything a conversion has to skip is written into the wig's notes with a reason, so a partial import is never silent.
 
 You can also skip these steps: drop a code file straight onto the dashed add tile on the Devices tab (see [Turn signals into a device](#turn-signals-into-a-device)), and HAIR files it as a wig in your Closet and creates the Device or Remote in the same step.
 

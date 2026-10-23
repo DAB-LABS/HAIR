@@ -1,0 +1,44 @@
+{
+  "codeset": "codesets/7f/7f3a09c2d4e5b6a1.json",
+  "deviceType": 19,
+  "globalDeviceId": 990001,
+  "inputs": {
+    "list": [
+      {
+        "name": "Optical",
+        "ports": [
+          "Optical"
+        ]
+      },
+      {
+        "name": "HDMI 1",
+        "ports": [
+          "HDMI"
+        ]
+      }
+    ],
+    "next": [
+      "InputOptical"
+    ],
+    "type": 2
+  },
+  "manufacturer": "Fixture Audio",
+  "model": "FA-2100",
+  "power": {
+    "toggle": [
+      "PowerToggle"
+    ],
+    "type": "toggle"
+  },
+  "timing": {
+    "connectedAppPowerOnDelay": 0,
+    "holdInterDeviceDelay": 0,
+    "inputDelay": 1000,
+    "interDeviceDelay": 500,
+    "interKeyDelay": 100,
+    "isInterKeyDelayOptimized": false,
+    "minRepeats": 1,
+    "powerOnDelay": 2000,
+    "pressMinRepeats": 1
+  }
+}

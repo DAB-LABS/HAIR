@@ -118,12 +118,13 @@ export const ICON_WIG =
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
 const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
 
-// The drop-bar title names the five formats the closet accepts; each
+// The drop-bar title names the formats the closet accepts; each
 // name links to the format's home. The locale strings carry {wig}-style
 // placeholders so every language keeps its own sentence around the
 // untranslated format names (localize.ts owner ruling), and the render
 // splits on the placeholders instead of substituting text.
-const DROP_FORMAT_LINKS: Record<string, { label: string; url: string }> = {
+// Harmony is named without a link.
+const DROP_FORMAT_LINKS: Record<string, { label: string; url?: string }> = {
     wig: {
         label: "Wig",
         // Points at the community wig-sharing repo now that it exists,
@@ -140,8 +141,9 @@ const DROP_FORMAT_LINKS: Record<string, { label: string; url: string }> = {
     },
     lirc: { label: "LIRC", url: "https://lirc.sourceforge.net/remotes/" },
     girr: { label: "Girr", url: "https://www.harctoolbox.org/Girr.html" },
+    harmony: { label: "Harmony" },
 };
-const DROP_FORMAT_SPLIT = /\{(wig|smartir|flipper|lirc|girr)\}/g;
+const DROP_FORMAT_SPLIT = /\{(wig|smartir|flipper|lirc|girr|harmony)\}/g;
 
 @customElement("ir-wigs")
 export class IrWigs extends LitElement {
@@ -890,6 +892,7 @@ export class IrWigs extends LitElement {
         const segments = t("wigs.drop.title").split(DROP_FORMAT_SPLIT);
         return html`${segments.map((seg, i) => {
             const link = i % 2 === 1 ? DROP_FORMAT_LINKS[seg] : undefined;
+            if (link && !link.url) return html`${link.label}`;
             return link
                 ? html`<a
                       class="fmt-link"
