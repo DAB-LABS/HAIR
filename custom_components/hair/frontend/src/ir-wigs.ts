@@ -143,9 +143,13 @@ const DROP_FORMAT_LINKS: Record<string, { label: string; url?: string }> = {
     girr: { label: "Girr", url: "https://www.harctoolbox.org/Girr.html" },
     harmony: { label: "Harmony" },
     globalcache: { label: "Global Cache", url: "https://www.globalcache.com/" },
+    tasmota: {
+        label: "Tasmota",
+        url: "https://tasmota.github.io/docs/Tasmota-IR/",
+    },
 };
 const DROP_FORMAT_SPLIT =
-    /\{(wig|smartir|flipper|lirc|girr|harmony|globalcache)\}/g;
+    /\{(wig|smartir|flipper|lirc|girr|harmony|globalcache|tasmota)\}/g;
 
 @customElement("ir-wigs")
 export class IrWigs extends LitElement {

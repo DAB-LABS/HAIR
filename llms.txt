@@ -40,8 +40,10 @@ Key components:
   attention), the base64 text is not kept, and several codes in one paste or a
   Broadlink RF packet are refused with a pointer to the Closet. Import
   phase 2 adds a single Global Cache sendir code (or a pasted single-code
-  email) through the same sendir.py the Closet reader uses, so a pasted
-  code equals the same code inside a file. Each
+  email) and a single Tasmota code (source "tasmota", or "tasmota_raw"
+  when 38 kHz is assumed) through the same sendir.py and tasmota_ir.py
+  the Closet readers use, so a pasted code equals the same code inside a
+  file. Each
   pasted code is validated (hex shape, four-digit words, a learned-code 0000 or
   0100 header, burst-pair length math, and a carrier-frequency sanity warning
   that is skipped on the unmodulated 0100 form) and then behaves
@@ -147,24 +149,39 @@ Key components:
   the toggle located from toggle_bit_mask or toggle_bit and pinned to 0),
   Girr (IrScrutinizer's XML; ccf Pronto verbatim, raw
   synthesized, parameters-only skipped; any of the four spec root elements
-  accepted since v0.7.1), and Logitech Harmony device files and code sets (import phase 2: Pronto
+  accepted since v0.7.1), Logitech Harmony device files and code sets (import phase 2: Pronto
   verbatim, send_count 1 whatever the keycode's press hint says,
   deviceType to kind through a small table, nothing from the file stored
   as an identifier; non-IR and damaged rows receipted by name; a device
   file without its commands, or a file holding several code sets, is
-  refused saying what to drop instead), and Global Cache code sets (import phase 2: Control Tower's
+  refused saying what to drop instead), Global Cache code sets (import phase 2: Control Tower's
   code-set CSV, its single-code email or bare sendir lines; sendir.py is
   one parser shared with the paste box, counts are carrier periods
   converted at the declared frequency, the compressed A-O form expanded,
   the hardware's own limits refused by name and never truncated, the
   row's hexcode1 Pronto used only when its sendir is unusable, repeat
-  above 1 named as a fold, code2 named and not imported) all convert INTO
+  above 1 named as a fold, code2 named and not imported), and Tasmota IR
+  codes (import phase 2: no export exists, so the accepted file is one
+  code per line with an optional leading name, console and MQTT prefixes
+  allowed, or one JSON payload; tasmota_ir.py reads IRsend JSON through
+  HAIR's own encoders only (NEC, SAMSUNG, SONY, RC5, RC5X, RC6,
+  PANASONIC, SHARP, PIONEER, each mapping anchored to Tasmota's DataLSB
+  convention or IRremoteESP8266's documented field layout), raw and
+  compressed lists with letter case and sign checked against position,
+  the raw bit-stream form with 1, 2 or 5 timings as the firmware takes
+  it, gc through sendir.py, and IrReceived captures, falling back to their
+  RawData when no encoder exists; raw carries no carrier so 38 kHz is
+  recorded as assumed; IRhvac refused; PANASONIC Bits above 64 read as the
+  old driver's vendor address) all convert INTO
   wigs on drop, with skip reasons appended to the wig's notes -- one funnel,
   one-way doors. Format identification is a probe registry (import phase 1):
   each probe declares a rank and a predicate, the highest matched rank wins
   (smartir_fork_climate 60, girr 50, smartir_climate 40, harmony 35,
-  smartir 30, flipper_library 25, flipper 20, globalcache 15, lirc 10;
-  .csv names globalcache when a tie needs breaking),
+  smartir 30, flipper_library 25, flipper 20, globalcache 15, tasmota 15,
+  lirc 10; .csv names globalcache when a tie needs breaking). Global Cache
+  and Tasmota share rank 15 on purpose: both read lines of text, so a file
+  holding both kinds is refused naming both, and the upload door reports
+  that refusal rather than the wig-format errors,
   a genuine tie is refused rather than guessed and a filename extension may
   only choose between tied candidates, never add one (GH #108). A Flipper
   universal library file ("Filetype: IR library file") is recognised and

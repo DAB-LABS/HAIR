@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Remote can be given a type (media player, fan, light, switch or screen) under its name, the way a Device has one, and each of its buttons can be mapped to an action with the same ACTIONS label a Device's commands use. A typed Remote gets its own entity of that type, named as the remote, that follows the Remote's own handset presses. Its controls change only its own state and never send IR, so you can correct it by hand, and it comes back after a restart. A Device keeps its own state from what HAIR sends; the two are never synced, so you can automate against either. Picking a type maps the buttons for you when none are mapped yet: from the Device the Remote is pinned to, or by the buttons' names. The panel says before every type change what will be added, removed and mapped, and a typed Remote with nothing mapped says why its entity will not move. Changing or clearing a Remote's type removes its old entity. Make a Remote gives the new Remote its Device's type, mapping and settings (a fan's speed cycle among them), and Make a Device from a typed Remote copies them back.
 - The Closet reads Logitech Harmony device files and code sets.
 - The Closet reads Global Cache code sets as Control Tower mails them, and the code box takes a single `sendir` code.
+- The Closet reads Tasmota IR codes kept as text (`IRsend` commands, `IrReceived` console lines, raw timings), and the code box takes a single one.
+- A file holding codes of two formats HAIR cannot tell apart is refused with a note naming both.
 
 ### Changed
 

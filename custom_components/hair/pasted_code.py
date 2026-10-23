@@ -23,12 +23,14 @@ app copies wrap long base64 at 64 or 76 characters, so several LINES are
 not several codes: the lines are joined and tried as one code before
 anything is refused.
 
-TEXT CODES (import phase 2). A Global Cache ``sendir`` command reads
-through the same parser the Closet's code-set reader uses
-(``sendir.py``), so a code pasted alone becomes exactly the Pronto the
-same code becomes inside a file. A sendir code the hardware itself would
-refuse is refused here with the reason, rather than left to the Pronto
-validator's error, which would not say what is wrong with it.
+TEXT CODES (import phase 2). A Global Cache ``sendir`` command and a
+Tasmota code (an ``IRsend`` command, an ``IrReceived`` line, a raw or
+compressed timing list) read through the same parsers the Closet's
+readers use (``sendir.py``, ``tasmota_ir.py``), so a code pasted alone
+becomes exactly the Pronto the same code becomes inside a file. A code
+of either kind that cannot be used is refused here with the reason,
+rather than left to the Pronto validator's error, which would not say
+what is wrong with it.
 
 FAILS CLOSED. When nothing reads, the caller shows the Pronto
 validator's own error, exactly as today. The only new refusals are the
@@ -44,6 +46,7 @@ from dataclasses import dataclass
 
 from .pronto_validator import validate_pronto
 from .sendir import SendirError, is_sendir, parse_sendir
+from .tasmota_ir import TasmotaError, find_code, render
 from .tuya_ir import tuya_b64_to_pronto
 from .wig_adapters import broadlink_b64_to_pronto
 
@@ -51,6 +54,11 @@ SOURCE_PRONTO = "pronto"
 SOURCE_TUYA = "tuya"
 SOURCE_BROADLINK = "broadlink"
 SOURCE_GLOBALCACHE = "globalcache"
+# Two names for one format, because the carrier note differs: a Tasmota
+# protocol code or a raw list with its frequency states its carrier, and
+# a raw list sent at frequency 0 (or a bare compressed string) does not.
+SOURCE_TASMOTA = "tasmota"
+SOURCE_TASMOTA_RAW = "tasmota_raw"
 
 # Shorter than this is a word, a name or a typo, not a code. The shortest
 # real Broadlink IR packet is a few dozen characters and a Tuya container
@@ -91,6 +99,14 @@ CARRIER_NOTE = {
     SOURCE_GLOBALCACHE: (
         "Converted from a Global Cache sendir code; the carrier comes from "
         "the code."
+    ),
+    SOURCE_TASMOTA: (
+        "Converted from a Tasmota code; the carrier comes from the code or "
+        "its protocol."
+    ),
+    SOURCE_TASMOTA_RAW: (
+        "Converted from a Tasmota raw code; 38 kHz assumed (the code does "
+        "not record a carrier)."
     ),
 }
 
@@ -189,6 +205,44 @@ _GC_CONTINUATION = re.compile(r"^[\d,\sA-O]+$")
 
 
 def _read_text_code(text: str) -> PastedCode | None:
+    """A sendir or Tasmota paste, or None when the text is neither."""
+    sendir = _read_sendir(text)
+    if sendir is not None:
+        return sendir
+    return _read_tasmota(text)
+
+
+def _read_tasmota(text: str) -> PastedCode | None:
+    lines = [line for line in text.splitlines() if line.strip()]
+    codes = [found for found in map(find_code, lines) if found is not None]
+    if len(codes) >= 2:
+        return PastedCode(text, error=_several(len(codes), "Tasmota codes"))
+    if len(codes) == 1 and len(lines) == 1:
+        code = codes[0][1]
+    else:
+        # A payload pretty-printed over several lines reads as one line.
+        joined = find_code(" ".join(line.strip() for line in lines))
+        if joined is None:
+            return None
+        code = joined[1]
+    try:
+        rendered = render(code)
+    except TasmotaError as err:
+        return PastedCode(text, error=f"This Tasmota code cannot be used: {err}.")
+    notes = [note[0].upper() + note[1:] + "." for note in rendered.notes]
+    if rendered.repeat > 0:
+        notes.append(
+            f"Tasmota sends this code {rendered.repeat + 1} times; HAIR "
+            "stores it once. Set the send count to match."
+        )
+    source = (
+        SOURCE_TASMOTA_RAW if rendered.carrier_source == "assumed"
+        else SOURCE_TASMOTA
+    )
+    return PastedCode(rendered.pronto, source, notes=tuple(notes))
+
+
+def _read_sendir(text: str) -> PastedCode | None:
     """A Global Cache sendir paste, or None when the text is not one."""
     lines = [
         _GC_CODE1.sub("", line.strip().strip("\"'\u201c\u201d"))
@@ -408,6 +462,6 @@ def _several(count: int, codes: str) -> str:
     return (
         f"This paste holds {count} {codes}. The paste box takes one "
         "code. To bring in several at once, save them as a file (a wig, "
-        "SmartIR, Flipper, LIRC, Girr, Harmony or Global Cache) and drop "
-        "it on the Closet tab."
+        "SmartIR, Flipper, LIRC, Girr, Harmony, Global Cache or Tasmota) "
+        "and drop it on the Closet tab."
     )
