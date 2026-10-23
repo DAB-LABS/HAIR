@@ -194,6 +194,36 @@ def _probe_flipper(text: str, parsed: object) -> bool:
     return _flipper_header(text) == "signals"
 
 
+# Global Cache: the Control Tower code-set header, the single-code
+# email's ``code1:`` label, or a line that is itself a sendir command.
+# A header WORD, as Flipper and LIRC use, not punctuation alone: a CSV
+# with some other header is not this format. A pasted copy may have its
+# quotes turned curly, so either kind is accepted.
+_GC_QUOTE = "\"\u201c\u201d"
+_GC_HEADER_RE = re.compile(
+    rf"^[ \t]*[{_GC_QUOTE}]?function[{_GC_QUOTE}]?[ \t]*,[ \t]*"
+    rf"[{_GC_QUOTE}]?code1[{_GC_QUOTE}]?[ \t]*,",
+    re.IGNORECASE | re.MULTILINE,
+)
+_GC_LABEL_RE = re.compile(
+    r"^[ \t]*code[ \t]?1[ \t]*:[ \t]*sendir[ \t]*,", re.IGNORECASE | re.MULTILINE
+)
+_GC_LINE_RE = re.compile(
+    rf"^[ \t]*[{_GC_QUOTE}]?sendir[ \t]*,[ \t]*\d+[ \t]*:[ \t]*\d+[ \t]*,",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _probe_globalcache(text: str, parsed: object) -> bool:
+    if text.lstrip().startswith("{"):
+        return False
+    return bool(
+        _GC_HEADER_RE.search(text)
+        or _GC_LABEL_RE.search(text)
+        or _GC_LINE_RE.search(text)
+    )
+
+
 def _probe_lirc(text: str, parsed: object) -> bool:
     return not text.lstrip().startswith("{") and bool(
         re.search(r"^\s*begin remote\b", text, re.MULTILINE)
@@ -214,6 +244,7 @@ _PROBES: tuple[FormatProbe, ...] = (
     FormatProbe("smartir", 30, _probe_smartir),
     FormatProbe("flipper_library", 25, _probe_flipper_library),
     FormatProbe("flipper", 20, _probe_flipper),
+    FormatProbe("globalcache", 15, _probe_globalcache),
     FormatProbe("lirc", 10, _probe_lirc),
 )
 
@@ -225,6 +256,7 @@ _HINT_FORMATS: dict[str, tuple[str, ...]] = {
     ".ir": ("flipper", "flipper_library"),
     ".conf": ("lirc",),
     ".girr": ("girr",),
+    ".csv": ("globalcache",),
     ".xml": ("girr",),
     ".json": (
         "smartir_fork_climate", "smartir_climate", "smartir", "harmony",
@@ -314,6 +346,8 @@ def convert(text: str, name_hint: str = "") -> AdapterResult:
         return _convert_girr(text, name_hint)
     if fmt == "harmony":
         return _convert_harmony(text, name_hint)
+    if fmt == "globalcache":
+        return _convert_globalcache(text, name_hint)
     return AdapterResult(format="unknown", error="not a recognized format")
 
 
@@ -2547,8 +2581,187 @@ def _convert_harmony(text: str, name_hint: str) -> AdapterResult:
     return result
 
 
+# --- Global Cache code sets and sendir codes (import phase 2) ---
+#
+# What Control Tower mails: a code set as CSV (``function, code1,
+# hexcode1, code2, hexcode2``, every field quoted, the two code2 columns
+# usually empty) or one code as labelled lines (``function:``, ``code1:``,
+# ``hex code1:``). ``code1`` is a sendir command and is the code;
+# ``hexcode1`` is Global Cache's own Pronto rendering of it, which is
+# used only when the sendir in the same row is unusable. A file that is
+# just sendir lines, one code each, is read too. The sendir parser is
+# shared with the paste box (``sendir.py``).
+
+_GC_CURLY = str.maketrans({
+    "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u2033": '"',
+    "\u2018": "'", "\u2019": "'",
+})
+
+
+def _gc_key(label: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", label.lower())
+
+
+def _gc_hex(text: str) -> str | None:
+    """A row's ``hexcode`` as Pronto, or None when it is not sound.
+
+    Pronto words are always four hex digits, so a copy that lost the
+    space between two of them (pasted copies do) is split back into
+    fours. Nothing else is repaired.
+    """
+    words = (text or "").split()
+    if not words:
+        return None
+    if any(len(w) != 4 for w in words):
+        joined = "".join(words)
+        if not re.fullmatch(r"[0-9A-Fa-f]+", joined) or len(joined) % 4:
+            return None
+        words = [joined[i:i + 4] for i in range(0, len(joined), 4)]
+    pronto = " ".join(words)
+    return pronto if validate_pronto(pronto).valid else None
+
+
+def _gc_rows(text: str) -> tuple[list[dict[str, str]], str | None]:
+    """The file's codes as ``{function, code1, hexcode1, code2}`` rows,
+    and the code-set number when the file names one."""
+    import csv
+
+    lines = text.splitlines()
+    header = next(
+        (i for i, line in enumerate(lines) if _GC_HEADER_RE.match(line)),
+        None,
+    )
+    if header is not None:
+        reader = csv.reader(lines[header:], skipinitialspace=True)
+        names = [_gc_key(name) for name in next(reader)]
+        rows = []
+        for cells in reader:
+            if not any(cell.strip() for cell in cells):
+                continue
+            rows.append({
+                name: (cells[i].strip() if i < len(cells) else "")
+                for i, name in enumerate(names)
+            })
+        return rows, None
+
+    if _GC_LABEL_RE.search(text):
+        rows: list[dict[str, str]] = []
+        current: dict[str, str] = {}
+        code_set = None
+        for line in lines:
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            key = _gc_key(key)
+            value = value.strip()
+            if key == "codeset":
+                code_set = value or code_set
+                continue
+            if key not in ("function", "code1", "hexcode1", "code2", "hexcode2"):
+                continue
+            if current.get(key):
+                rows.append(current)
+                current = {}
+            current[key] = value
+        if current:
+            rows.append(current)
+        return rows, code_set
+
+    return [
+        {"function": "", "code1": line.strip().strip('"')}
+        for line in lines if _GC_LINE_RE.match(line)
+    ], None
+
+
+def _gc_codeish(text: str) -> bool:
+    """Does this cell hold something meant as a code (a run of numbers)?"""
+    return len(re.findall(r"[0-9A-Fa-f]+", text or "")) >= 4 and bool(
+        re.search(r"\d", text or "")
+    )
+
+
+def _gc_alias(function: str, index: int) -> str:
+    function = function.strip()
+    if not function:
+        return f"Signal {index}"
+    # Control Tower writes functions in capitals ("CHANNEL DOWN").
+    return function.title() if function.isupper() else function
+
+
+def _convert_globalcache(text: str, name_hint: str) -> AdapterResult:
+    from .sendir import SendirError, parse_sendir
+
+    result = AdapterResult(format="globalcache")
+    text = text.lstrip("\ufeff").translate(_GC_CURLY)
+    rows, code_set = _gc_rows(text)
+    signals: list[WigSignal] = []
+    for index, row in enumerate(rows, start=1):
+        alias = _gc_alias(row.get("function", ""), index)
+        code1 = row.get("code1", "").strip()
+        hexcode = _gc_hex(row.get("hexcode1", ""))
+        if not (_gc_codeish(code1) or _gc_codeish(row.get("hexcode1", ""))):
+            # Not a code row: the text a pasted copy carries around the
+            # CSV. Nothing in it was a code, so nothing is lost.
+            continue
+        pronto = None
+        if code1:
+            try:
+                code = parse_sendir(code1)
+            except SendirError as err:
+                if hexcode is None:
+                    result.skipped.append(f"{alias}: {err}")
+                    continue
+                result.skipped.append(
+                    f"{alias}: the sendir code is unusable ({err}); "
+                    "used the Pronto from the same row"
+                )
+                pronto = hexcode
+            else:
+                pronto = code.pronto()
+                if code.repeat > 1:
+                    result.folds.append(
+                        f"{alias}: Global Cache sent this {code.repeat} "
+                        "times; HAIR stores it once (set the send count "
+                        "to match)"
+                    )
+        elif hexcode is not None:
+            pronto = hexcode
+        else:
+            result.skipped.append(f"{alias}: no usable code in this row")
+            continue
+        if row.get("code2", "").strip():
+            result.skipped.append(
+                f"{alias}: a second code (code2) was not imported; HAIR "
+                "keeps one code per button"
+            )
+        signals.append(WigSignal(
+            alias=alias,
+            pronto=pronto,
+            extra=_carrier_from_pronto(pronto, "declared"),
+        ))
+    if not signals:
+        result.error = (
+            "no convertible codes in this Global Cache file"
+            + (f" ({'; '.join(result.skipped[:3])})" if result.skipped else "")
+        )
+        return result
+    notes = "Imported from a Global Cache code set"
+    if code_set:
+        notes += f" (Control Tower code set {code_set})"
+    result.wigs.append(Wig(
+        name=_stem(name_hint) or (
+            f"Global Cache code set {code_set}" if code_set
+            else "Global Cache Import"
+        ),
+        signals=signals,
+        notes=notes + ".",
+        origin="converted:globalcache",
+    ))
+    return result
+
+
 def _stem(name_hint: str) -> str:
-    stem = re.sub(r"\.(ir|json|conf|txt|girr|xml)$", "", name_hint.strip(),
+    stem = re.sub(r"\.(ir|json|conf|txt|csv|girr|xml)$", "", name_hint.strip(),
                   flags=re.IGNORECASE)
     stem = stem.replace("_", " ").replace("-", " ").strip()
     return stem.title() if stem else ""

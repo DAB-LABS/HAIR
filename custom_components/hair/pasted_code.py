@@ -23,10 +23,17 @@ app copies wrap long base64 at 64 or 76 characters, so several LINES are
 not several codes: the lines are joined and tried as one code before
 anything is refused.
 
+TEXT CODES (import phase 2). A Global Cache ``sendir`` command reads
+through the same parser the Closet's code-set reader uses
+(``sendir.py``), so a code pasted alone becomes exactly the Pronto the
+same code becomes inside a file. A sendir code the hardware itself would
+refuse is refused here with the reason, rather than left to the Pronto
+validator's error, which would not say what is wrong with it.
+
 FAILS CLOSED. When nothing reads, the caller shows the Pronto
 validator's own error, exactly as today. The only new refusals are the
-several-codes pointer and a Broadlink RF packet, which is named for what
-it is because HAIR sends infrared only.
+several-codes pointer, a Broadlink RF packet, which is named for what
+it is because HAIR sends infrared only, and an unusable text code.
 """
 from __future__ import annotations
 
@@ -36,12 +43,14 @@ import re
 from dataclasses import dataclass
 
 from .pronto_validator import validate_pronto
+from .sendir import SendirError, is_sendir, parse_sendir
 from .tuya_ir import tuya_b64_to_pronto
 from .wig_adapters import broadlink_b64_to_pronto
 
 SOURCE_PRONTO = "pronto"
 SOURCE_TUYA = "tuya"
 SOURCE_BROADLINK = "broadlink"
+SOURCE_GLOBALCACHE = "globalcache"
 
 # Shorter than this is a word, a name or a typo, not a code. The shortest
 # real Broadlink IR packet is a few dozen characters and a Tuya container
@@ -79,6 +88,10 @@ CARRIER_NOTE = {
         "Converted from a Broadlink code; 38 kHz assumed (the format does "
         "not record a carrier)."
     ),
+    SOURCE_GLOBALCACHE: (
+        "Converted from a Global Cache sendir code; the carrier comes from "
+        "the code."
+    ),
 }
 
 
@@ -89,14 +102,18 @@ class PastedCode:
     ``pronto`` is the text to hand to ``validate_pronto``: the paste
     itself when it is Pronto or when nothing read it (so the validator's
     own error surfaces), the converted Pronto when a reader did.
-    ``source`` is ``"pronto"``, ``"tuya"``, ``"broadlink"`` or None when
-    nothing read it. ``error`` is set only for the two refusals this
-    module owns, and then replaces the Pronto validator's message.
+    ``source`` is ``"pronto"``, one of the converted sources in
+    ``CARRIER_NOTE``, or None when nothing read it. ``error`` is set only
+    for the refusals this module owns, and then replaces the Pronto
+    validator's message. ``notes`` are further things a converted code
+    asks to be said, after the carrier note (a repeat count the source
+    set and HAIR does not store, for one).
     """
 
     pronto: str
     source: str | None = None
     error: str | None = None
+    notes: tuple[str, ...] = ()
 
 
 def coerce_pasted_code(text: str | None) -> PastedCode:
@@ -108,6 +125,10 @@ def coerce_pasted_code(text: str | None) -> PastedCode:
     tokens = _tokens(text)
     if not tokens:
         return PastedCode(text)
+
+    text_code = _read_text_code(text)
+    if text_code is not None:
+        return text_code
 
     # Several Pronto codes, one per line: each line is valid on its own.
     pronto_lines = [
@@ -155,6 +176,57 @@ def coerce_pasted_code(text: str | None) -> PastedCode:
 
 
 # -- internals ---------------------------------------------------------
+
+
+# Labels a Control Tower single-code email puts around its code. A paste
+# of the whole email is one code: the sendir line is read and these are
+# set aside.
+_GC_LABEL = re.compile(
+    r"^\s*(code\s*set|function|hex\s*code\s*\d|code\s*2)\s*:", re.IGNORECASE
+)
+_GC_CODE1 = re.compile(r"^\s*code\s*1\s*:\s*", re.IGNORECASE)
+_GC_CONTINUATION = re.compile(r"^[\d,\sA-O]+$")
+
+
+def _read_text_code(text: str) -> PastedCode | None:
+    """A Global Cache sendir paste, or None when the text is not one."""
+    lines = [
+        _GC_CODE1.sub("", line.strip().strip("\"'\u201c\u201d"))
+        for line in text.splitlines()
+    ]
+    lines = [line for line in lines if line.strip()]
+    sendir = [i for i, line in enumerate(lines) if is_sendir(line)]
+    if not sendir:
+        return None
+    if len(sendir) >= 2:
+        return PastedCode(
+            text, error=_several(len(sendir), "Global Cache sendir codes")
+        )
+    # One sendir line; a copy wrapped at a narrow width continues it on
+    # lines of digits and commas. Anything else around it must be one of
+    # the email's own labels.
+    start = sendir[0]
+    code = lines[start]
+    for line in lines[start + 1:]:
+        if _GC_CONTINUATION.match(line):
+            code += line.strip()
+        elif not _GC_LABEL.match(line):
+            return PastedCode(text)
+    if any(not _GC_LABEL.match(line) for line in lines[:start]):
+        return PastedCode(text)
+    try:
+        parsed = parse_sendir(code)
+    except SendirError as err:
+        return PastedCode(
+            text, error=f"This Global Cache code cannot be used: {err}."
+        )
+    notes = ()
+    if parsed.repeat > 1:
+        notes = (
+            f"Global Cache sent this code {parsed.repeat} times; HAIR stores "
+            "it once. Set the send count to match.",
+        )
+    return PastedCode(parsed.pronto(), SOURCE_GLOBALCACHE, notes=notes)
 
 
 def _tokens(text: str) -> list[str]:
@@ -335,6 +407,7 @@ def _kinds(hits) -> str:
 def _several(count: int, codes: str) -> str:
     return (
         f"This paste holds {count} {codes}. The paste box takes one "
-        "code. To bring in several at once, save them as a file (SmartIR, "
-        "Flipper, LIRC or a wig) and drop it on the Closet tab."
+        "code. To bring in several at once, save them as a file (a wig, "
+        "SmartIR, Flipper, LIRC, Girr, Harmony or Global Cache) and drop "
+        "it on the Closet tab."
     )
