@@ -110,6 +110,50 @@ AUTO_MAP_RULES: dict[str, str] = {
     "pause": "pause",
     "rewind": "rewind",
     "fast forward": "fast_forward",
+    # Names other code sets give the same buttons. Each maps to a key
+    # above; a name that could mean more than one button is left out
+    # (Exit, Enter, Home, Setup, an "Input HDMI 1"-style input, Swing,
+    # Rotate, Dimmer, Forward, Reverse, Skip, a bare Fan Speed).
+    "power toggle": "power_toggle",
+    "direction up": "navigate_up",
+    "direction down": "navigate_down",
+    "direction left": "navigate_left",
+    "direction right": "navigate_right",
+    "cursor up": "navigate_up",
+    "cursor down": "navigate_down",
+    "cursor left": "navigate_left",
+    "cursor right": "navigate_right",
+    "arrow up": "navigate_up",
+    "arrow down": "navigate_down",
+    "arrow left": "navigate_left",
+    "arrow right": "navigate_right",
+    "up arrow": "navigate_up",
+    "down arrow": "navigate_down",
+    "left arrow": "navigate_left",
+    "right arrow": "navigate_right",
+    "select": "navigate_select",
+    "ok": "navigate_select",
+    "cursor enter": "navigate_select",
+    "back": "navigate_back",
+    "return": "navigate_back",
+    "menu main": "menu",
+    "main menu": "menu",
+    "epg": "guide",
+    # The one input button that steps through the inputs, as "source"
+    # and "input" are; a named input ("Input HDMI 1") is not this key.
+    "input next": "select_source",
+    "mute toggle": "mute",
+    "vol up": "volume_up",
+    "vol down": "volume_down",
+    "volume +": "volume_up",
+    "volume -": "volume_down",
+    # A media player's Stop. A screen's Stop is ``stop_cover``, which a
+    # one-key-per-name table cannot give it: on a screen this maps to
+    # ``stop``, which the cover does not read (a known gap).
+    "stop": "stop",
+    "fan speed up": "speed_up",
+    "fan speed down": "speed_down",
+    "oscillation": "oscillate",
 }
 
 
