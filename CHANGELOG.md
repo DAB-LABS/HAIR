@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Closet reads Global Cache code sets as Control Tower mails them, and the code box takes a single `sendir` code.
 - The Closet reads Tasmota IR codes kept as text (`IRsend` commands, `IrReceived` console lines, raw timings), and the code box takes a single one.
 - A file holding codes of two formats HAIR cannot tell apart is refused with a note naming both.
+- Auto-map recognizes more common button names, such as Power Toggle, Direction Up, Select and Stop.
 
 ### Changed
 
