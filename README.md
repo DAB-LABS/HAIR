@@ -16,6 +16,11 @@
 
 # HAIR
 
+[![Release](https://img.shields.io/github/v/release/DAB-LABS/HAIR)](https://github.com/DAB-LABS/HAIR/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/DAB-LABS/HAIR/ci.yml?branch=main&label=build)](https://github.com/DAB-LABS/HAIR/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/DAB-LABS/HAIR)](LICENSE)
+[![HACS: Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+
 HAIR turns IR remotes into native Home Assistant entities. Point any remote at an IR receiver and press a button, and HAIR gives you back a device, a button, and an event you can automate. No vendor cloud, no YAML, nothing learned into somebody else's box.
 
 ## Install
