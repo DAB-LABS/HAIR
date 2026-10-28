@@ -23,7 +23,7 @@ Vereist Home Assistant 2026.4 of nieuwer; 2026.6+ aanbevolen voor native IR-ontv
 - **Converteer hem.** Plak bekende IR-codes, of vul een hele afstandsbediening vooraf in vanuit de geïnstalleerde codebibliotheek door fabrikant en model te kiezen.
 - **Pluk hem.** Haal codes op die al in een fabrikanten-blaster zijn geleerd (zoals Tuya Local) zonder er ook maar één opnieuw te leren bij de ontvanger.
 - **Luister hem af.** Elk IR-commando dat via Home Assistant wordt verzonden verschijnt in de Mirror, teruggehoord of niet, één klik verwijderd van een eigen commando worden.
-- **Zet hem op.** Sleep een codebestand naar de Kast -- een gedeelde pruik, een SmartIR-JSON, een Flipper Zero-`.ir`, een LIRC-configuratie of een Girr-export uit IrScrutinizer -- en hij hangt bij je collectie, één klik verwijderd van een werkende afstandsbediening.
+- **Zet hem op.** Sleep een codebestand naar de Kast -- een gedeelde pruik, een SmartIR-JSON, een Flipper Zero-`.ir`, een LIRC-configuratie, een Girr-export uit IrScrutinizer, een Logitech Harmony-apparaatbestand, een Global Cache-codeset of Tasmota-IR-codes -- en hij hangt bij je collectie, één klik verwijderd van een werkende afstandsbediening.
 
 ## Wat je ermee doet
 
@@ -46,4 +46,4 @@ De complete README, met setup-YAML, ondersteunde hardware, functiegidsen en scre
 
 ---
 
-*Vertaald uit de Engelse README, stand v0.18.1. Dit bestand is opgesteld door een programmeerassistent en wordt bij elke release ververst. Moedertaalsprekers zijn welkom om het over te nemen; zie [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Vertaald uit de Engelse README, stand v0.19.0. Dit bestand is opgesteld door een programmeerassistent en wordt bij elke release ververst. Moedertaalsprekers zijn welkom om het over te nemen; zie [Adding a language](CONTRIBUTING.md#adding-a-language).*

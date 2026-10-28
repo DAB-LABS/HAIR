@@ -23,7 +23,7 @@ Richiede Home Assistant 2026.4 o successivo; consigliato 2026.6+ per i ricevitor
 - **Convertilo.** Incolla codici IR conosciuti, oppure precompila un telecomando intero dalla libreria di codici installata scegliendo produttore e modello.
 - **Estrailo.** Recupera i codici già appresi in un trasmettitore di un produttore (come Tuya Local) senza riapprenderne nemmeno uno al ricevitore.
 - **Origlialo.** Ogni comando IR inviato attraverso Home Assistant appare nel Mirror, sentito di ritorno o no, a un clic dal diventare un comando tuo.
-- **Indossala.** Trascina un file di codici nell'Armadio -- una parrucca condivisa, un JSON SmartIR, un `.ir` di Flipper Zero, una configurazione LIRC o un export Girr di IrScrutinizer -- e resta appesa nella tua collezione, a un clic dal diventare un telecomando funzionante.
+- **Indossala.** Trascina un file di codici nell'Armadio -- una parrucca condivisa, un JSON SmartIR, un `.ir` di Flipper Zero, una configurazione LIRC, un export Girr di IrScrutinizer, un file dispositivo Logitech Harmony, un set di codici Global Cache o codici IR di Tasmota -- e resta appesa nella tua collezione, a un clic dal diventare un telecomando funzionante.
 
 ## Cosa ci fai
 
@@ -46,4 +46,4 @@ Il README completo, con YAML di configurazione, hardware supportato, guide alle 
 
 ---
 
-*Tradotto dal README inglese, versione v0.18.1. Questo file è stato redatto da un assistente di programmazione e viene aggiornato a ogni release. I madrelingua sono i benvenuti a prendersene cura; vedi [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Tradotto dal README inglese, versione v0.19.0. Questo file è stato redatto da un assistente di programmazione e viene aggiornato a ogni release. I madrelingua sono i benvenuti a prendersene cura; vedi [Adding a language](CONTRIBUTING.md#adding-a-language).*

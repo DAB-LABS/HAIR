@@ -23,7 +23,7 @@ Benötigt Home Assistant 2026.4 oder neuer; 2026.6+ empfohlen für native IR-Emp
 - **Konvertiere ihn.** Füge bekannte IR-Codes ein, oder stelle eine ganze Fernbedienung aus der installierten Code-Bibliothek zusammen, indem du Hersteller und Modell wählst.
 - **Übernimm ihn.** Hole Codes, die bereits in einem Hersteller-Blaster angelernt sind (etwa Tuya Local), ohne einen einzigen Code am Empfänger neu anzulernen.
 - **Belausche ihn.** Jeder über Home Assistant gesendete IR-Befehl erscheint im Mirror, gehört oder nicht, einen Klick davon entfernt, dein eigener Befehl zu werden.
-- **Setz sie auf.** Lege eine Code-Datei im Schrank ab -- eine geteilte Perücke, ein SmartIR-JSON, eine Flipper-Zero-`.ir`, eine LIRC-Konfiguration oder ein Girr-Export aus IrScrutinizer -- und sie hängt bei deiner Sammlung, einen Klick von einer funktionierenden Fernbedienung entfernt.
+- **Setz sie auf.** Lege eine Code-Datei im Schrank ab -- eine geteilte Perücke, ein SmartIR-JSON, eine Flipper-Zero-`.ir`, eine LIRC-Konfiguration, ein Girr-Export aus IrScrutinizer, eine Logitech-Harmony-Gerätedatei, ein Global-Cache-Codeset oder Tasmota-IR-Codes -- und sie hängt bei deiner Sammlung, einen Klick von einer funktionierenden Fernbedienung entfernt.
 
 ## Was du damit machst
 
@@ -46,4 +46,4 @@ Das komplette README, mit Setup-YAML, unterstützter Hardware, Funktionsanleitun
 
 ---
 
-*Übersetzt aus dem englischen README, Stand v0.18.1. Diese Datei wurde von einem Programmier-Assistenten entworfen und wird mit jeder Version aufgefrischt. Muttersprachler sind herzlich eingeladen, sie zu übernehmen; siehe [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Übersetzt aus dem englischen README, Stand v0.19.0. Diese Datei wurde von einem Programmier-Assistenten entworfen und wird mit jeder Version aufgefrischt. Muttersprachler sind herzlich eingeladen, sie zu übernehmen; siehe [Adding a language](CONTRIBUTING.md#adding-a-language).*

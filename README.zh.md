@@ -23,7 +23,7 @@
 - **剪取（Clipper）。** 粘贴已知的红外码，或选择品牌与型号，从内置码库里取出一整套遥控器。
 - **提取（Plucker）。** 把厂商 Blaster（例如 Tuya Local）里已学习过的红外码取出来，无需用接收器重新学一遍。
 - **监听（Mirror）。** 经 Home Assistant 发出的每一条红外命令都会出现在 Mirror 里 —— 无论是否被听到 —— 点一下就能变成你自己的命令。
-- **入库（Closet）。** 把红外码文件拖进码库柜 —— 别人分享的码组（Wig）、SmartIR 的 JSON、Flipper Zero 的 `.ir`、LIRC 配置文件、IrScrutinizer 导出的 Girr —— 它会被收入你的收藏，一键就能变成可用的遥控器。
+- **入库（Closet）。** 把红外码文件拖进码库柜 —— 别人分享的码组（Wig）、SmartIR 的 JSON、Flipper Zero 的 `.ir`、LIRC 配置文件、IrScrutinizer 导出的 Girr、Logitech Harmony 设备文件、Global Cache 码组、Tasmota 红外码 —— 它会被收入你的收藏，一键就能变成可用的遥控器。
 
 ## 导入红外码之后能做什么
 
@@ -46,4 +46,4 @@
 
 ---
 
-*译自英文 README，截至 v0.18.1。本文件由编程助手起草，随每次发布刷新。欢迎母语者接手，详见 [Adding a language](CONTRIBUTING.md#adding-a-language)。*
+*译自英文 README，截至 v0.19.0。本文件由编程助手起草，随每次发布刷新。欢迎母语者接手，详见 [Adding a language](CONTRIBUTING.md#adding-a-language)。*
