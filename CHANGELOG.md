@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-10-29 -- Split-End Repair
+
 ### Fixed
 
 - The paste box offers to correct a Broadlink code whose length field counts the whole packet, as some IR blasters write it; the code is converted only after you press Correct it, and is worth testing before you rely on it. Reported by @LBrinston (GH #216).
 - On Home Assistant 2026.11, HAIR's climate entities no longer log deprecation warnings for their temperature unit, current temperature and target temperature. Reported by @NorbertHD (GH #231).
+- The code editor keeps a converted code's notes on screen, such as the repeat count a Tasmota or Global Cache code carries.
 
 ## [0.19.0] - 2026-10-28 -- Extensions
 
