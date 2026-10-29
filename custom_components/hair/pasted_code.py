@@ -33,15 +33,38 @@ rather than left to the Pronto validator's error, which would not say
 what is wrong with it.
 
 FAILS CLOSED. When nothing reads, the caller shows the Pronto
-validator's own error, exactly as today. The only new refusals are the
-several-codes pointer, a Broadlink RF packet, which is named for what
-it is because HAIR sends infrared only, and an unusable text code.
+validator's own error. The only refusals this module writes itself are
+the several-codes pointer, a Broadlink RF packet, which is named for
+what it is because HAIR sends infrared only, and an unusable text code.
+
+TWO KINDS OF FIX. What this module changes in a paste falls into one of
+two lists, and a new entry has to say which list it joins.
+
+- Normalizations are certain and lossless, so they are applied without
+  asking: wrapped lines are joined (``_wrapped``, ``_wrap_groups``), a
+  URL-safe copy gets the standard alphabet back (``_standard_alphabet``),
+  missing ``=`` padding is restored (``_decode`` and the Broadlink
+  reader), and a Pronto with its spaces removed is refused rather than
+  read as base64 (``_HEX_ONLY``).
+- Repairs are a guess about damage, so they are only offered. A code
+  that every reader refused (the text readers, then Tuya, then
+  Broadlink) and that matches a repair is answered with
+  ``repair_offer``; the fix is applied only when the caller asks for it
+  by id (``apply_repair``), and its detection is run again then, so a
+  repair never applies to text that does not match it. Repairs are
+  considered for one code at a time (``_read_one``), never on the
+  several-codes paths. The list is ``PASTE_REPAIRS``.
+
+A repair fixes damage, not a format. It hands corrected text to the
+readers above, so NO NEW READERS stays true; a new code format is a new
+reader, not a repair.
 """
 from __future__ import annotations
 
 import base64
 import binascii
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .pronto_validator import validate_pronto
@@ -124,16 +147,27 @@ class PastedCode:
     validator's message. ``notes`` are further things a converted code
     asks to be said, after the carrier note (a repeat count the source
     set and HAIR does not store, for one).
+    ``repair_offer`` is the id of a repair that could read a refused
+    paste; ``repaired`` is the id of the repair that was applied.
     """
 
     pronto: str
     source: str | None = None
     error: str | None = None
     notes: tuple[str, ...] = ()
+    repair_offer: str | None = None
+    repaired: str | None = None
 
 
-def coerce_pasted_code(text: str | None) -> PastedCode:
-    """Read one pasted code. See the module docstring for the rules."""
+def coerce_pasted_code(
+    text: str | None, *, apply_repair: str | None = None
+) -> PastedCode:
+    """Read one pasted code. See the module docstring for the rules.
+
+    ``apply_repair`` names a repair the person accepted. It is applied
+    only if that repair still matches the paste; otherwise the answer is
+    the one the paste gets without it.
+    """
     text = text if isinstance(text, str) else ""
     if validate_pronto(text).valid:
         return PastedCode(text, SOURCE_PRONTO)
@@ -158,7 +192,7 @@ def coerce_pasted_code(text: str | None) -> PastedCode:
         return PastedCode(text)
 
     if len(tokens) == 1:
-        return _read_one(text, tokens[0], name_rf=True)
+        return _read_one(text, tokens[0], name_rf=True, apply_repair=apply_repair)
 
     # Base64 padding only ever ends a code, so a padded token before the
     # last one means the paste holds separate codes, not a wrapped one.
@@ -171,7 +205,7 @@ def coerce_pasted_code(text: str | None) -> PastedCode:
     if not padded_early and _wrapped(tokens):
         joined = "".join(tokens)
         if _convert(joined) is not None or _broadlink_rf_band(joined):
-            return _read_one(text, joined, name_rf=True)
+            return _read_one(text, joined, name_rf=True, apply_repair=apply_repair)
 
     # Codes that each read whole on their own are several codes.
     alone = [_convert(tok) for tok in tokens]
@@ -183,12 +217,12 @@ def coerce_pasted_code(text: str | None) -> PastedCode:
     # tried once; several groups that each read are several codes.
     groups = _wrap_groups(tokens)
     if len(groups) == 1:
-        return _read_one(text, groups[0])
+        return _read_one(text, groups[0], apply_repair=apply_repair)
     read = [_convert(group) for group in groups]
     if sum(hit is not None for hit in read) >= 2:
         hits = [hit for hit in read if hit is not None]
         return PastedCode(text, error=_several(len(hits), _kinds(hits)))
-    return _read_one(text, "".join(tokens))
+    return _read_one(text, "".join(tokens), apply_repair=apply_repair)
 
 
 # -- internals ---------------------------------------------------------
@@ -298,18 +332,39 @@ def _tokens(text: str) -> list[str]:
     return out
 
 
-def _read_one(text: str, token: str, *, name_rf: bool = False) -> PastedCode:
-    """One candidate code: convert it, name an RF packet, or fall through.
+def _read_one(
+    text: str,
+    token: str,
+    *,
+    name_rf: bool = False,
+    apply_repair: str | None = None,
+) -> PastedCode:
+    """One candidate code: convert it, repair or offer to, name an RF
+    packet, or fall through.
 
     ``name_rf`` is set only where the token is the whole paste or a copy
     wrapped at a standard width. A multi-word paste joined as a last try
     is never named RF: words run together are not a packet, and the
     Pronto error is the honest answer for them.
+
+    A code no reader takes is checked against ``PASTE_REPAIRS``. The
+    repair named by ``apply_repair`` is applied if it matches; otherwise
+    the first match is offered and the paste is refused.
     """
     hit = _convert(token)
     if hit is not None:
         pronto, source = hit
         return PastedCode(pronto, source)
+    standard = _standard_alphabet(token)
+    asked = _REPAIRS_BY_ID.get(apply_repair) if apply_repair else None
+    if asked is not None and asked.detect(standard):
+        fixed = _convert(asked.fix(standard))
+        if fixed is not None:
+            pronto, source = fixed
+            return PastedCode(pronto, source, repaired=asked.id)
+    offer = next((r.id for r in PASTE_REPAIRS if r.detect(standard)), None)
+    if offer is not None:
+        return PastedCode(text, repair_offer=offer)
     band = _broadlink_rf_band(token) if name_rf else None
     if band is not None:
         return PastedCode(
@@ -412,6 +467,96 @@ def _broadlink_rf_band(token: str) -> str | None:
     if not _whole_packet(packet):
         return None
     return _BROADLINK_RF[packet[0]]
+
+
+# -- repairs -----------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PasteRepair:
+    """One known kind of damage a refused paste can be offered a fix for.
+
+    ``detect`` and ``fix`` take the token in the standard base64
+    alphabet. ``fix`` returns text the ordinary readers accept, and is
+    only called after ``detect`` said yes. The words the person sees are
+    not here: the editor shows the locale string ``editor.repair.<id>``.
+    """
+
+    id: str
+    detect: Callable[[str], bool]
+    fix: Callable[[str], str]
+
+
+# A standard Broadlink IR packet's declared payload ends with this tick:
+# 0x00 then 0x0d05, a space of about 102 ms (the learning timeout), which
+# the length field counts.
+_TRAILING_GAP = b"\x00\x0d\x05"
+
+
+def _strict_ticks(payload: bytes) -> list[int] | None:
+    """The tick values in a Broadlink payload, or None if one is cut off.
+
+    A value over 255 is written as 0x00 and two big-endian bytes, so a
+    0x00 without two bytes after it is a value that did not arrive. The
+    shared reader stops quietly there; a repair must not guess past it.
+    """
+    ticks: list[int] = []
+    i = 0
+    while i < len(payload):
+        value = payload[i]
+        if value == 0:
+            if i + 2 >= len(payload):
+                return None
+            value = (payload[i + 1] << 8) | payload[i + 2]
+            i += 3
+        else:
+            i += 1
+        ticks.append(value)
+    return ticks
+
+
+def _length_counts_whole_packet(token: str) -> bool:
+    """A Broadlink IR packet whose length field counts the whole packet.
+
+    A standard packet declares its payload only, four bytes less. Some
+    IR blasters write the whole length and leave off the trailing
+    gap, so the readers take the code for the first line of a wrapped one
+    and refuse it. Matched on shape alone: the length field equals the
+    packet's length exactly, the payload does not end with the standard
+    trailing gap, every tick is whole, the ticks end on a mark (an odd
+    count, mark first), and the corrected code reads as infrared.
+    """
+    if len(token) < MIN_BASE64_CHARS or _HEX_ONLY.match(token.rstrip("=")):
+        return False
+    packet = _decode(token)
+    if packet is None or len(packet) < 6 or packet[0] != _BROADLINK_IR:
+        return False
+    if (packet[2] | (packet[3] << 8)) != len(packet):
+        return False
+    payload = packet[4:]
+    if payload.endswith(_TRAILING_GAP):
+        return False
+    ticks = _strict_ticks(payload)
+    if ticks is None or len(ticks) % 2 == 0:
+        return False
+    hit = _convert(_fix_length(token))
+    return hit is not None and hit[1] == SOURCE_BROADLINK
+
+
+def _fix_length(token: str) -> str:
+    """The same packet with its length field set to the payload's length.
+
+    Every other byte is kept as it is.
+    """
+    packet = bytearray(_decode(token) or b"")
+    packet[2:4] = (len(packet) - 4).to_bytes(2, "little")
+    return base64.b64encode(bytes(packet)).decode("ascii")
+
+
+PASTE_REPAIRS: tuple[PasteRepair, ...] = (
+    PasteRepair("broadlink_header", _length_counts_whole_packet, _fix_length),
+)
+_REPAIRS_BY_ID = {repair.id: repair for repair in PASTE_REPAIRS}
 
 
 # The widths copy tools wrap base64 at: 64 (PEM and most apps) and 76

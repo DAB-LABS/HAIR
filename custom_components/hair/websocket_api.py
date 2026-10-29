@@ -2848,6 +2848,7 @@ async def ws_unknown_signal_edit_pronto(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/clip/validate-pronto",
     vol.Required("pronto"): str,
+    vol.Optional("repair"): str,
 })
 @websocket_api.async_response
 async def ws_clip_validate_pronto(
@@ -2863,8 +2864,16 @@ async def ws_clip_validate_pronto(
     code will have. Such a response carries ``source_format`` and a
     warning naming the assumed carrier; a Pronto paste gets neither and
     is answered exactly as before.
+
+    A paste no reader takes but a known repair could
+    (``pasted_code.PASTE_REPAIRS``) is refused as before and the response
+    carries ``repair_offer``, the repair's id. Asking again with
+    ``repair`` set to that id applies it, if the paste still matches, and
+    the response is a converted one that also carries ``repaired``. A
+    repaired Broadlink code gets the same carrier warning as any other.
+    Nothing is saved here, and the save doors never repair.
     """
-    pasted = coerce_pasted_code(msg["pronto"])
+    pasted = coerce_pasted_code(msg["pronto"], apply_repair=msg.get("repair"))
     result = validate_pronto(pasted.pronto)
     if pasted.error:
         result.valid = False
@@ -2898,6 +2907,8 @@ async def ws_clip_validate_pronto(
         "normalized": result.normalized,
         "recognized_protocol": recognized,
         **({"source_format": pasted.source} if converted else {}),
+        **({"repaired": pasted.repaired} if converted and pasted.repaired else {}),
+        **({"repair_offer": pasted.repair_offer} if pasted.repair_offer else {}),
     })
 
 

@@ -1373,6 +1373,12 @@ export interface ProntoValidation {
      *  code) that the server read into Pronto; ``normalized`` is then that
      *  Pronto. Absent for every Pronto paste. */
     source_format?: PasteSource;
+    /** A refused paste that a known repair could read: the repair's id.
+     *  The editor offers it; asking again with that id applies it. */
+    repair_offer?: string;
+    /** Present with ``source_format`` when the code was read through a
+     *  repair the person accepted: that repair's id. */
+    repaired?: string;
 }
 
 /** The formats the paste box converts into Pronto. */
