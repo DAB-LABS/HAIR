@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- On Home Assistant 2026.11, HAIR's climate entities no longer log deprecation warnings for their temperature unit, current temperature and target temperature. Reported by @NorbertHD (GH #231).
+
 ## [0.19.0] - 2026-10-28 -- Extensions
 
 ### Added

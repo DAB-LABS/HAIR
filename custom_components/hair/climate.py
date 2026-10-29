@@ -63,6 +63,14 @@ from .wig_format import cell_key
 if TYPE_CHECKING:
     from .wig_format import ClimateCell, ClimateMatrix
 
+# Home Assistant 2026.11 serves the climate temperature members as
+# native_temperature_unit, native_current_temperature and
+# native_target_temperature, and warns when an entity provides or reads the
+# older names. HAIR provides the native names when the base class has them
+# and the older names otherwise, never both. Remove this switch, and the
+# older names, once hacs.json's minimum Home Assistant is 2026.11.
+_NATIVE_TEMPERATURE = hasattr(ClimateEntity, "native_temperature_unit")
+
 _LOGGER = logging.getLogger(__name__)
 
 HVAC_MODE_TO_FEATURE: dict[HVACMode, str] = {
@@ -134,9 +142,9 @@ class _ClimateExtraStoredData(ExtraStoredData):
 
     Home Assistant's state machine reports a climate entity's
     temperature attributes in the INSTALL's display unit, converting
-    from whatever ``temperature_unit`` the entity itself declares --
+    from whatever unit the entity itself declares --
     and matrix mode declares the FILE's native unit, which can differ
-    from the install's display unit (see ``temperature_unit``'s
+    from the install's display unit (see ``_declared_unit``'s
     docstring below). The old restore path read
     ``last_state.attributes[ATTR_TEMPERATURE]`` back as if it were
     already native, which silently applies one uncompensated
@@ -403,7 +411,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         from the install's display unit for matrix-mode entities only,
         since matrix mode is the one case where the entity's native
         unit (the FILE's unit) can differ from the install's display
-        unit (see ``temperature_unit``'s docstring). Preset mode's
+        unit (see ``_declared_unit``'s docstring). Preset mode's
         native unit already IS the install's display unit by design,
         so its fallback stays a straight, unconverted read, same as
         before this fix.
@@ -424,7 +432,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         value = float(raw_temp)
         if self._matrix_mode and self.hass is not None:
             display_unit = self.hass.config.units.temperature_unit
-            native_unit = self.temperature_unit
+            native_unit = self._declared_unit()
             if display_unit and display_unit != native_unit:
                 value = TemperatureConverter.convert(value, display_unit, native_unit)
         return value
@@ -615,7 +623,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         if cell.get("temp") is not None:
             # The cell's temp is in the FILE's unit, which is the unit
             # this entity declares in matrix mode, so it is already
-            # native and HA converts for the card (temperature_unit's
+            # native and HA converts for the card (_declared_unit's
             # docstring). No conversion here would be one too many.
             self._target_temperature = float(cell["temp"])
 
@@ -881,7 +889,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         if value is None or state is None:
             return value
         sensor_unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
-        target_unit = self.temperature_unit
+        target_unit = self._declared_unit()
         if not sensor_unit or sensor_unit == target_unit:
             return value
         return TemperatureConverter.convert(value, sensor_unit, target_unit)
@@ -921,9 +929,12 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         await self._async_load_matrix()
         self.async_write_ha_state()
 
-    @property
-    def temperature_unit(self) -> str:
-        """Preset mode: the installation's unit. Matrix mode: the
+    def _declared_unit(self) -> str:
+        """The unit this entity declares to HA, and the one every
+        temperature it holds is in. HAIR's own code reads it here, never
+        through the property HA reads (see ``_NATIVE_TEMPERATURE``).
+
+        Preset mode: the installation's unit. Matrix mode: the
         FILE's native unit. Mirror images, both correct.
 
         Presets are unit-agnostic integers (a "Temp 22" command is 22
@@ -950,6 +961,29 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         if self.hass is not None:
             return self.hass.config.units.temperature_unit
         return UnitOfTemperature.FAHRENHEIT
+
+    def _get_target_temperature(self) -> float | None:
+        """The setpoint, in ``_declared_unit``."""
+        return self._target_temperature
+
+    def _get_current_temperature(self) -> float | None:
+        """The configured room sensor's last reading, converted to this
+        entity's declared unit (climate-sensors.md). None with no
+        sensor configured, or while its state is unavailable, unknown,
+        or non-numeric -- the card drops the reading rather than
+        holding a stale number.
+        """
+        return self._current_temperature
+
+    # Exactly one set of names, chosen at import (see _NATIVE_TEMPERATURE).
+    if _NATIVE_TEMPERATURE:
+        native_temperature_unit = property(_declared_unit)
+        native_target_temperature = property(_get_target_temperature)
+        native_current_temperature = property(_get_current_temperature)
+    else:
+        temperature_unit = property(_declared_unit)
+        target_temperature = property(_get_target_temperature)
+        current_temperature = property(_get_current_temperature)
 
     def _seed_target_temperature(self) -> None:
         """Give the thermostat dial a handle to grab.
@@ -1056,20 +1090,6 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
     @property
     def hvac_mode(self) -> HVACMode:
         return self._hvac_mode
-
-    @property
-    def target_temperature(self) -> float | None:
-        return self._target_temperature
-
-    @property
-    def current_temperature(self) -> float | None:
-        """The configured room sensor's last reading, converted to this
-        entity's declared unit (climate-sensors.md). None with no
-        sensor configured, or while its state is unavailable, unknown,
-        or non-numeric -- the card drops the reading rather than
-        holding a stale number.
-        """
-        return self._current_temperature
 
     @property
     def current_humidity(self) -> float | None:
