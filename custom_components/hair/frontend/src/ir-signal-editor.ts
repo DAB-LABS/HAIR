@@ -225,6 +225,12 @@ export class IrSignalEditor extends LitElement {
      *  Pronto, which no longer says where it came from, and clears only
      *  when the person edits the text or a capture replaces it. */
     @state() private _convertedFrom: PasteSource | null = null;
+    /** Set with ``_convertedFrom`` when that conversion went through a
+     *  repair the person accepted (the repair's id), so the converted
+     *  line says the code was corrected. Clears with it. */
+    @state() private _repaired: string | null = null;
+    /** A repair request is in flight; the offer's button waits for it. */
+    @state() private _repairing = false;
     @state() private _alias = "";
     @state() private _sendCount = 1;
     @state() private _spacingMs: number | null = null;
@@ -746,6 +752,7 @@ export class IrSignalEditor extends LitElement {
     private _onProntoInput(e: Event): void {
         this._pronto = (e.target as HTMLTextAreaElement).value;
         this._convertedFrom = null;
+        this._repaired = null;
         this._syncPinToPronto();
         // Hand-edited text is no longer the capture the status line
         // described.
@@ -770,11 +777,11 @@ export class IrSignalEditor extends LitElement {
         }
     }
 
-    private async _validate(): Promise<void> {
+    private async _validate(repair?: string): Promise<void> {
         const before = this._validation?.normalized ?? null;
         const sent = this._pronto;
         try {
-            this._validation = await this.api.validatePronto(sent);
+            this._validation = await this.api.validatePronto(sent, repair);
         } catch {
             this._validation = null;
         }
@@ -786,6 +793,7 @@ export class IrSignalEditor extends LitElement {
         // still typing must not have their text replaced under them.
         if (v?.valid && v.source_format && this._pronto === sent) {
             this._convertedFrom = v.source_format;
+            this._repaired = v.repaired ?? null;
             this._pronto = v.normalized;
             this._syncPinToPronto();
             // The server's first warning is the same carrier note the
@@ -793,6 +801,7 @@ export class IrSignalEditor extends LitElement {
             this._validation = {
                 ...v,
                 source_format: undefined,
+                repaired: undefined,
                 warnings: v.warnings.slice(1),
             };
             await this._validate();
@@ -809,6 +818,20 @@ export class IrSignalEditor extends LitElement {
         // spacing row is stale until this comes back.
         if ((this._validation?.normalized ?? null) !== before) {
             void this._refreshSpacingInfo();
+        }
+    }
+
+    /** The person accepted a repair the server offered. Ask again with
+     *  its id, for whatever the box holds now: the server checks the
+     *  repair still matches before applying it, and a match comes back
+     *  as a converted code, which ``_validate`` puts in the box. */
+    private async _applyRepair(id: string): Promise<void> {
+        if (this._repairing) return;
+        this._repairing = true;
+        try {
+            await this._validate(id);
+        } finally {
+            this._repairing = false;
         }
     }
 
@@ -1391,6 +1414,7 @@ export class IrSignalEditor extends LitElement {
     }): void {
         this._pronto = event.pronto;
         this._convertedFrom = null;
+        this._repaired = null;
         this._syncPinToPronto();
         this._captured = {
             decoded: event.decoded,
@@ -1753,7 +1777,11 @@ export class IrSignalEditor extends LitElement {
                           </div>
                           ${this._convertedFrom
                               ? html`<div class="converted">
-                                    ${t(CONVERTED_NOTE[this._convertedFrom])}
+                                    ${t(
+                                        this._repaired
+                                            ? "editor.converted_repaired"
+                                            : CONVERTED_NOTE[this._convertedFrom],
+                                    )}
                                 </div>`
                               : ""}
                           ${sl
@@ -1768,7 +1796,26 @@ export class IrSignalEditor extends LitElement {
                       `
                     : ""}
                 ${v.errors.map((msg) => html`<div class="msg err">${msg}</div>`)}
+                ${!v.valid && v.repair_offer ? this._renderRepairOffer(v.repair_offer) : ""}
                 ${v.warnings.map((msg) => html`<div class="msg warn">${msg}</div>`)}
+            </div>
+        `;
+    }
+
+    /** A refused paste that a known repair could read. Inline, never a
+     *  pop-up: the person may still be typing. Nothing changes until
+     *  they press the button. */
+    private _renderRepairOffer(id: string) {
+        return html`
+            <div class="snap-notice repair-offer">
+                <div class="snap-text">${t(`editor.repair.${id}`)}</div>
+                <button
+                    class="snap-btn"
+                    ?disabled=${this._repairing}
+                    @click=${() => void this._applyRepair(id)}
+                >
+                    ${t("editor.repair.apply")}
+                </button>
             </div>
         `;
     }
@@ -2520,6 +2567,9 @@ export class IrSignalEditor extends LitElement {
         .snap-btn:disabled {
             opacity: 0.5;
             cursor: default;
+        }
+        .repair-offer {
+            margin: 8px 0 4px;
         }
         ha-alert {
             display: block;

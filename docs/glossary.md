@@ -175,7 +175,9 @@ handset over the air.
 **Pronto.** The text format HAIR stores every code in. It describes the raw on
 and off timings of the signal plus its carrier frequency. A Tuya or Broadlink
 base64 code pasted into the Clipper or the editor is converted to Pronto as it
-is pasted.
+is pasted. A code with a known kind of damage, such as a Broadlink code with
+its length written wrong, is not converted on its own: the paste box offers to
+correct it, and nothing changes until you accept.
 
 **Carrier frequency.** The rate the infrared LED pulses, usually around 38 kHz.
 Most remotes use one of a handful of standard values, and HAIR can snap a

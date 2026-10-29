@@ -1088,10 +1088,13 @@ export class HairApi {
         });
     }
 
-    validatePronto(pronto: string): Promise<ProntoValidation> {
+    /** ``repair`` applies a repair the server offered (``repair_offer``);
+     *  it is sent only when given. */
+    validatePronto(pronto: string, repair?: string): Promise<ProntoValidation> {
         return this.hass.connection.sendMessagePromise<ProntoValidation>({
             type: "hair/clip/validate-pronto",
             pronto,
+            ...(repair ? { repair } : {}),
         });
     }
 
