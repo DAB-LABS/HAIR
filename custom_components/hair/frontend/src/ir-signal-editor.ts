@@ -47,6 +47,7 @@ import type {
 } from "./types.js";
 import { isDittoable } from "./ir-tx-knobs.js";
 import { claimedFor, fieldWords, sameReading } from "./ir-tangle-copy.js";
+import { keepConversionNotes } from "./converted-notes.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
 
 // The note under a code the server converted from another format, one
@@ -805,6 +806,21 @@ export class IrSignalEditor extends LitElement {
                 warnings: v.warnings.slice(1),
             };
             await this._validate();
+            // The inner call's answer replaced this one and carries only
+            // the validator's warnings. Put the conversion's own notes
+            // back in front of them, as long as the box still holds the
+            // converted code and the answer is about it.
+            const again = this._validation;
+            if (
+                again &&
+                again.normalized === v.normalized &&
+                this._pronto === v.normalized
+            ) {
+                this._validation = {
+                    ...again,
+                    warnings: keepConversionNotes(v.warnings, again.warnings),
+                };
+            }
             // The inner call compares against the converted Pronto it was
             // handed, so it never sees the change. Compare against what the
             // box held before this paste: pasting base64 over an existing
