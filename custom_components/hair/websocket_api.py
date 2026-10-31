@@ -40,11 +40,13 @@ from .identity import (
 from .models import (
     FAN_SPEED_STEPS_MAX,
     FAN_SPEED_STEPS_MIN,
-    MAX_POWER_SETTLE_S,
+    ON_OFF_DOMAINS,
     SPEED_CYCLE_TURN_ON_CHOICES,
     IRDevice,
     IRTrigger,
     TriggerRemote,
+    is_on_off_entity,
+    max_power_settle_s,
     valid_fan_speed_steps,
 )
 from .pasted_code import (
@@ -817,13 +819,27 @@ async def ws_update_device(
         new_sensor = msg.get(
             "power_sensor_entity_id", device.power_sensor_entity_id
         )
-        if new_sensor is not None and not new_sensor.startswith("sensor."):
+        if new_sensor is not None and not (
+            new_sensor.startswith("sensor.") or is_on_off_entity(new_sensor)
+        ):
             connection.send_error(
                 msg["id"],
                 "invalid_format",
-                "power_sensor_entity_id must be a sensor entity",
+                "power_sensor_entity_id must be a sensor entity or an on/off "
+                "entity (" + ", ".join(ON_OFF_DOMAINS) + ")",
             )
             return
+        if new_sensor is not None:
+            # A HAIR entity's state is what HAIR assumed, so as a source
+            # it would only ever confirm itself.
+            entry = er.async_get(hass).async_get(new_sensor)
+            if entry is not None and entry.platform == DOMAIN:
+                connection.send_error(
+                    msg["id"],
+                    "invalid_format",
+                    "a HAIR entity cannot be a Device's state source",
+                )
+                return
         if new_sensor is None:
             # Thresholds without a sensor are meaningless, and so is a
             # settle time: all three clear with the sensor.
@@ -837,17 +853,20 @@ async def ws_update_device(
             new_on_above = msg.get(
                 "power_on_above_w", device.power_on_above_w
             )
+            if is_on_off_entity(new_sensor):
+                # An on/off entity is read by its state; thresholds sent
+                # with it are cleared rather than refused.
+                new_off_below = None
+                new_on_above = None
             # None is the default (DEFAULT_POWER_SETTLE_S); 0 is no
             # window at all. The two are different and stay different.
             new_settle = msg.get("power_settle_s", device.power_settle_s)
-        if new_settle is not None and not (
-            0 <= new_settle <= MAX_POWER_SETTLE_S
-        ):
+        settle_cap = max_power_settle_s(new_sensor)
+        if new_settle is not None and not 0 <= new_settle <= settle_cap:
             connection.send_error(
                 msg["id"],
                 "invalid_format",
-                "power_settle_s must be from 0 to "
-                f"{MAX_POWER_SETTLE_S:g} seconds",
+                f"power_settle_s must be from 0 to {settle_cap:g} seconds",
             )
             return
         if (

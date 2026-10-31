@@ -7,8 +7,11 @@ draw goes away, and this module tells the entity to correct itself
 instead of lying until the next HAIR send.
 
 Owns one ``async_track_state_change_event`` subscription per device that
-has ``power_sensor_entity_id`` configured. On each reading it classifies
-the value against the device's two thresholds and dispatches a verdict
+has ``power_sensor_entity_id`` configured. The source is either a power
+sensor in watts or an on/off entity (models.py ``ON_OFF_DOMAINS``: a binary sensor,
+switch, input boolean or device tracker). On each reading it classifies
+the value, against the device's two thresholds for watts or by the state
+itself for an on/off entity, and dispatches a verdict
 that platform entities apply to their assumed state. A verdict is EVERY
 reading outside the hysteresis gap, not only a threshold crossing: the
 monitor keeps no last verdict, so a HAIR send the device never received
@@ -75,7 +78,7 @@ from homeassistant.helpers.dispatcher import (
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
-from .models import IRDevice, power_settle_seconds
+from .models import IRDevice, is_on_off_entity, power_settle_seconds
 from .send_signal import SIGNAL_DEVICE_SENT, DeviceSent
 from .storage import HAIRStore
 
@@ -88,21 +91,39 @@ SIGNAL_POWER_VERDICT = f"{DOMAIN}_power_verdict"
 
 PowerVerdict = Literal["on", "off"]
 
+# An on/off entity's state is the verdict (``ON_OFF_DOMAINS`` in
+# models.py): ``on`` and ``home`` mean on, ``off`` and ``not_home`` mean
+# off. Anything else holds, which covers unavailable, unknown, and a GPS
+# tracker's zone names ("Work"), none of which says whether the device
+# is on. Thresholds do not apply to them.
+_ON_OFF_STATES: dict[str, PowerVerdict] = {
+    "on": "on",
+    "home": "on",
+    "off": "off",
+    "not_home": "off",
+}
+
 
 def classify_power_reading(
     state: State | None,
     off_below_w: float | None,
     on_above_w: float | None,
 ) -> PowerVerdict | None:
-    """Classify a power-sensor reading against a device's thresholds.
+    """Classify a state-source reading.
 
-    Returns ``"off"`` at or below ``off_below_w``, ``"on"`` at or above
+    An on/off entity (``ON_OFF_DOMAINS``) is read by its state alone and
+    the thresholds are ignored: see ``_ON_OFF_STATES``.
+
+    A power sensor is classified against the device's thresholds:
+    ``"off"`` at or below ``off_below_w``, ``"on"`` at or above
     ``on_above_w``, or ``None`` to hold (no correction) -- covering the
     hysteresis band itself, an unset/incomplete threshold pair,
     unavailable/unknown state, and a non-numeric reading. A ``kW``
     reading is converted to watts first so both thresholds and callers
     only ever compare in watts.
     """
+    if state is not None and is_on_off_entity(state.entity_id):
+        return _ON_OFF_STATES.get(state.state)
     if off_below_w is None or on_above_w is None:
         return None
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):

@@ -548,14 +548,42 @@ class EntityConfig:
         ), data, _KNOWN_ENTITY_CONFIG)
 
 
-# The settle window's default and ceiling, in seconds (0.17.2). The
+# The entities a Device can read its on/off state from directly, by
+# their state rather than a wattage (power_monitor.py has the verdict).
+ON_OFF_DOMAINS: tuple[str, ...] = (
+    "binary_sensor",
+    "switch",
+    "input_boolean",
+    "device_tracker",
+)
+
+
+def is_on_off_entity(entity_id: str | None) -> bool:
+    """Is this entity an on/off source rather than a power sensor?"""
+    if not entity_id or "." not in entity_id:
+        return False
+    return entity_id.split(".", 1)[0] in ON_OFF_DOMAINS
+
+
+# The settle window's default and ceilings, in seconds (0.17.2). The
 # default is a ceiling on the wait, not the wait: the monitor ends a
-# window early as soon as the plug agrees with the send.
+# window early as soon as the source agrees with the send. A power
+# plug reports within seconds; a presence or network sensor can take
+# minutes to notice a device switched off, so an on/off source may wait
+# longer.
 DEFAULT_POWER_SETTLE_S = 20.0
 MAX_POWER_SETTLE_S = 120.0
+MAX_ON_OFF_SETTLE_S = 600.0
 
 
-def _settle_or_none(value: Any) -> float | None:
+def max_power_settle_s(sensor_entity_id: str | None) -> float:
+    """The longest settle time a Device with this state source accepts."""
+    if is_on_off_entity(sensor_entity_id):
+        return MAX_ON_OFF_SETTLE_S
+    return MAX_POWER_SETTLE_S
+
+
+def _settle_or_none(value: Any, sensor_entity_id: str | None) -> float | None:
     """A stored settle value, or None for absent or unreadable.
 
     A hand-edited or damaged record falls back to the default rather
@@ -563,7 +591,7 @@ def _settle_or_none(value: Any) -> float | None:
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if not 0 <= value <= MAX_POWER_SETTLE_S:
+    if not 0 <= value <= max_power_settle_s(sensor_entity_id):
         return None
     return float(value)
 
@@ -610,8 +638,9 @@ class IRDevice:
     # Power monitoring (Device Settings, 0.9.8). Install wiring, like
     # emitter_entity_ids -- which smart plug feeds this device, not
     # wig content. power_sensor_entity_id is a ``sensor.`` entity with
-    # device_class power; both thresholds are watts. All three None
-    # (the default) means no power monitoring configured.
+    # device_class power, whose thresholds are watts, or an on/off
+    # entity (ON_OFF_DOMAINS), which has none. All three None (the
+    # default) means no power monitoring configured.
     power_sensor_entity_id: str | None = None
     power_off_below_w: float | None = None
     power_on_above_w: float | None = None
@@ -923,7 +952,10 @@ class IRDevice:
             power_on_above_w=data.get("power_on_above_w"),
             # Absent on every device made before the settle window
             # (0.17.2): stays None, which reads as the default.
-            power_settle_s=_settle_or_none(data.get("power_settle_s")),
+            power_settle_s=_settle_or_none(
+                data.get("power_settle_s"),
+                data.get("power_sensor_entity_id") or None,
+            ),
             # Absent on every device made before this field existed
             # (and on every non-matrix device); resolves to "no room
             # sensor configured", same as the power sensor above.

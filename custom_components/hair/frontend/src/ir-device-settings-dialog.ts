@@ -48,13 +48,14 @@
  * risk the identical failure mode on the one field this dialog cannot
  * work without, the sensor picker below is a plain <select> populated
  * by scanning this.hass.states for domain "sensor" entities that look
- * like power sensors (device_class "power", or a W/kW unit) -- the
+ * like power sensors (device_class "power", or a W/kW unit), then the
+ * on/off entities a state can be read from (state-source.ts) -- the
  * same direct-hass.states-scan convention ir-emitter-picker.ts already
  * uses for emitters. No manual entity-ID fallback (owner ruling
  * 2026-08-09, post-launch bench pass): the design brief specs a
  * picker only, so a device whose currently-configured sensor doesn't
  * match the power-ish filter still gets it injected into the
- * candidate list (see _candidateSensors) rather than losing it. The
+ * candidate list (see stateSourceCandidates) rather than losing it. The
  * climate pickers (climate-sensors.md) are the same plain-<select>
  * shape, filtering on device_class "temperature"/"humidity" instead
  * (see _candidatesByDeviceClass) -- same safety net, same no-custom-ID
@@ -72,6 +73,13 @@ import {
     hasSpeedCycle,
     speedStepsForSave,
 } from "./speed-cycle-settings.js";
+import {
+    isOnOffEntity,
+    settleCapFor,
+    settleOnPick,
+    stateSourceCandidates,
+    stateSourcePatch,
+} from "./state-source.js";
 
 export type SettingsSectionId = "power" | "climate" | "speed_cycle";
 
@@ -112,8 +120,9 @@ interface SensorCandidate {
     name: string;
 }
 
-/** Sensor "attributes" shape read by both _candidateSensors (power)
- * and _candidatesByDeviceClass (climate). */
+/** Sensor "attributes" shape read by _candidatesByDeviceClass
+ * (climate); the state source's picker reads the same shape through
+ * state-source.ts. */
 interface SensorStateShape {
     state?: string;
     attributes: {
@@ -125,10 +134,9 @@ interface SensorStateShape {
 
 const DEFAULT_OFF_BELOW_W = 5;
 const DEFAULT_ON_ABOVE_W = 10;
-// The settle window (0.17.2). Mirrors models.py DEFAULT_POWER_SETTLE_S
-// and MAX_POWER_SETTLE_S; the backend is the one that enforces them.
+// The settle window (0.17.2). Mirrors models.py DEFAULT_POWER_SETTLE_S;
+// the ceilings depend on the source (state-source.ts settleCapFor).
 const DEFAULT_SETTLE_S = 20;
-const MAX_SETTLE_S = 120;
 
 @customElement("ir-device-settings-dialog")
 export class IrDeviceSettingsDialog extends LitElement {
@@ -136,7 +144,8 @@ export class IrDeviceSettingsDialog extends LitElement {
     @property({ attribute: false }) public hass: any;
     @property({ attribute: false }) public device!: IRDevice;
 
-    /** "" = no sensor, otherwise a sensor.* entity id from the picker. */
+    /** "" = no source, otherwise a power sensor or an on/off entity id
+     *  from the picker. */
     @state() private _sensorChoice = "";
     @state() private _offBelow = "";
     @state() private _onAbove = "";
@@ -173,41 +182,6 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._cycleIncludesOff = config?.speed_cycle_includes_off === true;
         this._cycleTurnOn =
             config?.speed_cycle_turn_on === "speed_1" ? "speed_1" : "resume";
-    }
-
-    private _candidateSensors(): SensorCandidate[] {
-        const states = (this.hass?.states ?? {}) as Record<
-            string,
-            SensorStateShape
-        >;
-        const out: SensorCandidate[] = [];
-        for (const [entityId, st] of Object.entries(states)) {
-            if (!entityId.startsWith("sensor.")) continue;
-            const unit = st.attributes.unit_of_measurement;
-            const isPower =
-                st.attributes.device_class === "power" ||
-                unit === "W" ||
-                unit === "kW";
-            if (!isPower) continue;
-            out.push({
-                entityId,
-                name: st.attributes.friendly_name ?? entityId,
-            });
-        }
-        // The device's currently-configured sensor always stays
-        // selectable, even if it no longer matches the power-ish
-        // filter above (a template sensor whose device_class/unit
-        // changed, for instance) -- reopening this dialog must never
-        // silently drop what's already saved.
-        const current = this.device.power_sensor_entity_id;
-        if (current && !out.some((c) => c.entityId === current)) {
-            out.push({
-                entityId: current,
-                name: states[current]?.attributes.friendly_name ?? current,
-            });
-        }
-        out.sort((a, b) => a.name.localeCompare(b.name));
-        return out;
     }
 
     /** Climate's picker filter (climate-sensors.md): device_class
@@ -250,6 +224,8 @@ export class IrDeviceSettingsDialog extends LitElement {
             return t("devsettings.validation_speed_steps");
         }
         if (!this._sensorChoice) return null;
+        // An on/off entity is read by its state: no thresholds to check.
+        if (isOnOffEntity(this._sensorChoice)) return null;
         const off = parseFloat(this._offBelow);
         const on = parseFloat(this._onAbove);
         if (Number.isNaN(off) || Number.isNaN(on)) {
@@ -311,6 +287,9 @@ export class IrDeviceSettingsDialog extends LitElement {
 
     private _onSensorChoiceChanged(e: Event): void {
         this._sensorChoice = (e.target as HTMLSelectElement).value;
+        if (this._sensorChoice) {
+            this._settle = settleOnPick(this._sensorChoice, this._settle);
+        }
     }
 
     private _onTemperatureChoiceChanged(e: Event): void {
@@ -324,7 +303,8 @@ export class IrDeviceSettingsDialog extends LitElement {
     /** What the settle field saves as. A device still on the default
      * that nobody changed stays on the default (null), so it keeps
      * following it; an empty field also means the default. Anything
-     * else is clamped into the range the backend accepts. */
+     * else is clamped into the range the backend accepts for the
+     * chosen source. */
     private _settleForSave(): number | null {
         const value = parseFloat(this._settle);
         if (Number.isNaN(value)) return null;
@@ -334,7 +314,10 @@ export class IrDeviceSettingsDialog extends LitElement {
         ) {
             return null;
         }
-        return Math.min(MAX_SETTLE_S, Math.max(0, value));
+        return Math.min(
+            settleCapFor(this._sensorChoice),
+            Math.max(0, value),
+        );
     }
 
     private async _save(): Promise<void> {
@@ -350,10 +333,15 @@ export class IrDeviceSettingsDialog extends LitElement {
         const sensorId = this._sensorChoice || null;
         const patch: Parameters<HairApi["updateDevice"]>[1] = {};
         if (sections.includes("power")) {
-            patch.power_sensor_entity_id = sensorId;
-            patch.power_off_below_w = sensorId ? parseFloat(this._offBelow) : null;
-            patch.power_on_above_w = sensorId ? parseFloat(this._onAbove) : null;
-            patch.power_settle_s = sensorId ? this._settleForSave() : null;
+            Object.assign(
+                patch,
+                stateSourcePatch(
+                    sensorId,
+                    this._offBelow,
+                    this._onAbove,
+                    sensorId ? this._settleForSave() : null,
+                ),
+            );
         }
         if (sections.includes("climate")) {
             patch.temperature_sensor_entity_id = this._temperatureChoice || null;
@@ -481,11 +469,24 @@ export class IrDeviceSettingsDialog extends LitElement {
     }
 
     private _renderPowerSection() {
-        const candidates = this._candidateSensors();
+        const groups = stateSourceCandidates(
+            this.hass?.states ?? {},
+            this.hass?.entities ?? {},
+            this.device.power_sensor_entity_id,
+        );
         const sensorPicked = !!this._sensorChoice;
+        const onOff = isOnOffEntity(this._sensorChoice);
         const liveState = sensorPicked
             ? this.hass?.states?.[this._sensorChoice]
             : undefined;
+        const option = (c: { entityId: string; name: string }) => html`
+            <option
+                value=${c.entityId}
+                ?selected=${this._sensorChoice === c.entityId}
+            >
+                ${c.name}
+            </option>
+        `;
         return html`
             <section class="settings-section section-power">
                 <h3 class="section-label">
@@ -505,30 +506,35 @@ export class IrDeviceSettingsDialog extends LitElement {
                             ?disabled=${this._busy}
                         >
                             <option value="">${t("devsettings.sensor_none")}</option>
-                            ${candidates.map(
-                                (c) => html`
-                                    <option
-                                        value=${c.entityId}
-                                        ?selected=${this._sensorChoice === c.entityId}
-                                    >
-                                        ${c.name}
-                                    </option>
-                                `,
-                            )}
+                            ${groups.power.map(option)}
+                            ${groups.onOff.length
+                                ? html`<optgroup
+                                      label=${t("devsettings.onoff_group_label")}
+                                  >
+                                      ${groups.onOff.map(option)}
+                                  </optgroup>`
+                                : ""}
                         </select>
                         <span class="select-chevron" aria-hidden="true"></span>
                     </div>
                     <p class="section-explainer">
-                        ${t("devsettings.power_explainer")}
+                        ${t(
+                            onOff
+                                ? "devsettings.onoff_explainer"
+                                : "devsettings.power_explainer",
+                        )}
                     </p>
                 </div>
 
                 ${sensorPicked
                     ? html`
                           <div class="live-readout">
-                              ${this._renderLiveReadout(liveState)}
+                              ${this._renderLiveReadout(liveState, onOff)}
                           </div>
-
+                      `
+                    : ""}
+                ${sensorPicked && !onOff
+                    ? html`
                           <div class="pair-grid field">
                               <div>
                                   <label
@@ -559,13 +565,16 @@ export class IrDeviceSettingsDialog extends LitElement {
                                   />
                               </div>
                           </div>
-
+                      `
+                    : ""}
+                ${sensorPicked
+                    ? html`
                           <div class="field">
                               <label>${t("devsettings.settle_label")}</label>
                               <input
                                   type="number"
                                   min="0"
-                                  max=${MAX_SETTLE_S}
+                                  max=${settleCapFor(this._sensorChoice)}
                                   step="1"
                                   .value=${this._settle}
                                   @input=${(e: Event) =>
@@ -575,7 +584,11 @@ export class IrDeviceSettingsDialog extends LitElement {
                                   ?disabled=${this._busy}
                               />
                               <p class="section-explainer">
-                                  ${t("devsettings.settle_help")}
+                                  ${t(
+                                      onOff
+                                          ? "devsettings.settle_help_onoff"
+                                          : "devsettings.settle_help",
+                                  )}
                               </p>
                           </div>
                       `
@@ -771,14 +784,25 @@ export class IrDeviceSettingsDialog extends LitElement {
      * of the on/off verdict too). An earlier pass colored it by
      * classify_power_reading()'s on/off/hold verdict instead, which
      * read as "sensor might be broken" on a perfectly healthy reading
-     * that just happened to sit in the off band -- corrected here. */
+     * that just happened to sit in the off band -- corrected here.
+     * An on/off source shows its state as it is ("Now: home"), live
+     * when it is one of the four states that mean on or off. */
     private _renderLiveReadout(state: {
         state?: string;
         attributes?: { unit_of_measurement?: string };
-    } | undefined) {
+    } | undefined, onOff = false) {
         if (!state || state.state === undefined) {
             return html`<span class="readout-dot readout-unknown"></span>
                 ${t("devsettings.readout_unavailable")}`;
+        }
+        if (onOff) {
+            const known = ["on", "off", "home", "not_home"].includes(
+                state.state,
+            );
+            return html`<span
+                    class="readout-dot ${known ? "readout-live" : "readout-unknown"}"
+                ></span>
+                ${t("devsettings.readout_now", { value: state.state })}`;
         }
         const raw = parseFloat(state.state);
         const unit = state.attributes?.unit_of_measurement ?? "";
