@@ -1,8 +1,9 @@
 """The device settings dialog's state source picker (GH #232).
 
 The rules live in ``state-source.ts``: which entities the picker
-offers and in which group, how long the settle time may be, what the
-settle field is set to when a source is picked, and what a save sends. This transpiles it
+offers and in which group, what a search leaves, how long the settle
+time may be, what the settle field is set to when a source is picked,
+and what a save sends. This transpiles it
 with the repo's own TypeScript and runs it under node, in the house
 pattern of ``test_speed_cycle_settings_js.py``. The dialog is a lit
 component node cannot render, so its wiring is checked by reading the
@@ -14,6 +15,7 @@ the source half always runs.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -32,8 +34,8 @@ toolchain = pytest.mark.skipif(
 DRIVER = """
 import {
     MAX_ON_OFF_SETTLE_S, MAX_POWER_SETTLE_S, TRACKER_SETTLE_PRESET_S,
-    isOnOffEntity, settleCapFor, settleOnPick, stateSourceCandidates,
-    stateSourcePatch,
+    filterSourceGroups, isOnOffEntity, settleCapFor, settleOnPick,
+    stateSourceCandidates, stateSourcePatch,
 } from "./state-source.js";
 
 const st = (name, attrs = {}, state = "on") => ({
@@ -116,11 +118,27 @@ for (const [id, field] of [
 ]) {
     picks[`${id} ${field}`] = settleOnPick(id, field);
 }
+const all = stateSourceCandidates(states, entities, null);
+const search = {};
+for (const [query, current] of [
+    ["", null], ["   ", null], ["tv", null], ["TV", null], [" Tv ", null],
+    ["power", null], ["device_tracker.", null], ["living", null],
+    ["helper", null], ["plug", null], ["no_name", null], ["zzz", null],
+    ["zzz", "switch.amp_plug"], ["tv", "sensor.amp_watts"], ["zzz", ""],
+]) {
+    search[`${query}|${current}`] = ids(filterSourceGroups(all, query, current));
+}
+const same = filterSourceGroups(all, "", null) === all;
+const twins = ids(stateSourceCandidates({
+    "binary_sensor.b": st("TV"), "binary_sensor.a": st("TV"),
+}, {}, null));
 const settle = {
     power: MAX_POWER_SETTLE_S, onOff: MAX_ON_OFF_SETTLE_S,
     preset: TRACKER_SETTLE_PRESET_S,
 };
-console.log(JSON.stringify({ groups, kinds, patches, caps, picks, settle }));
+console.log(JSON.stringify({
+    groups, kinds, patches, caps, picks, settle, search, same, twins,
+}));
 """
 
 
@@ -239,6 +257,65 @@ class TestTheSave:
 
 
 @toolchain
+class TestTheSearch:
+    def test_an_empty_query_leaves_both_groups_whole(self, run):
+        whole = {"power": POWER, "onOff": ON_OFF}
+        assert run["search"]["|null"] == whole
+        assert run["search"]["   |null"] == whole
+        assert run["same"] is True
+
+    def test_it_matches_the_name_ignoring_case(self, run):
+        expected = {
+            "power": ["sensor.tv_plug_power"],
+            "onOff": [
+                "input_boolean.tv_on",
+                "device_tracker.living_room_tv",
+                "binary_sensor.tv_on",
+            ],
+        }
+        for query in ("tv", "TV", " Tv "):
+            assert run["search"][f"{query}|null"] == expected, query
+        assert run["search"]["helper|null"] == {
+            "power": [], "onOff": ["input_boolean.tv_on"],
+        }
+        assert run["search"]["plug|null"] == {
+            "power": ["sensor.tv_plug_power"], "onOff": ["switch.amp_plug"],
+        }
+
+    def test_it_matches_the_entity_id(self, run):
+        assert run["search"]["power|null"]["power"] == ["sensor.tv_plug_power"]
+        assert run["search"]["device_tracker.|null"] == {
+            "power": [], "onOff": ["device_tracker.living_room_tv"],
+        }
+        # No friendly name: the entity id is the name and the match.
+        assert run["search"]["no_name|null"] == {
+            "power": [], "onOff": ["binary_sensor.no_name"],
+        }
+
+    def test_nothing_matches(self, run):
+        assert run["search"]["zzz|null"] == {"power": [], "onOff": []}
+        # None ("") is not an entity: nothing is kept for it.
+        assert run["search"]["zzz|"] == {"power": [], "onOff": []}
+
+    def test_the_current_source_stays_whatever_the_query(self, run):
+        assert run["search"]["zzz|switch.amp_plug"] == {
+            "power": [], "onOff": ["switch.amp_plug"],
+        }
+        # Kept in its place in the sorted group, not moved to the top.
+        assert run["search"]["tv|sensor.amp_watts"] == {
+            "power": ["sensor.amp_watts", "sensor.tv_plug_power"],
+            "onOff": [
+                "input_boolean.tv_on",
+                "device_tracker.living_room_tv",
+                "binary_sensor.tv_on",
+            ],
+        }
+
+    def test_equal_names_sort_by_entity_id(self, run):
+        assert run["twins"]["onOff"] == ["binary_sensor.a", "binary_sensor.b"]
+
+
+@toolchain
 class TestTheSettleTime:
     def test_the_caps_match_the_backend(self, run):
         from custom_components.hair.models import (
@@ -285,11 +362,45 @@ class TestTheDialog:
         assert "this.hass?.entities" in section
         assert "_candidateSensors" not in _dialog()
 
-    def test_on_off_entities_sit_in_their_own_group(self):
+    def test_a_search_over_the_list_not_a_select(self):
         section = _power_section()
-        assert "<optgroup" in section
-        assert 't("devsettings.onoff_group_label")' in section
-        assert "groups.onOff.map(option)" in section
+        assert "<select" not in section
+        assert 'class="source-search"' in section
+        assert 't("devsettings.source_search")' in section
+        call = section[section.index("filterSourceGroups("):]
+        call = re.sub(r"\s+", "", call[: call.index(");")])
+        assert call == (
+            "filterSourceGroups(groups,this._sourceQuery,"
+            "this._sensorChoice||null,"
+        )
+        assert 't("devsettings.source_no_match")' in section
+
+    def test_none_then_power_sensors_then_on_off(self):
+        section = _power_section()
+        search = section.index('class="source-search"')
+        none = section.index('t("devsettings.sensor_none")')
+        power = section.index('t("devsettings.power_group_label")')
+        on_off = section.index('t("devsettings.onoff_group_label")')
+        hint = section.index('t("devsettings.onoff_group_hint")')
+        assert search < none < power < on_off < hint
+        assert "shown.power.map(" in section[power:on_off]
+        assert "shown.onOff.map(" in section[on_off:]
+
+    def test_a_heading_shows_only_over_rows(self):
+        section = _power_section()
+        assert "${shown.power.length\n" in section
+        assert "${shown.onOff.length\n" in section
+
+    def test_rows_take_the_capture_switch_shape(self):
+        text = _dialog()
+        row = text[text.index("private _renderSourceRow"):]
+        row = row[: row.index("\n    }\n")]
+        assert 'role="option"' in row
+        assert "aria-selected=" in row
+        assert "healthDotClass(" in row and "isEntityOnline(" in row
+        assert 'class="iname"' in row and 'class="iid"' in row
+        assert "this._pickSource(entityId)" in row
+        assert "healthDotStyles," in text
 
     def test_the_wattage_fields_hide_for_an_on_off_source(self):
         section = _power_section()
@@ -314,9 +425,11 @@ class TestTheDialog:
     def test_the_settle_field_follows_the_source(self):
         text = _dialog()
         assert "MAX_SETTLE_S" not in text
-        pick = text[text.index("private _onSensorChoiceChanged"):]
+        assert "_onSensorChoiceChanged" not in text
+        pick = text[text.index("private _pickSource"):]
         pick = pick[: pick.index("\n    }\n")]
-        assert "settleOnPick(this._sensorChoice, this._settle)" in pick
+        assert "this._sensorChoice = entityId;" in pick
+        assert "settleOnPick(entityId, this._settle)" in pick
         save = text[text.index("private _settleForSave"):]
         save = save[: save.index("\n    }\n")]
         assert "settleCapFor(this._sensorChoice)" in save
