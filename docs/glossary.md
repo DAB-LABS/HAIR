@@ -342,11 +342,14 @@ the Mirror to what you are chasing.
 ## Device settings
 
 **Power sensor.** Any Device that plausibly draws current can be pointed at a
-power reading, such as a smart plug's wattage. Set two thresholds and the
-Device counts as off at or below the lower one and on at or above the higher
-one. A reading past either threshold overrides what HAIR assumed from the
-last command sent, so a device switched off with its original remote stops
-claiming to be on. After each HAIR send the sensor waits out a settle time
+sensor that knows whether it is on: a power reading, such as a smart plug's
+wattage, or an on/off entity (a binary sensor, switch, input boolean or device
+tracker, such as a TV's network tracker). For a power reading, set two
+thresholds and the Device counts as off at or below the lower one and on at or
+above the higher one; an on/off entity counts as on when it is on or home and
+off when it is off or not_home. A reading that says on or off overrides what
+HAIR assumed from the last command sent, so a device switched off with its
+original remote stops claiming to be on. After each HAIR send the sensor waits out a settle time
 (20 seconds by default, 0 for none) before it can overrule the command, so
 a plug that has not reported the new draw yet cannot flip the device back.
 
