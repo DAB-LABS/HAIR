@@ -46,18 +46,21 @@
  * ir-promote-dialog.ts (see that file's header comment, "shampoo
  * bench" bug) when used directly inside a custom panel. Rather than
  * risk the identical failure mode on the one field this dialog cannot
- * work without, the sensor picker below is a plain <select> populated
- * by scanning this.hass.states for domain "sensor" entities that look
- * like power sensors (device_class "power", or a W/kW unit), then the
- * on/off entities a state can be read from (state-source.ts) -- the
- * same direct-hass.states-scan convention ir-emitter-picker.ts already
- * uses for emitters. No manual entity-ID fallback (owner ruling
- * 2026-08-09, post-launch bench pass): the design brief specs a
- * picker only, so a device whose currently-configured sensor doesn't
- * match the power-ish filter still gets it injected into the
- * candidate list (see stateSourceCandidates) rather than losing it. The
- * climate pickers (climate-sensors.md) are the same plain-<select>
- * shape, filtering on device_class "temperature"/"humidity" instead
+ * work without, the state source picker below is house-built: a plain
+ * search <input> over an inline list, the rows of the RX-CAPTURE
+ * switch search (ir-capture-switch-menu.ts). The list scans
+ * this.hass.states (state-source.ts): None, then the "sensor" entities
+ * that look like power sensors (device_class "power", or a W/kW unit),
+ * then the on/off entities a state can be read from, each group under
+ * its heading and sorted by name -- the same direct-hass.states-scan
+ * convention ir-emitter-picker.ts already uses for emitters. The search
+ * matches a name or an entity id and never hides the chosen row. No
+ * manual entity-ID fallback (owner ruling 2026-08-09, post-launch
+ * bench pass): the design brief specs a picker only, so a device whose
+ * currently-configured sensor doesn't match the power-ish filter still
+ * gets it injected into the candidate list (see stateSourceCandidates)
+ * rather than losing it. The climate pickers (climate-sensors.md) are
+ * plain <select>s, filtering on device_class "temperature"/"humidity"
  * (see _candidatesByDeviceClass) -- same safety net, same no-custom-ID
  * ruling, picker only.
  */
@@ -73,7 +76,10 @@ import {
     hasSpeedCycle,
     speedStepsForSave,
 } from "./speed-cycle-settings.js";
+import { healthDotClass, isEntityOnline } from "./entity-health.js";
+import { healthDotStyles } from "./ir-header-chip-styles.js";
 import {
+    filterSourceGroups,
     isOnOffEntity,
     settleCapFor,
     settleOnPick,
@@ -150,6 +156,8 @@ export class IrDeviceSettingsDialog extends LitElement {
     @state() private _offBelow = "";
     @state() private _onAbove = "";
     @state() private _settle = "";
+    /** The state source picker's search, never saved. */
+    @state() private _sourceQuery = "";
     // Climate room sensors (climate-sensors.md, riding 0.9.8). Same ""
     // = none convention as the power picker above, but independent of
     // it and of each other -- either can be picked, changed, or
@@ -285,10 +293,12 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._close();
     }
 
-    private _onSensorChoiceChanged(e: Event): void {
-        this._sensorChoice = (e.target as HTMLSelectElement).value;
-        if (this._sensorChoice) {
-            this._settle = settleOnPick(this._sensorChoice, this._settle);
+    /** A row of the state source picker was chosen ("" is None). */
+    private _pickSource(entityId: string): void {
+        if (this._busy || entityId === this._sensorChoice) return;
+        this._sensorChoice = entityId;
+        if (entityId) {
+            this._settle = settleOnPick(entityId, this._settle);
         }
     }
 
@@ -479,14 +489,11 @@ export class IrDeviceSettingsDialog extends LitElement {
         const liveState = sensorPicked
             ? this.hass?.states?.[this._sensorChoice]
             : undefined;
-        const option = (c: { entityId: string; name: string }) => html`
-            <option
-                value=${c.entityId}
-                ?selected=${this._sensorChoice === c.entityId}
-            >
-                ${c.name}
-            </option>
-        `;
+        const shown = filterSourceGroups(
+            groups,
+            this._sourceQuery,
+            this._sensorChoice || null,
+        );
         return html`
             <section class="settings-section section-power">
                 <h3 class="section-label">
@@ -499,23 +506,51 @@ export class IrDeviceSettingsDialog extends LitElement {
 
                 <div class="field">
                     <label>${t("devsettings.sensor_label")}</label>
-                    <div class="select-wrap">
-                        <select
-                            .value=${this._sensorChoice}
-                            @change=${this._onSensorChoiceChanged}
-                            ?disabled=${this._busy}
-                        >
-                            <option value="">${t("devsettings.sensor_none")}</option>
-                            ${groups.power.map(option)}
-                            ${groups.onOff.length
-                                ? html`<optgroup
-                                      label=${t("devsettings.onoff_group_label")}
-                                  >
-                                      ${groups.onOff.map(option)}
-                                  </optgroup>`
-                                : ""}
-                        </select>
-                        <span class="select-chevron" aria-hidden="true"></span>
+                    <input
+                        class="source-search"
+                        type="text"
+                        .value=${this._sourceQuery}
+                        placeholder=${t("devsettings.source_search")}
+                        aria-label=${t("devsettings.source_search")}
+                        ?disabled=${this._busy}
+                        @input=${(e: Event) =>
+                            (this._sourceQuery = (
+                                e.target as HTMLInputElement
+                            ).value)}
+                    />
+                    <div
+                        class="source-list"
+                        role="listbox"
+                        aria-label=${t("devsettings.sensor_label")}
+                    >
+                        ${this._renderSourceRow(
+                            "",
+                            t("devsettings.sensor_none"),
+                        )}
+                        ${shown.power.length
+                            ? html`<div class="source-group">
+                                      ${t("devsettings.power_group_label")}
+                                  </div>
+                                  ${shown.power.map((c) =>
+                                      this._renderSourceRow(c.entityId, c.name),
+                                  )}`
+                            : ""}
+                        ${shown.onOff.length
+                            ? html`<div class="source-group">
+                                      ${t("devsettings.onoff_group_label")}
+                                      <span class="source-group-hint"
+                                          >${t("devsettings.onoff_group_hint")}</span
+                                      >
+                                  </div>
+                                  ${shown.onOff.map((c) =>
+                                      this._renderSourceRow(c.entityId, c.name),
+                                  )}`
+                            : ""}
+                        ${shown.power.length + shown.onOff.length === 0
+                            ? html`<div class="source-none">
+                                  ${t("devsettings.source_no_match")}
+                              </div>`
+                            : ""}
                     </div>
                     <p class="section-explainer">
                         ${t(
@@ -776,6 +811,35 @@ export class IrDeviceSettingsDialog extends LitElement {
                     : ""}
             </section>
         `;
+    }
+
+    /** One row of the state source picker, the shape of the RX-CAPTURE
+     * switch search (ir-capture-switch-menu.ts): the health dot, the
+     * name over the entity id, the chosen row tinted. None has no dot
+     * and no id. */
+    private _renderSourceRow(entityId: string, name: string) {
+        const chosen = this._sensorChoice === entityId;
+        return html`<button
+            type="button"
+            class="source-row ${chosen ? "cur" : ""}"
+            role="option"
+            aria-selected=${chosen ? "true" : "false"}
+            ?disabled=${this._busy}
+            title=${entityId ? `${name} · ${entityId}` : name}
+            @click=${() => this._pickSource(entityId)}
+        >
+            ${entityId
+                ? html`<span
+                      class="dot ${healthDotClass(
+                          isEntityOnline(this.hass?.states, entityId),
+                      )}"
+                  ></span>`
+                : html`<span class="dot-gap"></span>`}
+            <span class="txt">
+                <span class="iname">${name}</span>
+                ${entityId ? html`<span class="iid">${entityId}</span>` : ""}
+            </span>
+        </button>`;
     }
 
     /** The dot signals "this number is live," full stop (design brief:
@@ -1131,6 +1195,91 @@ export class IrDeviceSettingsDialog extends LitElement {
                 opacity: 0.5;
             }
 
+            /* The state source picker: the RX-CAPTURE switch search's
+               rows (ir-capture-switch-menu.ts), inline and grouped. */
+            .source-list {
+                margin-top: 8px;
+                max-height: 320px;
+                overflow-y: auto;
+                border: 1px solid var(--divider-color);
+                border-radius: 4px;
+            }
+            .source-group {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                padding: 9px 10px 5px;
+                border-bottom: 1px solid var(--divider-color);
+                background: var(--secondary-background-color);
+                font-size: 0.7rem;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                color: var(--secondary-text-color);
+            }
+            .source-group-hint {
+                font-size: 0.75rem;
+                text-transform: none;
+                letter-spacing: normal;
+                line-height: 1.35;
+            }
+            .source-row {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                width: 100%;
+                padding: 7px 10px;
+                border: none;
+                border-bottom: 1px solid var(--divider-color);
+                background: none;
+                font: inherit;
+                font-size: 0.9rem;
+                text-align: left;
+                color: var(--primary-text-color);
+                cursor: pointer;
+            }
+            .source-row:last-child {
+                border-bottom: none;
+            }
+            .source-row:hover:not(:disabled),
+            .source-row:focus-visible {
+                outline: none;
+                background: var(--secondary-background-color);
+            }
+            .source-row.cur {
+                background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+            }
+            .source-row:disabled {
+                cursor: default;
+            }
+            .source-row .dot,
+            .source-row .dot-gap {
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                flex: none;
+            }
+            .source-row .txt {
+                display: flex;
+                flex-direction: column;
+                min-width: 0;
+            }
+            .source-row .iname,
+            .source-row .iid {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .source-row .iid {
+                font-size: 0.7rem;
+                color: var(--secondary-text-color);
+                margin-top: 1px;
+            }
+            .source-none {
+                padding: 14px 10px;
+                color: var(--secondary-text-color);
+                font-style: italic;
+            }
+
             .save-btn {
                 background: #3f8a4b;
                 color: #fff;
@@ -1140,6 +1289,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                 opacity: 0.9;
             }
         `,
+        healthDotStyles,
     ];
 }
 

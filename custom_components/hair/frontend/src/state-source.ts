@@ -4,9 +4,9 @@
  * A source is either a power sensor in watts, classified against two
  * thresholds, or an on/off entity read by its state (power_monitor.py
  * ON_OFF_DOMAINS: on and home are on, off and not_home are off). This
- * module decides which entities the picker offers, in which group, how
- * long the settle time may be, and what a save sends; the dialog only
- * renders it. It is plain functions
+ * module decides which entities the picker offers, in which group, what
+ * a search leaves, how long the settle time may be, and what a save
+ * sends; the dialog only renders it. It is plain functions
  * over the hass shapes so a node test can run it.
  */
 
@@ -123,10 +123,32 @@ export function stateSourceCandidates(
         (isOnOffEntity(current) ? onOff : power).push(entry);
     }
     const byName = (a: SourceCandidate, b: SourceCandidate) =>
-        a.name.localeCompare(b.name);
+        a.name.localeCompare(b.name) || a.entityId.localeCompare(b.entityId);
     power.sort(byName);
     onOff.sort(byName);
     return { power, onOff };
+}
+
+/**
+ * The picker's groups narrowed to a search, matching the query on the
+ * name or the entity id, ignoring case: the same rule as the RX-CAPTURE
+ * switch search (ir-listen-state.ts pickerEntities). An empty query
+ * leaves both groups whole. The current source stays in its group
+ * whatever the query, so a search never hides what is in use; order is
+ * kept.
+ */
+export function filterSourceGroups(
+    groups: SourceGroups,
+    query: string,
+    current: string | null,
+): SourceGroups {
+    const q = query.trim().toLocaleLowerCase();
+    if (!q) return groups;
+    const keep = (c: SourceCandidate) =>
+        c.entityId === current ||
+        c.name.toLocaleLowerCase().includes(q) ||
+        c.entityId.toLocaleLowerCase().includes(q);
+    return { power: groups.power.filter(keep), onOff: groups.onOff.filter(keep) };
 }
 
 /** The four power fields a save sends for the chosen source. */
