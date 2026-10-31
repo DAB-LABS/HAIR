@@ -264,7 +264,9 @@ class _FakeMonitor:
                     # And how long the send holds the air, plus the
                     # shape it holds it with, which is what sizes the
                     # echo ticket (send spacing, GH #151).
-                    air_s=0.0, burst=None):
+                    air_s=0.0, burst=None,
+                    # What the Candy Drawer's TX block names.
+                    device_name=None, command_name=None, origin=None):
         self.calls.append({
             "label": source_label,
             "emitters": emitter_entity_ids,

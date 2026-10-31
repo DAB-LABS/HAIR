@@ -1191,5 +1191,16 @@
     "tangles.listen_mismatch_2_noread": "Die druk kwam opnieuw niet overeen.",
     "tangles.listen_mismatch_3_noread": "We horen steeds een andere druk. Misschien klopt onze lezing niet, niet uw afstandsbediening. Deze druk toch gebruiken?",
     "tangles.paste_mismatch_noread": "Deze code wordt gelezen als een andere instelling, of de kaart van deze afstandsbediening kan hem niet lezen. Deze code toch gebruiken?",
-    "tangles.listen_timeout": "Het luisteren is gestopt. Druk opnieuw op Luisteren."
+    "tangles.listen_timeout": "Het luisteren is gestopt. Druk opnieuw op Luisteren.",
+    "candy.title": "Candy Drawer",
+    "candy.pause": "Pauzeren",
+    "candy.resume": "Hervatten",
+    "candy.queued": "Hervatten ({count} wachtend)",
+    "candy.clear": "Wissen",
+    "candy.copy": "Alles kopiëren",
+    "candy.jump_latest": "Naar nieuwste",
+    "candy.opened": "--- Candy Drawer geopend {time} ({zone}) ---",
+    "candy.capped": "--- {count} oudere blokken verwijderd, 2.000 bewaard ---",
+    "candy.rx": "RX",
+    "candy.tx": "TX"
 }

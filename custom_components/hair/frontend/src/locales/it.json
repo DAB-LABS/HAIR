@@ -1191,5 +1191,16 @@
     "tangles.listen_mismatch_2_noread": "Quella pressione non ha corrisposto di nuovo.",
     "tangles.listen_mismatch_3_noread": "Continuiamo a sentire una pressione diversa. Potrebbe essere sbagliata la nostra lettura, non il telecomando. Usare comunque questa pressione?",
     "tangles.paste_mismatch_noread": "Questo codice viene letto come un'impostazione diversa, oppure la mappa di questo telecomando non riesce a leggerlo. Usare comunque questo codice?",
-    "tangles.listen_timeout": "L'ascolto è terminato. Premi di nuovo Ascolta."
+    "tangles.listen_timeout": "L'ascolto è terminato. Premi di nuovo Ascolta.",
+    "candy.title": "Candy Drawer",
+    "candy.pause": "Pausa",
+    "candy.resume": "Riprendi",
+    "candy.queued": "Riprendi ({count} in attesa)",
+    "candy.clear": "Cancella",
+    "candy.copy": "Copia tutto",
+    "candy.jump_latest": "Vai al più recente",
+    "candy.opened": "--- Candy Drawer aperto alle {time} ({zone}) ---",
+    "candy.capped": "--- {count} blocchi più vecchi scartati, 2.000 conservati ---",
+    "candy.rx": "RX",
+    "candy.tx": "TX"
 }

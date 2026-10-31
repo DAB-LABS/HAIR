@@ -1199,6 +1199,10 @@ class DeviceManager:
                 # matches the burst list with the second.
                 air_s=air_s,
                 burst=burst,
+                # What the Candy Drawer's TX block names.
+                device_name=device.name,
+                command_name=send_name,
+                origin=getattr(sent, "origin", None),
             )
 
         # Whole-frame repetition: transmit the built Command send_count times

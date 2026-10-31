@@ -1191,5 +1191,16 @@
     "tangles.listen_mismatch_2_noread": "That press did not match again.",
     "tangles.listen_mismatch_3_noread": "We keep hearing a different press. Our reading may be off, not your remote. Use this press anyway?",
     "tangles.paste_mismatch_noread": "This code reads as a different setting, or this remote's map cannot read it. Use this code anyway?",
-    "tangles.listen_timeout": "Listening ended. Press Listen again."
+    "tangles.listen_timeout": "Listening ended. Press Listen again.",
+    "candy.title": "Candy Drawer",
+    "candy.pause": "Pause",
+    "candy.resume": "Resume",
+    "candy.queued": "Resume ({count} waiting)",
+    "candy.clear": "Clear",
+    "candy.copy": "Copy all",
+    "candy.jump_latest": "Jump to latest",
+    "candy.opened": "--- Candy Drawer opened {time} ({zone}) ---",
+    "candy.capped": "--- {count} older blocks dropped, 2,000 kept ---",
+    "candy.rx": "RX",
+    "candy.tx": "TX"
 }

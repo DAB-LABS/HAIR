@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Candy Drawer: a button at the top right of the Mirror opens a live, raw console of everything your receivers hear and everything HAIR sends. Every press is its own block, repeat frames included, with its decode, Pronto and raw timings, and HAIR's own sends coming back are marked as echoes of the send above. Nothing is saved. Pause it, filter RX or TX, and use Copy all to paste the log into an issue. Suggested by @tr4nt0r.
+
 ## [0.19.1] - 2026-10-29 -- Split-End Repair
 
 ### Fixed

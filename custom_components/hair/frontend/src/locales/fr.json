@@ -1191,5 +1191,16 @@
     "tangles.listen_mismatch_2_noread": "Cette pression n'a de nouveau pas correspondu.",
     "tangles.listen_mismatch_3_noread": "Nous entendons toujours une pression différente. C'est peut-être notre lecture qui se trompe, pas votre télécommande. Utiliser cette pression quand même ?",
     "tangles.paste_mismatch_noread": "Ce code est lu comme un autre réglage, ou la carte de cette télécommande ne peut pas le lire. Utiliser ce code quand même ?",
-    "tangles.listen_timeout": "L'écoute est terminée. Appuyez de nouveau sur Écouter."
+    "tangles.listen_timeout": "L'écoute est terminée. Appuyez de nouveau sur Écouter.",
+    "candy.title": "Candy Drawer",
+    "candy.pause": "Pause",
+    "candy.resume": "Reprendre",
+    "candy.queued": "Reprendre ({count} en attente)",
+    "candy.clear": "Effacer",
+    "candy.copy": "Tout copier",
+    "candy.jump_latest": "Aller au plus récent",
+    "candy.opened": "--- Candy Drawer ouvert à {time} ({zone}) ---",
+    "candy.capped": "--- {count} blocs anciens supprimés, 2 000 conservés ---",
+    "candy.rx": "RX",
+    "candy.tx": "TX"
 }

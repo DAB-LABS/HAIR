@@ -1191,5 +1191,16 @@
     "tangles.listen_mismatch_2_noread": "那次按键仍然不匹配。",
     "tangles.listen_mismatch_3_noread": "我们一直听到另一次按键。可能是我们读数有误，问题不在你的遥控器。仍然使用这次按键吗？",
     "tangles.paste_mismatch_noread": "此码读出的设置与预期不同，或者此遥控器的映射无法读取它。仍然使用此码吗？",
-    "tangles.listen_timeout": "监听已结束。请再次点击「监听」。"
+    "tangles.listen_timeout": "监听已结束。请再次点击「监听」。",
+    "candy.title": "Candy Drawer",
+    "candy.pause": "暂停",
+    "candy.resume": "继续",
+    "candy.queued": "继续（{count} 条等待中）",
+    "candy.clear": "清空",
+    "candy.copy": "全部复制",
+    "candy.jump_latest": "跳到最新",
+    "candy.opened": "--- Candy Drawer 已打开 {time} ({zone}) ---",
+    "candy.capped": "--- 已丢弃 {count} 个较早的块，保留 2,000 个 ---",
+    "candy.rx": "RX",
+    "candy.tx": "TX"
 }

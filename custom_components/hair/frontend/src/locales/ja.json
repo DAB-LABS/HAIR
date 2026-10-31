@@ -1191,5 +1191,16 @@
     "tangles.listen_mismatch_2_noread": "その操作は再び一致しませんでした。",
     "tangles.listen_mismatch_3_noread": "別の操作が続けて聞こえています。リモコンではなく、こちらの読み取りが誤っている可能性があります。この操作をそのまま使いますか？",
     "tangles.paste_mismatch_noread": "このコードは別の設定として読み取られるか、このリモコンのマップでは読み取れません。このコードをそのまま使いますか？",
-    "tangles.listen_timeout": "受信待ちが終了しました。もう一度「受信」を押してください。"
+    "tangles.listen_timeout": "受信待ちが終了しました。もう一度「受信」を押してください。",
+    "candy.title": "Candy Drawer",
+    "candy.pause": "一時停止",
+    "candy.resume": "再開",
+    "candy.queued": "再開（{count} 件待機中）",
+    "candy.clear": "クリア",
+    "candy.copy": "すべてコピー",
+    "candy.jump_latest": "最新へ移動",
+    "candy.opened": "--- Candy Drawer を開きました {time} ({zone}) ---",
+    "candy.capped": "--- 古いブロック {count} 件を破棄、2,000 件を保持 ---",
+    "candy.rx": "RX",
+    "candy.tx": "TX"
 }
