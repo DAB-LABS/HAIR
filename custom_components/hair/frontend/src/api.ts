@@ -11,6 +11,7 @@
 // does, so tsc emits it beside this module and the pair still runs
 // under node, which is what the helper tests below rely on.
 import { latticeFields } from "./matrix-lattice.js";
+import type { CandyEvent } from "./candy-text.js";
 import type {
     ActionOption,
     AssignResult,
@@ -1616,6 +1617,20 @@ export class HairApi {
         return this.hass.connection.subscribeMessage<TriggerFiredEvent>(
             onEvent,
             { type: "hair/trigger/subscribe" },
+        );
+    }
+
+    /**
+     * Subscribe to the Candy Drawer's raw feed: every frame heard and
+     * every send made, while subscribed. Admin only. Returns an
+     * unsubscribe function; nothing is kept on either side after it.
+     */
+    async subscribeCandy(
+        onEvent: (event: CandyEvent) => void,
+    ): Promise<() => Promise<void>> {
+        return this.hass.connection.subscribeMessage<CandyEvent>(
+            onEvent,
+            { type: "hair/candy/subscribe" },
         );
     }
 

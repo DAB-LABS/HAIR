@@ -94,6 +94,13 @@ Key components:
   known-command suppression is removed (v0.6.6, "heard means shown"): assigned
   buttons keep flashing in the Sniffer and deleted rows resurrect on re-hearing;
   dismiss is the only hiding tool.
+- Candy Drawer: a live, raw console opened from the Mirror's title row (admin
+  only, WebSocket `hair/candy/subscribe`). Every frame a receiver delivers,
+  repeat frames included, prints before repeat suppression, the rate limit or
+  the dismiss list can hide it, and every HAIR send prints as built (emitters,
+  send count), each as a plain-text block with decode, Pronto and raw timings.
+  Echoes are labelled with the send they match. Nothing is stored or fired on
+  the HA bus, and nothing is built while no panel is subscribed.
 - Closet: portable code sets, called wigs (the fifth panel tab, before
   Mirror, v0.7.0). A wig is one JSON file (format "hair-wig/1", or
   "hair-wig/2" when it carries a climate state matrix; suffix

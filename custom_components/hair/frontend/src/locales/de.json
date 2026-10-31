@@ -1191,5 +1191,16 @@
     "tangles.listen_mismatch_2_noread": "Dieser Tastendruck passte erneut nicht.",
     "tangles.listen_mismatch_3_noread": "Wir hören weiterhin einen anderen Tastendruck. Vielleicht liegt unsere Lesung daneben, nicht Ihre Fernbedienung. Diesen Tastendruck trotzdem verwenden?",
     "tangles.paste_mismatch_noread": "Dieser Code wird als andere Einstellung gelesen, oder die Karte dieser Fernbedienung kann ihn nicht lesen. Diesen Code trotzdem verwenden?",
-    "tangles.listen_timeout": "Das Mithören ist beendet. Drücken Sie erneut auf Hören."
+    "tangles.listen_timeout": "Das Mithören ist beendet. Drücken Sie erneut auf Hören.",
+    "candy.title": "Candy Drawer",
+    "candy.pause": "Pause",
+    "candy.resume": "Fortsetzen",
+    "candy.queued": "Fortsetzen ({count} wartend)",
+    "candy.clear": "Leeren",
+    "candy.copy": "Alles kopieren",
+    "candy.jump_latest": "Zum Neuesten",
+    "candy.opened": "--- Candy Drawer geöffnet {time} ({zone}) ---",
+    "candy.capped": "--- {count} ältere Blöcke verworfen, 2.000 behalten ---",
+    "candy.rx": "RX",
+    "candy.tx": "TX"
 }

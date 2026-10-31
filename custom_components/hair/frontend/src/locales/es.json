@@ -1191,5 +1191,16 @@
     "tangles.listen_mismatch_2_noread": "Esa pulsación volvió a no coincidir.",
     "tangles.listen_mismatch_3_noread": "Seguimos escuchando una pulsación distinta. Puede que nuestra lectura esté equivocada, no su control remoto. ¿Usar esta pulsación de todos modos?",
     "tangles.paste_mismatch_noread": "Este código se lee como un ajuste distinto, o el mapa de este control remoto no puede leerlo. ¿Usar este código de todos modos?",
-    "tangles.listen_timeout": "La escucha terminó. Pulse Escuchar de nuevo."
+    "tangles.listen_timeout": "La escucha terminó. Pulse Escuchar de nuevo.",
+    "candy.title": "Candy Drawer",
+    "candy.pause": "Pausa",
+    "candy.resume": "Reanudar",
+    "candy.queued": "Reanudar ({count} en espera)",
+    "candy.clear": "Borrar",
+    "candy.copy": "Copiar todo",
+    "candy.jump_latest": "Ir a lo último",
+    "candy.opened": "--- Candy Drawer abierto {time} ({zone}) ---",
+    "candy.capped": "--- {count} bloques antiguos descartados, 2.000 conservados ---",
+    "candy.rx": "RX",
+    "candy.tx": "TX"
 }

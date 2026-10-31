@@ -1332,5 +1332,16 @@
     "tangles.listen_mismatch_2_noread": "Это нажатие снова не совпало.",
     "tangles.listen_mismatch_3_noread": "Мы продолжаем слышать другое нажатие. Возможно, ошибается наше чтение, а не пульт. Всё равно использовать это нажатие?",
     "tangles.paste_mismatch_noread": "Этот код читается как другая настройка, или карта этого пульта не может его прочитать. Всё равно использовать этот код?",
-    "tangles.listen_timeout": "Прослушивание завершено. Нажмите «Слушать» ещё раз."
+    "tangles.listen_timeout": "Прослушивание завершено. Нажмите «Слушать» ещё раз.",
+    "candy.title": "Candy Drawer",
+    "candy.pause": "Пауза",
+    "candy.resume": "Продолжить",
+    "candy.queued": "Продолжить (ожидает: {count})",
+    "candy.clear": "Очистить",
+    "candy.copy": "Копировать всё",
+    "candy.jump_latest": "К последним",
+    "candy.opened": "--- Candy Drawer открыт в {time} ({zone}) ---",
+    "candy.capped": "--- Удалено старых блоков: {count}, сохранено 2000 ---",
+    "candy.rx": "RX",
+    "candy.tx": "TX"
 }

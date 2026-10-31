@@ -37,6 +37,7 @@ import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import {
+    ICON_CONSOLE,
     ICON_TRASH,
     TRASH_VIEWBOX,
     editButtonStyles,
@@ -54,6 +55,7 @@ import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
 import "./ir-tx-knobs.js";
+import "./ir-candy-drawer.js";
 import {
     MIRROR_DEVICE_FP,
     MIRROR_UNKNOWN_FP_PREFIX,
@@ -120,6 +122,8 @@ export class IrMirror extends LitElement {
 
     @state() private _device: UnknownDevice | null = null;
     @state() private _loading = true;
+    /** The Candy Drawer is open (nothing about it outlives a close). */
+    @state() private _candyOpen = false;
     @state() private _error: string | null = null;
     @state() private _triggers: IRTrigger[] = [];
     @state() private _receivers: ReceiverInfo[] = [];
@@ -754,6 +758,14 @@ export class IrMirror extends LitElement {
                             : ""}
                     </span>
                 </div>
+                <button
+                    class="candy-btn"
+                    title=${t("candy.title")}
+                    aria-label=${t("candy.title")}
+                    @click=${() => (this._candyOpen = true)}
+                >
+                    <ha-svg-icon .path=${ICON_CONSOLE}></ha-svg-icon>
+                </button>
             </div>
             ${this._error
                 ? html`<div class="error">${this._error}</div>`
@@ -774,6 +786,13 @@ export class IrMirror extends LitElement {
                         </div>
                     `}
             ${this._renderDialogs()}
+            ${this._candyOpen
+                ? html`<ir-candy-drawer
+                      .api=${this.api}
+                      .hass=${this.hass}
+                      @closed=${() => (this._candyOpen = false)}
+                  ></ir-candy-drawer>`
+                : ""}
         `;
     }
 
@@ -1324,6 +1343,35 @@ export class IrMirror extends LitElement {
             }
             .toolbar-title-group {
                 display: flex;
+                /* Basis 0 so the title never pushes the Candy Drawer's
+                   button onto a line of its own; the tagline wraps
+                   inside the title instead. */
+                flex: 1 1 0%;
+                min-width: 0;
+            }
+            /* The Candy Drawer's button: top right of the title row,
+               always there, rows or not, at every width. */
+            .candy-btn {
+                flex: none;
+                align-self: flex-start;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 32px;
+                height: 32px;
+                padding: 0;
+                border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12));
+                border-radius: 6px;
+                background: transparent;
+                color: var(--secondary-text-color, #727272);
+                cursor: pointer;
+            }
+            .candy-btn:hover {
+                color: var(--primary-text-color, #212121);
+                border-color: var(--secondary-text-color, #727272);
+            }
+            .candy-btn ha-svg-icon {
+                --mdc-icon-size: 20px;
             }
             .toolbar-title {
                 display: flex;

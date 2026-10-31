@@ -733,3 +733,12 @@ export function renderDownloadBtn(
         </button>
     `;
 }
+
+
+/**
+ * The Candy Drawer's button on the Mirror: a terminal prompt, ">_".
+ * In-house drawing on the default 24x24 viewBox, so it renders through
+ * ``ha-svg-icon`` with no viewBox of its own.
+ */
+export const ICON_CONSOLE =
+    "M5.3 6.3L11 12l-5.7 5.7-1.4-1.4L8.2 12 3.9 7.7z M12 16h8v2h-8z";

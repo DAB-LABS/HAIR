@@ -39,6 +39,7 @@ from homeassistant.helpers.event import (
     async_track_state_removed_domain,
 )
 
+from . import candy_feed
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
     DEFAULT_CARRIER_FREQUENCY,
@@ -99,6 +100,23 @@ CATALOG_SOURCE_TRIGGER_ORIGIN = {
     "manual": "clip",
     "plucked": "plucked",
 }
+
+
+@dataclass(frozen=True)
+class EchoVerdict:
+    """Why ``_match_echo`` claimed a capture as the house hearing itself.
+
+    ``kind`` is one of ``candy_feed``'s ECHO_* names: a send's ticket
+    (``send``), the post-send guard (``guard``), the garbled-echo swallow
+    (``garbled``), or another integration's beacon window (``foreign``).
+    ``ticket`` is the send's expectation for the first three, and ``via``
+    names the emitter for a foreign send. A verdict is always truthy, so
+    the pipeline's ``if await self._match_echo(...)`` reads as it did.
+    """
+
+    kind: str
+    ticket: dict[str, Any] | None = None
+    via: str | None = None
 
 
 @dataclass
@@ -553,6 +571,12 @@ class SignalMonitor:
 
         # Real-time subscribers (WebSocket push).
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
+        # The Candy Drawer's listeners (candy_feed.py): every frame heard
+        # and every send made, raw, while a panel has the drawer open.
+        # Empty means nothing is built for it at all.
+        self._candy: list[candy_feed.CandyListener] = []
+        # One number per TX block, so an echo can name the send it is.
+        self._candy_seq = 0
 
         # HA device_ids that have fired ``esphome.remote_received`` events
         # since HA started. Populated lazily as bridge events arrive.
@@ -992,6 +1016,9 @@ class SignalMonitor:
         repeat_count: int | None = None,
         air_s: float = 0.0,
         burst: tuple[int, int] | None = None,
+        device_name: str | None = None,
+        command_name: str | None = None,
+        origin: str | None = None,
     ) -> None:
         """Log an outgoing HAIR transmission on the Mirror, send-time.
 
@@ -1015,6 +1042,9 @@ class SignalMonitor:
         ticket: a window that closes while the burst is still radiating
         turns HAIR's own last frame into a handset press, and a ticket
         that expects one frame cannot recognise a capture of ten.
+
+        ``device_name``, ``command_name`` and ``origin`` describe the send
+        for the Candy Drawer only; the Mirror reads ``source_label``.
         """
         try:
             n = normalize_command(command)
@@ -1027,6 +1057,11 @@ class SignalMonitor:
         ) or "unknown emitter"
         label = f"{source_label} -- via {emitters}"
         now = monotonic()
+        candy_seq = self._candy_tx(
+            n, source_label, emitter_entity_ids,
+            device_name=device_name, command_name=command_name,
+            sends=send_count or 1, origin=origin,
+        )
         for entity_id in emitter_entity_ids:
             self._own_send_marks[entity_id] = now
 
@@ -1187,6 +1222,9 @@ class SignalMonitor:
             "emitters": list(emitter_entity_ids),
             "armed_at": None,
             "guard_until": 0.0,
+            # The Candy Drawer's TX block for this send, when one was
+            # printed, so its echo can say which send it is.
+            "candy_seq": candy_seq,
         }
         self._echo_expectations.append(expectation)
 
@@ -1339,13 +1377,14 @@ class SignalMonitor:
 
     async def _match_echo(
         self, n: NormalizedSignal, receiver_entity_id: str | None
-    ) -> bool:
+    ) -> EchoVerdict | None:
         """Claim an arriving capture as an echo of a known send.
 
         HAIR's precise identity expectations claim first; foreign
         beacon windows second. A claimed capture is routed to the
         Mirror (heard_by enrichment) and never enters the trigger /
-        catalog pipeline. Returns True when claimed.
+        catalog pipeline. Returns the verdict when claimed (always
+        truthy), None otherwise.
         """
         now = monotonic()
         guard_hit: dict[str, Any] | None = None
@@ -1436,7 +1475,7 @@ class SignalMonitor:
             claims[receiver_entity_id] = left - min(left, frames_heard)
             self._resolve_heard(exp, receiver_entity_id)
             await self._mirror_mark_heard(exp["row_key"], receiver_entity_id)
-            return True
+            return EchoVerdict(candy_feed.ECHO_SEND, exp)
 
         if guard_hit is not None:
             # POST-SEND IDENTITY GUARD (Track 3a, the safety floor).
@@ -1454,7 +1493,7 @@ class SignalMonitor:
             await self._mirror_mark_heard(
                 guard_hit["row_key"], receiver_entity_id
             )
-            return True
+            return EchoVerdict(candy_feed.ECHO_GUARD, guard_hit)
         for entity_id, pending in list(self._foreign_pending.items()):
             if now > pending["expires"]:
                 continue
@@ -1479,7 +1518,9 @@ class SignalMonitor:
                 reset_heard=True,
                 heard=receiver_entity_id,
             )
-            return True
+            return EchoVerdict(
+                candy_feed.ECHO_FOREIGN, via=self._friendly_name(entity_id)
+            )
 
         # Last resort: the garbled-echo swallow (owner design, shampoo).
         # HAIR's own send coming back damaged -- merged tail, truncated
@@ -1548,8 +1589,8 @@ class SignalMonitor:
                         await self._mirror_mark_heard(
                             exp["row_key"], receiver_entity_id
                         )
-                        return True
-        return False
+                        return EchoVerdict(candy_feed.ECHO_GARBLED, exp)
+        return None
 
     @staticmethod
     def _resolve_heard(
@@ -1779,9 +1820,23 @@ class SignalMonitor:
         # pattern from _on_received_signal applies here -- attribute the NEC
         # repeat instead of dropping it. Held until the legacy bridge phase-out
         # decision lands.
-        if EventParser.is_nec_repeat(event_data):
-            return
-        if EventParser.is_pronto_repeat(event_data):
+        arrived_at = time.time()
+        if EventParser.is_nec_repeat(event_data) or EventParser.is_pronto_repeat(
+            event_data
+        ):
+            if self._candy:
+                self._candy_emit(candy_feed.ditto_event(
+                    ts=arrived_at,
+                    entity_id=None,
+                    name=LEGACY_ESPHOME_IR_EVENT,
+                    raw=event_data.get("raw") or event_data.get("raw_timings"),
+                    carrier_hz=event_data.get("frequency"),
+                    pronto=(
+                        event_data.get("code")
+                        if str(event_data.get("protocol") or "").upper() == "PRONTO"
+                        else None
+                    ),
+                ))
             return
         parsed = EventParser.parse(event_data)
         if parsed is None:
@@ -1789,10 +1844,15 @@ class SignalMonitor:
 
         # Legacy captures cannot reliably map to an infrared.* receiver entity,
         # so scoped triggers will not match them; unscoped triggers still fire.
-        await self._process_parsed_signal(parsed, receiver_entity_id=None)
+        await self._process_parsed_signal(
+            parsed, receiver_entity_id=None, arrived_at=arrived_at
+        )
 
     async def _process_parsed_signal(
-        self, parsed: Any, receiver_entity_id: str | None = None
+        self,
+        parsed: Any,
+        receiver_entity_id: str | None = None,
+        arrived_at: float | None = None,
     ) -> None:
         """Shared signal processing pipeline for both native and legacy paths.
 
@@ -1833,7 +1893,14 @@ class SignalMonitor:
         # own transmissions never fire them (the feedback-loop class) and
         # never pollute the human-press catalog. Claimed captures enrich
         # the Mirror's heard_by instead.
-        if await self._match_echo(n, receiver_entity_id):
+        echo = await self._match_echo(n, receiver_entity_id)
+        if self._candy:
+            # The Candy Drawer prints every frame here, echo or not:
+            # after the echo verdict exists, before the dismiss list,
+            # the rate limit and repeat suppression can hide anything.
+            # Both receiver paths pass this point.
+            self._candy_rx(n, receiver_entity_id, arrived_at, echo)
+        if echo:
             self._ditto_anchor.pop(rid_key, None)
             return
 
@@ -2069,9 +2136,19 @@ class SignalMonitor:
         receiver captured the signal.
         """
         rid_key = receiver_entity_id or "__legacy__"
+        arrived_at = time.time()
         # NEC ditto (short repeat frame): attribute it to the most recent main
         # frame on the SAME receiver instead of dropping it (v0.5.5/0.5.7).
         if EventParser.is_native_repeat(signal):
+            if self._candy:
+                modulation = getattr(signal, "modulation", None)
+                self._candy_emit(candy_feed.ditto_event(
+                    ts=arrived_at,
+                    entity_id=receiver_entity_id,
+                    name=self._candy_name(receiver_entity_id),
+                    raw=EventParser.timings_to_raw(signal.timings),
+                    carrier_hz=int(modulation) if modulation else None,
+                ))
             self._maybe_attribute_repeat_frame(rid_key)
             return
 
@@ -2097,7 +2174,7 @@ class SignalMonitor:
         self._last_ditto_monotonic.pop(rid_key, None)
 
         self._hass.async_create_task(
-            self._process_parsed_signal(parsed, receiver_entity_id)
+            self._process_parsed_signal(parsed, receiver_entity_id, arrived_at)
         )
 
     def _maybe_attribute_repeat_frame(self, rid_key: str) -> None:
@@ -3832,3 +3909,82 @@ class SignalMonitor:
         """Remove a previously registered callback."""
         with contextlib.suppress(ValueError):
             self._subscribers.remove(callback)
+
+    # -----------------------------------------------------------------
+    # The Candy Drawer (candy_feed.py): raw events, never stored
+    # -----------------------------------------------------------------
+
+    def candy_subscribe(self, listener: candy_feed.CandyListener) -> None:
+        """Start handing every frame heard and every send to ``listener``."""
+        if listener not in self._candy:
+            self._candy.append(listener)
+
+    def candy_unsubscribe(self, listener: candy_feed.CandyListener) -> None:
+        """Stop handing events to ``listener``."""
+        with contextlib.suppress(ValueError):
+            self._candy.remove(listener)
+
+    def _candy_emit(self, event: dict[str, Any]) -> None:
+        for listener in list(self._candy):
+            try:
+                listener(event)
+            except Exception:
+                _LOGGER.exception("Error handing an event to the Candy Drawer")
+
+    def _candy_name(self, entity_id: str | None) -> str | None:
+        return self._friendly_name(entity_id) if entity_id else None
+
+    def _candy_rx(
+        self,
+        n: NormalizedSignal,
+        receiver_entity_id: str | None,
+        arrived_at: float | None,
+        echo: EchoVerdict | None,
+    ) -> None:
+        """Print one received frame, with what the echo gate made of it."""
+        ticket = echo.ticket if echo is not None else None
+        self._candy_emit(candy_feed.rx_event(
+            ts=arrived_at if arrived_at is not None else time.time(),
+            entity_id=receiver_entity_id,
+            name=(
+                self._candy_name(receiver_entity_id)
+                if receiver_entity_id
+                else LEGACY_ESPHOME_IR_EVENT
+            ),
+            n=n,
+            echo=echo.kind if echo is not None else None,
+            echo_of=ticket.get("candy_seq") if ticket is not None else None,
+            echo_via=echo.via if echo is not None else None,
+        ))
+
+    def _candy_tx(
+        self,
+        n: NormalizedSignal,
+        label: str,
+        emitter_entity_ids: list[str],
+        *,
+        device_name: str | None,
+        command_name: str | None,
+        sends: int,
+        origin: str | None,
+    ) -> int | None:
+        """Print one send as built; return its sequence number, or None
+        when nobody is watching (then nothing is built at all)."""
+        if not self._candy:
+            return None
+        self._candy_seq += 1
+        self._candy_emit(candy_feed.tx_event(
+            ts=time.time(),
+            seq=self._candy_seq,
+            n=n,
+            emitters=[
+                {"entity_id": e, "name": self._friendly_name(e)}
+                for e in emitter_entity_ids
+            ],
+            label=label,
+            device=device_name,
+            command_name=command_name,
+            sends=sends,
+            origin=origin,
+        ))
+        return self._candy_seq

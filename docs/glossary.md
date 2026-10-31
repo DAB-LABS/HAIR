@@ -109,6 +109,13 @@ anything heard it or not. Useful for working out whether a send actually went
 out and through which emitter. It is also a way to get codes into HAIR: press
 a button in a vendor app, and if a receiver hears it, the code lands here.
 
+**Candy Drawer.** The button at the top right of the Mirror. It opens a black
+window that prints every frame your receivers hear and every send HAIR makes,
+as it happens, with nothing grouped or hidden: five presses are five blocks,
+each with its decode, Pronto and raw timings, and HAIR's own sends coming back
+are marked as echoes. Nothing in it is saved, and closing it clears it. Copy
+all gives you the text to paste into an issue.
+
 **Devices tab.** Two sections. DEVICES holds the things HAIR sends codes to,
 plus your Emitters, Receivers, Proxies, and pluckable Blasters. REMOTES holds
 the handsets HAIR recognizes, with HAIR Triggers as the first card.

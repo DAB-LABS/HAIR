@@ -190,6 +190,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_trigger)
     websocket_api.async_register_command(hass, ws_delete_trigger)
     websocket_api.async_register_command(hass, ws_subscribe_triggers)
+    websocket_api.async_register_command(hass, ws_subscribe_candy)
     websocket_api.async_register_command(hass, ws_reorder_triggers)
     websocket_api.async_register_command(hass, ws_get_trigger_drawer)
     websocket_api.async_register_command(hass, ws_rename_trigger_drawer)
@@ -3760,6 +3761,45 @@ async def ws_subscribe_triggers(
 
     connection.subscriptions[msg["id"]] = _on_disconnect
     connection.send_result(msg["id"], {"subscribed": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/candy/subscribe",
+})
+@websocket_api.async_response
+async def ws_subscribe_candy(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Stream the Candy Drawer: every frame heard and every send made.
+
+    Admin only. Events go to this connection and nowhere else: nothing
+    is stored and nothing is fired on the bus. Unsubscribing, or the
+    connection closing, stops the stream; with no subscriber left the
+    monitor builds nothing.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+
+    monitor: SignalMonitor = data["signal_monitor"]
+    msg_id = msg["id"]
+
+    @callback
+    def _on_candy(event: dict[str, Any]) -> None:
+        connection.send_event(msg_id, event)
+
+    monitor.candy_subscribe(_on_candy)
+
+    @callback
+    def _on_disconnect() -> None:
+        monitor.candy_unsubscribe(_on_candy)
+
+    connection.subscriptions[msg_id] = _on_disconnect
+    connection.send_result(msg_id, {"subscribed": True})
 
 
 @websocket_api.require_admin
