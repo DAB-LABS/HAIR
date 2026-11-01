@@ -1202,5 +1202,6 @@
     "candy.opened": "--- Candy Drawer 已打开 {time} ({zone}) ---",
     "candy.capped": "--- 已丢弃 {count} 个较早的块，保留 2,000 个 ---",
     "candy.rx": "RX",
-    "candy.tx": "TX"
+    "candy.tx": "TX",
+    "candy.closed": "--- 与 Home Assistant 的连接已关闭 ---"
 }
