@@ -1202,5 +1202,6 @@
     "candy.opened": "--- Candy Drawer opened {time} ({zone}) ---",
     "candy.capped": "--- {count} older blocks dropped, 2,000 kept ---",
     "candy.rx": "RX",
-    "candy.tx": "TX"
+    "candy.tx": "TX",
+    "candy.closed": "--- connection to Home Assistant closed ---"
 }

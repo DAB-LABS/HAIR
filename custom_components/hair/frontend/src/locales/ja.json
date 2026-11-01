@@ -1202,5 +1202,6 @@
     "candy.opened": "--- Candy Drawer を開きました {time} ({zone}) ---",
     "candy.capped": "--- 古いブロック {count} 件を破棄、2,000 件を保持 ---",
     "candy.rx": "RX",
-    "candy.tx": "TX"
+    "candy.tx": "TX",
+    "candy.closed": "--- Home Assistant との接続が閉じられました ---"
 }

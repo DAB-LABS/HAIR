@@ -232,7 +232,7 @@ class TestWindow:
 KEYS = {
     "candy.title", "candy.pause", "candy.resume", "candy.queued",
     "candy.clear", "candy.copy", "candy.rx", "candy.tx",
-    "candy.jump_latest", "candy.opened", "candy.capped",
+    "candy.jump_latest", "candy.opened", "candy.capped", "candy.closed",
 }
 
 
@@ -270,6 +270,6 @@ class TestSource:
             assert label in source
 
     def test_the_drawer_batches_per_animation_frame(self):
-        source = (SRC / "ir-candy-drawer.ts").read_text(encoding="utf-8")
+        source = (SRC / "candy-console.ts").read_text(encoding="utf-8")
         assert "requestAnimationFrame" in source
         assert "localStorage" not in source and "sessionStorage" not in source

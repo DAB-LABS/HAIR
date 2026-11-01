@@ -55,7 +55,10 @@ import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
 import "./ir-tx-knobs.js";
-import "./ir-candy-drawer.js";
+import { findPanelHost } from "./ir-candy-drawer.js";
+import type { CandyLabels } from "./candy-console.js";
+import { openCandyPopout } from "./candy-controller.js";
+import { chooseSurface } from "./candy-surface.js";
 import {
     MIRROR_DEVICE_FP,
     MIRROR_UNKNOWN_FP_PREFIX,
@@ -762,7 +765,7 @@ export class IrMirror extends LitElement {
                     class="candy-btn"
                     title=${t("candy.title")}
                     aria-label=${t("candy.title")}
-                    @click=${() => (this._candyOpen = true)}
+                    @click=${this._openCandy}
                 >
                     <ha-svg-icon .path=${ICON_CONSOLE}></ha-svg-icon>
                 </button>
@@ -789,11 +792,62 @@ export class IrMirror extends LitElement {
             ${this._candyOpen
                 ? html`<ir-candy-drawer
                       .api=${this.api}
-                      .hass=${this.hass}
+                      .labels=${this._candyLabels()}
+                      .zone=${this._candyZone()}
+                      .bounds=${findPanelHost(this)}
                       @closed=${() => (this._candyOpen = false)}
                   ></ir-candy-drawer>`
                 : ""}
         `;
+    }
+
+    /** The Candy Drawer: its own window where it can be, else a dialog
+     * over the panel (candy-surface.ts). Opened straight from the click,
+     * before any await, so popup blockers let the window through. */
+    private _openCandy = (): void => {
+        const surface = chooseSurface({
+            external: Boolean(this.hass?.auth?.external),
+            viewportWidth: window.innerWidth,
+        });
+        if (
+            surface === "popout" &&
+            openCandyPopout({
+                api: this.api,
+                labels: this._candyLabels(),
+                zone: this._candyZone(),
+                title: `HAIR ${t("candy.title")}`,
+            })
+        ) {
+            return;
+        }
+        this._candyOpen = true;
+    };
+
+    /** HA's profile setting: the browser's zone, or the server's. */
+    private _candyZone(): string | undefined {
+        return this.hass?.locale?.time_zone === "server"
+            ? this.hass?.config?.time_zone || undefined
+            : undefined;
+    }
+
+    private _candyLabels(): CandyLabels {
+        return {
+            title: t("candy.title"),
+            pause: t("candy.pause"),
+            resume: t("candy.resume"),
+            queued: (count) => t("candy.queued", { count }),
+            clear: t("candy.clear"),
+            copy: t("candy.copy"),
+            rx: t("candy.rx"),
+            tx: t("candy.tx"),
+            jumpLatest: t("candy.jump_latest"),
+            opened: t("candy.opened"),
+            capped: (count) => t("candy.capped", { count }),
+            closed: t("candy.closed"),
+            close: t("common.close"),
+            copied: t("editor.copied"),
+            pressCopy: t("editor.press_copy"),
+        };
     }
 
     private _renderStats(rows: MirrorRowView[]) {
