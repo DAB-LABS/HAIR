@@ -254,6 +254,23 @@ class TestSource:
         stats = stats[: stats.index("private _renderToolbar(")]
         assert "candy" not in stats
 
+    def test_the_header_shows_the_mark_not_the_name(self):
+        console = (SRC / "candy-console.ts").read_text(encoding="utf-8")
+        build = console[console.index("private build(): void {"):]
+        build = build[: build.index("this.pauseBtn =")]
+        assert "this.mark(l.title)" in build
+        assert '"title", l.title' not in build
+        mark = console[console.index("private mark(name: string)"):]
+        mark = mark[: mark.index("private button(")]
+        assert 'setAttribute("role", "img")' in mark
+        assert 'setAttribute("aria-label", name)' in mark
+        assert "mark.title = name" in mark
+        assert "createElementNS(ns, \"svg\")" in mark
+        assert "ICON_CANDY" in mark and "CANDY_VIEWBOX" in mark
+        icons = (SRC / "ir-icons.ts").read_text(encoding="utf-8")
+        assert 'export const CANDY_VIEWBOX = "0 0 460 460";' in icons
+        assert "export const ICON_CANDY =" in icons
+
     def test_the_drawer_is_rendered_outside_the_rows_branch(self):
         mirror = (SRC / "ir-mirror.ts").read_text(encoding="utf-8")
         render = mirror[mirror.index("    render() {"):mirror.index("private _renderStats(")]
