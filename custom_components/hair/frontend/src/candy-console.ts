@@ -31,6 +31,7 @@ import {
     overflow,
     type CandyEvent,
 } from "./candy-text.js";
+import { CANDY_VIEWBOX, ICON_CANDY } from "./ir-icons.js";
 
 export interface CandyLabels {
     title: string;
@@ -181,6 +182,28 @@ export class CandyConsole {
         return node;
     }
 
+    /**
+     * The header's mark: the candy icon in place of the drawer's name. The
+     * name stays as the tooltip and the accessible name. Built with the
+     * target document's own createElementNS, as everything here is.
+     */
+    private mark(name: string): HTMLSpanElement {
+        const mark = this.el("span", "title");
+        mark.setAttribute("role", "img");
+        mark.setAttribute("aria-label", name);
+        mark.title = name;
+        const ns = "http://www.w3.org/2000/svg";
+        const svg = this.doc.createElementNS(ns, "svg");
+        svg.setAttribute("viewBox", CANDY_VIEWBOX);
+        svg.setAttribute("aria-hidden", "true");
+        svg.setAttribute("focusable", "false");
+        const path = this.doc.createElementNS(ns, "path");
+        path.setAttribute("d", ICON_CANDY);
+        svg.appendChild(path);
+        mark.appendChild(svg);
+        return mark;
+    }
+
     private button(cls: string, text: string, onClick: () => void): HTMLButtonElement {
         const b = this.el("button", cls, text);
         b.type = "button";
@@ -199,7 +222,7 @@ export class CandyConsole {
         }
 
         const bar = this.el("div", "bar");
-        bar.append(this.el("span", "title", l.title));
+        bar.append(this.mark(l.title));
         this.pauseBtn = this.button("btn", l.pause, () => this.togglePause());
         const clear = this.button("btn", l.clear, () => this.clear());
         this.copyBtn = this.button("btn", l.copy, () => void this.copy());
@@ -411,9 +434,16 @@ export const CANDY_CSS = `
     border-bottom: 1px solid var(--candy-line);
 }
 .candy-root .title {
-    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
     color: var(--candy-accent);
     margin-right: 8px;
+}
+.candy-root .title svg {
+    display: block;
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
 }
 .candy-root .btn,
 .candy-root .chip,
