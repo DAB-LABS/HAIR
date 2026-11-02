@@ -166,6 +166,12 @@ def _dialog() -> str:
     return (SRC / "ir-device-settings-dialog.ts").read_text(encoding="utf-8")
 
 
+def _panel() -> str:
+    text = _dialog()
+    body = text[text.index("private _renderSourcePanel"):]
+    return body[: body.index("\n    }\n")]
+
+
 def _power_section() -> str:
     text = _dialog()
     body = text[text.index("private _renderPowerSection()"):]
@@ -357,39 +363,43 @@ class TestTheSettleTime:
 
 class TestTheDialog:
     def test_the_picker_uses_the_shared_rules(self):
-        section = _power_section()
-        assert "stateSourceCandidates(" in section
-        assert "this.hass?.entities" in section
-        assert "_candidateSensors" not in _dialog()
+        text = _dialog()
+        groups = text[text.index("private _sourceGroups"):]
+        groups = groups[: groups.index("\n    }\n")]
+        assert "stateSourceCandidates(" in groups
+        assert "this.hass?.entities" in groups
+        assert "this._sourceGroups()" in _power_section()
+        assert "_candidateSensors" not in text
 
-    def test_a_search_over_the_list_not_a_select(self):
+    def test_the_search_filters_the_list(self):
         section = _power_section()
         assert "<select" not in section
-        assert 'class="source-search"' in section
-        assert 't("devsettings.source_search")' in section
         call = section[section.index("filterSourceGroups("):]
         call = re.sub(r"\s+", "", call[: call.index(");")])
         assert call == (
-            "filterSourceGroups(groups,this._sourceQuery,"
+            "filterSourceGroups(groups,this._picker.query,"
             "this._sensorChoice||null,"
         )
-        assert 't("devsettings.source_no_match")' in section
+        panel = _panel()
+        assert 'class="source-search"' in panel
+        assert 't("devsettings.source_search")' in panel
+        assert 't("devsettings.source_no_match")' in panel
 
     def test_none_then_power_sensors_then_on_off(self):
-        section = _power_section()
-        search = section.index('class="source-search"')
-        none = section.index('t("devsettings.sensor_none")')
-        power = section.index('t("devsettings.power_group_label")')
-        on_off = section.index('t("devsettings.onoff_group_label")')
-        hint = section.index('t("devsettings.onoff_group_hint")')
+        panel = _panel()
+        search = panel.index('class="source-search"')
+        none = panel.index('t("devsettings.sensor_none")')
+        power = panel.index('t("devsettings.power_group_label")')
+        on_off = panel.index('t("devsettings.onoff_group_label")')
+        hint = panel.index('t("devsettings.onoff_group_hint")')
         assert search < none < power < on_off < hint
-        assert "shown.power.map(" in section[power:on_off]
-        assert "shown.onOff.map(" in section[on_off:]
+        assert "shown.power.map(" in panel[power:on_off]
+        assert "shown.onOff.map(" in panel[on_off:]
 
     def test_a_heading_shows_only_over_rows(self):
-        section = _power_section()
-        assert "${shown.power.length\n" in section
-        assert "${shown.onOff.length\n" in section
+        panel = _panel()
+        assert "${shown.power.length\n" in panel
+        assert "${shown.onOff.length\n" in panel
 
     def test_rows_take_the_capture_switch_shape(self):
         text = _dialog()
@@ -397,9 +407,11 @@ class TestTheDialog:
         row = row[: row.index("\n    }\n")]
         assert 'role="option"' in row
         assert "aria-selected=" in row
-        assert "healthDotClass(" in row and "isEntityOnline(" in row
+        assert "this._renderSourceDot(entityId)" in row
         assert 'class="iname"' in row and 'class="iid"' in row
-        assert "this._pickSource(entityId)" in row
+        dot = text[text.index("private _renderSourceDot"):]
+        dot = dot[: dot.index("\n    }\n")]
+        assert "healthDotClass(" in dot and "isEntityOnline(" in dot
         assert "healthDotStyles," in text
 
     def test_the_wattage_fields_hide_for_an_on_off_source(self):
