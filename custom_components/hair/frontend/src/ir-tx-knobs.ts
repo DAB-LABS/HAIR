@@ -74,10 +74,14 @@ const ICON_DITTO =
  * send-spacing air-time cap and by the spacing estimate, both of which
  * measure the built command rather than the frame (GH #151).
  */
-export const DITTO_PROTOCOLS: ReadonlySet<string> = new Set(["NEC", "APPLE"]);
+export const DITTO_PROTOCOLS: ReadonlySet<string> = new Set([
+    "NEC",
+    "APPLE",
+    "JVC",
+]);
 
 /**
- * APPLE joins the set, and only APPLE.
+ * APPLE joins the set, and of the NEC1 family only APPLE.
  *
  * An Apple remote sends an NEC1 frame, and that frame layout carries
  * the standard repeat group (8990/-2230/568).
@@ -85,12 +89,21 @@ export const DITTO_PROTOCOLS: ReadonlySet<string> = new Set(["NEC", "APPLE"]);
  * emits the marker rather than a second copy of the frame: 67 -> 71 ->
  * 79 timings as repeat_count goes 0, 1, 3, the same shape NEC gives.
  *
- * Nothing else in the protocol pack qualifies. The 42-bit layouts
+ * Nothing else in that family qualifies. The 42-bit layouts
  * either have no repeat group at all or one whose space is 4500 rather
  * than the ditto's 2250, and both Pioneer timing sets repeat the whole
  * frame. A non-complement NEC frame captured off the air is not
  * decoded at all, so it has no protocol pill and no ditto knob to
  * widen to.
+ *
+ * JVC joins the set too, from outside that family.
+ *
+ * A JVC press opens with a leader frame, and while the button is held
+ * the same frame repeats WITHOUT the leader. That headerless frame is
+ * JVC's repeat, so it is a true ditto rather than a second press:
+ * `JVCCommand` sends the leader frame once, then `repeat_count`
+ * headerless frames, 35 -> 69 -> 137 timings as repeat_count goes 0,
+ * 1, 3. send_count still repeats the whole block, leader included.
  */
 export const DITTO_PROTOCOL = "NEC";
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- HAIR recognises JVC remotes, the 16-bit format of JVC televisions, video recorders and audio equipment, and sends their codes from the decoded value. A trigger made on one of these remotes before this release now also fires when the button is held long enough to repeat, not only on a single press.
+
 ### Changed
 
 - The oldest supported Home Assistant release is now 2026.6, the first whose infrared library HAIR is tested against.

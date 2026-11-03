@@ -65,7 +65,7 @@ from custom_components.hair.websocket_api import (
 
 SRC = Path(__file__).parents[1] / "frontend" / "src"
 # ir-tx-knobs.ts DITTO_PROTOCOLS: the only protocols whose ditto knob is on.
-DITTO_PROTOCOLS = {"NEC", "APPLE"}
+DITTO_PROTOCOLS = {"NEC", "APPLE", "JVC"}
 
 
 def _ok(conn) -> dict:
