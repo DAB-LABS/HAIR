@@ -548,7 +548,7 @@ Key components:
   entity's own service calls are marked ORIGIN_ENTITY and skipped, and a power
   sensor's verdict still has the last word on on/off.
 - Trigger Manager: turns received IR signals into native HA event entities that
-  fire hair_ir_command_received events. Any HA automation can consume them. A
+  fire events of type ir_command_received. Any HA automation can consume them. A
   configurable min-hits threshold prevents accidental triggers from a single
   misfire. To the best of the project's knowledge, HAIR is the only HA integration
   turning received IR into automation triggers as of HA 2026.6.
@@ -825,6 +825,14 @@ Receiver architecture:
   the portable code-set file format (hair-wig/1 through hair-wig/4), including
   the climate state-matrix block and its extra lattices, fittings, and the
   canonical hash forms.
+- [What 1.x promises](https://github.com/DAB-LABS/HAIR/blob/main/docs/stability.md):
+  HAIR follows semantic versioning from 1.0.0. Kept for all of 1.x: entity
+  unique ids and entity ids, event names and data fields (ir_command_received,
+  hair_trigger_fired, hair_state_heard) and device triggers, reading every wig
+  format from hair-wig/1 to hair-wig/4, forward storage migration, and the
+  capture_switch and pluckable contracts. Not promised: the panel websocket
+  (hair/*), the Candy Drawer's text layout and feed, diagnostics and log
+  wording, internal module layout.
 - [Making your integration pluckable](https://github.com/DAB-LABS/HAIR/blob/main/docs/making-your-integration-pluckable.md):
   guide for HA integration authors on exposing the cross-emitter replay service the
   Plucker needs. The registry file format is documented in
