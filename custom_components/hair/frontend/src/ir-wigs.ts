@@ -123,7 +123,7 @@ const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.
 // placeholders so every language keeps its own sentence around the
 // untranslated format names (localize.ts owner ruling), and the render
 // splits on the placeholders instead of substituting text.
-// Harmony is named without a link.
+// Harmony and irdb are named without a link.
 const DROP_FORMAT_LINKS: Record<string, { label: string; url?: string }> = {
     wig: {
         label: "Wig",
@@ -147,9 +147,10 @@ const DROP_FORMAT_LINKS: Record<string, { label: string; url?: string }> = {
         label: "Tasmota",
         url: "https://tasmota.github.io/docs/Tasmota-IR/",
     },
+    irdb: { label: "irdb" },
 };
 const DROP_FORMAT_SPLIT =
-    /\{(wig|smartir|flipper|lirc|girr|harmony|globalcache|tasmota)\}/g;
+    /\{(wig|smartir|flipper|lirc|girr|harmony|globalcache|tasmota|irdb)\}/g;
 
 @customElement("ir-wigs")
 export class IrWigs extends LitElement {

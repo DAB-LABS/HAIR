@@ -181,13 +181,22 @@ Key components:
   it, gc through sendir.py, and IrReceived captures, falling back to their
   RawData when no encoder exists; raw carries no carrier so 38 kHz is
   recorded as assumed; IRhvac refused; PANASONIC Bits above 64 read as the
-  old driver's vendor address) all convert INTO
+  old driver's vendor address), and irdb CSV files (GH #235: rows of
+  protocol, device, subdevice, function; irdb_csv.py builds each row with
+  a class HAIR already registers, through one table, IRDB_PROTOCOLS, with
+  no encoder of its own; -1 means the protocol's default where it has one
+  and is refused where it has none; the carrier is the protocol's own;
+  every row goes through the import round-trip check; rows in a protocol
+  outside the table are receipted grouped by protocol; a headerless file
+  is read only when every line is five fields naming an irdb protocol and
+  three integers) all convert INTO
   wigs on drop, with skip reasons appended to the wig's notes -- one funnel,
   one-way doors. Format identification is a probe registry (import phase 1):
   each probe declares a rank and a predicate, the highest matched rank wins
   (smartir_fork_climate 60, girr 50, smartir_climate 40, harmony 35,
-  smartir 30, flipper_library 25, flipper 20, globalcache 15, tasmota 15,
-  lirc 10; .csv names globalcache when a tie needs breaking). Global Cache
+  smartir 30, flipper_library 25, flipper 20, irdb 16, globalcache 15,
+  tasmota 15, lirc 10; .csv names irdb or globalcache when a tie needs
+  breaking). Global Cache
   and Tasmota share rank 15 on purpose: both read lines of text, so a file
   holding both kinds is refused naming both, and the upload door reports
   that refusal rather than the wig-format errors,

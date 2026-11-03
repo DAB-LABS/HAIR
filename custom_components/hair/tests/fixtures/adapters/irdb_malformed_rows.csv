@@ -1,0 +1,8 @@
+functionname,protocol,device,subdevice,function
+GOOD,NEC1,4,-1,8
+SHORT,NEC1,4
+NOPROTO,,4,-1,9
+WORDS,NEC1,four,-1,10
+DEFAULTED,RC5,-1,-1,12
+WIDE,RC5,40,-1,12
+EXTRA S,Sharp,1,7,22

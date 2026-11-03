@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import collections
 import itertools
 import json
 import re
@@ -241,6 +242,17 @@ def _probe_tasmota(text: str, parsed: object) -> bool:
     return any(find_code(line) for line in text.splitlines())
 
 
+def _probe_irdb(text: str, parsed: object) -> bool:
+    """irdb CSV: its header on the first line, or a headerless file whose
+    every line is five fields naming an irdb protocol and three integers.
+    """
+    from .irdb_csv import is_irdb
+
+    if parsed is not None or text.lstrip().startswith("{"):
+        return False
+    return is_irdb(text)
+
+
 def _probe_lirc(text: str, parsed: object) -> bool:
     return not text.lstrip().startswith("{") and bool(
         re.search(r"^\s*begin remote\b", text, re.MULTILINE)
@@ -261,6 +273,10 @@ _PROBES: tuple[FormatProbe, ...] = (
     FormatProbe("smartir", 30, _probe_smartir),
     FormatProbe("flipper_library", 25, _probe_flipper_library),
     FormatProbe("flipper", 20, _probe_flipper),
+    # ABOVE THE LINE READERS. An irdb file is matched by its own header,
+    # or by every line's shape, which neither line reader claims; the
+    # rank only settles a file that somehow holds both.
+    FormatProbe("irdb", 16, _probe_irdb),
     # SAME RANK, ON PURPOSE. Both read lines of text and neither has a
     # header word that rules the other out, so a file holding codes of
     # both kinds matches both and is refused rather than read as either.
@@ -277,7 +293,7 @@ _HINT_FORMATS: dict[str, tuple[str, ...]] = {
     ".ir": ("flipper", "flipper_library"),
     ".conf": ("lirc",),
     ".girr": ("girr",),
-    ".csv": ("globalcache",),
+    ".csv": ("irdb", "globalcache"),
     ".xml": ("girr",),
     ".json": (
         "smartir_fork_climate", "smartir_climate", "smartir", "harmony",
@@ -369,6 +385,8 @@ def convert(text: str, name_hint: str = "") -> AdapterResult:
         return _convert_globalcache(text, name_hint)
     if fmt == "tasmota":
         return _convert_tasmota(text, name_hint)
+    if fmt == "irdb":
+        return _convert_irdb(text, name_hint)
     return AdapterResult(format="unknown", error="not a recognized format")
 
 
@@ -2857,6 +2875,87 @@ def _convert_tasmota(text: str, name_hint: str) -> AdapterResult:
         signals=signals,
         notes=notes,
         origin="converted:tasmota",
+    ))
+    return result
+
+
+def _convert_irdb(text: str, name_hint: str) -> AdapterResult:
+    """One irdb CSV, one wig: each row built from its protocol's fields.
+
+    A row whose protocol HAIR has no class for is not read, and the
+    receipt groups those rows by protocol rather than naming each one,
+    since a file is usually one protocol throughout.
+    """
+    from . import irdb_csv
+
+    result = AdapterResult(format="irdb")
+    rows, problems = irdb_csv.rows(text, irdb_csv.file_pair(name_hint))
+    unbuildable: dict[str, int] = {}
+    unknown: dict[str, int] = {}
+    # Per-row notes, kept in file order whichever check raised them.
+    noted: list[tuple[int, str]] = list(problems)
+    signals: list[WigSignal] = []
+    # A button named more than once is told apart by its line.
+    named = collections.Counter(row.alias for row in rows)
+
+    def _which(row: irdb_csv.Row) -> str:
+        if named[row.alias] > 1:
+            return f"{row.alias} (line {row.line})"
+        return row.alias
+
+    for row in rows:
+        key = row.protocol.lower()
+        if key not in irdb_csv.IRDB_PROTOCOLS:
+            spelled = row.protocol.strip()
+            bucket = unbuildable if irdb_csv.known_name(spelled) else unknown
+            bucket[spelled] = bucket.get(spelled, 0) + 1
+            continue
+        try:
+            command = irdb_csv.build(
+                row.protocol, row.device, row.subdevice, row.function
+            )
+            timings = list(command.get_raw_timings())
+        except irdb_csv.IrdbError as err:
+            noted.append((row.line, f"{_which(row)} was not read: {err}"))
+            continue
+        except Exception as err:  # a class refusing its own fields
+            noted.append((
+                row.line, f"{_which(row)} was not read: it could not be built ({err})"
+            ))
+            continue
+        modulation, source = _carrier_for(
+            None, _int_or_none(getattr(command, "modulation", None))
+        )
+        pronto = raw_to_pronto(timings, frequency=modulation)
+        signals.append(WigSignal(
+            alias=row.alias,
+            pronto=pronto,
+            bypass_protocol=not _triple_reproduces(pronto, timings),
+            extra=_carrier_extra(modulation, source),
+        ))
+
+    def _rows(n: int) -> str:
+        return f"{n} row{'s' if n != 1 else ''} not read"
+
+    grouped = [
+        f"{_rows(n)}: {name}, which HAIR cannot build yet"
+        for name, n in sorted(unbuildable.items(), key=lambda kv: (-kv[1], kv[0]))
+    ] + [
+        f"{_rows(n)}: {name} is not a protocol name irdb uses"
+        for name, n in sorted(unknown.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+    result.skipped = grouped + [text for _, text in sorted(noted)]
+    if not signals:
+        result.error = (
+            "nothing in this irdb file can be built"
+            + (f" ({'; '.join(result.skipped[:3])})" if result.skipped else "")
+        )
+        return result
+    result.wigs.append(Wig(
+        name=irdb_csv.wig_name(name_hint) or "irdb Import",
+        signals=signals,
+        notes="Imported from an irdb CSV.",
+        origin="converted:irdb",
     ))
     return result
 
