@@ -1,0 +1,4 @@
+functionname,protocol,device,subdevice,function
+PHONO,Denon-K,4.1,40
+TUNER,Denon-K,4.1,41
+POWER,Denon-K,4,1,123

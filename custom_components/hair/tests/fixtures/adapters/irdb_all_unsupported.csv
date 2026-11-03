@@ -1,0 +1,4 @@
+functionname,protocol,device,subdevice,function
+POWER,JVC,3,-1,23
+VOL+,JVC,3,-1,30
+VOL-,JVC,3,-1,31

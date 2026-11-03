@@ -174,6 +174,7 @@ These formats convert on drop: wig files (`.wig.json`, filed as-is), SmartIR JSO
 - Logitech Harmony device files and code sets.
 - Global Cache code sets from Control Tower: the code-set CSV or the single-code email (a single `sendir` code also pastes straight into the code box).
 - Tasmota IR codes kept as text: `IRsend` commands and `IrReceived` console lines, one per line with an optional name in front (a single one also pastes into the code box).
+- irdb CSV files, where each row names a protocol and its device, subdevice and function, and HAIR builds the code. Rows in a protocol HAIR cannot build yet are listed in the wig's notes.
 
 Anything a conversion has to skip is written into the wig's notes with a reason, so a partial import is never silent.
 

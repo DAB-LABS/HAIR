@@ -1,0 +1,4 @@
+functionname,protocol,device,subdevice,function
+,Sharp,1,-1,22
+,Sharp,1,-1,23
+STOP,Sharp,1,-1,24

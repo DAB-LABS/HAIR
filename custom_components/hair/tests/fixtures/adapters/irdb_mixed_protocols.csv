@@ -1,0 +1,9 @@
+functionname,protocol,device,subdevice,function
+POWER,NEC1,4,-1,8
+INPUT,NEC1,4,-1,11
+OK,RC5,0,-1,87
+SLEEP,Sony12,1,-1,54
+TUNER,JVC,3,-1,10
+CD,JVC,3,-1,11
+AUX,JVC,3,-1,12
+MENU,Nokia32,25,0,84

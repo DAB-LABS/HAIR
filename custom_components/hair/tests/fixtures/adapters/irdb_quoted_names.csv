@@ -1,0 +1,4 @@
+functionname,protocol,device,subdevice,function
+"INPUT, NEXT",NEC1,4,-1,11
+"SURROUND ""ON""",NEC1,4,-1,12
+PLAIN,NEC1,4,-1,13

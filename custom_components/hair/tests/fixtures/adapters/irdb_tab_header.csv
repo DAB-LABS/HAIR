@@ -1,0 +1,4 @@
+﻿FunctionName	Protocol,Device,Subdevice,Function
+POWER,nec1,4,-1,8
+MUTE,NEC1,4,-1,9
+INFO,denon,2,-1,22

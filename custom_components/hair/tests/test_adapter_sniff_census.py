@@ -76,6 +76,20 @@ CENSUS: dict[str, str | None] = {
     # file of codes and console lines, and one JSON payload on its own.
     "tasmota_codes.txt": "tasmota",
     "tasmota_irsend_payload.json": "tasmota",
+    # irdb CSV (GH #235): its header in each spelling irdb's files use,
+    # and a headerless file that fits the shape on every line.
+    "irdb_necx1.csv": "irdb",
+    "irdb_mixed_protocols.csv": "irdb",
+    "irdb_headerless.csv": "irdb",
+    "irdb_tab_header.csv": "irdb",
+    "irdb_function_header.csv": "irdb",
+    "irdb_quoted_names.csv": "irdb",
+    "irdb_merged_device.csv": "irdb",
+    "irdb_empty_names.csv": "irdb",
+    "irdb_all_unsupported.csv": "irdb",
+    "irdb_malformed_rows.csv": "irdb",
+    # A CSV with some other header is neither irdb nor Global Cache.
+    "csv_other_header.csv": None,
     # The tie: a Global Cache row and a Tasmota line in one file. Both
     # text probes hold rank 15, so nothing claims it.
     "ambiguous_globalcache_and_tasmota.txt": None,

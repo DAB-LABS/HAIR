@@ -1,0 +1,3 @@
+function,protocol,device,subdevice,function
+POWER,Sony12,1,-1,21
+MUTE,Sony12,1,-1,20

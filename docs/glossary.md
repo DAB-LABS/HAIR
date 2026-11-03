@@ -396,7 +396,8 @@ the extra lattices travel with the wig, covered by the same signature, so
 their codes are there to be reached.
 
 **Import funnel.** The drop bar on the Closet, which accepts wig files, SmartIR
-JSON, Flipper Zero `.ir` files, LIRC `lircd.conf` files, and Girr exports and
+JSON, Flipper Zero `.ir` files, LIRC `lircd.conf` files, Girr exports, Logitech
+Harmony files, Global Cache code sets, Tasmota IR codes, and irdb CSV files and
 turns them into wigs. Anything a conversion cannot handle is written into the
 wig's notes with the reason.
 
