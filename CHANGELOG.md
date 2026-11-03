@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The oldest supported Home Assistant release is now 2026.6, the first whose infrared library HAIR is tested against.
 
+### Fixed
+
+- The Closet writes the `pre` and `post` pulses a LIRC remote block states, between its pre data and the button code and after the button code, so such a remote's codes are stored as the remote sends them.
+
 ## [1.0.0] - 2026-11-03 -- Grown Out
 
 HAIR is out of beta. 1.0.0 is the first release with a written promise of what stays the same across every 1.x release: entity ids, event names and data, device triggers, reading every wig format, and forward storage migration. The list, and what is internal and may change, is in [docs/stability.md](docs/stability.md). From here, patch releases fix, minor releases add, and anything that would break a setup waits for 2.0 with notice in the release before it.

@@ -2070,9 +2070,12 @@ class _LircSpaceEnc:
     """SPACE_ENC pulse-train reconstruction.
 
     Frame order per the lircd.conf man page:
-    header | plead | pre_data | pre | data | post_data | post | ptrail.
-    Bits are MSB first (REVERSE flips to LSB). The inter-frame gap is a
-    trailing space so the Pronto frame is self-delimiting.
+    header | plead | pre_data | pre | data | post | post_data | ptrail.
+    ``pre`` is a pulse and space immediately following the pre_data, and
+    ``post`` a pulse and space immediately following the button code;
+    each is written wherever the block states it. Bits are MSB first
+    (REVERSE flips to LSB). The inter-frame gap is a trailing space so
+    the Pronto frame is self-delimiting.
     """
 
     bits: int
@@ -2081,6 +2084,8 @@ class _LircSpaceEnc:
     header: tuple[int, int] | None
     plead: int | None
     ptrail: int | None
+    pre: tuple[int, int] | None
+    post: tuple[int, int] | None
     pre_data: int | None
     pre_data_bits: int
     post_data: int | None
@@ -2117,6 +2122,8 @@ class _LircSpaceEnc:
             header=pair("header"),
             plead=single("plead"),
             ptrail=single("ptrail"),
+            pre=pair("pre"),
+            post=pair("post"),
             pre_data=int(pre_values[0], 0) if pre_values else None,
             pre_data_bits=int((params.get("pre_data_bits") or ["0"])[0]),
             post_data=int(post_values[0], 0) if post_values else None,
@@ -2141,7 +2148,11 @@ class _LircSpaceEnc:
             out.append(self.plead)
         if self.pre_data is not None and self.pre_data_bits > 0:
             self._emit_bits(out, self.pre_data, self.pre_data_bits)
+        if self.pre:
+            out.extend((self.pre[0], -self.pre[1]))
         self._emit_bits(out, code, self.bits)
+        if self.post:
+            out.extend((self.post[0], -self.post[1]))
         if self.post_data is not None and self.post_data_bits > 0:
             self._emit_bits(out, self.post_data, self.post_data_bits)
         if self.ptrail:
