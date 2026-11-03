@@ -77,17 +77,21 @@ BASELINE_PATH = (
 #: is a statement that the pack is meant to claim this file, and every
 #: entry needs a reason a reader can check.
 EXPECTED_CLAIMS: dict[str, set[str]] = {
-    # Empty, and that is the correct state rather than an oversight.
+    # The JVC decoder reads these three rows, and it is right to. Every
+    # remote block in the fixture states sixteen bits on NEC timing
+    # (9000/4500 header, 560/560 and 560/1690 bits, a 560 trail) with no
+    # pre_data, so each rendered code is one leader, sixteen
+    # pulse-distance bits and a stop mark: a JVC frame, inside JVC's
+    # windows, and nothing else in the registry reads sixteen unbroken
+    # bits. They were raw before because no decoder read that shape.
     #
-    # The one entry this list has ever held licensed the Apple remote
-    # fixture's eight rows to move from NEC to APPLE when the protocol
-    # pack landed. That move is now history: it is in the baseline, so
-    # the rows no longer change and the entry had nothing behind it.
-    # `test_every_allowlisted_fixture_actually_changed` is what noticed,
-    # which is the whole reason it exists -- an allowlist nobody prunes
-    # widens into a blanket permission. Add an entry here only with a
-    # reason a reader can check, and delete it once its move is baked
-    # into the baseline.
+    # Delete this entry once a regenerated baseline carries the move, as
+    # the Apple entry was: `test_every_allowlisted_fixture_actually_changed`
+    # fails the day it has nothing behind it, which is the whole reason
+    # that test exists -- an allowlist nobody prunes widens into a
+    # blanket permission. Add an entry here only with a reason a reader
+    # can check.
+    "adapters:lirc_four_remotes.lircd.conf": {"JVC"},
 }
 
 #: Baseline keys that are allowed to be absent from the walk, each with

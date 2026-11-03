@@ -391,6 +391,17 @@ def _construct_tdc38(cls: type, label: str, address: int, command: int,
     return cls(device=address >> 5, subdevice=address & 0x1F, function=command)
 
 
+def _extract_jvc(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    # Frozen: D is the address and F the command, so a stored row reads
+    # JVC:0x00dd:0xff. Changing it would orphan every one of them.
+    return ("JVC", int(cmd.address), int(cmd.command), None)
+
+
+def _construct_jvc(cls: type, label: str, address: int, command: int,
+                   extras: Any) -> Any:
+    return cls(address=address, command=command)
+
+
 # --- fingerprint suffixes (identity-bearing extras) --------------------------
 
 # Per-protocol identity suffix appended to the base fingerprint. Toggle
@@ -516,6 +527,18 @@ _REGISTRATIONS: tuple[tuple, ...] = (
      _extract_nec42ext, _construct_nec42ext, ("NEC42EXT",)),
     ("geac", "infrared_protocols.commands.general_electric", "GEACCommand",
      None, False, _extract_geac, _construct_geac, ("GEAC",)),
+    # JVC has no checksum, so it probes in the checksum-free tail. It
+    # goes ahead of TDC-38, Dyson and Symphony because its frame is the
+    # most constrained of the four: an 8.4ms leader on at least one frame
+    # and exactly sixteen pulse-distance bits behind it. Going after
+    # everything else costs nothing: no protocol above it reads sixteen
+    # unbroken bits (GE-AC splits its sixteen with a 4.5ms space), and
+    # the NEC1 frame JVC resembles carries 32 bits and is refused here
+    # (decoders/jvc.py names the two shapes that still read as JVC).
+    # LOCAL ONLY, for the reason given under TDC-38 below.
+    ("jvc", None, "JVCCommand",
+     "custom_components.hair.decoders.jvc", True,
+     _extract_jvc, _construct_jvc, ("JVC",)),
     # TDC-38 (Telekom Media Receivers and Magenta boxes) has no
     # checksum, so it probes in the checksum-free tail. It goes ahead of
     # Dyson and Symphony because its frame is the more constrained of the

@@ -387,7 +387,7 @@ function e(e,t,i,o){var a,n=arguments.length,s=n<3?t:null===o?o=Object.getOwnPro
         .map-action-label:hover:not(:disabled) .action-visible .map-label {
             text-decoration: underline;
         }
-`,bo=new Set(["NEC","APPLE"]);function fo(e,t){return!t&&bo.has((e??"").toUpperCase())}let wo=class extends ce{constructor(){super(...arguments),this.decoded=!1,this.bypassed=!1,this.approxEmitter=!1,this.sendsKey="cmdrow.sends_times",this.dittoKey="cmdrow.dittos"}_sendsTitle(e){const t=this.spacingMs??null,i=null===t?De(this.sendsKey,{count:e}):De("cmdrow.sends_spaced",{count:e,ms:t});return this.approxEmitter?`${i} ${De("cmdrow.sends_approx")}`:i}render(){const e=this.sendCount??1,t=this.repeatCount??0,i=e>1,o=t>1&&this.decoded&&!this.bypassed;return i||o?V`
+`,bo=new Set(["NEC","APPLE","JVC"]);function fo(e,t){return!t&&bo.has((e??"").toUpperCase())}let wo=class extends ce{constructor(){super(...arguments),this.decoded=!1,this.bypassed=!1,this.approxEmitter=!1,this.sendsKey="cmdrow.sends_times",this.dittoKey="cmdrow.dittos"}_sendsTitle(e){const t=this.spacingMs??null,i=null===t?De(this.sendsKey,{count:e}):De("cmdrow.sends_spaced",{count:e,ms:t});return this.approxEmitter?`${i} ${De("cmdrow.sends_approx")}`:i}render(){const e=this.sendCount??1,t=this.repeatCount??0,i=e>1,o=t>1&&this.decoded&&!this.bypassed;return i||o?V`
             ${i?V`<span
                       class="knob repeat"
                       title=${this._sendsTitle(e)}

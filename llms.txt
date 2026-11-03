@@ -642,6 +642,15 @@ Key components:
   checksum-free tail ahead of Dyson and Symphony. Rows decode at load and
   send from their decoded value, except one stored at a carrier other
   than about 38 kHz, which still sends as captured.
+  A JVC decoder followed (v1.1.0), local only: the 16-bit format of JVC
+  televisions, video recorders and audio equipment, an 8.4 ms leader on
+  the first frame and headerless repeats while the button is held, no
+  checksum. It probes in the checksum-free tail ahead of TDC-38 and
+  decodes a capture only when at least one frame carries the leader, so
+  headerless frames alone stay undecoded. The headerless repeat is a
+  true ditto, so JVC rows get the ditto count beside NEC and Apple. Two
+  shapes read as JVC by design: a 16-bit frame on NEC timing, and an NEC
+  capture cut off right after its sixteenth bit.
   Recovery passes (v0.6.1): registry specs can carry optional seek and
   salvage hooks, wired for NEC today. Seek trims junk ahead of the main
   leader (stray repeat markers, partial bursts) before the strict decode;
