@@ -1,4 +1,4 @@
 functionname,protocol,device,subdevice,function
-POWER,JVC,3,-1,23
-VOL+,JVC,3,-1,30
-VOL-,JVC,3,-1,31
+POWER,Mitsubishi,71,-1,23
+VOL+,Mitsubishi,71,-1,30
+VOL-,Mitsubishi,71,-1,31

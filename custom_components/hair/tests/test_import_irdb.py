@@ -142,12 +142,16 @@ TABLE: dict[str, tuple] = {
     "Aiwa": (110, 3, 10, 38000,
              {leg: ("NEC42", 110 | (3 << 8), 10, None) for leg in ("lib", "nolib")},
              {"lib": False, "nolib": False}),
+    # D:8 F:8, no subdevice, 38 kHz.
+    "JVC": (67, -1, 3, 38000,
+            {leg: ("JVC", 67, 3, None) for leg in ("lib", "nolib")},
+            {"lib": False, "nolib": False}),
 }
 
 #: Protocols whose S defaults to 255-D when the row gives -1.
 S_DEFAULTS = {"NEC", "NEC1", "NEC2", "NEC1-f16", "NECx1", "NECx2", "Pioneer"}
 #: Protocols with no S at all: the row must give -1.
-NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "Sharp", "Denon"}
+NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "Sharp", "Denon", "JVC"}
 #: Protocols whose S has no default: -1 is refused.
 S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa"}
 
@@ -242,8 +246,20 @@ class TestMinusOne:
 
 class TestRefusals:
     def test_a_protocol_outside_the_table_is_named(self):
-        with pytest.raises(IrdbError, match=r"^JVC cannot be built yet$"):
-            irdb_csv.build("JVC", 3, -1, 10)
+        with pytest.raises(IrdbError, match=r"^Mitsubishi cannot be built yet$"):
+            irdb_csv.build("Mitsubishi", 71, -1, 10)
+
+    def test_jvc_refuses_a_subdevice_and_a_wide_device(self):
+        with pytest.raises(IrdbError, match="JVC has no subdevice, but the row gives 1"):
+            irdb_csv.build("JVC", 67, 1, 3)
+        with pytest.raises(IrdbError, match="JVC device 256 is outside 0 to 255"):
+            irdb_csv.build("JVC", 256, -1, 3)
+        with pytest.raises(IrdbError, match="JVC function 256 is outside 0 to 255"):
+            irdb_csv.build("JVC", 67, -1, 256)
+
+    def test_jvc_decodes_to_its_own_fingerprint(self):
+        _, timings, _ = _built("JVC", 67, -1, 3)
+        assert try_decode_identity(timings).fingerprint == "JVC:0x0043:0x03"
 
     def test_out_of_range_is_refused_not_masked(self):
         with pytest.raises(IrdbError, match="outside 0 to 31"):
@@ -377,14 +393,30 @@ class TestReader:
     def test_mixed_protocols_and_the_grouped_receipt(self):
         result = convert(_read("irdb_mixed_protocols.csv"), "x.csv")
         signals = _signals(result)
-        assert [s.alias for s in signals] == ["POWER", "INPUT", "OK", "SLEEP"]
+        assert [s.alias for s in signals] == [
+            "POWER", "INPUT", "OK", "SLEEP", "TUNER", "CD", "AUX",
+        ]
         assert [s.extra["carrier"]["hz"] for s in signals] == [
-            38000, 38000, 36000, 40000,
+            38000, 38000, 36000, 40000, 38000, 38000, 38000,
         ]
         assert result.skipped == [
-            "3 rows not read: JVC, which HAIR cannot build yet",
             "1 row not read: Nokia32, which HAIR cannot build yet",
         ]
+
+    def test_a_jvc_file_now_imports(self):
+        result = convert(_read("irdb_jvc_dvhs.csv"), "JVC/D-VHS/67,-1.csv")
+        assert result.error is None
+        assert result.skipped == []
+        wig = result.wigs[0]
+        assert (wig.name, wig.brand, wig.kind) == ("JVC D-VHS 67,-1", "JVC", None)
+        assert [s.alias for s in wig.signals] == [
+            "POWER", "PLAY", "PAUSE", "REW <<", "FF >>", "REC",
+        ]
+        for signal, function in zip(wig.signals, (0, 12, 13, 14, 15, 28), strict=True):
+            _, timings, hz = _built("JVC", 67, -1, function)
+            assert signal.pronto == raw_to_pronto(timings, frequency=hz)
+            assert signal.bypass_protocol is False
+            assert signal.extra == {"carrier": {"hz": 38000, "source": "protocol"}}
 
     def test_an_unknown_protocol_name_is_worded_apart(self):
         text = "functionname,protocol,device,subdevice,function\n" \
@@ -466,7 +498,7 @@ class TestReader:
         assert result.wigs == []
         assert result.error == (
             "nothing in this irdb file can be built "
-            "(3 rows not read: JVC, which HAIR cannot build yet)"
+            "(3 rows not read: Mitsubishi, which HAIR cannot build yet)"
         )
 
 
@@ -550,7 +582,7 @@ class TestWebsocket:
         assert payload["format"] == "irdb"
         assert len(payload["filenames"]) == 1
         assert payload["skipped"][0] == (
-            "3 rows not read: JVC, which HAIR cannot build yet"
+            "1 row not read: Nokia32, which HAIR cannot build yet"
         )
 
     @pytest.mark.asyncio
