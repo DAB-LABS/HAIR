@@ -185,15 +185,39 @@ def file_pair(name_hint: str) -> tuple[int, int] | None:
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
+def _path_parts(name_hint: str) -> list[str]:
+    return [p.strip() for p in re.split(r"[\\/]", name_hint.strip()) if p.strip()]
+
+
 def wig_name(name_hint: str) -> str:
     """``LG Blu-Ray 45,45`` from ``LG/Blu-Ray/45,45.csv``; the stem otherwise."""
-    parts = [p for p in re.split(r"[\\/]", name_hint.strip()) if p]
+    parts = _path_parts(name_hint)
     if not parts:
         return ""
     stem = re.sub(r"\.csv$", "", parts[-1], flags=re.IGNORECASE).strip()
     if len(parts) >= 3:
         return f"{parts[-3]} {parts[-2]} {stem}".strip()
     return stem
+
+
+def brand(name_hint: str) -> str | None:
+    """The brand folder of ``Brand/Kind/D,S.csv``: ``LG`` for
+    ``LG/Blu-Ray/45,45.csv``. None when the name carries no folders, or
+    only one, since one folder alone does not say whether it is the
+    brand or the kind."""
+    parts = _path_parts(name_hint)
+    return parts[-3] if len(parts) >= 3 else None
+
+
+def kind(name_hint: str) -> str | None:
+    """HAIR's kind for the kind folder, only when the folder names one of
+    HAIR's own kinds (``TV``, ``Receiver``, ``Air Conditioner``); None for
+    any other folder (``Blu-Ray``, ``DVD Player``). Read through
+    ``normalize_kind``, so no spelling is added here."""
+    from .wig_format import normalize_kind
+
+    parts = _path_parts(name_hint)
+    return normalize_kind(parts[-2]) if len(parts) >= 3 else None
 
 
 # --- the protocol table ------------------------------------------------------

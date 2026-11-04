@@ -323,6 +323,7 @@ class TestReader:
         assert result.skipped == []
         wig = result.wigs[0]
         assert wig.name == "LG Blu-Ray 45,45"
+        assert (wig.brand, wig.kind, wig.model) == ("LG", None, None)
         assert wig.origin == "converted:irdb"
         assert wig.notes == "Imported from an irdb CSV."
         assert [s.alias for s in wig.signals] == [
@@ -333,6 +334,19 @@ class TestReader:
     def test_a_bare_file_name_is_the_wig_name(self):
         result = convert(_read("irdb_necx1.csv"), "45,45.csv")
         assert result.wigs[0].name == "45,45"
+
+    def test_a_name_with_no_folders_has_no_brand_or_kind(self):
+        wig = convert(_read("irdb_necx1.csv"), "45,45.csv").wigs[0]
+        assert (wig.brand, wig.kind) == (None, None)
+
+    @pytest.mark.parametrize(("hint", "brand", "kind"), [
+        ("Samsung/TV/7,7.csv", "Samsung", "tv"),
+        ("Denon/Receiver/4,1.csv", "Denon", "receiver"),
+        ("LG/Blu-Ray/45,45.csv", "LG", None),
+    ])
+    def test_brand_and_kind_come_from_the_folders(self, hint, brand, kind):
+        wig = convert(_read("irdb_necx1.csv"), hint).wigs[0]
+        assert (wig.brand, wig.kind) == (brand, kind)
 
     def test_no_name_at_all(self):
         assert convert(_read("irdb_necx1.csv")).wigs[0].name == "irdb Import"
@@ -475,6 +489,33 @@ class TestFileName:
     ])
     def test_wig_name(self, hint, name):
         assert irdb_csv.wig_name(hint) == name
+
+    @pytest.mark.parametrize(("hint", "brand"), [
+        ("LG/Blu-Ray/45,45.csv", "LG"),
+        ("irdb/codes/LG/Blu-Ray/45,45.csv", "LG"),
+        ("C:\\irdb\\Denon\\Receiver\\4,1.csv", "Denon"),
+        ("Blu-Ray/45,45.csv", None),
+        ("45,45.csv", None),
+        ("", None),
+    ])
+    def test_brand(self, hint, brand):
+        assert irdb_csv.brand(hint) == brand
+
+    @pytest.mark.parametrize(("hint", "kind"), [
+        ("Samsung/TV/7,7.csv", "tv"),
+        ("Sony/Receiver/1,-1.csv", "receiver"),
+        ("Epson/Projector/1,1.csv", "projector"),
+        ("Daikin/Air Conditioner/1,1.csv", "ac"),
+        ("Bose/Mini System/1,1.csv", "minisystem"),
+        # Folders that name no kind of HAIR's stay unset, never Other.
+        ("LG/Blu-Ray/45,45.csv", None),
+        ("Pioneer/DVD Player/175,-1.csv", None),
+        ("Sharp/Unknown_TV/1,-1.csv", None),
+        ("TV/7,7.csv", None),
+        ("7,7.csv", None),
+    ])
+    def test_kind_only_when_the_folder_names_one_of_hairs(self, hint, kind):
+        assert irdb_csv.kind(hint) == kind
 
 
 # --- the upload door ------------------------------------------------------------
