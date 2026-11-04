@@ -1,0 +1,4 @@
+# floor: Home Assistant 2026.6, the oldest release HAIR supports (hacs.json).
+# The version core pins in homeassistant/components/infrared/manifest.json
+# at tag 2026.6.0. Core requires Python >= 3.14.2.
+infrared-protocols==5.6.1
