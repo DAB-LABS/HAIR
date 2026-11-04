@@ -1060,7 +1060,8 @@ async def test_get_receivers_uses_device_name_not_friendly_name(fake_hass):
 
     conn.send_result.assert_called_once_with(
         12,
-        [{"entity_id": entity_id, "name": "Anthem RF IR remote 1"}],
+        [{"entity_id": entity_id, "name": "Anthem RF IR remote 1",
+          "medium": "ir"}],
     )
 
 
@@ -1098,7 +1099,7 @@ async def test_get_receivers_falls_back_to_friendly_name_without_device(
 
     conn.send_result.assert_called_once_with(
         13,
-        [{"entity_id": entity_id, "name": "Some Receiver"}],
+        [{"entity_id": entity_id, "name": "Some Receiver", "medium": "ir"}],
     )
 
 

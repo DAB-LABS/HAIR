@@ -9,6 +9,10 @@ from uuid import uuid4
 from .const import (
     DEFAULT_CARRIER_FREQUENCY,
     DEFAULT_REPEAT_COUNT,
+    MEDIUM_IR,
+    MEDIUM_RF,
+    RF_BAND_STEP_HZ,
+    RF_PROTOCOL,
     TRIGGER_ALIAS_HISTORY_MAX,
     CommandCategory,
     CommandSource,
@@ -138,6 +142,102 @@ def _optional_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+# ---------------------------------------------------------------------------
+# Radio rows (RF hear, round 1)
+# ---------------------------------------------------------------------------
+#
+# A row's medium is infrared unless it says otherwise, and only a radio
+# row says anything: ``medium`` and the ``rf_*`` fields are written to a
+# record only when the medium is radio, so every infrared record stays
+# byte for byte what it was before radio existed (the ``send_spacing_ms``
+# rule). A radio row carries ``protocol RF_RAW``, no ``code``, and its
+# canonical frame in ``raw_timings``; ``frequency`` (the infrared
+# carrier) keeps its default and nothing reads it for a radio row.
+RF_ROW_FIELDS: tuple[str, ...] = (
+    # The carrier to transmit on, in Hz, and where it came from
+    # (signal, window or receiver; see rf_receive.py).
+    "rf_frequency_hz",
+    "rf_frequency_source",
+    "rf_modulation",
+    # The radio twin of byte_hash (rf_frames.frame_hash). The row's
+    # byte_hash holds the same value, so the identity tiers read radio
+    # rows without a second code path; this field says which it is.
+    "rf_frame_hash",
+    # Whole frames that agreed in the capture that minted the row.
+    "rf_repeats_observed",
+    # The inter-frame gap, and whether it was measured inside a capture
+    # or assumed. Never the trailing value of a capture.
+    "rf_frame_gap_us",
+    "rf_frame_gap_source",
+    "rf_header_shape",
+    # The median short mark, in microseconds. In no key: kept so a scale
+    # token can be added once receivers are compared.
+    "rf_short_mark_us",
+)
+_RF_INT_FIELDS = frozenset({
+    "rf_frequency_hz", "rf_repeats_observed", "rf_frame_gap_us",
+    "rf_short_mark_us",
+})
+# Every key a radio row's record can carry. ``band`` is DERIVED: written
+# by to_dict from the carrier for the panel, declared here so from_dict
+# drops it rather than carrying a stale band in _extra.
+_RF_KNOWN = frozenset({"medium", *RF_ROW_FIELDS, "band"})
+
+
+def is_rf(row: Any) -> bool:
+    """Whether a row (command, signal, capture, trigger) is radio."""
+    return getattr(row, "medium", MEDIUM_IR) == MEDIUM_RF
+
+
+def band_mhz(frequency_hz: int | None) -> str | None:
+    """The band a carrier reads as, in MHz to one decimal ("433.9").
+
+    Rounded to ``RF_BAND_STEP_HZ``: a receiver's spread on one handset
+    reads as one band while two genuinely different carriers 500 kHz
+    apart stay two.
+    """
+    if not frequency_hz:
+        return None
+    rounded = round(frequency_hz / RF_BAND_STEP_HZ) * RF_BAND_STEP_HZ
+    return f"{rounded / 1_000_000:.1f}"
+
+
+def _rf_out(row: Any) -> dict[str, Any]:
+    """A radio row's own keys for its record; nothing for infrared."""
+    if not is_rf(row):
+        return {}
+    out: dict[str, Any] = {"medium": MEDIUM_RF}
+    for name in RF_ROW_FIELDS:
+        out[name] = getattr(row, name)
+    out["band"] = band_mhz(row.rf_frequency_hz)
+    return out
+
+
+def _rf_in(data: dict[str, Any]) -> dict[str, Any]:
+    """Constructor keywords for a radio record; nothing for infrared."""
+    if data.get("medium") != MEDIUM_RF:
+        return {}
+    kwargs: dict[str, Any] = {"medium": MEDIUM_RF}
+    for name in RF_ROW_FIELDS:
+        value = data.get(name)
+        if name in _RF_INT_FIELDS:
+            kwargs[name] = _optional_int(value)
+        else:
+            kwargs[name] = value if isinstance(value, str) else None
+    return kwargs
+
+
+def copy_rf_fields(source: Any, target: Any) -> None:
+    """Carry a row's medium and radio fields onto another row.
+
+    The one place a copy door (assign, Make a Device, capture to
+    command) moves them, so a field added later cannot be half-copied.
+    """
+    target.medium = getattr(source, "medium", MEDIUM_IR)
+    for name in RF_ROW_FIELDS:
+        setattr(target, name, getattr(source, name, None))
+
+
 # Keys IRCommand.from_dict consumes (0.10.1 item 2). A key not in here
 # rides through _extra untouched, which is exactly what an older build
 # should do with a field it has never heard of.
@@ -156,6 +256,8 @@ _KNOWN_COMMAND = frozenset({
     # back in through _extra would describe a code this row no longer
     # holds.
     "code_export",
+    # Radio rows (RF hear, round 1); ``band`` among them is derived.
+    *_RF_KNOWN,
 })
 
 
@@ -174,7 +276,7 @@ _KNOWN_COMMAND = frozenset({
 # behind it to copy. The roster walks attributes, so a derived key has
 # to leave here or the walk asks a command for something it does not
 # have.
-_CLONE_SKIPS = frozenset({"id", "created_at", "code_export"})
+_CLONE_SKIPS = frozenset({"id", "created_at", "code_export", "band"})
 
 
 def clone_command(
@@ -333,6 +435,18 @@ class IRCommand:
     # so the row should say (bench 2026-08-03).
     comb_finding: str | None = None
     created_at: str = field(default_factory=_now_iso)
+    # Radio rows (RF hear, round 1): see RF_ROW_FIELDS. Infrared rows
+    # leave every one of these at its default and never write them.
+    medium: str = MEDIUM_IR
+    rf_frequency_hz: int | None = None
+    rf_frequency_source: str | None = None
+    rf_modulation: str | None = None
+    rf_frame_hash: str | None = None
+    rf_repeats_observed: int | None = None
+    rf_frame_gap_us: int | None = None
+    rf_frame_gap_source: str | None = None
+    rf_header_shape: str | None = None
+    rf_short_mark_us: int | None = None
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
@@ -379,6 +493,7 @@ class IRCommand:
             "comb_suspect": self.comb_suspect,
             "comb_finding": self.comb_finding,
             "created_at": self.created_at,
+            **_rf_out(self),
         }, self._extra)
         _add_export_code(d, self.protocol, self.code)
         return d
@@ -414,6 +529,7 @@ class IRCommand:
             comb_suspect=bool(data.get("comb_suspect", False)),
             comb_finding=data.get("comb_finding") or None,
             created_at=data.get("created_at") or _now_iso(),
+            **_rf_in(data),
         ), data, _KNOWN_COMMAND)
 
 
@@ -1027,6 +1143,8 @@ _KNOWN_TRIGGER = frozenset({
     "updated_at", "receiver_entity_ids", "byte_hash",
     "decoded_fingerprint", "order", "alias_history", "fire_count",
     "last_fired_at", "trigger_remote_id", "origin",
+    # Written only for a trigger on a radio code (RF hear, round 1).
+    "medium",
 })
 
 
@@ -1131,11 +1249,20 @@ class IRTrigger:
     # "manual" going forward. None for triggers created before this
     # field existed; not backfilled.
     origin: str | None = None
+    # Radio or infrared (RF hear, round 1). A trigger is made from a row,
+    # and a radio row's protocol is RF_PROTOCOL, so the medium follows
+    # the protocol at every creation door without each door having to
+    # remember it. Written only for a radio trigger.
+    medium: str = MEDIUM_IR
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
         default_factory=dict, repr=False, compare=False
     )
+
+    def __post_init__(self) -> None:
+        if self.protocol == RF_PROTOCOL:
+            self.medium = MEDIUM_RF
 
     def to_dict(self) -> dict[str, Any]:
         return _with_extra({
@@ -1159,6 +1286,7 @@ class IRTrigger:
             "last_fired_at": self.last_fired_at,
             "trigger_remote_id": self.trigger_remote_id,
             "origin": self.origin,
+            **({"medium": MEDIUM_RF} if self.medium == MEDIUM_RF else {}),
         }, self._extra)
 
     @classmethod
@@ -1200,6 +1328,7 @@ class IRTrigger:
             # Absent on every trigger made before signpost 2; not
             # backfilled, per the provenance ruling.
             origin=data.get("origin") or None,
+            medium=MEDIUM_RF if data.get("medium") == MEDIUM_RF else MEDIUM_IR,
         ), data, _KNOWN_TRIGGER)
 
     def rename(self, new_name: str) -> None:
@@ -1557,6 +1686,18 @@ class CaptureResult:
     raw_timings: list[int] = field(default_factory=list)
     frequency: int = DEFAULT_CARRIER_FREQUENCY
     confidence: float = 1.0
+    # Radio rows (RF hear, round 1): see RF_ROW_FIELDS. Infrared rows
+    # leave every one of these at its default and never write them.
+    medium: str = MEDIUM_IR
+    rf_frequency_hz: int | None = None
+    rf_frequency_source: str | None = None
+    rf_modulation: str | None = None
+    rf_frame_hash: str | None = None
+    rf_repeats_observed: int | None = None
+    rf_frame_gap_us: int | None = None
+    rf_frame_gap_source: str | None = None
+    rf_header_shape: str | None = None
+    rf_short_mark_us: int | None = None
 
     def matches(self, other: CaptureResult, tolerance: float = 0.1) -> bool:
         """Return True if two captures appear to be the same signal.
@@ -1585,7 +1726,7 @@ class CaptureResult:
     def to_command(
         self, name: str, category: CommandCategory
     ) -> IRCommand:
-        return IRCommand(
+        command = IRCommand(
             name=name,
             category=category,
             source=CommandSource.CAPTURED,
@@ -1594,6 +1735,8 @@ class CaptureResult:
             raw_timings=list(self.raw_timings) if self.raw_timings else None,
             frequency=self.frequency,
         )
+        copy_rf_fields(self, command)
+        return command
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1602,6 +1745,7 @@ class CaptureResult:
             "raw_timings": list(self.raw_timings),
             "frequency": self.frequency,
             "confidence": self.confidence,
+            **_rf_out(self),
         }
 
 
@@ -1637,6 +1781,8 @@ _KNOWN_SIGNAL = frozenset({
     # store handed the old verdict back anyway because the fresh answer
     # was "nothing to say" and said it by omission.
     "repeats_disagree",
+    # Radio rows (RF hear, round 1); ``band`` among them is derived.
+    *_RF_KNOWN,
 })
 
 
@@ -1740,6 +1886,18 @@ class UnknownSignal:
     # Read-only at the model layer; surfaced as a UI hint. NOT carried onto an
     # IRCommand at assign time.
     observed_repeat_count: int = 0
+    # Radio rows (RF hear, round 1): see RF_ROW_FIELDS. Infrared rows
+    # leave every one of these at its default and never write them.
+    medium: str = MEDIUM_IR
+    rf_frequency_hz: int | None = None
+    rf_frequency_source: str | None = None
+    rf_modulation: str | None = None
+    rf_frame_hash: str | None = None
+    rf_repeats_observed: int | None = None
+    rf_frame_gap_us: int | None = None
+    rf_frame_gap_source: str | None = None
+    rf_header_shape: str | None = None
+    rf_short_mark_us: int | None = None
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
@@ -1783,7 +1941,15 @@ class UnknownSignal:
             "observed_repeat_count": self.observed_repeat_count,
             "echo_source": self.echo_source,
             "heard_by": list(self.heard_by) if self.heard_by is not None else None,
+            **_rf_out(self),
         }
+        # The diamonds for a radio row: S and L over its frame's body.
+        if is_rf(self) and self.protocol == RF_PROTOCOL and self.raw_timings:
+            from .rf_frames import identity_of_frame
+
+            identity = identity_of_frame(list(self.raw_timings))
+            if identity is not None:
+                d["sl_pattern"] = identity.sl_pattern
         # Compute S/L pattern for Pronto signals (not stored, derived).
         if self.protocol and self.protocol.upper() == "PRONTO" and self.code:
             from .event_parser import EventParser
@@ -1841,6 +2007,7 @@ class UnknownSignal:
             heard_by=(
                 list(data["heard_by"]) if data.get("heard_by") is not None else None
             ),
+            **_rf_in(data),
         ), data, _KNOWN_SIGNAL)
 
 
@@ -1850,6 +2017,8 @@ _KNOWN_CATALOG_DEVICE = frozenset({
     "hit_count", "first_seen", "last_seen", "dismissed", "source", "order",
     "vendor_entity_id", "appliance", "promoted_to", "promoted_to_remote",
     "source_wig", "store_integration", "store_id", "store_subdevice",
+    # Radio cards (RF hear, round 1), written only for a radio card.
+    "medium", "rf_header_shape", "rolling_state",
 })
 
 
@@ -1909,6 +2078,13 @@ class UnknownDevice:
     store_integration: str | None = None
     store_id: str | None = None
     store_subdevice: str | None = None
+    # A radio card (RF hear, round 1): the medium its rows carry, the
+    # header shape its key was cut from, and the rolling-code verdict
+    # ("none" this round; detection comes later). Written only for a
+    # radio card, so an infrared card's record is unchanged.
+    medium: str = MEDIUM_IR
+    rf_header_shape: str | None = None
+    rolling_state: str | None = None
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
@@ -2030,6 +2206,14 @@ class UnknownDevice:
             "store_integration": self.store_integration,
             "store_id": self.store_id,
             "store_subdevice": self.store_subdevice,
+            **(
+                {
+                    "medium": MEDIUM_RF,
+                    "rf_header_shape": self.rf_header_shape,
+                    "rolling_state": self.rolling_state,
+                }
+                if self.medium == MEDIUM_RF else {}
+            ),
         }, self._extra)
 
     @classmethod
@@ -2058,4 +2242,12 @@ class UnknownDevice:
             store_integration=data.get("store_integration"),
             store_id=data.get("store_id"),
             store_subdevice=data.get("store_subdevice"),
+            **(
+                {
+                    "medium": MEDIUM_RF,
+                    "rf_header_shape": data.get("rf_header_shape"),
+                    "rolling_state": data.get("rolling_state"),
+                }
+                if data.get("medium") == MEDIUM_RF else {}
+            ),
         ), data, _KNOWN_CATALOG_DEVICE)

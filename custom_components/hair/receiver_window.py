@@ -73,6 +73,14 @@ ATTR_CAPTURING = "capturing"
 ATTR_CAPTURE_SWITCH = "capture_switch"
 ATTR_WINDOW_ENDS_AT = "window_ends_at"
 ATTR_CAPTURE_MODE = "capture_mode"
+# Optional, from a radio capture device that must find the carrier first
+# (RF hear, round 1): what the open window is doing, and the carrier it
+# listens on once it knows.
+ATTR_CAPTURE_PHASE = "capture_phase"
+ATTR_FREQUENCY_HZ = "frequency_hz"
+PHASE_SWEEPING = "sweeping"
+PHASE_LISTENING = "listening"
+CAPTURE_PHASES = frozenset({PHASE_SWEEPING, PHASE_LISTENING})
 
 MODE_SINGLE = "single"
 
@@ -418,6 +426,14 @@ def capture_receivers(
         candidates.extend(async_get_receivers(hass))
     except (ImportError, AttributeError):
         pass
+    # Radio receivers (RF hear, round 1): found in the state machine,
+    # since the radio component may not be loaded. A radio receiver is a
+    # capture device by the same attributes as an infrared one.
+    from .rf_receive import rf_receiver_ids
+
+    for receiver in rf_receiver_ids(hass):
+        if receiver not in candidates:
+            candidates.append(receiver)
     if store is not None:
         registry = er.async_get(hass)
         for entry_id in store.entry_ids():
@@ -430,6 +446,10 @@ def capture_receivers(
         found = resolve(hass, receiver, store)
         if found is None:
             continue
+        state = hass.states.get(receiver)
+        attributes = state.attributes if state is not None else {}
+        phase = attributes.get(ATTR_CAPTURE_PHASE)
+        frequency_hz = attributes.get(ATTR_FREQUENCY_HZ)
         rows.append({
             "receiver_entity_id": receiver,
             "name": _name(hass, found.device_id, receiver),
@@ -440,6 +460,16 @@ def capture_receivers(
             "device_switches": [
                 {"entity_id": s, "name": _entity_name(hass, s)} for s in found.switches
             ],
+            # Which medium the device captures, and (radio) what the
+            # open window is doing and the carrier it listens on. The
+            # two window attributes are optional in the contract and
+            # pass through as given; null when a receiver does not
+            # report them or no window is open.
+            "medium": "rf" if receiver.startswith("radio_frequency.") else "ir",
+            "capture_phase": phase if phase in CAPTURE_PHASES else None,
+            "frequency_hz": frequency_hz
+            if isinstance(frequency_hz, int) and not isinstance(frequency_hz, bool)
+            else None,
         })
     rows.sort(key=lambda row: row["name"].casefold())
     return rows

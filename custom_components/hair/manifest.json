@@ -1,7 +1,7 @@
 {
     "domain": "hair",
     "name": "HAIR",
-    "after_dependencies": ["esphome", "broadlink"],
+    "after_dependencies": ["esphome", "broadlink", "radio_frequency"],
     "codeowners": ["@DAB-LABS"],
     "config_flow": true,
     "dependencies": ["http", "infrared"],

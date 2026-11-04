@@ -540,6 +540,14 @@ def build_like_send_path(row: Any) -> Any:
     against whichever form happened to be convenient.
     """
     from .ir_command import build_command, build_decoded_command
+    from .models import is_rf
+
+    # A radio row has no infrared send path to measure (RF hear, round
+    # 1). Raising here is how every spacing helper that calls this
+    # learns it: each one already treats "will not build" as "nothing
+    # to record", so a radio row never gets an infrared estimate.
+    if is_rf(row):
+        raise ValueError("a radio row has no infrared send path")
 
     repeat_count = getattr(row, "repeat_count", 0) or 0
     if would_send_decoded(row):
