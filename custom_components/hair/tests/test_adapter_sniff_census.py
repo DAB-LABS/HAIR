@@ -88,6 +88,7 @@ CENSUS: dict[str, str | None] = {
     "irdb_empty_names.csv": "irdb",
     "irdb_all_unsupported.csv": "irdb",
     "irdb_malformed_rows.csv": "irdb",
+    "irdb_jvc_dvhs.csv": "irdb",
     # A CSV with some other header is neither irdb nor Global Cache.
     "csv_other_header.csv": None,
     # The tie: a Global Cache row and a Tasmota line in one file. Both

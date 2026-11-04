@@ -411,6 +411,14 @@ def _aiwa(d: int, s: int, f: int) -> Any:
     return NEC42Command(address=d | (s << 8), command=f)
 
 
+def _jvc(d: int, s: int, f: int) -> Any:
+    """JVC: D 8 bits, F 8 bits, no subdevice, at the class's 38 kHz."""
+    _field("device", d, 0xFF, "JVC")
+    _none("subdevice", s, "JVC")
+    _field("function", f, 0xFF, "JVC")
+    return _registered("JVC")(address=d, command=f)
+
+
 #: irdb protocol name (lower case) -> (its spelling, the builder).
 IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
     name.lower(): (name, build)
@@ -434,6 +442,7 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("Sharp", _sharp("Sharp", 1)),
         ("Denon", _sharp("Denon", 0)),
         ("Aiwa", _aiwa),
+        ("JVC", _jvc),
     )
 }
 

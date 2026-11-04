@@ -1,0 +1,7 @@
+functionname,protocol,device,subdevice,function
+POWER,JVC,67,-1,0
+PLAY,JVC,67,-1,12
+PAUSE,JVC,67,-1,13
+REW <<,JVC,67,-1,14
+FF >>,JVC,67,-1,15
+REC,JVC,67,-1,28
