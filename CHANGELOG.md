@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The Closet writes the `pre` and `post` pulses a LIRC remote block states, between its pre data and the button code and after the button code, so such a remote's codes are stored as the remote sends them.
+- RC6 remotes no longer read as Sony. Buttons and triggers saved from such a remote are read again on the first load after the upgrade, so each button is its own signal again and a device sends the RC6 code it was taught.
 
 ## [1.0.0] - 2026-11-03 -- Grown Out
 

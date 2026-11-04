@@ -280,7 +280,9 @@ class HAIRStore:
 
             migrated += retarget_dyson_triggers(self._triggers.values())
 
-        changed = self._backfill_decoded_fields()
+        # First, so the backfills below refill what it clears.
+        changed = self._clear_stale_identities()
+        changed = self._backfill_decoded_fields() or changed
         changed = self._backfill_byte_hash() or changed
         changed = self._backfill_trigger_decoded() or changed
         changed = self._backfill_canonical_identity() or changed
@@ -792,6 +794,62 @@ class HAIRStore:
                 )
             return ref
         return None
+
+    def _clear_stale_identities(self) -> bool:
+        """Clear a stored identity a tightened decoder no longer gives.
+
+        The backfills below fill an identity only where a row has none,
+        so a command or trigger decoded wrongly before a decoder fix
+        would keep that identity, match on it and, for a command, send
+        from it. For the labels in ``REJUDGED_LABELS`` each row is
+        decoded again from its own timings; where the answer differs,
+        the identity (and a command's coverage verdict) is cleared, and
+        ``_backfill_decoded_fields`` and ``_backfill_trigger_decoded``
+        fill in the new one, or leave the row on its stored code when
+        nothing decodes it. Idempotent: a row that still decodes the
+        same is untouched, and a cleared row no longer carries the label.
+        """
+        from .ir_command import ProntoCommand
+        from .protocol_decode import stored_identity_is_stale
+
+        def timings_of(raw: list[int] | None, code: str | None) -> list[int] | None:
+            if raw:
+                return raw
+            if not code:
+                return None
+            try:
+                return ProntoCommand(code).get_raw_timings()
+            except (ValueError, IndexError):
+                return None
+
+        commands = 0
+        for device in self._data.values():
+            for cmd in device.commands:
+                if not stored_identity_is_stale(
+                    cmd.decoded_fingerprint, timings_of(cmd.raw_timings, cmd.code)
+                ):
+                    continue
+                cmd.decoded_protocol = None
+                cmd.decoded_address = None
+                cmd.decoded_command = None
+                cmd.decoded_fingerprint = None
+                cmd.decoded_extras = None
+                cmd.decode_covers = None
+                commands += 1
+        triggers = 0
+        for trigger in self._triggers.values():
+            if not stored_identity_is_stale(
+                trigger.decoded_fingerprint, timings_of(None, trigger.code)
+            ):
+                continue
+            trigger.decoded_fingerprint = None
+            triggers += 1
+        if commands or triggers:
+            _LOGGER.info(
+                "Read %d device command(s) and %d trigger(s) again after a "
+                "decoder fix", commands, triggers,
+            )
+        return bool(commands or triggers)
 
     def _backfill_decoded_fields(self) -> bool:
         """Decode stored commands into their ``decoded_*`` fields in place.

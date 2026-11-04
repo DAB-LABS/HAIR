@@ -11,6 +11,14 @@ Decode side is new (upstream is encode-only as of 7.5.0). SIRC timing:
   2T mark (1). Data LSB first: 7-bit command, then 5/8/13-bit address
   (SIRC-12/15/20). Trailer: space padding the frame to 45ms.
 
+EVERY SPACE IS 1T. A SIRC space carries no data, so the decoder checks
+each one, the space after the leader included, against 1T at the shared
+tolerance (360..840us). The marks are where the data and the receiver
+wobble are, and they keep the wide midpoint test below. The space check
+is what keeps RC-6 out: its leader space is 888us and its half-bits are
+444 and 888us, and with spaces checked only against a sanity range an
+RC-6 frame holding 12, 15 or 20 marks read as Sony, which probes first.
+
 Real receivers wobble mark widths across the 1T/2T midpoint's
 neighborhood (the exact failure that motivated this decoder: HAIR's
 generic quantizers fragmented one button into many identities). The
@@ -33,12 +41,10 @@ _UNIT_US = 600
 _LEADER_US = 4 * _UNIT_US
 # Midpoint between the 1T (600us) and 2T (1200us) mark widths.
 _MARK_MIDPOINT_US = 900
-# Sanity bounds for any data mark / space; outside these the frame is
-# rejected rather than classified.
+# Sanity bounds for any data mark; outside these the frame is rejected
+# rather than classified. Spaces are checked against 1T instead.
 _MARK_MIN_US = 240
 _MARK_MAX_US = 2100
-_SPACE_MIN_US = 240
-_SPACE_MAX_US = 1200
 # A space at least this long separates SIRC frames (bit spaces are 1T).
 _FRAME_GAP_US = 4000
 _FRAME_PERIOD_US = 45000
@@ -146,7 +152,7 @@ class SonyCommand(Command):
         while i + 1 < len(frame) and len(bits) < 20:
             space = -frame[i]
             mark = frame[i + 1]
-            if not _SPACE_MIN_US <= space <= _SPACE_MAX_US:
+            if not is_close(space, _UNIT_US):
                 return None
             if not _MARK_MIN_US <= mark <= _MARK_MAX_US:
                 return None

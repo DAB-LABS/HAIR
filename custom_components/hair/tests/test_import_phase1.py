@@ -1216,21 +1216,15 @@ class TestTransmitRefusesRatherThanLies:
 # ---------------------------------------------------------------------------
 
 
-class TestTheSonyOverlapRate:
-    """Today's number, pinned so it is visible when it changes.
+class TestTheRC6RowsReadAsRC6:
+    """The overlap this class used to pin is closed.
 
-    HAIR's Sony decoder claims RC-6 frames whose bits are mostly zero,
-    which is where a remote at address 0 lives, and it probes before
-    RC-6. The rows still transmit correctly: the round-trip check sees
-    the mismatch and stores them bypassed, so they replay the stored
-    bytes. What is lost is the protocol identity, and several distinct
-    buttons collapse onto one decoded triple.
-
-    The registry order is not this patch's to change -- the same
-    misdecode is on the base tree -- but this patch is the first thing
-    that mints RC-6 rows at import, so the number belongs somewhere it
-    can be read. When the registry work lands, this test fails and the
-    new rate goes in its place.
+    HAIR's Sony decoder used to claim RC-6 frames whose bits are mostly
+    zero, which is where a remote at address 0 lives, and it probes
+    before RC-6. Seven of this file's twelve rows were stored bypassed,
+    all on one SONY20 triple. Sony now checks every space against 1T,
+    which an RC-6 frame's 888us leader space fails, so every row reads
+    as the RC-6 button it is and none needs the bypass.
     """
 
     FIXTURE = "lirc_rc6_mode0_address0.lircd.conf"
@@ -1240,43 +1234,32 @@ class TestTheSonyOverlapRate:
         assert result.error is None, result.error
         return [s for wig in result.wigs for s in wig.signals]
 
-    def test_the_rate_today_is_seven_rows_in_twelve(self):
+    def test_no_row_is_bypassed(self):
         rows = self._rows()
-        bypassed = [s.alias for s in rows if s.bypass_protocol]
         assert len(rows) == 12
-        assert len(bypassed) == 7, bypassed
-        # And it falls on the buttons a person presses most.
-        assert {"Power", "Volumeup", "Channelup"} <= set(bypassed)
+        assert [s.alias for s in rows if s.bypass_protocol] == []
 
-    def test_the_same_rate_on_both_legs(self):
-        """The overlap is in HAIR's own decoders, not the library's."""
+    def test_the_same_on_both_legs(self):
+        """Both decoders are HAIR's own, so no library changes this."""
         from custom_components.hair.protocol_decode import get_spec
 
-        assert get_spec("SONY20") is not None
+        assert get_spec("SONY20").source == "local"
 
-    def test_the_misdecoded_rows_share_one_triple(self):
-        """Why the identity loss matters: it is not one wrong label."""
+    def test_every_row_is_its_own_rc6_button(self):
         from custom_components.hair.ir_command import ProntoCommand
 
-        seen: dict[str, list[str]] = {}
+        seen = {}
         for signal in self._rows():
-            if not signal.bypass_protocol:
-                continue
-            timings = ProntoCommand(signal.pronto).get_raw_timings()
-            identity = try_decode_identity(timings)
-            seen.setdefault(identity.fingerprint, []).append(signal.alias)
-        assert len(seen) == 1, seen
-        fingerprint, aliases = next(iter(seen.items()))
-        assert "SONY" in fingerprint
-        assert len(aliases) == 7
+            identity = try_decode_identity(
+                ProntoCommand(signal.pronto).get_raw_timings()
+            )
+            assert identity.protocol == "RC6", signal.alias
+            seen[identity.fingerprint] = signal.alias
+        assert len(seen) == 12
+        assert seen["RC6:0x0000:0x0c:m0"] == "Power"
 
-    def test_every_misdecoded_row_still_transmits_what_the_file_wrote(self):
-        """The reason this is an identity loss and not a wire fault."""
-        rows = self._rows()
-        for signal in rows:
-            if signal.bypass_protocol:
-                assert signal.pronto.startswith("0000 ")
-        assert all(s.extra["carrier"]["hz"] == 36000 for s in rows)
+    def test_every_row_keeps_the_file_carrier(self):
+        assert all(s.extra["carrier"]["hz"] == 36000 for s in self._rows())
 
 
 class TestMultiWigLanding:
@@ -1296,36 +1279,27 @@ class TestMultiWigLanding:
     not strict_nec_available(), reason="the registry label needs the library"
 )
 class TestWhatTheRegistryMakesOfARebuiltFrame:
-    """Named rather than hidden: the registry is not the encoder.
+    """The registry reads back the RC-6 frames this package builds.
 
-    A Manchester waveform this package's own encoder produced does not
-    always come back through the registry as the protocol that produced
-    it -- Sony probes before RC-6 and claims a minority of RC-6 frames.
-    That is a property of the probe order, which this patch does not
-    touch. What phase 1 owes is that such a row still transmits the
-    frame the file meant, which the import round-trip check guarantees
-    by pinning it to raw replay.
+    It used not to: Sony probes before RC-6 and claimed a minority of
+    them, and the import round-trip check pinned those rows to raw
+    replay. Sony now checks every space against 1T, so each frame comes
+    back as RC-6 and a Flipper RC-6 row is stored to send as built.
     """
 
-    def test_a_row_the_registry_mislabels_is_pinned_to_raw_replay(self):
+    def test_an_rc6_frame_comes_back_as_rc6_and_imports_unbypassed(self):
         rc6 = get_spec("RC6").command_cls
-        mislabelled = []
         for command in range(0, 256, 3):
             timings = rc6(
                 address=0x00, command=command, mode=0, toggle=0
             ).get_raw_timings()
             identity = try_decode_identity(timings)
-            if identity is not None and identity.protocol != "RC6":
-                mislabelled.append((command, identity.protocol))
-        assert mislabelled, (
-            "the overlap this test documents is gone; delete the test"
+            assert identity.protocol == "RC6", command
+        # D=0 F=12, the Power row of the file above.
+        text = (
+            f"{FLIPPER_REMOTE_HEADER}\nVersion: 1\n#\n"
+            f"name: Row\ntype: parsed\nprotocol: RC6\n"
+            f"address: 00 00 00 00\ncommand: 0C 00 00 00\n"
         )
-        # Every one of them, imported, is stored bypass.
-        for command, _label in mislabelled[:4]:
-            text = (
-                f"{FLIPPER_REMOTE_HEADER}\nVersion: 1\n#\n"
-                f"name: Row\ntype: parsed\nprotocol: RC6\n"
-                f"address: 00 00 00 00\ncommand: {command:02X} 00 00 00\n"
-            )
-            result = convert(text, "x.ir")
-            assert result.wigs[0].signals[0].bypass_protocol is True
+        result = convert(text, "x.ir")
+        assert result.wigs[0].signals[0].bypass_protocol is False

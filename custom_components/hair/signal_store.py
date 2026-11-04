@@ -840,6 +840,38 @@ def _transform_loaded(
     if legacy_signals:
         dirty = True
 
+    # A stored identity a tightened decoder no longer gives is cleared
+    # first, so the backfill below refills it (``REJUDGED_LABELS`` in
+    # protocol_decode). A signal that still decodes the same is untouched.
+    from .ir_command import ProntoCommand
+    from .protocol_decode import stored_identity_is_stale
+
+    stale_cleared = 0
+    for device in devices.values():
+        for sig in device.signals:
+            if not sig.decoded_fingerprint:
+                continue
+            timings = sig.raw_timings
+            if not timings and sig.code:
+                try:
+                    timings = ProntoCommand(sig.code).get_raw_timings()
+                except (ValueError, IndexError):
+                    timings = None
+            if not stored_identity_is_stale(sig.decoded_fingerprint, timings):
+                continue
+            sig.decoded_protocol = None
+            sig.decoded_address = None
+            sig.decoded_command = None
+            sig.decoded_fingerprint = None
+            sig.decoded_extras = None
+            sig.decode_covers = None
+            stale_cleared += 1
+    if stale_cleared:
+        dirty = True
+        _LOGGER.info(
+            "Read %d Sniffer signal(s) again after a decoder fix", stale_cleared
+        )
+
     # v0.4.0 backfill: decode stored catalog signals into their
     # decoded_* fields. For each signal with no decoded_fingerprint,
     # decode the stored raw timings (or timings derived from the
