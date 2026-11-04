@@ -701,7 +701,12 @@ class TestTheReceiversDoors:
         assert set(rows[0]) == {
             "receiver_entity_id", "name", "ha_device_id", "available",
             "switch_entity_id", "source", "device_switches",
+            # RF hear, round 1: the medium and a radio window's progress.
+            "medium", "capture_phase", "frequency_hz",
         }
+        assert rows[0]["medium"] == "ir"
+        assert rows[0]["capture_phase"] is None
+        assert rows[0]["frequency_hz"] is None
 
     @pytest.mark.asyncio
     async def test_listen_toggles_the_resolved_switch(self):

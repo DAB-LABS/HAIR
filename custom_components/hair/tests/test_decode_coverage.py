@@ -516,12 +516,14 @@ class TestTheCloneRosterIsPinned:
             _KNOWN_COMMAND,
         )
 
-        assert set(_CLONE_SKIPS) == {"id", "created_at", "code_export"}
+        assert set(_CLONE_SKIPS) == {"id", "created_at", "code_export", "band"}
         roster = _KNOWN_COMMAND - _CLONE_SKIPS
         assert "decode_covers" in roster
         # A derived key is on the record so from_dict drops it, and off
         # the roster because there is no attribute to copy (GH #144).
         assert "code_export" not in roster
+        # A radio row's band is derived the same way (RF hear, round 1).
+        assert "band" not in roster
         # The four the hand-written copy had already drifted past.
         for field in (
             "plucked_command_name", "matrix_cell", "comb_suspect",

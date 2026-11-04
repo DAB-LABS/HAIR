@@ -285,8 +285,20 @@ def canonical_fingerprint(
 
     Non-Pronto protocols pass straight through: their fingerprint is
     hashed from protocol and code, which no round trip touches.
+
+    A RADIO ROW (RF hear, round 1) has no code: its identity is read off
+    its stored canonical frame by ``rf_frames``, the same function that
+    minted it from the capture, and never by an infrared path. No frame,
+    no identity, the empty string callers already skip.
     """
+    from .const import RF_PROTOCOL
     from .event_parser import EventParser
+
+    if protocol == RF_PROTOCOL:
+        from .rf_frames import identity_of_frame
+
+        identity = identity_of_frame(list(raw_timings) if raw_timings else None)
+        return identity.fingerprint if identity is not None else ""
 
     # A CODE THAT PARSES AS PRONTO WORDS IS PRONTO, stamp or no stamp
     # (GH #125). ``protocol`` defaults to None on UnknownSignal,

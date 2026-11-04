@@ -878,12 +878,15 @@ def _transform_loaded(
     # Pronto code) and populate the identity. Non-decodable signals are
     # left untouched. Idempotent across restarts.
     from .ir_command import ProntoCommand
+    from .models import is_rf
     from .protocol_decode import decode_coverage, try_decode_identity
 
     decoded_backfilled = 0
     for device in devices.values():
         for sig in device.signals:
-            if sig.decoded_fingerprint:
+            # A radio row never meets an infrared decoder (RF hear,
+            # round 1): its frame would only ever false-match.
+            if sig.decoded_fingerprint or is_rf(sig):
                 continue
             timings = sig.raw_timings
             if not timings and sig.code:
@@ -918,7 +921,7 @@ def _transform_loaded(
     judged = 0
     for device in devices.values():
         for sig in device.signals:
-            if sig.decode_covers is not None:
+            if sig.decode_covers is not None or is_rf(sig):
                 continue
             timings = sig.raw_timings
             if not timings and sig.code:

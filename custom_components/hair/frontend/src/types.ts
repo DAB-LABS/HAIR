@@ -1054,6 +1054,12 @@ export interface CaptureReceiverRow {
     source: CaptureSwitchSource | null;
     /** The ``switch`` entities on the receiver's own device, for the picker. */
     device_switches: { entity_id: string; name: string }[];
+    /** Which medium the device captures. */
+    medium: "ir" | "rf";
+    /** Radio only: what the open window is doing, or null. */
+    capture_phase: "sweeping" | "listening" | null;
+    /** Radio only: the carrier the open window listens on, or null. */
+    frequency_hz: number | null;
 }
 
 // ---------------------------------------------------------------------------

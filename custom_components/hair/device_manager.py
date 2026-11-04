@@ -19,6 +19,8 @@ from .const import (
     EMITTER_STAGGER_GAP_S,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
+    RF_EDIT_UNSUPPORTED,
+    RF_SEND_UNSUPPORTED,
     SEND_REPEAT_GAP,
     CommandCategory,
     CommandSource,
@@ -26,7 +28,7 @@ from .const import (
 )
 from .device_registry_compat import device_by_identifier
 from .entity_factory import EntityFactory
-from .models import IRCommand, IRDevice
+from .models import IRCommand, IRDevice, is_rf
 from .power_monitor import PowerMonitor
 from .storage import HAIRStore
 from .vocabulary import localized_auto_map
@@ -36,6 +38,15 @@ if TYPE_CHECKING:
     from .wig_format import ClimateMatrix
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class RfSendUnsupportedError(RuntimeError):
+    """A send of a radio row, which HAIR cannot transmit yet.
+
+    ``code`` is the error code the panel maps to its own text.
+    """
+
+    code = RF_SEND_UNSUPPORTED
 
 # Maps a captured command name (lowercased) → a feature key on the entity.
 # The key space is platform-specific; the entity reads
@@ -333,6 +344,11 @@ class DeviceManager:
         if command is None:
             return {"success": False, "code": "command_not_found",
                     "error": "Command not found"}
+        # A radio row has no Pronto to edit (RF hear, round 1); a rename
+        # or a send-count change still goes through.
+        if pronto is not None and is_rf(command):
+            return {"success": False, "code": RF_EDIT_UNSUPPORTED,
+                    "error": "A radio code cannot be edited as Pronto"}
 
         rewire: dict[str, list[str]] = {"rewired": [], "skipped": []}
         mappings_updated = 0
@@ -878,6 +894,16 @@ class DeviceManager:
         command = device.get_command(command_id)
         if command is None:
             raise KeyError(f"Unknown command {command_id} on device {device_id}")
+
+        # A RADIO ROW IS NOT SENT YET (RF hear, round 1). Refused here,
+        # the one door every send of a device command passes (the panel's
+        # Test, an HA button, every entity action), so no path can turn
+        # a radio frame into an infrared transmission.
+        if is_rf(command):
+            raise RfSendUnsupportedError(
+                f"{command.name or command_id} is a radio code; HAIR does "
+                "not send radio codes yet"
+            )
 
         if not device.emitter_entity_ids:
             raise RuntimeError(f"Device {device_id} has no emitters configured")

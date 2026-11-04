@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from .const import MAX_DITTO_COUNT
 from .ir_command import carrier_or_default, raw_to_pronto
-from .models import IRDevice
+from .models import IRDevice, is_rf
 from .wig_format import ClimateMatrix, Wig, WigSignal
 
 # Device-type to wig kind. THE RULE: a device type maps to a kind only
@@ -143,6 +143,19 @@ def build_wig_from_device(
         # skipped either: skipped means a code that could not be
         # exported, and this one is exported, as a cell.
         if command.matrix_cell:
+            continue
+        # A RADIO ROW IS NOT IN A WIG YET (RF hear, round 1). Its frame
+        # has no Pronto form (a radio carrier rounds to a zero frequency
+        # word), and writing it as one would hand the next person an
+        # infrared code that was never sent. Skipped, counted, and named
+        # in the receipts, until the wig format carries radio.
+        if is_rf(command):
+            skipped += 1
+            notes.append(
+                f"{(command.name or '').strip() or f'Command {i}'} is a "
+                "radio code and was left out: wigs carry infrared only "
+                "in this release."
+            )
             continue
         pronto = _pronto_for(
             command.protocol,
