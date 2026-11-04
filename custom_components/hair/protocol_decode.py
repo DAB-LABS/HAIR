@@ -1024,6 +1024,42 @@ def identity_from_command(command: Any) -> DecodedIdentity | None:
     return None
 
 
+#: Labels whose decoder was tightened after rows were stored under them.
+#:
+#: The load-time backfills fill an identity only where a row has none,
+#: so a row decoded wrongly before a fix keeps the wrong identity
+#: forever unless something asks again. For these labels the stores ask
+#: on every load (``stored_identity_is_stale``) and clear an identity the
+#: decoder no longer gives; the backfills that run next then fill in
+#: what it does give. Asking again costs one decode per row under these
+#: labels, and a row that still decodes the same is never written.
+#:
+#: SONY12/15/20: until 1.1 the Sony decoder checked its spaces only
+#: against a sanity range, and read RC-6 frames holding 12, 15 or 20
+#: marks as Sony (``decoders/sony.py``).
+REJUDGED_LABELS: frozenset[str] = frozenset({"SONY12", "SONY15", "SONY20"})
+
+
+def stored_identity_is_stale(
+    stored_fingerprint: str | None,
+    raw_timings: list[int] | None,
+) -> bool:
+    """Is a stored identity under a re-judged label no longer the decode?
+
+    True when ``stored_fingerprint`` carries one of ``REJUDGED_LABELS``
+    and a fresh decode of the row's own timings gives another identity
+    or none at all. A row with no timings to decode is never stale:
+    there is nothing to judge it by, and it keeps what it has.
+    """
+    if not stored_fingerprint or not raw_timings:
+        return False
+    label = stored_fingerprint.split(":", 1)[0]
+    if label not in REJUDGED_LABELS:
+        return False
+    identity = try_decode_identity(raw_timings)
+    return identity is None or identity.fingerprint != stored_fingerprint
+
+
 def decode_coverage(raw_timings: list[int] | None) -> bool | None:
     """Does the decode of this capture explain the whole capture?
 

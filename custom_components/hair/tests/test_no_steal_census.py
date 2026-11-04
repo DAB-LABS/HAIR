@@ -95,6 +95,12 @@ EXPECTED_CLAIMS: dict[str, set[str]] = {
     # blanket permission. Add an entry here only with a reason a reader
     # can check.
     "adapters:lirc_four_remotes.lircd.conf": {"JVC"},
+    # These seven rows are RC-6 and were read as SONY20, because the Sony
+    # decoder checked its spaces only against a sanity range and probes
+    # first. It now checks every space against 1T, which an RC-6 frame's
+    # 888us leader space fails, so RC-6 reads them. Delete this entry
+    # with the JVC one when a regenerated baseline carries both moves.
+    "adapters:lirc_rc6_mode0_address0.lircd.conf": {"RC6"},
 }
 
 # Leg-dependent, so added only where it applies: an entry on a leg where
