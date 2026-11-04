@@ -34,5 +34,23 @@ def strict_nec_available() -> bool:
     return get_spec("NEC") is not None
 
 
+def ge_ac_decoder_available() -> bool:
+    """Does this environment register a GE-AC decoder?
+
+    GE-AC has no local class. The library's ``GEACCommand`` gained
+    ``from_raw_timings`` in its 8.x line, so on 5.x and on the bare leg
+    the spec is absent and on 8.x and later it is registered.
+
+    It matters to one fixture. The Futarque LIRC remote sends Proton
+    frames (8000/4000 leader, 500us unit, a 500/4000 stop and gap
+    between its two bytes), and GE-AC's frame is the same shape on a
+    562.5us unit, about 1.125 times longer. GE-AC's 40% tolerance covers
+    that, so where the decoder exists it reads every Futarque code, with
+    its bits in GE-AC's order. HAIR registers no Proton decoder, and GE-AC
+    is identity-only, so a row read this way still sends its stored code.
+    """
+    return get_spec("GEAC") is not None
+
+
 #: The suffix the census baseline for this leg carries.
 BASELINE_SUFFIX = "" if strict_nec_available() else "-nolib"

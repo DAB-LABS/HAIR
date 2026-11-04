@@ -60,7 +60,10 @@ from custom_components.hair.tests.census_corpus import (
     sources,
     vanished_rows,
 )
-from custom_components.hair.tests.leg import BASELINE_SUFFIX
+from custom_components.hair.tests.leg import (
+    BASELINE_SUFFIX,
+    ge_ac_decoder_available,
+)
 
 #: The baseline for the leg this run is on. See ``tests/leg.py``: the
 #: strict NEC decoder has no local polyfill, so the two legs decode
@@ -93,6 +96,21 @@ EXPECTED_CLAIMS: dict[str, set[str]] = {
     # can check.
     "adapters:lirc_four_remotes.lircd.conf": {"JVC"},
 }
+
+# Leg-dependent, so added only where it applies: an entry on a leg where
+# nothing changes would fail `test_every_allowlisted_fixture_actually_changed`.
+#
+# The Futarque remote sends Proton frames, and the library's GE-AC
+# decoder (8.x and later) reads them: same layout, a unit 1.125 times
+# longer, inside its 40% tolerance. Before the LIRC reader wrote this
+# block's `pre` pulse, the codes had no gap between their bytes and
+# nothing could read them. `leg.ge_ac_decoder_available` has the detail.
+# This is a known limit of the library's decoder, pinned rather than
+# hidden: HAIR registers no Proton decoder to read them as what they are.
+if ge_ac_decoder_available():
+    EXPECTED_CLAIMS["adapters:lirc_space_enc_pre_data_futarque.lircd.conf"] = {
+        "GEAC"
+    }
 
 #: Baseline keys that are allowed to be absent from the walk, each with
 #: the reason. A fixture deleted or renamed on purpose goes here by its
