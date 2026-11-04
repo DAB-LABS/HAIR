@@ -862,12 +862,15 @@ class HAIRStore:
         carries a ``decoded_fingerprint`` is skipped.
         """
         from .ir_command import ProntoCommand
+        from .models import is_rf
         from .protocol_decode import decode_coverage, try_decode_identity
 
         changed = 0
         for device in self._data.values():
             for cmd in device.commands:
-                if cmd.decoded_fingerprint:
+                # A radio row never meets an infrared decoder (RF hear,
+                # round 1): its frame would only ever false-match.
+                if cmd.decoded_fingerprint or is_rf(cmd):
                     continue
                 raw = cmd.raw_timings
                 if not raw and cmd.code:
@@ -903,7 +906,7 @@ class HAIRStore:
         judged = 0
         for device in self._data.values():
             for cmd in device.commands:
-                if cmd.decode_covers is not None:
+                if cmd.decode_covers is not None or is_rf(cmd):
                     continue
                 raw = cmd.raw_timings
                 if not raw and cmd.code:

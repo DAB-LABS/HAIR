@@ -100,10 +100,43 @@ async def list_receiver_hardware(hass: HomeAssistant) -> list[dict[str, Any]]:
                     "name": str(name),
                     "config_entry_id": None,
                     "receiver_entity_id": entity_id,
+                    "medium": "ir",
                 }
             )
     except (ImportError, AttributeError):
         pass  # Pre-2026.6: no native receiver API.
+
+    # Radio receivers (RF hear, round 1), from the state machine so a
+    # core without the radio component simply has none. Each says
+    # whether HAIR listens to it: a capture device yes; an always-on
+    # receiver not until a later release adds its opt-in
+    # (rf_receive.py says why).
+    from .receiver_window import says_capture
+    from .rf_receive import rf_receiver_ids, supported_ranges
+
+    ent_registry = er.async_get(hass)
+    for entity_id in rf_receiver_ids(hass):
+        state = hass.states.get(entity_id)
+        entry = ent_registry.async_get(entity_id)
+        ranges = supported_ranges(hass, entity_id)
+        hardware.append(
+            {
+                "type": str(ReceiverHardwareType.NATIVE),
+                "device_id": entity_id,
+                "name": str(
+                    state.attributes.get("friendly_name", entity_id)
+                    if state is not None else entity_id
+                ),
+                "config_entry_id": None,
+                "receiver_entity_id": entity_id,
+                "medium": "rf",
+                "ha_device_id": entry.device_id if entry is not None else None,
+                "capture_device": says_capture(state),
+                "supported_frequency_ranges": (
+                    [list(r) for r in ranges] if ranges is not None else None
+                ),
+            }
+        )
 
     # ESPHome devices via the legacy event-bus bridge.
     #

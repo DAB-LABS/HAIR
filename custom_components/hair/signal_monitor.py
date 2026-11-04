@@ -52,6 +52,7 @@ from .const import (
     LEGACY_ESPHOME_IR_EVENT,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
+    MEDIUM_RF,
     MIRROR_DEVICE_FP,
     MIRROR_DEVICE_LABEL,
     MIRROR_ECHO_MARGIN_S,
@@ -61,6 +62,9 @@ from .const import (
     PINNED_ECHO_GUARD_S,
     PINNED_TICKET_ARM_FALLBACK_S,
     REPEAT_ATTRIBUTION_WINDOW,
+    RF_EDIT_UNSUPPORTED,
+    RF_PROTOCOL,
+    RF_SEND_UNSUPPORTED,
     SEND_REPEAT_GAP,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
@@ -79,7 +83,13 @@ from .identity import (
 )
 from .ir_command import carrier_or_default, raw_to_pronto
 from .learned_code_stores import SHAPE_CODE_LIST, SHAPE_PACKET_MAP
-from .models import CaptureResult, UnknownDevice, UnknownSignal
+from .models import (
+    CaptureResult,
+    UnknownDevice,
+    UnknownSignal,
+    copy_rf_fields,
+    is_rf,
+)
 from .pronto_validator import validate_pronto
 from .protocol_decode import carrier_allows_rebuild, try_decode_identity
 from .signal_store import SignalStore
@@ -153,6 +163,46 @@ class NormalizedSignal:
     # so a verdict that stopped at the decoder would leave both of those
     # doors minting rows with no idea whether their decode was real.
     decode_covers: bool | None = None
+    # A radio capture (RF hear, round 1): the frame analysis, carried so
+    # the mint copies it onto the row. None for infrared.
+    rf: Any = None
+
+    @property
+    def medium(self) -> str:
+        return MEDIUM_RF if self.rf is not None else "ir"
+
+
+def _normalize_rf(parsed: Any) -> NormalizedSignal:
+    """Normalize a radio capture: identity from its frames, no decoders.
+
+    ``parsed`` is the CaptureResult ``_on_rf_signal`` built, whose
+    ``raw_timings`` already hold the canonical frame and whose ``rf``
+    attribute holds the vote. The radio fingerprint fills the S/L slot,
+    the frame hash the byte-hash slot, and the card key the device
+    slot, so everything downstream (sticky filing, triggers, repeat
+    suppression, the identity tiers) reads a radio row through the
+    same fields it reads an infrared one. The decoded tier and the
+    receiver-tolerant tier stay empty: they run infrared decoders.
+    """
+    analysis = parsed.rf
+    return NormalizedSignal(
+        protocol=parsed.protocol,
+        code=None,
+        raw_timings=list(parsed.raw_timings),
+        frequency=getattr(parsed, "frequency", DEFAULT_CARRIER_FREQUENCY),
+        sig_fp=analysis.fingerprint,
+        device_address=None,
+        dev_fp=analysis.device_key,
+        byte_hash=analysis.frame_hash,
+        decoded_protocol=None,
+        decoded_address=None,
+        decoded_command=None,
+        decoded_fingerprint=None,
+        decoded_extras=None,
+        norm_fp=None,
+        decode_covers=None,
+        rf=analysis,
+    )
 
 
 def normalize(parsed: Any) -> NormalizedSignal:
@@ -164,6 +214,8 @@ def normalize(parsed: Any) -> NormalizedSignal:
     pipeline and the Plucker call this, and Sniffer behavior is unchanged
     (same values computed in the same order).
     """
+    if is_rf(parsed) and getattr(parsed, "rf", None) is not None:
+        return _normalize_rf(parsed)
     sig_fp = EventParser.signal_fingerprint(
         parsed.protocol, parsed.code, parsed.raw_timings
     )
@@ -324,6 +376,9 @@ def _apply_signal_provenance(
     # reach the answer already sitting on the signal -- and would put a
     # second place in the tree that could reach a different one.
     command.decode_covers = signal.decode_covers
+    # A radio row's medium and frame fields travel with it (RF hear,
+    # round 1): the same bytes, so the same identity and the same gap.
+    copy_rf_fields(signal, command)
     if repeat_count is not None:
         command.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
     else:
@@ -534,6 +589,9 @@ class SignalMonitor:
         # subscribing" note logs once per entity per run instead of on
         # every reconcile.
         self._rf_skip_logged: set[str] = set()
+        # Radio capture devices (RF hear, round 1): rf_receive.py's
+        # tracker, started beside the infrared path.
+        self._rf_tracker: Any = None
         # --- The Mirror (v0.6.6): send expectations + emitter beacons ---
         # Expectations for HAIR's OWN sends: full identity known.
         # Each: {"decoded_fp", "sig_fp", "row_key", "expires", "cancel"}.
@@ -674,6 +732,15 @@ class SignalMonitor:
                 LEGACY_ESPHOME_IR_EVENT, self._on_bridge_tracking_event
             )
             self._unsubs.append(unsub)
+
+        # Radio receivers (RF hear, round 1). Independent of the infrared
+        # path's mode: a core with radio receivers always has the native
+        # infrared receiver API too, and a core without them gets a
+        # tracker that finds nothing to subscribe.
+        from .rf_receive import RfReceiverTracker
+
+        self._rf_tracker = RfReceiverTracker(self._hass, self._on_rf_signal)
+        self._rf_tracker.async_start()
 
     @callback
     def _on_bridge_tracking_event(self, event: Event) -> None:
@@ -970,6 +1037,9 @@ class SignalMonitor:
         if self._unsub is not None:
             self._unsub()
             self._unsub = None
+        if self._rf_tracker is not None:
+            self._rf_tracker.async_stop()
+            self._rf_tracker = None
         for entity_id in list(self._receiver_subs):
             self._release_receiver(entity_id)
         if self._receiver_watch_unsub is not None:
@@ -1893,8 +1963,14 @@ class SignalMonitor:
         # own transmissions never fire them (the feedback-loop class) and
         # never pollute the human-press catalog. Claimed captures enrich
         # the Mirror's heard_by instead.
-        echo = await self._match_echo(n, receiver_entity_id)
-        if self._candy:
+        # Radio is never claimed as an echo this round: HAIR sends no
+        # radio, and an infrared send's beacon window must not swallow a
+        # radio press that happens to land inside it.
+        echo = (
+            None if n.rf is not None
+            else await self._match_echo(n, receiver_entity_id)
+        )
+        if self._candy and n.rf is None:
             # The Candy Drawer prints every frame here, echo or not:
             # after the echo verdict exists, before the dismiss list,
             # the rate limit and repeat suppression can hide anything.
@@ -1923,7 +1999,7 @@ class SignalMonitor:
         # transmissions must never read as a handset press, whether
         # they would land on a trigger or on a cell. Not a trigger
         # lookup: see matrix_listener's module docstring.
-        if self._matrix_listener is not None:
+        if self._matrix_listener is not None and n.rf is None:
             await self._matrix_listener.on_signal_captured(
                 sig_fp, byte_hash, decoded_fingerprint, receiver_entity_id,
                 n.norm_fp,
@@ -2028,6 +2104,10 @@ class SignalMonitor:
                     last_seen=now_iso,
                     hit_count=0,
                 )
+                if n.rf is not None:
+                    device.medium = MEDIUM_RF
+                    device.rf_header_shape = n.rf.header_shape
+                    device.rolling_state = "none"
                 self._signal_store.add_device(device)
 
             signal = filed_signal
@@ -2057,6 +2137,7 @@ class SignalMonitor:
                     last_seen=now_iso,
                     hit_count=0,
                 )
+                copy_rf_fields(parsed, signal)
                 # New signal goes on top of the remote's list so the
                 # just-pressed button surfaces; existing signals keep
                 # their position (only hit_count updates below).
@@ -2112,6 +2193,8 @@ class SignalMonitor:
             # arrivals (windowed receivers, round 3).
             "receiver_entity_id": receiver_entity_id,
         }
+        if n.rf is not None:
+            summary["medium"] = MEDIUM_RF
         self._hass.bus.async_fire(EVENT_SIGNAL_DETECTED, summary)
 
         # Step 12: Notify subscribers.
@@ -2175,6 +2258,57 @@ class SignalMonitor:
 
         self._hass.async_create_task(
             self._process_parsed_signal(parsed, receiver_entity_id, arrived_at)
+        )
+
+    # -----------------------------------------------------------------
+    # Radio receiver callback (RF hear, round 1)
+    # -----------------------------------------------------------------
+
+    def _on_rf_signal(self, signal: Any, receiver_entity_id: str) -> None:
+        """Handle a capture from a radio frequency receiver.
+
+        The capture's frames vote first (``rf_frames.analyze``); a
+        capture with no body or too few agreeing frames says nothing and
+        stops here. A winner becomes a CaptureResult carrying the
+        canonical frame and goes down the shared pipeline. None of the
+        infrared-only steps run on it: no ditto check (a short radio
+        frame is not a ditto), no ditto attribution, no decoders.
+        """
+        from .rf_frames import analyze
+        from .rf_receive import frequency_of
+
+        timings = list(getattr(signal, "timings", None) or [])
+        analysis = analyze(timings)
+        if analysis is None:
+            _LOGGER.debug(
+                "Radio capture on %s had no agreeing whole frames "
+                "(%d values); dropped", receiver_entity_id, len(timings),
+            )
+            return
+        frequency_hz, source = frequency_of(
+            self._hass, receiver_entity_id, signal
+        )
+        modulation = getattr(signal, "modulation", None)
+        parsed = CaptureResult(
+            protocol=RF_PROTOCOL,
+            code=None,
+            raw_timings=list(analysis.frame),
+            medium=MEDIUM_RF,
+            rf_frequency_hz=frequency_hz,
+            rf_frequency_source=source,
+            rf_modulation=str(
+                getattr(modulation, "value", None) or modulation or "OOK"
+            ).upper(),
+            rf_frame_hash=analysis.frame_hash,
+            rf_repeats_observed=analysis.votes,
+            rf_frame_gap_us=analysis.gap_us,
+            rf_frame_gap_source=analysis.gap_source,
+            rf_header_shape=analysis.header_shape,
+            rf_short_mark_us=analysis.short_mark_us,
+        )
+        parsed.rf = analysis  # type: ignore[attr-defined]
+        self._hass.async_create_task(
+            self._process_parsed_signal(parsed, receiver_entity_id, time.time())
         )
 
     def _maybe_attribute_repeat_frame(self, rid_key: str) -> None:
@@ -2684,6 +2818,12 @@ class SignalMonitor:
         if signal is None:
             return {"success": False, "code": "signal_not_found",
                     "error": "Signal not found"}
+
+        # A radio row is not sent yet (RF hear, round 1): the catalog
+        # half of device_manager.async_send_command's refusal.
+        if is_rf(signal):
+            return {"success": False, "code": RF_SEND_UNSUPPORTED,
+                    "error": "HAIR does not send radio codes yet"}
 
         # Lazy imports: infrared component only available at runtime on HA 2026.4+.
         from homeassistant.components.infrared import (
@@ -3403,6 +3543,11 @@ class SignalMonitor:
             if signal is None:
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found"}
+            # A radio row has no Pronto to edit (RF hear, round 1);
+            # writing one would turn a radio frame into an infrared code.
+            if is_rf(signal):
+                return {"success": False, "code": RF_EDIT_UNSUPPORTED,
+                        "error": "A radio code cannot be edited as Pronto"}
 
             code = result.normalized
             new_fp = canonical_fingerprint("PRONTO", code, [])

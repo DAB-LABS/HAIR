@@ -455,3 +455,47 @@ class ReceiverHardwareType(StrEnum):
 
     ESPHOME = "esphome"
     NATIVE = "native"
+
+
+# ---------------------------------------------------------------------------
+# Radio frequency (RF hear, round 1)
+# ---------------------------------------------------------------------------
+#
+# A row's medium. Rows without the field are infrared, which is every row
+# stored before radio existed, so ``MEDIUM_IR`` is never written.
+MEDIUM_IR = "ir"
+MEDIUM_RF = "rf"
+# The protocol an RF row carries. Its ``code`` is None and ``raw_timings``
+# is the canonical frame: there is no Pronto form for a radio carrier.
+RF_PROTOCOL = "RF_RAW"
+# A capture mints or bumps a row only when this many of its whole frames
+# agree on one fingerprint. Every fixed-code family repeats its frame at
+# least four times per press; a glitch almost never repeats.
+RF_MIN_FRAMES = 2
+# The inter-frame gap stored for a code whose gap was never seen inside a
+# capture. PROVISIONAL: long enough for every fixed-code family the plan
+# lists (a longer gap is accepted where a shorter one is not); the send
+# round and the Athom measurements may refine it.
+RF_ASSUMED_FRAME_GAP_US = 30_000
+# An address-first 24-symbol frame (the two-width PWM bodies of the
+# EV1527 and PT2262 class): 24 symbols of two edges plus the sync mark.
+# Its grouping key keeps the first 32 body edges, which is 16 of EV1527's
+# 20 address bits and exactly PT2262's 8 address trits, never a data bit.
+RF_ADDRESS_FIRST_BODY_EDGES = 49
+RF_ADDRESS_HEAD_EDGES = 32
+# The band shown beside an RF row: the carrier rounded to this step, so
+# 433.92 and 433.84 MHz read alike while 433.42 MHz stays apart.
+RF_BAND_STEP_HZ = 100_000
+# Where an RF row's carrier came from (plan 5.7, the ladder).
+RF_FREQUENCY_SOURCE_SIGNAL = "signal"
+RF_FREQUENCY_SOURCE_WINDOW = "window"
+RF_FREQUENCY_SOURCE_RECEIVER = "receiver"
+# Whether an RF row's inter-frame gap was measured inside a capture.
+RF_GAP_MEASURED = "measured"
+RF_GAP_ASSUMED = "assumed"
+# The error code a send of an RF row returns until HAIR can transmit
+# radio; the panel maps it to text.
+RF_SEND_UNSUPPORTED = "rf_send_unsupported"
+# The error code a Pronto edit of an RF row returns: a radio frame has no
+# Pronto form. Renames and send counts are not refused.
+RF_EDIT_UNSUPPORTED = "rf_edit_unsupported"

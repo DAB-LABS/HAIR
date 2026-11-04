@@ -30,7 +30,7 @@ from .const import (
     CommandSource,
     DeviceType,
 )
-from .device_manager import DeviceManager
+from .device_manager import DeviceManager, RfSendUnsupportedError
 from .device_registry_compat import device_by_identifier, hair_config_entry_id
 from .frequency_standards import IR_CARRIER_STANDARDS_HZ
 from .identity import (
@@ -1001,6 +1001,10 @@ async def ws_send_command(
         heard_future.cancel()
         connection.send_error(msg["id"], "not_found", str(err))
         return
+    except RfSendUnsupportedError as err:
+        heard_future.cancel()
+        connection.send_error(msg["id"], err.code, str(err))
+        return
     except Exception as err:
         heard_future.cancel()
         _LOGGER.error("Send command failed: %s", err, exc_info=True)
@@ -1329,9 +1333,31 @@ async def ws_get_receivers(
             receivers.append({
                 "entity_id": entity_id,
                 "name": str(name),
+                "medium": "ir",
             })
     except (ImportError, AttributeError):
         pass  # Pre-2026.6: no native receiver API.
+
+    # The radio receivers HAIR hears (RF hear, round 1): the capture
+    # devices, which are the only radio receivers it subscribes to.
+    from .receiver_window import says_capture
+    from .rf_receive import rf_receiver_ids
+
+    for entity_id in rf_receiver_ids(hass):
+        state = hass.states.get(entity_id)
+        if not says_capture(state):
+            continue
+        name = state.attributes.get("friendly_name", entity_id)
+        entry = er.async_get(hass).async_get(entity_id)
+        if entry is not None and entry.device_id is not None:
+            device = dr.async_get(hass).async_get(entry.device_id)
+            if device is not None:
+                name = device.name_by_user or device.name or name
+        receivers.append({
+            "entity_id": entity_id,
+            "name": str(name),
+            "medium": "rf",
+        })
 
     connection.send_result(msg["id"], receivers)
 
