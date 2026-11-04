@@ -762,8 +762,8 @@ Every device also gets a remote entity for raw Pronto hex codes and a button ent
 per learned command for direct dashboard or automation access.
 
 Requirements:
-- Home Assistant 2026.4 or later (introduces the native infrared platform that HAIR
-  depends on)
+- Home Assistant 2026.6 or later, the first release whose infrared library HAIR
+  is tested against (the infrared platform HAIR depends on arrived in 2026.4)
 - Python 3.12+
 - At least one IR transmitter or receiver supported by HA's infrared platform
 
@@ -772,8 +772,9 @@ What HAIR is NOT:
   them. The underlying IR hardware integrations are still required.
 - Not a replacement for HA's infrared platform -- HAIR is an admin layer on top of
   the platform.
-- Not compatible with Home Assistant versions earlier than 2026.4 (the infrared
-  platform did not exist before then).
+- Not supported on Home Assistant versions earlier than 2026.6 (the infrared
+  platform did not exist before 2026.4, and 2026.4 and 2026.5 ship an infrared
+  library without the NEC decoder HAIR is tested against).
 - Not a YAML-based integration -- all device profiles and command assignments are
   managed through the sidebar UI.
 - Not a built-in Home Assistant integration -- must be installed via HACS as a
@@ -781,10 +782,11 @@ What HAIR is NOT:
   v0.7.2, clearing the requirements for HACS default-store listing.)
 
 Receiver architecture:
-- On HA 2026.6+, HAIR uses the native InfraredReceiverEntity API
+- HAIR uses the native InfraredReceiverEntity API
   (infrared.async_subscribe_receiver) for hardware-agnostic signal capture.
-- On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event bus bridge
-  (esphome.remote_received events) automatically.
+- The legacy ESPHome event bus bridge (esphome.remote_received events) served
+  HA 2026.4-2026.5, before the native API existed; those releases are no longer
+  supported.
 - Both paths convert signals to Pronto hex at the entry point for consistent
   fingerprinting.
 - Capture windows (0.18.0): some receivers hear only while a capture window

@@ -15,7 +15,7 @@ Skieruj dowolnego pilota na odbiornik IR, naciśnij przycisk, a HAIR zamieni ten
 1. Otwórz HACS i wyszukaj HAIR
 2. Zainstaluj HAIR, zrestartuj Home Assistant i dodaj integrację w Ustawienia, potem Urządzenia i usługi
 
-Wymaga Home Assistant 2026.4 lub nowszego; 2026.6+ zalecane dla natywnych odbiorników IR.
+Wymaga Home Assistant 2026.6 lub nowszego.
 
 ## Pięć sposobów na wprowadzenie kodów
 

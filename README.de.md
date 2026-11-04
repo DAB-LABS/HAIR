@@ -15,7 +15,7 @@ Richte irgendeine Fernbedienung auf einen IR-Empfänger, drücke eine Taste, und
 1. Öffne HACS und suche nach HAIR
 2. Installiere HAIR, starte Home Assistant neu und füge die Integration unter Einstellungen, dann Geräte und Dienste hinzu
 
-Benötigt Home Assistant 2026.4 oder neuer; 2026.6+ empfohlen für native IR-Empfänger.
+Benötigt Home Assistant 2026.6 oder neuer.
 
 ## Fünf Wege, deine Codes hineinzubekommen
 

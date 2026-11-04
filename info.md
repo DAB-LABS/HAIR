@@ -6,7 +6,7 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 
 ## What you get
 
-- **Native receiver support (HA 2026.6+)** - Captures IR via the new `InfraredReceiverEntity` API, hardware-agnostic. Falls back to the legacy ESPHome event-bus bridge automatically on 2026.4-2026.5.
+- **Native receiver support** - Captures IR via Home Assistant's `InfraredReceiverEntity` API, hardware-agnostic.
 - **Devices and Remotes (new in 0.10.0 "Remotes Have Been Buffed")** - The Devices tab holds the things HAIR sends codes to and, beside them, the handsets HAIR recognizes: every Remote is its own Home Assistant device whose buttons show up in the automation editor, and pinning a Remote to a Device lets the handset drive it directly.
 - **Air-conditioner handsets** - An AC remote can be a Remote too, showing the state it just sent on a live STATE MATRIX card with a LAST HEARD row, and a "State heard" trigger that hands mode, fan, swing, and temperature to your automations.
 - **HAIR Sniffer** - Real-time IR signal monitor with fingerprinting, deduplication, and hit tracking. Find a mystery remote in seconds.
@@ -32,6 +32,6 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 
 ## Requirements
 
-- Home Assistant 2026.4 or later
-- **For capture:** HA 2026.6+ with any integration exposing an `InfraredReceiverEntity`, or HA 2026.4-2026.5 with an ESPHome device running the `remote_receiver` component and an `on_pronto:` bridge action.
+- Home Assistant 2026.6 or later
+- **For capture:** any integration exposing an `InfraredReceiverEntity`.
 - **For send:** any integration on HA's native infrared platform (ESPHome, Tuya Local, Broadlink, SMLIGHT, and any future adopter).

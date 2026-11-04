@@ -15,7 +15,7 @@ Punta un telecomando qualsiasi verso un ricevitore IR, premi un tasto, e HAIR tr
 1. Apri HACS e cerca HAIR
 2. Installa HAIR, riavvia Home Assistant e aggiungi l'integrazione in Impostazioni, poi Dispositivi e servizi
 
-Richiede Home Assistant 2026.4 o successivo; consigliato 2026.6+ per i ricevitori IR nativi.
+Richiede Home Assistant 2026.6 o successivo.
 
 ## Cinque modi per far entrare i tuoi codici
 

@@ -52,7 +52,7 @@ Or find it by hand:
 
 ## Requirements
 
-- Home Assistant **2026.4** or later. **2026.6+** is recommended for native IR receivers.
+- Home Assistant **2026.6** or later.
 - **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; a Broadlink listens with [BroadSniff](https://github.com/DAB-LABS/broadsniff) installed beside it (see [Capture devices](#capture-devices)); any other adopter works automatically.
 - **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, SMLIGHT, or MQTT.
 
