@@ -15,7 +15,7 @@ Apunta cualquier mando a un receptor IR, pulsa un botón, y HAIR convierte esa s
 1. Abre HACS y busca HAIR
 2. Instala HAIR, reinicia Home Assistant y añade la integración en Ajustes, luego Dispositivos y servicios
 
-Requiere Home Assistant 2026.4 o posterior; se recomienda 2026.6+ para receptores IR nativos.
+Requiere Home Assistant 2026.6 o posterior.
 
 ## Cinco formas de meter tus códigos
 

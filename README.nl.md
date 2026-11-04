@@ -15,7 +15,7 @@ Richt een willekeurige afstandsbediening op een IR-ontvanger, druk op een knop, 
 1. Open HACS en zoek naar HAIR
 2. Installeer HAIR, herstart Home Assistant en voeg de integratie toe onder Instellingen, dan Apparaten en diensten
 
-Vereist Home Assistant 2026.4 of nieuwer; 2026.6+ aanbevolen voor native IR-ontvangers.
+Vereist Home Assistant 2026.6 of nieuwer.
 
 ## Vijf manieren om je codes binnen te krijgen
 

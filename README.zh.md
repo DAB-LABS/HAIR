@@ -15,7 +15,7 @@
 1. 打开 HACS 并搜索 HAIR
 2. 安装 HAIR，重启 Home Assistant，然后在「设置 → 设备与服务」中添加该集成
 
-需要 Home Assistant 2026.4 或更高版本；原生红外接收推荐 2026.6 及以上。
+需要 Home Assistant 2026.6 或更高版本。
 
 ## 导入红外码的五种方式
 

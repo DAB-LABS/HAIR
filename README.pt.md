@@ -15,7 +15,7 @@ Aponte qualquer controle remoto para um receptor IR, pressione um botão, e o HA
 1. Abra o HACS e procure HAIR
 2. Instale o HAIR, reinicie o Home Assistant e adicione a integração em Configurações, depois Dispositivos e serviços
 
-Requer Home Assistant 2026.4 ou mais recente; 2026.6+ recomendado para receptores IR nativos.
+Requer Home Assistant 2026.6 ou mais recente.
 
 ## Cinco jeitos de colocar seus códigos
 
