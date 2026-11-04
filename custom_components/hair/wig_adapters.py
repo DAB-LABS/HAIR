@@ -2953,6 +2953,8 @@ def _convert_irdb(text: str, name_hint: str) -> AdapterResult:
         return result
     result.wigs.append(Wig(
         name=irdb_csv.wig_name(name_hint) or "irdb Import",
+        brand=irdb_csv.brand(name_hint),
+        kind=irdb_csv.kind(name_hint),
         signals=signals,
         notes="Imported from an irdb CSV.",
         origin="converted:irdb",
