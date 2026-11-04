@@ -1,0 +1,5 @@
+# current: Home Assistant 2026.10, the latest stable release (2026.10.0 to
+# 2026.10.4). The version core pins in
+# homeassistant/components/infrared/manifest.json at tag 2026.10.4.
+# Core requires Python >= 3.14.2.
+infrared-protocols==10.1.0
