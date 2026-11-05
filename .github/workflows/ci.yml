@@ -22,7 +22,7 @@ jobs:
             ha: "2026.6"
             python-version: "3.14"
           - leg: current
-            ha: "2026.10"
+            ha: "2026.11"
             python-version: "3.14"
           - leg: next
             ha: "next"

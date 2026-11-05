@@ -8,7 +8,7 @@ file here, passed to pip with `-c`:
 | Leg | File | Home Assistant | infrared-protocols |
 |---|---|---|---|
 | floor | `ha-2026.6.txt` | 2026.6, the oldest supported (`hacs.json`) | 5.6.1 |
-| current | `ha-2026.10.txt` | 2026.10, the latest stable | 10.1.0 |
+| current | `ha-2026.11.txt` | 2026.11, the latest stable | 10.5.0 |
 | next | `ha-next.txt` | core's dev branch, allowed to fail | 10.6.0 |
 
 Each pin is read from `homeassistant/components/infrared/manifest.json`
