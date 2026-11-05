@@ -217,6 +217,8 @@ class CaptureReceiverStore:
             declared = record.get("declared")
             if isinstance(declared, str) and declared:
                 kept[entry_id]["declared"] = declared
+            if record.get("rf_listen") is True:
+                kept[entry_id]["rf_listen"] = True
         self._records = kept
         if len(kept) != len(records):
             self._schedule_save()
@@ -272,6 +274,38 @@ class CaptureReceiverStore:
         record["capture"] = True
         record["switch"] = entity_id
         self._schedule_save()
+
+    def rf_listen(self, entry_id: str | None) -> bool:
+        """Whether the user opted HAIR in to an always-on radio receiver."""
+        return bool(entry_id and self._records.get(entry_id, {}).get("rf_listen"))
+
+    def set_rf_listen(self, entry_id: str, enabled: bool) -> None:
+        """Keep, or forget, the user's opt-in for an always-on radio receiver.
+
+        Stored beside the capture-device memory on the same record, keyed
+        by registry entry id, so a rename keeps it. An opt-in never makes
+        a receiver a capture device: ``capture`` is left as it was, and a
+        record created here starts with ``capture`` false. A record left
+        with nothing to remember is dropped.
+        """
+        record = self._records.get(entry_id)
+        if enabled:
+            if record is None:
+                record = self._records[entry_id] = {"capture": False, "switch": None}
+            if record.get("rf_listen") is True:
+                return
+            record["rf_listen"] = True
+        else:
+            if record is None or "rf_listen" not in record:
+                return
+            record.pop("rf_listen", None)
+            if not any(record.get(key) for key in ("capture", "switch", "declared")):
+                self._records.pop(entry_id, None)
+        self._schedule_save()
+
+    def rf_listen_entry_ids(self) -> list[str]:
+        """The registry entry ids of every opted-in radio receiver."""
+        return [entry_id for entry_id, r in self._records.items() if r.get("rf_listen")]
 
 
 def _store(hass: HomeAssistant) -> CaptureReceiverStore | None:
@@ -470,8 +504,55 @@ def capture_receivers(
             "frequency_hz": frequency_hz
             if isinstance(frequency_hz, int) and not isinstance(frequency_hz, bool)
             else None,
+            # The window, as the receiver's state says now. The panel
+            # keeps reading a hardware window live from the state; these
+            # are here so every row has the same fields as a software one.
+            "capture_device": True,
+            "software_window": False,
+            "capturing": is_capturing(state),
+            "window_ends_at": attributes.get(ATTR_WINDOW_ENDS_AT)
+            if is_capturing(state) else None,
+            "capture_mode": capture_mode(state) if is_capturing(state) else None,
         })
+    rows.extend(_software_rows(hass))
     rows.sort(key=lambda row: row["name"].casefold())
+    return rows
+
+
+def _software_rows(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """One row per opted-in always-on radio receiver HAIR is hearing.
+
+    Its window is HAIR's own (``rf_window.py``), so there is no switch
+    to choose and nothing on its device to offer.
+    """
+    from .rf_window import rf_always_on
+
+    always_on = rf_always_on(hass)
+    if always_on is None:
+        return []
+    registry = er.async_get(hass)
+    rows: list[dict[str, Any]] = []
+    for receiver in always_on.receivers:
+        window = always_on.window(receiver)
+        if window is None:
+            continue
+        entry = registry.async_get(receiver)
+        device_id = entry.device_id if entry is not None else None
+        rows.append({
+            "receiver_entity_id": receiver,
+            "name": _name(hass, device_id, receiver),
+            "ha_device_id": device_id,
+            "available": is_available(hass.states.get(receiver)),
+            "switch_entity_id": None,
+            "source": "software",
+            "device_switches": [],
+            "medium": "rf",
+            "capture_phase": None,
+            "frequency_hz": None,
+            "capture_device": False,
+            "software_window": True,
+            **window.state(),
+        })
     return rows
 
 
@@ -687,12 +768,29 @@ def arm_for(
     on_failure: Callable[[ReceiverArmError], None],
     on_window_closed: Callable[[], None],
     reopen_after_code: bool = False,
-) -> ReceiverWindowArm | None:
+) -> Any:
     """A window arm for a capture device, or None for any other receiver.
+
+    An opted-in always-on radio receiver gets a software arm
+    (``rf_window.SoftwareWindowArm``, the same interface): it opens
+    HAIR's own window for the listen, because a listen hears only what
+    reaches the Sniffer and an always-on receiver mints nothing while
+    its window is closed.
 
     Raises CaptureDeviceError for a capture device HAIR cannot open
     (unavailable, or no entity chosen to open it).
     """
+    from .rf_window import SoftwareWindowArm, rf_always_on
+
+    always_on = rf_always_on(hass)
+    window = always_on.window(receiver) if always_on is not None else None
+    if window is not None:
+        return SoftwareWindowArm(
+            window,
+            on_failure=on_failure,
+            on_window_closed=on_window_closed,
+            reopen_after_code=reopen_after_code,
+        )
     found = resolve(hass, receiver)
     if found is None:
         return None

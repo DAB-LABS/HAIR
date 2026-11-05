@@ -499,3 +499,28 @@ RF_SEND_UNSUPPORTED = "rf_send_unsupported"
 # The error code a Pronto edit of an RF row returns: a radio frame has no
 # Pronto form. Renames and send counts are not refused.
 RF_EDIT_UNSUPPORTED = "rf_edit_unsupported"
+# A receiver that reports one frame per capture (its idle ends a capture
+# at every inter-frame gap) delivers a press in pieces. The pieces of one
+# fingerprint are collected into a burst; the burst ends when no piece
+# of that fingerprint has arrived for RF_BURST_SILENCE_S, or at
+# RF_BURST_HOLD_S after it began, and then votes as one capture. A held
+# key therefore becomes a burst every RF_BURST_HOLD_S. At most
+# RF_PENDING_MAX bursts are open per receiver; the oldest closes first.
+RF_BURST_SILENCE_S = 0.2
+RF_BURST_HOLD_S = 1.5
+RF_PENDING_MAX = 64
+# HAIR's own listen window for an always-on radio receiver: the mode and
+# length a Listen opens with, and the lengths the listen door accepts.
+RF_SOFTWARE_WINDOW_MODE = "sliding"
+RF_SOFTWARE_WINDOW_S = 30
+RF_SOFTWARE_WINDOW_MIN_S = 5
+# THE CEILING (owner ruling 2026-11-05). A software window closes this
+# long after it opened, in every mode, whatever a sliding window's codes
+# or a listen holding it would otherwise do: on a busy receiver a
+# neighbour's keyfob once a minute would keep a sliding window open all
+# afternoon, minting a card for every stranger's remote. Reopening is
+# one click. The length one open asks for is capped at it too.
+RF_WINDOW_MAX_S = 300
+RF_SOFTWARE_WINDOW_MAX_S = RF_WINDOW_MAX_S
+# How often, at most, the always-on push sends a change of counters only.
+RF_COUNTER_PUSH_INTERVAL_S = 1.0

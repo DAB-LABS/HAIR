@@ -12,6 +12,10 @@ from .const import (
     MEDIUM_IR,
     MEDIUM_RF,
     RF_BAND_STEP_HZ,
+    RF_FREQUENCY_SOURCE_RECEIVER,
+    RF_FREQUENCY_SOURCE_SIGNAL,
+    RF_FREQUENCY_SOURCE_WINDOW,
+    RF_GAP_MEASURED,
     RF_PROTOCOL,
     TRIGGER_ALIAS_HISTORY_MAX,
     CommandCategory,
@@ -236,6 +240,45 @@ def copy_rf_fields(source: Any, target: Any) -> None:
     target.medium = getattr(source, "medium", MEDIUM_IR)
     for name in RF_ROW_FIELDS:
         setattr(target, name, getattr(source, name, None))
+
+
+# How much a radio row's carrier can be trusted, by where it came from:
+# the code's own measurement, then the window it was heard in, then the
+# receiver's declared range.
+_RF_FREQUENCY_RANK = {
+    RF_FREQUENCY_SOURCE_SIGNAL: 3,
+    RF_FREQUENCY_SOURCE_WINDOW: 2,
+    RF_FREQUENCY_SOURCE_RECEIVER: 1,
+}
+
+
+def upgrade_rf_fields(row: Any, capture: Any) -> bool:
+    """Let a known radio row learn what a better receiver measured.
+
+    The same button heard by two receivers is one row, so the row keeps
+    the best each has told it: a gap measured inside a capture replaces
+    an assumed one (a receiver that splits every frame into its own
+    capture never sees the gap), and a carrier from a better source
+    replaces a worse one. Never the other way, so the order the two
+    receivers are heard in does not matter. Nothing here is part of any
+    identity. True when anything changed.
+    """
+    changed = False
+    if (
+        getattr(row, "rf_frame_gap_source", None) != RF_GAP_MEASURED
+        and getattr(capture, "rf_frame_gap_source", None) == RF_GAP_MEASURED
+        and getattr(capture, "rf_frame_gap_us", None)
+    ):
+        row.rf_frame_gap_us = capture.rf_frame_gap_us
+        row.rf_frame_gap_source = RF_GAP_MEASURED
+        changed = True
+    mine = _RF_FREQUENCY_RANK.get(getattr(row, "rf_frequency_source", None) or "", 0)
+    theirs = _RF_FREQUENCY_RANK.get(getattr(capture, "rf_frequency_source", None) or "", 0)
+    if theirs > mine and getattr(capture, "rf_frequency_hz", None):
+        row.rf_frequency_hz = capture.rf_frequency_hz
+        row.rf_frequency_source = capture.rf_frequency_source
+        changed = True
+    return changed
 
 
 # Keys IRCommand.from_dict consumes (0.10.1 item 2). A key not in here

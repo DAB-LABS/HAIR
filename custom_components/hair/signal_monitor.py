@@ -89,6 +89,7 @@ from .models import (
     UnknownSignal,
     copy_rf_fields,
     is_rf,
+    upgrade_rf_fields,
 )
 from .pronto_validator import validate_pronto
 from .protocol_decode import carrier_allows_rebuild, try_decode_identity
@@ -592,6 +593,13 @@ class SignalMonitor:
         # Radio capture devices (RF hear, round 1): rf_receive.py's
         # tracker, started beside the infrared path.
         self._rf_tracker: Any = None
+        # Always-on radio receivers the user opted in: their software
+        # Listen windows and counters (rf_window.py), and one burst
+        # assembler per radio receiver for split delivery (rf_burst.py).
+        from .rf_window import RfAlwaysOn
+
+        self.rf_always_on = RfAlwaysOn(hass)
+        self._rf_bursts: dict[str, Any] = {}
         # --- The Mirror (v0.6.6): send expectations + emitter beacons ---
         # Expectations for HAIR's OWN sends: full identity known.
         # Each: {"decoded_fp", "sig_fp", "row_key", "expires", "cancel"}.
@@ -739,7 +747,13 @@ class SignalMonitor:
         # tracker that finds nothing to subscribe.
         from .rf_receive import RfReceiverTracker
 
-        self._rf_tracker = RfReceiverTracker(self._hass, self._on_rf_signal)
+        self._rf_tracker = RfReceiverTracker(
+            self._hass,
+            self._on_rf_signal,
+            opted_in=self._rf_opted_in,
+            on_attach=self.rf_always_on.attach,
+            on_detach=self._rf_detach,
+        )
         self._rf_tracker.async_start()
 
     @callback
@@ -1037,9 +1051,13 @@ class SignalMonitor:
         if self._unsub is not None:
             self._unsub()
             self._unsub = None
+        for assembler in self._rf_bursts.values():
+            assembler.discard()
+        self._rf_bursts.clear()
         if self._rf_tracker is not None:
             self._rf_tracker.async_stop()
             self._rf_tracker = None
+        self.rf_always_on.async_stop()
         for entity_id in list(self._receiver_subs):
             self._release_receiver(entity_id)
         if self._receiver_watch_unsub is not None:
@@ -1983,8 +2001,9 @@ class SignalMonitor:
         # Step 3: Check triggers. Threads the capturing receiver so scoped
         # triggers can match and the payload carries receiver + area
         # (v0.5.7).
+        fired: list[str] = []
         if self._trigger_manager is not None:
-            self._trigger_manager.on_signal_captured(
+            fired = self._trigger_manager.on_signal_captured(
                 sig_fp, parsed.protocol, parsed.code, dev_fp,
                 receiver_entity_id, byte_hash, decoded_fingerprint,
                 n.norm_fp,
@@ -2040,6 +2059,24 @@ class SignalMonitor:
             # event payload, the ditto anchor. Point them at the group
             # this capture is actually going to.
             dev_fp = filed_device.fingerprint
+
+        # Step 3.6: the software Listen window (always-on radio
+        # receivers). The trigger check above has already run, so a
+        # press on a known button fires whether or not anyone is
+        # listening, and a row the catalog already has goes on to count
+        # below. Only a code nobody has heard before needs the window:
+        # with it closed, the code is dropped and counted, never stored.
+        software = n.rf is not None and self.rf_always_on.attached(
+            receiver_entity_id or ""
+        )
+        if software:
+            if filed is not None or fired:
+                self.rf_always_on.count(receiver_entity_id, "matched")
+            if filed is None and not self.rf_always_on.window_open(
+                receiver_entity_id or ""
+            ):
+                self.rf_always_on.count(receiver_entity_id, "new_window_closed")
+                return
 
         # Step 4: Check dismiss list.
         if self._signal_store.is_dismissed(dev_fp):
@@ -2142,6 +2179,10 @@ class SignalMonitor:
                 # just-pressed button surfaces; existing signals keep
                 # their position (only hit_count updates below).
                 device.signals.insert(0, signal)
+                if software:
+                    self.rf_always_on.count(receiver_entity_id, "minted")
+            elif n.rf is not None:
+                upgrade_rf_fields(signal, parsed)
             self._signal_store.index_signal(device, signal)
 
             signal.hit_count += 1
@@ -2174,6 +2215,14 @@ class SignalMonitor:
 
         # Step 10: Schedule save.
         self._signal_store.schedule_save()
+
+        # A code HAIR took from an always-on receiver moves its software
+        # window: a sliding one's end goes out (never past the ceiling),
+        # a single one closes.
+        if software:
+            window = self.rf_always_on.window(receiver_entity_id or "")
+            if window is not None:
+                window.note_code()
 
         # Step 11: Fire HA event.
         summary = {
@@ -2264,27 +2313,101 @@ class SignalMonitor:
     # Radio receiver callback (RF hear, round 1)
     # -----------------------------------------------------------------
 
+    def _rf_opted_in(self, entity_id: str) -> bool:
+        """Whether the user opted HAIR in to this always-on radio receiver."""
+        from homeassistant.helpers import entity_registry as er
+
+        from .receiver_window import _store
+
+        store = _store(self._hass)
+        if store is None:
+            return False
+        entry = er.async_get(self._hass).async_get(entity_id)
+        return store.rf_listen(entry.id if entry is not None else None)
+
+    @callback
+    def _rf_detach(self, receiver_entity_id: str) -> None:
+        """HAIR stopped hearing an always-on receiver (opt-out, unavailable)."""
+        assembler = self._rf_bursts.pop(receiver_entity_id, None)
+        if assembler is not None:
+            assembler.discard()
+        self.rf_always_on.detach(receiver_entity_id)
+
+    def _rf_assembler(self, receiver_entity_id: str) -> Any:
+        assembler = self._rf_bursts.get(receiver_entity_id)
+        if assembler is None:
+            from .rf_burst import BurstAssembler
+
+            loop = self._hass.loop
+            assembler = BurstAssembler(
+                on_burst=lambda analysis, signal, rid=receiver_entity_id: (
+                    self._emit_rf(analysis, signal, rid)
+                ),
+                on_failed=lambda rid=receiver_entity_id: (
+                    self.rf_always_on.count(rid, "bursts_failed")
+                ),
+                call_at=loop.call_at,
+                now=loop.time,
+            )
+            self._rf_bursts[receiver_entity_id] = assembler
+        return assembler
+
     def _on_rf_signal(self, signal: Any, receiver_entity_id: str) -> None:
         """Handle a capture from a radio frequency receiver.
 
-        The capture's frames vote first (``rf_frames.analyze``); a
-        capture with no body or too few agreeing frames says nothing and
-        stops here. A winner becomes a CaptureResult carrying the
-        canonical frame and goes down the shared pipeline. None of the
-        infrared-only steps run on it: no ditto check (a short radio
-        frame is not a ditto), no ditto attribution, no decoders.
+        The capture is cut into pieces and the pieces with a body are
+        kept (``rf_frames``). Then one of two things, by what the
+        receiver delivered:
+
+        - **A whole press in one capture** (an RM4 pro window): two or
+          more of its frames agree, and the capture votes on its own, as
+          in round 1.
+        - **One frame per capture** (a receiver whose idle ends a capture
+          at every gap, an always-on ESPHome board among them): its
+          frames go to this receiver's burst assembler (``rf_burst``),
+          which collects one fingerprint's frames until the press is
+          over and votes them together.
+
+        A capture with no body in it is noise and stops here. A winning
+        vote becomes a CaptureResult carrying the canonical frame and
+        goes down the shared pipeline, where none of the infrared-only
+        steps run on it: no ditto check, no ditto attribution, no
+        decoders. Nothing on this path logs above debug or writes per
+        capture: an always-on receiver reports several captures a second
+        with nobody pressing anything.
         """
-        from .rf_frames import analyze
+        from .rf_frames import bodied_pieces, frame_fingerprint, split_frames, vote
+
+        started = time.perf_counter_ns()
+        always_on = self.rf_always_on.attached(receiver_entity_id)
+        if always_on:
+            self.rf_always_on.count(receiver_entity_id, "captures")
+        timings = list(getattr(signal, "timings", None) or [])
+        bodied = bodied_pieces(split_frames(timings))
+        if not bodied:
+            if always_on:
+                self.rf_always_on.count(receiver_entity_id, "noise")
+                self.rf_always_on.note_time(receiver_entity_id, started)
+            else:
+                _LOGGER.debug(
+                    "Radio capture on %s had no frame with a body "
+                    "(%d values); dropped", receiver_entity_id, len(timings),
+                )
+            return
+        analysis = vote(bodied)
+        if analysis is not None:
+            self._emit_rf(analysis, signal, receiver_entity_id)
+        else:
+            assembler = self._rf_assembler(receiver_entity_id)
+            for piece, parts in bodied:
+                assembler.add(frame_fingerprint(parts), (piece, parts), signal)
+        if always_on:
+            self.rf_always_on.note_time(receiver_entity_id, started)
+
+    def _emit_rf(self, analysis: Any, signal: Any, receiver_entity_id: str) -> None:
+        """A press that passed the vote, into the shared pipeline."""
         from .rf_receive import frequency_of
 
-        timings = list(getattr(signal, "timings", None) or [])
-        analysis = analyze(timings)
-        if analysis is None:
-            _LOGGER.debug(
-                "Radio capture on %s had no agreeing whole frames "
-                "(%d values); dropped", receiver_entity_id, len(timings),
-            )
-            return
         frequency_hz, source = frequency_of(
             self._hass, receiver_entity_id, signal
         )

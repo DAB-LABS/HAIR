@@ -1060,6 +1060,16 @@ export interface CaptureReceiverRow {
     capture_phase: "sweeping" | "listening" | null;
     /** Radio only: the carrier the open window listens on, or null. */
     frequency_hz: number | null;
+    /** True for a hardware capture device; false for a software-window row. */
+    capture_device: boolean;
+    /** True for an opted-in always-on radio receiver (no switch). */
+    software_window: boolean;
+    /** The window is open now. */
+    capturing: boolean;
+    /** When the open window closes (ISO 8601), or null. */
+    window_ends_at: string | null;
+    /** The open window's mode, or null. */
+    capture_mode: "sliding" | "single" | "multiple" | null;
 }
 
 // ---------------------------------------------------------------------------

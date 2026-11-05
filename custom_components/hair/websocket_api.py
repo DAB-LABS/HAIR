@@ -23,6 +23,10 @@ from .const import (
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
     MIRROR_DEVICE_FP,
+    RF_SOFTWARE_WINDOW_MAX_S,
+    RF_SOFTWARE_WINDOW_MIN_S,
+    RF_SOFTWARE_WINDOW_MODE,
+    RF_SOFTWARE_WINDOW_S,
     SEND_AIR_TIME_MAX_MS,
     SEND_SPACING_MAX_MS,
     SEND_SPACING_MIN_MS,
@@ -99,6 +103,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_receivers)
     websocket_api.async_register_command(hass, ws_capture_receivers)
     websocket_api.async_register_command(hass, ws_receiver_listen)
+    websocket_api.async_register_command(hass, ws_rf_opt_in)
+    websocket_api.async_register_command(hass, ws_rf_subscribe)
     websocket_api.async_register_command(hass, ws_set_capture_switch)
     websocket_api.async_register_command(hass, ws_get_sniffer_status)
 
@@ -1388,6 +1394,12 @@ def ws_capture_receivers(
     vol.Required("type"): f"{WS_PREFIX}/receivers/listen",
     vol.Required("receiver_entity_id"): str,
     vol.Required("on"): bool,
+    # Software windows only (always-on radio receivers); a capture
+    # device's window is its own, and these are ignored for it.
+    vol.Optional("mode"): vol.In(("sliding", "single", "multiple")),
+    vol.Optional("seconds"): vol.All(
+        int, vol.Range(min=RF_SOFTWARE_WINDOW_MIN_S, max=RF_SOFTWARE_WINDOW_MAX_S)
+    ),
 })
 @websocket_api.async_response
 async def ws_receiver_listen(
@@ -1395,12 +1407,38 @@ async def ws_receiver_listen(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Open or close a capture device's window.
+    """Open or close a capture device's window, or an always-on radio
+    receiver's software window.
 
     Takes the receiver, never the entity to toggle: that is resolved
     from the receiver under the safety rule, so this door cannot toggle
     anything a capture device does not own or the user did not choose.
+    An opted-in always-on radio receiver has no switch: its window is
+    HAIR's own (rf_window.py), opened with ``mode`` and ``seconds``
+    (sliding, 30 s by default; never past the five-minute ceiling).
     """
+    from .rf_receive import is_always_on
+    from .rf_window import NOT_OPTED_IN_CODE, rf_always_on
+
+    receiver = msg["receiver_entity_id"]
+    always_on = rf_always_on(hass)
+    window = always_on.window(receiver) if always_on is not None else None
+    if window is not None:
+        if msg["on"]:
+            window.open(
+                msg.get("mode", RF_SOFTWARE_WINDOW_MODE),
+                msg.get("seconds", RF_SOFTWARE_WINDOW_S),
+            )
+        else:
+            window.close()
+        connection.send_result(msg["id"], {"on": msg["on"], **window.state()})
+        return
+    if receiver.startswith("radio_frequency.") and is_always_on(hass.states.get(receiver)):
+        connection.send_error(
+            msg["id"], NOT_OPTED_IN_CODE,
+            f"{receiver} listens all the time and has not been opted in",
+        )
+        return
     try:
         await async_set_listening(hass, msg["receiver_entity_id"], msg["on"])
     except CaptureDeviceError as err:
@@ -1413,6 +1451,101 @@ async def ws_receiver_listen(
         connection.send_error(msg["id"], "listen_failed", str(err))
         return
     connection.send_result(msg["id"], {"on": msg["on"]})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/receivers/rf/opt_in",
+    vol.Required("receiver_entity_id"): str,
+    vol.Required("enabled"): bool,
+})
+@callback
+def ws_rf_opt_in(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Switch HAIR's listening on or off for an always-on radio receiver.
+
+    Kept on the receiver's CaptureReceiverStore record (registry entry
+    id, so a rename keeps it). Opting in subscribes at once; opting out
+    unsubscribes, closes an open software window and drops the counters.
+    Refuses a capture device: its own window already decides when it
+    hears. Returns the receiver's hardware entry after the change.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    from .receiver_discovery import rf_hardware_entry
+    from .receiver_window import _store, says_capture
+    from .rf_receive import is_rf_receiver_state
+    from .rf_window import (
+        NOT_ALWAYS_ON_CODE,
+        NOT_REGISTERED_CODE,
+        UNKNOWN_RECEIVER_CODE,
+    )
+
+    receiver = msg["receiver_entity_id"]
+    state = hass.states.get(receiver)
+    entry = er.async_get(hass).async_get(receiver)
+    store = _store(hass)
+    if not is_rf_receiver_state(state):
+        connection.send_error(
+            msg["id"], UNKNOWN_RECEIVER_CODE, f"{receiver} is not a radio receiver"
+        )
+        return
+    if says_capture(state) or (
+        store is not None and entry is not None and store.remembered(entry.id)
+    ):
+        connection.send_error(
+            msg["id"], NOT_ALWAYS_ON_CODE,
+            f"{receiver} is a capture device; its own window decides when it hears",
+        )
+        return
+    if entry is None or store is None:
+        connection.send_error(
+            msg["id"], NOT_REGISTERED_CODE,
+            f"{receiver} has no registry entry to keep the choice on",
+        )
+        return
+    store.set_rf_listen(entry.id, msg["enabled"])
+    data = _get_first_entry_data(hass)
+    monitor = data.get("signal_monitor") if data is not None else None
+    tracker = getattr(monitor, "_rf_tracker", None)
+    if tracker is not None:
+        tracker.reconcile()
+    connection.send_result(msg["id"], rf_hardware_entry(hass, receiver))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/receivers/rf/subscribe",
+})
+@callback
+def ws_rf_subscribe(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The always-on radio receivers' windows and counters, live.
+
+    The result is a snapshot, one item per receiver HAIR is hearing as
+    always-on; then one event per change for one receiver, in the same
+    shape: at once for a window opening, closing or moving its end, at
+    most once a second for counters alone. A receiver opted out sends a
+    last item with ``counters: null``.
+    """
+    from .rf_window import rf_always_on
+
+    always_on = rf_always_on(hass)
+    if always_on is None:
+        connection.send_result(msg["id"], [])
+        return
+    msg_id = msg["id"]
+    unsubscribe = always_on.subscribe(
+        lambda item: connection.send_event(msg_id, item)
+    )
+    connection.subscriptions[msg_id] = unsubscribe
+    connection.send_result(msg_id, always_on.snapshot())
 
 
 @websocket_api.require_admin

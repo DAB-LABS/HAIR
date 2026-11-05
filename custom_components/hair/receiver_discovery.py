@@ -67,6 +67,56 @@ def _has_ir_entities(ent_registry: Any, device_id: str) -> bool:
     return False
 
 
+def rf_hardware_entry(
+    hass: HomeAssistant, entity_id: str, ent_registry: Any | None = None
+) -> dict[str, Any]:
+    """One radio receiver's entry in ``hair/receivers/hardware``.
+
+    ``always_on`` and ``opted_in`` say whether HAIR hears it: a capture
+    device always; an always-on receiver only once the user opts it in.
+    ``counters`` is null unless HAIR is hearing it as always-on.
+    """
+    from .receiver_window import _store, says_capture
+    from .rf_receive import supported_ranges
+    from .rf_window import rf_always_on
+
+    ent_registry = ent_registry if ent_registry is not None else er.async_get(hass)
+    state = hass.states.get(entity_id)
+    entry = ent_registry.async_get(entity_id)
+    ranges = supported_ranges(hass, entity_id)
+    capture = says_capture(state)
+    store = _store(hass)
+    remembered = bool(
+        store is not None and entry is not None and store.remembered(entry.id)
+    )
+    always_on = not capture and not remembered
+    opted_in = bool(
+        always_on and store is not None and entry is not None
+        and store.rf_listen(entry.id)
+    )
+    tracker = rf_always_on(hass)
+    return {
+        "type": str(ReceiverHardwareType.NATIVE),
+        "device_id": entity_id,
+        "name": str(
+            state.attributes.get("friendly_name", entity_id)
+            if state is not None else entity_id
+        ),
+        "config_entry_id": None,
+        "receiver_entity_id": entity_id,
+        "medium": "rf",
+        "ha_device_id": entry.device_id if entry is not None else None,
+        "capture_device": capture,
+        "supported_frequency_ranges": (
+            [list(r) for r in ranges] if ranges is not None else None
+        ),
+        "always_on": always_on,
+        "opted_in": opted_in,
+        "software_window": opted_in,
+        "counters": tracker.counters(entity_id) if tracker is not None else None,
+    }
+
+
 async def list_receiver_hardware(hass: HomeAssistant) -> list[dict[str, Any]]:
     """The receiving hardware, as lightweight dicts for the websocket.
 
@@ -108,35 +158,13 @@ async def list_receiver_hardware(hass: HomeAssistant) -> list[dict[str, Any]]:
 
     # Radio receivers (RF hear, round 1), from the state machine so a
     # core without the radio component simply has none. Each says
-    # whether HAIR listens to it: a capture device yes; an always-on
-    # receiver not until a later release adds its opt-in
-    # (rf_receive.py says why).
-    from .receiver_window import says_capture
-    from .rf_receive import rf_receiver_ids, supported_ranges
+    # whether HAIR listens to it: a capture device always; an always-on
+    # receiver once the user opts it in (rf_window.py).
+    from .rf_receive import rf_receiver_ids
 
     ent_registry = er.async_get(hass)
     for entity_id in rf_receiver_ids(hass):
-        state = hass.states.get(entity_id)
-        entry = ent_registry.async_get(entity_id)
-        ranges = supported_ranges(hass, entity_id)
-        hardware.append(
-            {
-                "type": str(ReceiverHardwareType.NATIVE),
-                "device_id": entity_id,
-                "name": str(
-                    state.attributes.get("friendly_name", entity_id)
-                    if state is not None else entity_id
-                ),
-                "config_entry_id": None,
-                "receiver_entity_id": entity_id,
-                "medium": "rf",
-                "ha_device_id": entry.device_id if entry is not None else None,
-                "capture_device": says_capture(state),
-                "supported_frequency_ranges": (
-                    [list(r) for r in ranges] if ranges is not None else None
-                ),
-            }
-        )
+        hardware.append(rf_hardware_entry(hass, entity_id, ent_registry))
 
     # ESPHome devices via the legacy event-bus bridge.
     #

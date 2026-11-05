@@ -703,7 +703,12 @@ class TestTheReceiversDoors:
             "switch_entity_id", "source", "device_switches",
             # RF hear, round 1: the medium and a radio window's progress.
             "medium", "capture_phase", "frequency_hz",
+            # Always-on radio receivers: which door opens the window, and
+            # a software window's live state (both inert on a capture device).
+            "capture_device", "software_window",
+            "capturing", "window_ends_at", "capture_mode",
         }
+        assert (rows[0]["capture_device"], rows[0]["software_window"]) == (True, False)
         assert rows[0]["medium"] == "ir"
         assert rows[0]["capture_phase"] is None
         assert rows[0]["frequency_hz"] is None
