@@ -107,7 +107,7 @@ EXPECTED_CLAIMS: dict[str, set[str]] = {
 # nothing changes would fail `test_every_allowlisted_fixture_actually_changed`.
 #
 # The Futarque remote sends Proton frames, and the library's GE-AC
-# decoder (8.x and later) reads them: same layout, a unit 1.125 times
+# decoder (6.1.0 and later) reads them: same layout, a unit 1.125 times
 # longer, inside its 40% tolerance. Before the LIRC reader wrote this
 # block's `pre` pulse, the codes had no gap between their bytes and
 # nothing could read them. `leg.ge_ac_decoder_available` has the detail.

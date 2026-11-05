@@ -764,3 +764,28 @@ except ImportError:
         "In": lambda vals: vals,
         "Coerce": lambda t: t,
     })
+
+
+# ---------------------------------------------------------------------------
+# The decoder registry, at the end of every run
+# ---------------------------------------------------------------------------
+def pytest_terminal_summary(terminalreporter):
+    """Name the library decoders in use, and any HAIR is holding back.
+
+    A CI leg whose library has gained a decoder HAIR has not adopted says
+    so here, in the log, without anyone reading diagnostics. Written in
+    the terminal summary rather than the report header because CI runs
+    with ``-q``, which hides the header. ``ADOPTED_UPSTREAM_DECODERS`` in
+    protocol_decode has the rule.
+    """
+    from custom_components.hair.protocol_decode import (
+        held_back_upstream_decoders,
+        registered_protocols,
+    )
+
+    upstream = [r["protocol"] for r in registered_protocols() if r["source"] == "upstream"]
+    held = held_back_upstream_decoders()
+    terminalreporter.write_line(
+        f"HAIR registry: upstream {', '.join(upstream) or 'none'}; "
+        f"library decoders held back: {', '.join(held) or 'none'}"
+    )

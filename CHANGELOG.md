@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- HAIR keeps using its own decoder for a protocol until it has checked that the library's decodes the same codes the same way.
+
 ## [1.1.0] - 2026-11-04 -- Volumizer
 
 ### Added

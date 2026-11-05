@@ -37,9 +37,9 @@ def strict_nec_available() -> bool:
 def ge_ac_decoder_available() -> bool:
     """Does this environment register a GE-AC decoder?
 
-    GE-AC has no local class. The library's ``GEACCommand`` gained
-    ``from_raw_timings`` in its 8.x line, so on 5.x and on the bare leg
-    the spec is absent and on 8.x and later it is registered.
+    GE-AC has no local class. The library added ``GEACCommand``, with
+    ``from_raw_timings``, in 6.1.0, so on 5.x and on the bare leg the spec
+    is absent and on 6.1.0 and later it is registered.
 
     It matters to one fixture. The Futarque LIRC remote sends Proton
     frames (8000/4000 leader, 500us unit, a 500/4000 stop and gap

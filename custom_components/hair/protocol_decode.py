@@ -5,15 +5,17 @@ library. v0.6.0 generalizes that into a registry (multi-protocol decoder
 plan, Section 4.1) fed from two sources, probed in this order per
 protocol:
 
-1. **Upstream**: the bundled ``infrared_protocols`` class, used whenever
-   it ships a ``from_raw_timings`` decoder (feature-detected, never
-   version-pinned). What upstream can decode, upstream decodes.
+1. **Upstream**: the bundled ``infrared_protocols`` class, used only
+   when it ships a ``from_raw_timings`` decoder AND the protocol is on
+   ``ADOPTED_UPSTREAM_DECODERS``, the reviewed list of library decoders
+   HAIR has checked against its own (feature-detected, never
+   version-pinned).
 2. **Local**: HAIR's own decoder in ``custom_components/hair/decoders/``,
-   the polyfill used until the upstream library gains that protocol's
-   decoder (local-first strategy, plan Section 6). Local classes are
-   upstream-shaped, and their encoders are asserted byte-identical to
-   upstream's, so which source serves a protocol is invisible to stored
-   identity and to transmit.
+   used for every protocol not on that list, whether or not the library
+   could decode it. Local classes are upstream-shaped, and their encoders
+   are asserted byte-identical to upstream's, so adopting a library
+   decoder after its parity check changes neither stored identity nor
+   transmit.
 
 A protocol whose class cannot be imported from either source is skipped
 with a DEBUG log -- silent-skip is correct for "user's HA ships an older
@@ -107,6 +109,9 @@ class ProtocolSpec:
     # capture untouched.
     seek: Any = None  # Callable[[list[int]], list[int]] | None
     salvage: Any = None  # Callable[[list[int]], tuple[int, int] | None] | None
+    # What the installed library offered for this protocol: one of
+    # UPSTREAM_ADOPTED, UPSTREAM_NOT_ADOPTED or UPSTREAM_NONE.
+    upstream_decoder: str = "none"
 
 
 def _import_class(module_name: str, class_name: str) -> type | None:
@@ -118,27 +123,84 @@ def _import_class(module_name: str, class_name: str) -> type | None:
     return getattr(module, class_name, None)
 
 
+#: The library decoders HAIR uses, by registry key. Every other library
+#: decoder is ignored, even when it is installed and could decode.
+#:
+#: WHY A LIST. A Home Assistant release can ship an infrared library whose
+#: class for a protocol gains ``from_raw_timings``. Without this list HAIR
+#: switched to it on that day, with no HAIR release involved, and a
+#: decoder that differed from HAIR's in leniency, label, fields or
+#: fingerprint would re-identify stored signals and triggers on users'
+#: installs. (A lenient Sony decoder would bring back RC6-as-Sony, fixed
+#: in 1.1.) Feature detection alone cannot tell "this decodes" from
+#: "this decodes the same way".
+#:
+#: ADDING ONE IS A DELIBERATE PR. It carries the parity census: for every
+#: corpus row, the same label, fields and fingerprint from the library's
+#: decoder as from HAIR's, on each CI leg where the library decodes. For
+#: Sony it also carries the RC6 sweep (all 65,536 mode 0 pairs at each
+#: toggle, none read as Sony). Then the key goes here, one line.
+#:
+#: The entries:
+#:
+#: - nec: the library's NEC has been HAIR's NEC decoder since v0.4.0 and
+#:   there is no local one. Upstream on every CI leg.
+#: - geac: no local decoder. The library's decodes from 6.1.0, the release
+#:   that added it; it is registered identity-only, so a row it reads
+#:   sends its stored code.
+ADOPTED_UPSTREAM_DECODERS: frozenset[str] = frozenset({"nec", "geac"})
+
+#: What ``registered_protocols`` reports about the library's class.
+UPSTREAM_ADOPTED = "adopted"
+UPSTREAM_NOT_ADOPTED = "available, not adopted"
+UPSTREAM_NONE = "none"
+
+
+def _decoding_class(module_name: str | None, class_name: str) -> type | None:
+    """The class, if it imports and can decode."""
+    if module_name is None:
+        return None
+    cls = _import_class(module_name, class_name)
+    if cls is None or not hasattr(cls, "from_raw_timings"):
+        return None
+    return cls
+
+
 def _resolve_class(
     protocol_key: str, upstream_module: str | None, class_name: str,
     local_module: str | None,
-) -> tuple[type, str] | None:
-    """Feature-detect the decoding class for a protocol.
+) -> tuple[type, str, str] | None:
+    """Pick the decoding class for a protocol: ``(class, source, upstream)``.
 
-    Upstream wins when it can decode; the local polyfill covers the gap;
-    None (with a DEBUG log) when neither source provides the class.
+    The library's class is used only when it can decode and the protocol
+    is on ``ADOPTED_UPSTREAM_DECODERS``. Otherwise HAIR's own decoder is
+    used, whether or not the library's could decode; with no local
+    decoder the protocol is not registered. ``upstream`` says what the
+    library offered, for diagnostics. None (with a DEBUG log) when
+    nothing is registered.
+
+    One class serves both directions: the class that decodes a protocol
+    is the class ``build_protocol_command`` rebuilds it with, so identity
+    and transmit always come from the same field model.
     """
-    if upstream_module is not None:
-        cls = _import_class(upstream_module, class_name)
-        if cls is not None and hasattr(cls, "from_raw_timings"):
-            return (cls, "upstream")
-    if local_module is not None:
-        cls = _import_class(local_module, class_name)
-        if cls is not None and hasattr(cls, "from_raw_timings"):
-            return (cls, "local")
+    upstream_cls = _decoding_class(upstream_module, class_name)
+    adopted = protocol_key in ADOPTED_UPSTREAM_DECODERS
+    if upstream_cls is not None and adopted:
+        return (upstream_cls, "upstream", UPSTREAM_ADOPTED)
+    upstream = UPSTREAM_NONE if upstream_cls is None else UPSTREAM_NOT_ADOPTED
+    if upstream_cls is not None:
+        _LOGGER.debug(
+            "infrared-protocols can decode %s; HAIR keeps its own decoder "
+            "until the library's has been checked (ADOPTED_UPSTREAM_DECODERS)",
+            protocol_key,
+        )
+    local_cls = _decoding_class(local_module, class_name)
+    if local_cls is not None:
+        return (local_cls, "local", upstream)
     _LOGGER.debug(
-        "protocol %s not registered: no decoding class %s available "
-        "(upstream=%s, local=%s)",
-        protocol_key, class_name, upstream_module, local_module,
+        "protocol %s not registered: no usable decoding class %s "
+        "(upstream=%s, %s; local=%s)",
+        protocol_key, class_name, upstream_module, upstream, local_module,
     )
     return None
 
@@ -579,7 +641,7 @@ def _build_registry() -> list[ProtocolSpec]:
         resolved = _resolve_class(key, upstream_module, class_name, local_module)
         if resolved is None:
             continue
-        cls, source = resolved
+        cls, source, upstream = resolved
         seek = salvage = None
         if key == "nec":
             # v0.6.1 recovery hooks: leader-seek admits repeat-prefix
@@ -600,6 +662,7 @@ def _build_registry() -> list[ProtocolSpec]:
                 labels=labels,
                 seek=seek,
                 salvage=salvage,
+                upstream_decoder=upstream,
             )
         )
     return specs
@@ -648,14 +711,31 @@ def get_spec(protocol: str | None) -> ProtocolSpec | None:
 
 
 def registered_protocols() -> list[dict[str, Any]]:
-    """Describe the live registry for diagnostics: key, source, tier."""
+    """Describe the live registry for diagnostics.
+
+    Per protocol: the key, which source serves it, its transmit tier,
+    and ``upstream_decoder``, which is "adopted" when the library's
+    decoder is in use, "available, not adopted" when the installed
+    library could decode it but HAIR keeps its own, and "none" when the
+    library has no decoder for it.
+    """
     return [
         {
             "protocol": spec.key,
             "source": spec.source,
             "tx_rebuild": spec.tx_rebuild,
+            "upstream_decoder": spec.upstream_decoder,
         }
         for spec in _ensure_registry()
+    ]
+
+
+def held_back_upstream_decoders() -> list[str]:
+    """Registry keys whose library decoder is installed but not used."""
+    return [
+        spec.key
+        for spec in _ensure_registry()
+        if spec.upstream_decoder == UPSTREAM_NOT_ADOPTED
     ]
 
 
