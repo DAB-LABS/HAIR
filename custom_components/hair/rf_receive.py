@@ -14,9 +14,10 @@ hears only inside a window the user opened, so it cannot flood the
 catalog, and HAIR subscribes to it as soon as it appears. A receiver
 without ``capturing`` listens all the time. Radio receivers of that kind
 report several thousand noise captures an hour, so HAIR lists one and
-does NOT subscribe to it until a later release adds a per-receiver
-opt-in and the stray-frame gate. The infrared GH #72 filter is not
-consulted here; it stays on the infrared inventory.
+subscribes to it only once the user opts it in (``rf_window.py``), and
+then mints new rows from it only while its software Listen window is
+open. The infrared GH #72 filter is not consulted here; it stays on the
+infrared inventory.
 
 EVERY CALL IS GUARDED. The ``radio_frequency`` component loads only when
 some integration forwards a platform to it, and every core helper raises
@@ -160,8 +161,18 @@ def listens_to(state: Any) -> bool:
     )
 
 
+def is_always_on(state: Any) -> bool:
+    """An available radio receiver that listens all the time (no ``capturing``)."""
+    return (
+        is_rf_receiver_state(state)
+        and state.state != STATE_UNAVAILABLE
+        and not says_capture(state)
+    )
+
+
 class RfReceiverTracker:
-    """Keeps HAIR subscribed to every radio capture device.
+    """Keeps HAIR subscribed to every radio capture device, and to every
+    always-on radio receiver the user opted in.
 
     Mirrors the infrared path in ``signal_monitor``: the domain
     add/remove trackers catch receivers appearing, a state watcher over
@@ -176,9 +187,19 @@ class RfReceiverTracker:
         self,
         hass: HomeAssistant,
         on_signal: Callable[[Any, str], None],
+        *,
+        opted_in: Callable[[str], bool] | None = None,
+        on_attach: Callable[[str], None] | None = None,
+        on_detach: Callable[[str], None] | None = None,
     ) -> None:
         self._hass = hass
         self._on_signal = on_signal
+        # Always-on receivers: whether the user opted one in (by entity
+        # id), and who to tell when HAIR starts or stops hearing one.
+        self._opted_in = opted_in or (lambda _entity_id: False)
+        self._on_attach = on_attach
+        self._on_detach = on_detach
+        self._always_on: set[str] = set()
         self._subs: dict[str, CALLBACK_TYPE] = {}
         self._unsubs: list[CALLBACK_TYPE] = []
         self._watch_unsub: CALLBACK_TYPE | None = None
@@ -238,7 +259,7 @@ class RfReceiverTracker:
         data = event.data or {}
         entity_id = data.get("entity_id")
         new_state = data.get("new_state")
-        wanted = listens_to(new_state)
+        wanted = self._wanted(entity_id, new_state)
         if not wanted and entity_id in self._subs:
             self._release(entity_id)
         elif wanted and entity_id not in self._subs:
@@ -255,7 +276,7 @@ class RfReceiverTracker:
         for entity_id in [e for e in self._subs if e not in receivers]:
             self._release(entity_id)
         for entity_id in receivers:
-            wanted = listens_to(states.get(entity_id))
+            wanted = self._wanted(entity_id, states.get(entity_id))
             if wanted and entity_id not in self._subs:
                 self._subscribe(entity_id)
             elif not wanted and entity_id in self._subs:
@@ -270,6 +291,12 @@ class RfReceiverTracker:
                     self._hass, list(watched), self._on_state
                 )
             self._watched = watched
+
+    def _wanted(self, entity_id: str | None, state: Any) -> bool:
+        """A capture device, or an always-on receiver the user opted in."""
+        if entity_id is None:
+            return False
+        return listens_to(state) or (is_always_on(state) and self._opted_in(entity_id))
 
     @callback
     def _subscribe(self, entity_id: str) -> None:
@@ -292,6 +319,10 @@ class RfReceiverTracker:
             )
             return
         self._subs[entity_id] = unsub
+        if is_always_on(self._hass.states.get(entity_id)):
+            self._always_on.add(entity_id)
+            if self._on_attach is not None:
+                self._on_attach(entity_id)
         _LOGGER.debug("Subscribed to radio receiver %s", entity_id)
 
     @callback
@@ -300,4 +331,8 @@ class RfReceiverTracker:
         if unsub is not None:
             with contextlib.suppress(Exception):
                 unsub()
+        if entity_id in self._always_on:
+            self._always_on.discard(entity_id)
+            if self._on_detach is not None:
+                self._on_detach(entity_id)
         _LOGGER.debug("Released radio receiver %s", entity_id)

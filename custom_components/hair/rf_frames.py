@@ -212,6 +212,26 @@ def has_body(parts: FrameParts) -> bool:
     return True
 
 
+def bodied_pieces(pieces: list[FramePiece]) -> list[tuple[FramePiece, FrameParts]]:
+    """Every piece that has a body, in capture order."""
+    out = []
+    for piece in pieces:
+        parts = split_body(piece)
+        if parts.body and has_body(parts):
+            out.append((piece, parts))
+    return out
+
+
+def _modal(
+    candidates: list[tuple[FramePiece, FrameParts]],
+) -> list[tuple[FramePiece, FrameParts]]:
+    if not candidates:
+        return []
+    counts = Counter(len(piece.edges) for piece, _ in candidates)
+    modal = max(counts.items(), key=lambda item: (item[1], item[0]))[0]
+    return [(piece, parts) for piece, parts in candidates if len(piece.edges) == modal]
+
+
 def whole_frames(pieces: list[FramePiece]) -> list[tuple[FramePiece, FrameParts]]:
     """The pieces that are whole frames: a body, and the common length.
 
@@ -219,16 +239,7 @@ def whole_frames(pieces: list[FramePiece]) -> list[tuple[FramePiece, FrameParts]
     tie goes to the longer count, since a cut frame is shorter than a
     whole one, never longer.
     """
-    candidates = []
-    for piece in pieces:
-        parts = split_body(piece)
-        if parts.body and has_body(parts):
-            candidates.append((piece, parts))
-    if not candidates:
-        return []
-    counts = Counter(len(piece.edges) for piece, _ in candidates)
-    modal = max(counts.items(), key=lambda item: (item[1], item[0]))[0]
-    return [(piece, parts) for piece, parts in candidates if len(piece.edges) == modal]
+    return _modal(bodied_pieces(pieces))
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +369,19 @@ def analyze(timings: list[int] | None) -> RfCapture | None:
     cannot become the gap. When no winning frame was closed by a gap
     inside the capture (one frame per capture), the gap is assumed.
     """
-    frames = whole_frames(split_frames(timings))
+    return vote(whole_frames(split_frames(timings)))
+
+
+def vote(frames: list[tuple[FramePiece, FrameParts]]) -> RfCapture | None:
+    """The vote over whole frames, wherever they came from.
+
+    ``analyze`` hands it the whole frames of one capture. The burst
+    assembler (``rf_burst``) hands it the frames of one fingerprint that
+    a receiver delivered one per capture; those carry no gap, because
+    the capture's last value (the receiver's idle) is stripped, so their
+    gap is assumed, never read from the joins between captures.
+    """
+    frames = _modal(frames)
     if not frames:
         return None
     by_print: dict[str, list[tuple[FramePiece, FrameParts]]] = {}
@@ -369,7 +392,6 @@ def analyze(timings: list[int] | None) -> RfCapture | None:
     if len(winners) < RF_MIN_FRAMES:
         return None
 
-    first_parts = winners[0][1]
     gaps = [piece.gap for piece, _ in winners if piece.gap is not None]
     width = len(winners[0][0].edges) - (1 if winners[0][0].gap is not None else 0)
     body_edges = [
@@ -385,6 +407,27 @@ def analyze(timings: list[int] | None) -> RfCapture | None:
         gap_source = RF_GAP_ASSUMED
         frame = _signed(body_edges)
 
+    # EVERYTHING BELOW READS THE VOTED FRAME, NOT ONE OF THE FRAMES THAT
+    # VOTED. The fingerprint is two-level and the same on every winner by
+    # construction, but the frame hash is multi-level, and one receiver's
+    # spread moves a single frame's widths across a level often enough to
+    # matter: on a fixed-module 433 MHz receiver about 4 percent of single
+    # frames gave a different hash from the same button on another
+    # receiver, and a hash that disagrees is a different code to every
+    # identity tier (a second row, a missed trigger). The per-position
+    # median of the winners gave the other receiver's hash in every
+    # burst of five or more frames. When the median frame does not read
+    # as the winning fingerprint (no case is known), the first winner
+    # is used, as before.
+    voted = split_body(FramePiece(
+        tuple([*body_edges, gap_us] if gaps else body_edges),
+        gap_us if gaps else None,
+    ))
+    first_parts = (
+        voted
+        if voted.body and has_body(voted) and frame_fingerprint(voted) == winner_print
+        else winners[0][1]
+    )
     labels = body_labels(first_parts)
     marks, _ = _polarities(first_parts)
     short_marks = [
