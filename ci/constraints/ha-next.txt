@@ -1,4 +1,4 @@
 # next: Home Assistant core's dev branch. The version core pins in
-# homeassistant/components/infrared/manifest.json on dev, read 2026-11-03.
+# homeassistant/components/infrared/manifest.json on dev, read 2026-11-05.
 # Core requires Python >= 3.14.2. This leg may fail without failing CI.
 infrared-protocols==10.6.0
