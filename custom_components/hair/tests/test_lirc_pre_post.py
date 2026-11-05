@@ -120,7 +120,7 @@ class TestTheFixture:
 
         Proton is GE-AC's frame shape on a 500us unit instead of 562.5us,
         inside GE-AC's 40% tolerance, and HAIR registers no Proton
-        decoder. So where the library's GE-AC decoder exists (8.x and
+        decoder. So where the library's GE-AC decoder exists (6.1.0 and
         later) every code reads as GE-AC, with the pre_data as the
         address and the button code as the command, both in the order
         the file writes them. Everywhere else nothing reads them.

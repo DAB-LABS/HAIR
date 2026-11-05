@@ -606,11 +606,15 @@ Key components:
   Marantz Extended, and Nokia32 (Philips RC-MM, the Foxtel/Sky/Mediamaster
   set-top box family) -- in custom_components/hair/decoders/, each shaped
   exactly like an infrared_protocols module so it can be donated upstream as
-  a near-file-copy. A registry in protocol_decode.py feature-detects per
-  protocol: when the user's bundled infrared-protocols ships a decoder
-  (from_raw_timings present), upstream wins; otherwise the local polyfill
-  registers. Decoders split a capture into frames and majority-vote, so
-  variable frame counts and receiver jitter cannot fragment one button into
+  a near-file-copy. A registry in protocol_decode.py picks the class per
+  protocol: the bundled infrared-protocols decoder only when it exists and
+  the protocol is on ADOPTED_UPSTREAM_DECODERS (NEC and GE-AC today), a
+  reviewed list each entry of which needs a parity check against HAIR's
+  own decoder; otherwise HAIR's local decoder, even when the library could
+  decode. registered_protocols() reports, per protocol, whether a library
+  decoder is adopted, available but not adopted, or absent. Decoders
+  split a capture into frames and majority-vote, so variable frame
+  counts and receiver jitter cannot fragment one button into
   many identities (the v0.5.8 day-one field regression). The decoded
   fingerprint is formatted in exactly one place (format_fingerprint);
   bit-count variants fold into the protocol label (SONY15, KASEIKYO48,

@@ -5,9 +5,10 @@ HAIR's local-first decoder strategy (multi-protocol decoder plan, Section
 an ``infrared_protocols`` module -- same base class, same keyword-only
 constructor, same ``get_raw_timings`` / ``from_raw_timings`` contract -- so
 the module can be donated upstream as a near-file-copy. The registry in
-``protocol_decode`` prefers the upstream class whenever the bundled library
-ships a decoder for the protocol (feature-detected via
-``from_raw_timings``); these local classes are the polyfill until then.
+``protocol_decode`` uses these local classes until the bundled library's
+decoder for the same protocol has been checked against them and added to
+``ADOPTED_UPSTREAM_DECODERS``; a library decoder that is merely present
+is not used.
 
 Rules for this package (do not break them):
 
