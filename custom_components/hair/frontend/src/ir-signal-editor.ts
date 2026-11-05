@@ -411,7 +411,8 @@ export class IrSignalEditor extends LitElement {
     }
 
     /**
-     * The Ditto count input is meaningful only on NEC.
+     * The Ditto count input is meaningful only where the repeat is a
+     * true ditto: DITTO_PROTOCOLS in ir-tx-knobs (NEC, Apple, JVC).
      *
      * This gate used to read "any decoded protocol", on the reasoning
      * that dittos were generic across the rebuild tier. Measuring the

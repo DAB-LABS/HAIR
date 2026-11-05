@@ -23,7 +23,7 @@ Wymaga Home Assistant 2026.6 lub nowszego.
 - **Skonwertuj go.** Wklej znane kody IR albo wypełnij całego pilota z zainstalowanej biblioteki kodów, wybierając producenta i model.
 - **Wyciągnij go.** Pobierz kody nauczone już w nadajniku producenta (np. Tuya Local) bez ponownego uczenia choćby jednego na odbiorniku.
 - **Podsłuchaj go.** Każde polecenie IR wysłane przez Home Assistant pojawia się w Mirror, usłyszane czy nie, o jedno kliknięcie od stania się Twoim poleceniem.
-- **Załóż ją.** Upuść plik z kodami do Szafy -- udostępnioną perukę, JSON ze SmartIR, plik `.ir` z Flipper Zero, konfigurację LIRC, eksport Girr z IrScrutinizer, plik urządzenia Logitech Harmony, zestaw kodów Global Cache albo kody IR z Tasmoty -- a zawiśnie w Twojej kolekcji, o jedno kliknięcie od stania się działającym pilotem.
+- **Załóż ją.** Upuść plik z kodami do Szafy -- udostępnioną perukę, JSON ze SmartIR, plik `.ir` z Flipper Zero, konfigurację LIRC, eksport Girr z IrScrutinizer, plik urządzenia Logitech Harmony, zestaw kodów Global Cache, kody IR z Tasmoty albo plik CSV z irdb -- a zawiśnie w Twojej kolekcji, o jedno kliknięcie od stania się działającym pilotem.
 
 ## Co z nimi zrobisz
 
@@ -46,4 +46,4 @@ Kompletny README, z YAML-em konfiguracji, obsługiwanym sprzętem, przewodnikami
 
 ---
 
-*Przetłumaczone z angielskiego README, stan na v1.0.0. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Przetłumaczone z angielskiego README, stan na v1.1.0. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*

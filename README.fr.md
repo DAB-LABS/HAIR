@@ -23,7 +23,7 @@ Nécessite Home Assistant 2026.6 ou plus récent.
 - **Convertissez-le.** Collez des codes IR connus, ou préremplissez une télécommande entière depuis la bibliothèque de codes installée en choisissant un fabricant et un modèle.
 - **Cueillez-le.** Récupérez les codes déjà appris dans un blaster de fabricant (comme Tuya Local) sans en réapprendre un seul au récepteur.
 - **Surprenez-le.** Chaque commande IR envoyée via Home Assistant apparaît dans le Mirror, entendue ou non, à un clic de devenir une commande à vous.
-- **Enfilez-la.** Déposez un fichier de codes dans la Penderie -- une perruque partagée, un JSON SmartIR, un `.ir` de Flipper Zero, une configuration LIRC, un export Girr d'IrScrutinizer, un fichier d'appareil Logitech Harmony, un jeu de codes Global Cache ou des codes IR Tasmota -- et elle rejoint votre collection, à un clic de devenir une télécommande fonctionnelle.
+- **Enfilez-la.** Déposez un fichier de codes dans la Penderie -- une perruque partagée, un JSON SmartIR, un `.ir` de Flipper Zero, une configuration LIRC, un export Girr d'IrScrutinizer, un fichier d'appareil Logitech Harmony, un jeu de codes Global Cache, des codes IR Tasmota ou un CSV irdb -- et elle rejoint votre collection, à un clic de devenir une télécommande fonctionnelle.
 
 ## Ce que vous en faites
 
@@ -46,4 +46,4 @@ Le README complet, avec le YAML d'installation, le matériel pris en charge, les
 
 ---
 
-*Traduit du README anglais, version v1.0.0. Ce fichier a été rédigé par un assistant de programmation et est rafraîchi à chaque version. Les locuteurs natifs sont les bienvenus pour en prendre la responsabilité ; voir [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Traduit du README anglais, version v1.1.0. Ce fichier a été rédigé par un assistant de programmation et est rafraîchi à chaque version. Les locuteurs natifs sont les bienvenus pour en prendre la responsabilité ; voir [Adding a language](CONTRIBUTING.md#adding-a-language).*

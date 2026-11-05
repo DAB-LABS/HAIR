@@ -782,7 +782,7 @@ per learned command for direct dashboard or automation access.
 Requirements:
 - Home Assistant 2026.6 or later, the first release whose infrared library HAIR
   is tested against (the infrared platform HAIR depends on arrived in 2026.4)
-- Python 3.12+
+- Python 3.14, as Home Assistant itself requires
 - At least one IR transmitter or receiver supported by HA's infrared platform
 
 What HAIR is NOT:

@@ -23,7 +23,7 @@ Requer Home Assistant 2026.6 ou mais recente.
 - **Converta.** Cole códigos IR conhecidos, ou preencha um controle inteiro a partir da biblioteca de códigos instalada escolhendo fabricante e modelo.
 - **Extraia.** Puxe códigos já aprendidos em um emissor de fabricante (como o Tuya Local) sem reaprender nenhum no receptor.
 - **Escute.** Cada comando IR enviado pelo Home Assistant aparece no Mirror, ouvido de volta ou não, a um clique de virar um comando seu.
-- **Vista-a.** Solte um arquivo de códigos no Armário -- uma peruca compartilhada, um JSON do SmartIR, um `.ir` do Flipper Zero, uma configuração LIRC, uma exportação Girr do IrScrutinizer, um arquivo de dispositivo do Logitech Harmony, um conjunto de códigos da Global Cache ou códigos IR do Tasmota -- e ela fica pendurada na sua coleção, a um clique de virar um controle funcional.
+- **Vista-a.** Solte um arquivo de códigos no Armário -- uma peruca compartilhada, um JSON do SmartIR, um `.ir` do Flipper Zero, uma configuração LIRC, uma exportação Girr do IrScrutinizer, um arquivo de dispositivo do Logitech Harmony, um conjunto de códigos da Global Cache, códigos IR do Tasmota ou um CSV do irdb -- e ela fica pendurada na sua coleção, a um clique de virar um controle funcional.
 
 ## O que você faz com eles
 
@@ -46,4 +46,4 @@ O README completo, com YAML de configuração, hardware compatível, guias de fu
 
 ---
 
-*Traduzido do README em inglês, versão v1.0.0. Este arquivo foi redigido por um assistente de programação e é atualizado a cada versão. Falantes nativos são bem-vindos para assumir a responsabilidade por ele; veja [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Traduzido do README em inglês, versão v1.1.0. Este arquivo foi redigido por um assistente de programação e é atualizado a cada versão. Falantes nativos são bem-vindos para assumir a responsabilidade por ele; veja [Adding a language](CONTRIBUTING.md#adding-a-language).*
