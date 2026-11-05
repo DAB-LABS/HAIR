@@ -3,8 +3,8 @@
 Home Assistant deprecated ``DeviceRegistry.async_get_device`` because an
 identifier is unique only within a config entry. It warns on 2026.9 (the
 test box logged 46 of those warnings against HAIR) and is removed in
-2027.8.0. The replacements landed in 2026.8.0, four releases above the
-2026.4.0 floor in ``hacs.json``, so HAIR needs both paths and a pin on
+2027.8.0. The replacements landed in 2026.8.0, two releases above the
+2026.6.0 floor in ``hacs.json``, so HAIR needs both paths and a pin on
 each.
 
 WHY THE REGISTRIES HERE ARE HAND-WRITTEN CLASSES rather than mocks. The

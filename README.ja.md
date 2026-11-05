@@ -23,7 +23,7 @@ Home Assistant 2026.6以降が必要。
 - **変換する。** 既知のIRコードを貼り付けるか、メーカーとモデルを選んでインストール済みコードライブラリからリモコン一式を用意します。
 - **引き抜く。** メーカーのブラスター（Tuya Localなど）に学習済みのコードを、レシーバーで学習し直すことなく取り込みます。
 - **傍受する。** Home Assistant経由で送信されたすべてのIRコマンドは、聞き取れたかどうかにかかわらずMirrorに現れ、ワンクリックで自分のコマンドになります。
-- **かぶる。** コードファイルをクローゼットにドロップすると -- 共有されたウィッグ、SmartIRのJSON、Flipper Zeroの`.ir`、LIRCの設定ファイル、IrScrutinizerのGirrエクスポート、Logitech Harmonyのデバイスファイル、Global Cacheのコードセット、TasmotaのIRコード -- コレクションに掛けられ、ワンクリックで使えるリモコンになります。
+- **かぶる。** コードファイルをクローゼットにドロップすると -- 共有されたウィッグ、SmartIRのJSON、Flipper Zeroの`.ir`、LIRCの設定ファイル、IrScrutinizerのGirrエクスポート、Logitech Harmonyのデバイスファイル、Global Cacheのコードセット、TasmotaのIRコード、irdbのCSV -- コレクションに掛けられ、ワンクリックで使えるリモコンになります。
 
 ## 取り込んだコードでできること
 
@@ -46,4 +46,4 @@ Home Assistant 2026.6以降が必要。
 
 ---
 
-*英語版READMEからの翻訳、v1.0.0時点。このファイルはプログラミングアシスタントが下書きし、リリースごとに更新されます。ネイティブスピーカーによる引き継ぎを歓迎します。[Adding a language](CONTRIBUTING.md#adding-a-language)をご覧ください。*
+*英語版READMEからの翻訳、v1.1.0時点。このファイルはプログラミングアシスタントが下書きし、リリースごとに更新されます。ネイティブスピーカーによる引き継ぎを歓迎します。[Adding a language](CONTRIBUTING.md#adding-a-language)をご覧ください。*
