@@ -116,7 +116,7 @@ To turn a set of codes into a Device or Remote:
 3. Choose **Make a Device** or **Make a Remote**, name it, and pick hardware -- emitters for a Device, receivers for a Remote.
 4. Click Create.
 
-The Clipper is for pasting a code by hand (Pronto, a Tuya or Broadlink base64 code, a Global Cache `sendir` code, or a Tasmota code); the Plucker pulls codes already learned into a vendor blaster, such as a Tuya Local IR blaster, without transmitting anything over the air.
+The Clipper is for pasting a code by hand (Pronto, a Tuya or Broadlink base64 code, a Global Cache `sendir` code, or a Tasmota code); the Plucker pulls codes another integration has already learned, such as Broadlink, Tuya Local or OpenIRBlaster, without transmitting anything over the air (see [Pluck codes you already learned](#pluck-codes-you-already-learned)).
 
 For a Device, open it afterward and click **ACTIONS** on a command to map it to an entity action, such as `turn_on` or `volume_up`; only mapped actions show up as controls, so an entity never claims a feature your remote does not have. The entity follows every send HAIR makes to the Device through those mapped actions, whether it came from the entity, a HAIR button, `remote.send_command`, the panel or a pinned Remote.
 
@@ -158,7 +158,23 @@ A few limits to know: files whose codes are stored as Xiaomi-controller Raw are 
 
 If the comb flags a cell, it stays in the matrix and shows up under **Needs attention** on the device. See [Fix codes that need attention](#fix-codes-that-need-attention).
 
+## Pluck codes you already learned
+
+If you taught your remotes to another integration, the Plucker copies those codes into HAIR without sending anything over the air.
+
+1. Open the **Plucker** tab and click **+ Add Blaster**.
+2. Every code store HAIR finds in Home Assistant gets its own card, Broadlink first. Click a card to pluck it. Clicking it again later is safe: codes already plucked are not added twice.
+3. The codes land as cards on the Plucker tab. Click **USE** to make a Device or Remote from them (see [Turn signals into a device](#turn-signals-into-a-device)).
+
+What the Plucker reads:
+
+- **Broadlink:** codes learned with `remote.learn_command`, which the integration keeps in Home Assistant's storage. Codes learned in the Broadlink phone app stay in Broadlink's cloud and cannot be plucked. RF codes in the same store are set aside, since HAIR works with infrared.
+- **Tuya Local:** the codes your Tuya hub captured, or one code at a time by replaying it into a silent listener (the last card in the dialog).
+- **OpenIRBlaster:** the code library it learned, with the carrier it measured for each code.
+
 ## Import codes (SmartIR and the closet)
+
+Codes another integration has already learned, such as Broadlink's, do not need a file: pluck them instead (see [Pluck codes you already learned](#pluck-codes-you-already-learned)).
 
 The Closet is where portable code sets, called wigs, live. Two kinds of entries hang there: codebooks installed with Home Assistant's core infrared code library, and your own wig files, organized by brand. Search covers brand, name, and product identifiers like UPC, FCC ID, or ASIN, so a barcode typed off the box finds its wig. The Closet also converts several outside formats the moment you drop them in.
 
