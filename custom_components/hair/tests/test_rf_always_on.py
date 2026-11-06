@@ -46,7 +46,7 @@ from custom_components.hair.signal_store import SignalStore
 ATHOM = Path(__file__).parent / "fixtures" / "rf" / "athom"
 RID = "radio_frequency.office_433mhz_rf_receiver"
 RM4 = "radio_frequency.office_rm4_pro_rf_receiver"
-# The bench keyfob's frame period: a 49-edge frame of about 40 ms and
+# The fixtures' keyfob frame period: a 49-edge frame of about 40 ms and
 # its 12.9 ms gap.
 FRAME_PERIOD_S = 0.053
 
@@ -116,7 +116,7 @@ def _load(name):
         return json.loads(handle.read())
 
 
-FRAME_BODY_MIN = 40  # the bench keyfob's bodies are 49 edges (47 when clipped)
+FRAME_BODY_MIN = 40  # the fixtures' keyfob bodies: 49 edges (47 when clipped)
 
 
 def _is_frame(timings):
@@ -244,7 +244,7 @@ class TestBurstAssembler:
         bursts, failed = [], []
         assembler = BurstAssembler(
             on_burst=lambda analysis, signal: bursts.append((analysis, signal)),
-            on_failed=lambda: failed.append(loop.now),
+            on_lone=lambda: failed.append(loop.now),
             call_at=loop.call_at,
             now=loop.time,
         )
@@ -264,7 +264,7 @@ class TestBurstAssembler:
         assert analysis.votes == 6 and signal == "sig"
         assert analysis.gap_source == RF_GAP_ASSUMED  # never read from a join
 
-    def test_a_lone_frame_is_a_failed_burst(self, frame_parts):
+    def test_a_lone_frame_is_counted_as_one(self, frame_parts):
         loop = FakeLoop()
         assembler, bursts, failed = self._assembler(loop)
         assembler.add("fp", frame_parts)
@@ -573,32 +573,31 @@ class TestReplay:
         assert counters["minted"] == 0
 
     @pytest.mark.asyncio
-    async def test_noise_hour_window_held_open_measured(self, fake_hass):
-        """MEASURED, FOR THE BENCH TO RULE ON (go 2026-11-05, answer 4).
+    async def test_noise_hour_window_held_open_mints_nothing(self, fake_hass):
+        """An hour of noise with the window open the whole time.
 
-        With the window open for the whole hour, a few bursts of noise
-        pass the gate: two agreeing frames, each with a body. Every one
-        is a body of four to six edges with exactly two votes, nothing
-        like a remote's frame. Pinned so any change to the gate shows.
+        A few bursts of noise pass the frame vote (two agreeing frames,
+        each with a body), but every one is a body of four to six edges,
+        under ``RF_MIN_BODY_EDGES``, so none becomes a row. They count as
+        noise instead.
         """
-        _, store, _ = await _replay(
+        monitor, store, _ = await _replay(
             fake_hass, "athom-433-150us-6ms-noise-1h.json.gz", window="open"
         )
-        rows = [s for d in store.get_all_devices() for s in d.signals]
-        assert len(rows) == 4
-        for row in rows:
-            body = rf_frames.split_body(tuple(abs(v) for v in row.raw_timings[:-1]))
-            assert len(body.body) <= 6
-            assert row.rf_repeats_observed == 2
+        assert store.get_all_devices() == []
+        counters = monitor.rf_always_on.counters(RID)
+        assert counters["minted"] == 0
+        # The noise captures, plus the five voted scraps (4 to 6 edges).
+        assert counters["noise"] == 475 + 5
 
     @pytest.mark.asyncio
     async def test_noise_hour_with_filter_symbols(self, fake_hass):
-        """The same, at ``filter_symbols: 20``; the fixture lives on the share."""
+        """The same, at ``filter_symbols: 20`` (a fixture kept outside the repository)."""
         name = "athom-433-150us-6ms-fs20-noise-1h.json.gz"
         _m, closed, _ = await _replay(fake_hass, name, window=None)
         assert closed.get_all_devices() == []
         _m, held, _ = await _replay(fake_hass, name, window="open")
-        assert sum(len(d.signals) for d in held.get_all_devices()) == 2
+        assert held.get_all_devices() == []
 
 
 # ---------------------------------------------------------------------------

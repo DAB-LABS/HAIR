@@ -22,12 +22,12 @@ held for several seconds becomes a burst every ``RF_BURST_HOLD_S``. At
 most ``RF_PENDING_MAX`` bursts are open at once; opening one more ends
 the oldest first. An ended burst goes to the vote
 (``rf_frames.vote``) when it holds at least ``RF_MIN_FRAMES`` frames,
-and is counted as failed otherwise. The gate is the one a whole capture
+and is counted as a lone frame otherwise. The gate is the one a whole capture
 passes: enough agreeing frames, each with a body.
 
 ONE TIMER per assembler, re-armed to the earliest deadline, so a busy
 receiver costs no timer per capture. The clock and the timer are passed
-in, so the tests run the bench's own captures at their real spacing.
+in, so the tests replay recorded captures at their real spacing.
 """
 from __future__ import annotations
 
@@ -63,8 +63,8 @@ class BurstAssembler:
     """Collects one receiver's split-delivered frames into presses.
 
     ``on_burst(analysis, signal)`` receives each burst that passed the
-    vote, with the last signal object that fed it; ``on_failed()`` is
-    called for each burst that ended with too few frames.
+    vote, with the last signal object that fed it; ``on_lone()`` is
+    called for each burst that ended with too few frames (a lone frame).
     ``call_at(when, fn)`` schedules ``fn`` at the clock's ``when`` and
     returns a handle with ``cancel()``; ``now()`` reads that clock.
     """
@@ -73,12 +73,12 @@ class BurstAssembler:
         self,
         *,
         on_burst: Callable[[RfCapture, Any], None],
-        on_failed: Callable[[], None],
+        on_lone: Callable[[], None],
         call_at: Callable[[float, Callable[[], None]], Any],
         now: Callable[[], float],
     ) -> None:
         self._on_burst = on_burst
-        self._on_failed = on_failed
+        self._on_lone = on_lone
         self._call_at = call_at
         self._now = now
         self._open: dict[str, _Burst] = {}
@@ -130,7 +130,7 @@ class BurstAssembler:
             del self._open[burst.fingerprint]
         analysis = vote(burst.frames) if len(burst.frames) >= RF_MIN_FRAMES else None
         if analysis is None:
-            self._on_failed()
+            self._on_lone()
         else:
             self._on_burst(analysis, burst.signal)
 

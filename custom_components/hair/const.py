@@ -472,6 +472,11 @@ RF_PROTOCOL = "RF_RAW"
 # agree on one fingerprint. Every fixed-code family repeats its frame at
 # least four times per press; a glitch almost never repeats.
 RF_MIN_FRAMES = 2
+# A radio code becomes a new row only when its body has at least this many
+# edges. Receiver noise sometimes repeats a body of four to six edges
+# within a burst; no fixed-code remote's body comes near this. Known rows
+# are not affected: a match counts and fires whatever its length.
+RF_MIN_BODY_EDGES = 8
 # The inter-frame gap stored for a code whose gap was never seen inside a
 # capture. PROVISIONAL: long enough for every fixed-code family the plan
 # lists (a longer gap is accepted where a shorter one is not); the send

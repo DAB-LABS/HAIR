@@ -18,8 +18,8 @@ last edge.
 WHOLE FRAMES. A piece is a frame only if it has a BODY: its marks form
 at least two width levels and so do its spaces. Receiver noise repeats
 itself only in pieces of a handful of edges with no body, so a body is
-what separates a press from noise (measured on the bench: about 12,000
-noise captures an hour, none with a body ever repeating). Of the pieces
+what separates a press from noise (measured: about 12,000 noise
+captures an hour, none with a remote-length body ever repeating). Of the pieces
 with a body, the frames are those of the most common edge count. That one
 rule drops the partial frames a capture starts and ends with, and a frame
 a receiver damaged mid-capture (the RM4 pro stretches one duration every
