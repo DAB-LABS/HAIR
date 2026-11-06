@@ -8,7 +8,7 @@
  * Emits ``device-selected`` and ``add-device`` events for HAIR devices.
  * Emitter/receiver/proxy cards link to their HA integration page.
  */
-import { LitElement, html, css, nothing, unsafeCSS, type PropertyValues } from "lit";
+import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp, tv } from "./localize.js";
@@ -51,10 +51,20 @@ import type { HairApi } from "./api.js";
 import { landedManyNotice, pinFillNotice } from "./api.js";
 import type { PinResult } from "./api.js";
 import { BROADSNIFF_URL } from "./types.js";
-import type { CaptureReceiverRow } from "./types.js";
-import "./ir-listen-chip.js";
-import { LISTEN_GOLD, LISTEN_GREEN } from "./ir-listen-chip.js";
-import { captureSignature, listenLive, listenOnline, rxCaptureMatch } from "./ir-listen-state.js";
+import type { CaptureReceiverRow, HardwareFacts, Medium } from "./types.js";
+import { protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
+import { captureSignature } from "./ir-listen-state.js";
+import {
+    agoParts,
+    badgeLabel,
+    buildHardwareCards,
+    cardOffline,
+    hardwareSections,
+    mediumBreak,
+    type CapabilityRow,
+    type HardwareCard,
+    type RowFact,
+} from "./ir-hardware-rows.js";
 import type { MatrixCardPick } from "./ir-matrix-card.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
@@ -79,7 +89,7 @@ import type {
 } from "./types.js";
 import { REMOTE_TYPES } from "./types.js";
 import { entityDisplayName, entityFullName } from "./entity-names.js";
-import { cardGlyph, cardHealth, isEntityOnline, partsHealth } from "./entity-health.js";
+import { cardGlyph, isEntityOnline, partsHealth } from "./entity-health.js";
 import { cardIconPath } from "./card-icons.js";
 import { EMBER_VAR, ONLINE_VAR } from "./ir-header-chip-styles.js";
 
@@ -162,6 +172,8 @@ const ICON_BLASTER =
 
 /** Debounce delay (ms) between a drop and the persist call. */
 const REORDER_DEBOUNCE_MS = 500;
+/** How often the hardware rows re-read their facts and move "14 s ago" on. */
+const FACTS_REFRESH_MS = 30_000;
 
 /**
  * Width of the Remote detail header's label column, in px (punch list
@@ -177,24 +189,6 @@ const REORDER_DEBOUNCE_MS = 500;
  * ir-device-detail.ts. Re-measure before adding a longer label here.
  */
 const REMOTE_HDR_LABEL_W = 80;
-
-/**
- * Result of merging capture providers by HA device ID.
- *
- * A physical device with both a native ``InfraredReceiverEntity`` and a
- * legacy ESPHome event-bridge entry collapses into one of these.  Broadlink
- * (proprietary learn mode) is bucketed as bridge for display purposes.
- */
-interface MergedHardwareEntry {
-    device_id: string;            // HA device-registry ID (merge key)
-    name: string;                 // display name
-    nav_type: string;             // integration domain for navigation
-    has_native: boolean;          // InfraredReceiverEntity present
-    has_bridge: boolean;          // ESPHome bridge or Broadlink learn mode
-    has_tx: boolean;              // also TX-capable (= shows as proxy)
-    native_entity_id?: string;    // entity_id of the native receiver, if any
-    tx_entity_ids: string[];      // infrared.* TX entity_ids on this device
-}
 
 @customElement("ir-device-list")
 export class IrDeviceList extends LitElement {
@@ -212,10 +206,15 @@ export class IrDeviceList extends LitElement {
 
     @state() private _emitters: { entity_id: string; name: string; fullName: string }[] = [];
     @state() private _receiverHardware: ReceiverHardwareInfo[] = [];
-    /** One row per capture device (``hair/receivers/capture``): what
-     *  the RX-CAPTURE chip on a hardware card toggles, and what its
-     *  switch menu shows. */
+    /** One row per capture device (``hair/receivers/capture``): a
+     *  remembered capture device whose integration has not loaded still
+     *  gets its row on the hardware card. */
     @state() private _listenRows: CaptureReceiverRow[] = [];
+    /** ``hair/hardware/facts``: the right column of the hardware rows. */
+    @state() private _facts: HardwareFacts | null = null;
+    /** The clock the relative times are drawn against. */
+    @state() private _now = Date.now();
+    private _factsTimer: ReturnType<typeof setInterval> | null = null;
     /** The ``hass.entities`` and ``captureSignature`` the rows were read
      *  for. Re-read only when either changes (a receiver added, removed,
      *  loaded, gone unavailable or back), not on every state update,
@@ -377,6 +376,7 @@ export class IrDeviceList extends LitElement {
     connectedCallback(): void {
         super.connectedCallback();
         this._discoverHardware();
+        this._startFactsTick();
         void this._loadTriggers();
         void this._loadTriggerDrawer();
         void this._subscribeTriggerFired();
@@ -384,6 +384,7 @@ export class IrDeviceList extends LitElement {
 
     disconnectedCallback(): void {
         super.disconnectedCallback();
+        this._stopFactsTick();
         this._closeRemoteActionPopover();
         void this._unsubscribeTriggerFired();
         this._devicesSortable?.destroy();
@@ -416,6 +417,9 @@ export class IrDeviceList extends LitElement {
                 this._listenRowsSig = sig;
                 void this._loadListenRows();
             }
+        }
+        if (changed.has("api") && this.api && this._facts === null) {
+            void this._loadFacts();
         }
         if (changed.has("api") && this.api && !this._triggerFiredSub) {
             void this._loadTriggers();
@@ -2009,144 +2013,8 @@ export class IrDeviceList extends LitElement {
         >`;
     }
 
-    /** Device-registry IDs that have an emitter entity (TX capable). */
-    private _getEmitterDeviceIds(): Set<string> {
-        const ids = new Set<string>();
-        for (const em of this._emitters) {
-            const reg = this.hass?.entities?.[em.entity_id];
-            if (reg?.device_id) ids.add(reg.device_id);
-        }
-        return ids;
-    }
-
-    /** Group emitter entity_ids by their HA device_id. */
-    private _getEmitterEntityIdsByDevice(): Map<string, string[]> {
-        const byDevice = new Map<string, string[]>();
-        for (const em of this._emitters) {
-            const reg = this.hass?.entities?.[em.entity_id];
-            const deviceId = reg?.device_id;
-            if (!deviceId) continue;
-            const list = byDevice.get(deviceId) ?? [];
-            list.push(em.entity_id);
-            byDevice.set(deviceId, list);
-        }
-        return byDevice;
-    }
-
-    /** Detect HA versions older than 2026.6 (no native InfraredReceiverEntity). */
-    private _isPre2026_6(): boolean {
-        const v: string | undefined = this.hass?.config?.version;
-        if (!v) return false;
-        const m = v.match(/^(\d+)\.(\d+)/);
-        if (!m) return false;
-        const major = parseInt(m[1], 10);
-        const minor = parseInt(m[2], 10);
-        return major < 2026 || (major === 2026 && minor < 6);
-    }
-
-    /** Resolve integration domain for navigation. */
-    private _resolveNavType(
-        cp: ReceiverHardwareInfo,
-        nativeEntityId: string | undefined,
-    ): string {
-        if (cp.type === "native" && nativeEntityId) {
-            const platform = this.hass?.entities?.[nativeEntityId]?.platform;
-            if (platform) return platform;
-            // Fall back to esphome -- by far the most common source of
-            // InfraredReceiverEntity in the wild.
-            return "esphome";
-        }
-        return cp.type;
-    }
-
-    /**
-     * Classify the receiving hardware, merging native + bridge entries for
-     * the same physical HA device into one entry with both flags set.
-     *
-     * Receivers = every capture-capable device.
-     * Proxies   = subset that also has an emitter on the same HA device.
-     * A TX+RX device shows in both sections by design (each section answers
-     * a different question; same hardware legitimately answers both).
-     */
-    private _classifyHardware(): {
-        receivers: MergedHardwareEntry[];
-        proxies: MergedHardwareEntry[];
-    } {
-        const txByDevice = this._getEmitterEntityIdsByDevice();
-        const txDeviceIds = new Set(txByDevice.keys());
-        const byDeviceId = new Map<string, MergedHardwareEntry>();
-
-        for (const cp of this._receiverHardware) {
-            // For native providers the backend stashes the entity_id in
-            // ``cp.device_id``; the real HA device-registry ID has to be
-            // looked up via ``hass.entities``.
-            let haDeviceId: string | undefined;
-            let nativeEntityId: string | undefined;
-            if (cp.type === "native") {
-                nativeEntityId = cp.receiver_entity_id ?? cp.device_id;
-                haDeviceId = this.hass?.entities?.[nativeEntityId]?.device_id;
-                // Fallback: use the entity_id as a synthetic merge key so
-                // the card still shows even if the entity isn't registered.
-                if (!haDeviceId) haDeviceId = nativeEntityId;
-            } else {
-                haDeviceId = cp.device_id;
-            }
-            if (!haDeviceId) continue;
-
-            const existing = byDeviceId.get(haDeviceId);
-            const entry: MergedHardwareEntry = existing ?? {
-                device_id: haDeviceId,
-                name: cp.name,
-                nav_type: this._resolveNavType(cp, nativeEntityId),
-                has_native: false,
-                has_bridge: false,
-                has_tx: txDeviceIds.has(haDeviceId),
-                tx_entity_ids: txByDevice.get(haDeviceId) ?? [],
-            };
-            if (cp.type === "native") {
-                entry.has_native = true;
-                entry.native_entity_id = nativeEntityId;
-            } else {
-                // ESPHome event-bus bridge or Broadlink learn mode.
-                entry.has_bridge = true;
-                // Prefer the bridge's device-registry name (cleaner) and
-                // its concrete integration domain over any native default.
-                entry.name = cp.name;
-                entry.nav_type = cp.type;
-            }
-            byDeviceId.set(haDeviceId, entry);
-        }
-
-        // A capture device whose integration has not loaded is on no
-        // receiver list, but HAIR remembers it (windowed receivers,
-        // round 3): its card stays, RX-CAPTURE with the chip disabled.
-        const shown = new Set(
-            Array.from(byDeviceId.values()).map((e) => e.native_entity_id).filter(Boolean),
-        );
-        for (const row of this._listenRows) {
-            if (shown.has(row.receiver_entity_id)) continue;
-            const haDeviceId = row.ha_device_id ?? row.receiver_entity_id;
-            if (byDeviceId.has(haDeviceId)) continue;
-            byDeviceId.set(haDeviceId, {
-                device_id: haDeviceId,
-                name: row.name,
-                nav_type:
-                    this.hass?.entities?.[row.receiver_entity_id]?.platform ?? "infrared",
-                has_native: true,
-                has_bridge: false,
-                has_tx: txDeviceIds.has(haDeviceId),
-                tx_entity_ids: txByDevice.get(haDeviceId) ?? [],
-                native_entity_id: row.receiver_entity_id,
-            });
-        }
-
-        const merged = Array.from(byDeviceId.values());
-        const proxies = merged.filter((e) => e.has_tx);
-        return { receivers: merged, proxies };
-    }
-
     /** Best-effort: without a capture device, or on a failed read, there
-     *  are no rows and every card keeps its RX-NATIVE badge. */
+     *  are no rows and the cards draw what the receiver door lists. */
     private async _loadListenRows(): Promise<void> {
         try {
             this._listenRows = (await this.api?.captureReceivers()) ?? [];
@@ -2155,83 +2023,6 @@ export class IrDeviceList extends LitElement {
         }
         // The emitter list leaves capture devices out, so it follows them.
         void this._discoverHardware();
-    }
-
-    /** Whether a card's receiver hears only while a capture window is
-     *  open (see rxCaptureMatch). Matched by the receiver entity, then
-     *  by the HA device. */
-    private _rxCapture(entry: MergedHardwareEntry) {
-        const row =
-            this._listenRows.find((r) => r.receiver_entity_id === entry.native_entity_id) ??
-            this._listenRows.find((r) => r.ha_device_id !== null && r.ha_device_id === entry.device_id);
-        const attributes = entry.native_entity_id
-            ? this.hass?.states?.[entry.native_entity_id]?.attributes
-            : undefined;
-        return { row, ...rxCaptureMatch(attributes, row !== undefined) };
-    }
-
-    /** A hardware card's health (ember, 2026-10-19), live from hass:
-     *  "none" when the card's device has no infrared entity (an ESPHome
-     *  event bridge, RX-BRIDGE), "offline" when it has some and every
-     *  one is unavailable, "online" otherwise. `ids` are the card's own
-     *  entities, used when the registry has no device for them. */
-    private _hwHealth(deviceId: string | null | undefined, ids: (string | undefined)[]) {
-        return cardHealth(
-            this.hass,
-            deviceId,
-            ids.filter((id): id is string => typeof id === "string"),
-        );
-    }
-
-    /** Whether any of a card's own entities is online: a proxy's TX
-     *  badge follows its emitters, so one live emitter keeps it green. */
-    private _anyOnline(ids: (string | undefined)[]): boolean {
-        return ids.some((id) => typeof id === "string" && isEntityOnline(this.hass?.states, id));
-    }
-
-    /** A hardware badge's tooltip and accessible name, with its health
-     *  (owner bench, 2026-10-19): "TX-NATIVE, offline: Transmits via
-     *  ...". */
-    private _badgeName(label: string, online: boolean, description: string): string {
-        return `${label}, ${t(online ? "common.online" : "common.offline")}: ${description}`;
-    }
-
-    /** TX-NATIVE, green while its emitter answers and ember while it
-     *  is unavailable. */
-    private _renderTxBadge(ids: (string | undefined)[]) {
-        const online = this._anyOnline(ids);
-        const name = this._badgeName("TX-NATIVE", online, t("devlist.tx_native_title"));
-        return html`<span
-            class="badge tx-native ${online ? "" : "offline"}"
-            role="img"
-            aria-label=${name}
-            title=${name}
-        >TX-NATIVE</span>`;
-    }
-
-    /** A capture device's state for its card glyph, which follows the
-     *  RX-CAPTURE chip: null for a card that is not a capture device.
-     *  ``waiting`` while no switch is resolved: the glyph is grey until
-     *  one is, then gold (owner, 2026-10-20). */
-    private _captureGlyphState(
-        entry: MergedHardwareEntry,
-    ): { online: boolean; listening: boolean; waiting: boolean } | null {
-        const capture = this._rxCapture(entry);
-        if (capture.kind === null) return null;
-        const states = this.hass?.states;
-        if (capture.kind === "chip" && capture.row && this.api) {
-            const online = listenOnline(states, capture.row);
-            return {
-                online,
-                listening: online && listenLive(states, capture.row).on,
-                waiting: capture.row.switch_entity_id === null,
-            };
-        }
-        const online = this._anyOnline([entry.native_entity_id]);
-        const capturing = entry.native_entity_id
-            ? states?.[entry.native_entity_id]?.attributes?.capturing === true
-            : false;
-        return { online, listening: online && capturing, waiting: false };
     }
 
     /** "OFFLINE", plain ember capitals tucked into the card's top-right
@@ -2246,69 +2037,185 @@ export class IrDeviceList extends LitElement {
         >`;
     }
 
-    /** The receiver badge. A capture device gets RX-CAPTURE in place of
-     *  RX-NATIVE (owner, 2026-10-17): as the Listen chip itself, so a
-     *  click here starts it listening the way the Sniffer's chip does,
-     *  split since the owner's ruling of 2026-10-20, its caret opening
-     *  the menu of what opens its window; or as a static badge before
-     *  its row has arrived. Receivers and Proxies cards alike. */
-    private _renderNativeBadge(entry: MergedHardwareEntry) {
-        const capture = this._rxCapture(entry);
-        // Health on the badge (owner bench, 2026-10-19): green, or the
-        // capture gold, while the receiver answers; ember while it is
-        // unavailable. The Listen chip below judges its own (receiver
-        // and the entity that opens its window) and goes ember the same
-        // way, caret included.
-        const online = this._anyOnline([entry.native_entity_id]);
-        if (capture.kind === "chip" && capture.row && this.api) {
-            return html`<ir-listen-chip
-                compact
-                .hass=${this.hass}
-                .api=${this.api}
-                .row=${capture.row}
-                @capture-switch-changed=${() => void this._loadListenRows()}
-            ></ir-listen-chip>`;
-        }
-        if (capture.kind !== null) {
-            const name = this._badgeName("RX-CAPTURE", online, t("devlist.rx_capture_title"));
-            return html`<span
-                class="badge rx-capture ${online ? "" : "offline"}"
-                role="img"
-                aria-label=${name}
-                title=${name}
-            >RX-CAPTURE</span>`;
-        }
-        if (!entry.has_native) return nothing;
-        const name = this._badgeName("RX-NATIVE", online, t("devlist.rx_native_title"));
-        return html`<span
-            class="badge rx-native ${online ? "" : "offline"}"
-            role="img"
-            aria-label=${name}
-            title=${name}
-        >RX-NATIVE</span>`;
+    /** The protocol glyphs on a HAIR Device or Remote card's pill row,
+     *  right-aligned across from the counts (glyph spec): one per
+     *  medium its commands or triggers use, infrared first. */
+    private _renderProtoGlyphs(media: readonly Medium[] | undefined) {
+        if (!media || media.length === 0) return nothing;
+        return html`<span class="proto-glyphs">${media.map((m) => renderProtoGlyph(m, 16))}</span>`;
     }
 
-    /** Render TX/RX-NATIVE / RX-BRIDGE badges with a pre-2026.6 upgrade hint. */
-    private _renderRxBadges(entry: MergedHardwareEntry) {
-        const showGrayedNative =
-            !entry.has_native && entry.has_bridge && this._isPre2026_6();
+    /** The hardware cards, one per HA device (ir-hardware-rows.ts). */
+    private _hardwareCards(): HardwareCard[] {
+        const listed = new Set(
+            this._receiverHardware
+                .map((r) => r.receiver_entity_id ?? r.device_id)
+                .filter((id): id is string => typeof id === "string"),
+        );
+        for (const row of this._listenRows) listed.add(row.receiver_entity_id);
+        const hidden = new Set(
+            this._receivers.map((r) => r.entity_id).filter((id) => !listed.has(id)),
+        );
+        return buildHardwareCards({
+            states: this.hass?.states,
+            entities: this.hass?.entities,
+            receivers: this._receiverHardware,
+            captureRows: this._listenRows,
+            facts: this._facts,
+            hidden,
+        });
+    }
+
+    /** A card's title: the HA device's name, else its first entity's. */
+    private _cardName(card: HardwareCard): string {
+        const device = this.hass?.devices?.[card.device_id];
+        const name = device?.name_by_user || device?.name;
+        if (name) return String(name);
+        const first = card.rows[0]?.entity_id;
+        const hw = this._receiverHardware.find(
+            (r) => (r.receiver_entity_id ?? r.device_id) === first,
+        );
+        return hw?.name ?? (first ? entityFullName(this.hass, first) : card.device_id);
+    }
+
+    /** The integration a card's click opens: its first entity's. */
+    private _cardNavType(card: HardwareCard): string {
+        const first = card.rows[0]?.entity_id;
+        return first ? this._emitterIntegrationDomain(first) : "infrared";
+    }
+
+    /** The right column of a row (design: "what the right column says"). */
+    private _factText(fact: RowFact): string {
+        if (fact.kind === "unavailable") return t("hw.unavailable");
+        if (fact.kind === "none") return "";
+        const ago = agoParts(fact.at, this._now);
+        if (!ago) return "";
+        const when = t(`hw.ago_${ago.unit}`, { count: ago.n });
+        return t(fact.kind === "sent" ? "hw.sent" : "hw.heard", { ago: when });
+    }
+
+    /** A row's badge tooltip and accessible name: what it is, and its
+     *  health, the badge's colour. */
+    private _badgeTitle(row: CapabilityRow): string {
+        const what = t(`hw.badge.${row.medium}_${row.direction}`);
+        return `${badgeLabel(row)}, ${t(row.available ? "common.online" : "common.offline")}: ${what}`;
+    }
+
+    private _renderCapabilityRow(row: CapabilityRow, ruleAbove: boolean) {
+        const fact = this._factText(row.fact);
+        const name = entityDisplayName(this.hass, row.entity_id);
+        const full = entityFullName(this.hass, row.entity_id);
+        const title = this._badgeTitle(row);
+        return html`<div
+            class="cap-row ${row.available ? "" : "is-down"} ${ruleAbove ? "rule-above" : ""}"
+            data-entity=${row.entity_id}
+        >
+            <span class="badge cap-badge ${row.available ? "" : "offline"}" role="img" aria-label=${title} title=${title}
+                >${badgeLabel(row)}</span
+            >
+            <span class="cap-name" title=${full}>${name}</span>
+            <span class="cap-fact">${fact}</span>
+        </div>`;
+    }
+
+    /** One hardware card. Information only: the whole card opens the
+     *  integration page, as before, and nothing on it is a control. */
+    private _renderHardwareCard(kind: "emitters" | "receivers" | "proxies", card: HardwareCard) {
+        const offline = cardOffline(card);
+        const health: "online" | "offline" = offline ? "offline" : "online";
+        // The icon goes outline when the card's part is down: an
+        // emitter card its transmitters, a receiver card its receivers,
+        // a proxy card any row.
+        const part = card.rows.filter((r) =>
+            kind === "emitters" ? r.direction === "tx" : kind === "receivers" ? r.direction === "rx" : true,
+        );
+        const glyph = cardGlyph(
+            partsHealth(
+                this.hass?.states,
+                part.map((r) => r.entity_id),
+            ),
+            null,
+        );
+        const icon =
+            kind === "emitters"
+                ? "emitter"
+                : kind === "proxies"
+                  ? "proxy"
+                  : card.rows.some((r) => r.capture_device)
+                    ? "capture"
+                    : "receiver";
+        const nav = this._cardNavType(card);
+        const split = mediumBreak(card);
+        const name = this._cardName(card);
+        return html`<div
+            class="card hw-card hw-glyph-${glyph} ${offline ? "is-offline" : ""}"
+            tabindex="0"
+            @click=${() => this._navigateIntegration(nav)}
+            @keydown=${(e: KeyboardEvent) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    this._navigateIntegration(nav);
+                }
+            }}
+        >
+            ${this._renderOfflineCorner(health)}
+            <div class="card-header">
+                <ha-svg-icon .path=${cardIconPath(icon, glyph)}></ha-svg-icon>
+                <div class="card-name" title=${name}>${name}</div>
+            </div>
+            <div class="cap-rows">
+                ${card.rows.map((row, i) => this._renderCapabilityRow(row, i === split))}
+            </div>
+            ${card.rows
+                .filter((r) => r.direction === "tx" && r.medium === "ir")
+                .map((r) => this._renderBroadSniffHint(r.entity_id))}
+        </div>`;
+    }
+
+    private _renderHardwareSection(
+        kind: "emitters" | "receivers" | "proxies",
+        cards: HardwareCard[],
+    ) {
+        if (cards.length === 0) return nothing;
         return html`
-            ${this._renderNativeBadge(entry)}
-            ${entry.has_bridge
-                ? html`<span
-                      class="badge rx-bridge"
-                      title=${entry.has_native
-                          ? t("devlist.rx_bridge_active")
-                          : t("devlist.rx_bridge_title")}
-                  >RX-BRIDGE</span>`
-                : nothing}
-            ${showGrayedNative
-                ? html`<span
-                      class="badge rx-native-disabled"
-                      title=${t("devlist.rx_upgrade_title")}
-                  >RX-NATIVE</span>`
-                : nothing}
+            <div class="section-header">
+                <h2>${t(`devlist.${kind}`)}</h2>
+                <span class="section-count">${cards.length}</span>
+            </div>
+            <div class="grid hw-grid">
+                ${repeat(
+                    cards,
+                    (c) => c.device_id,
+                    (c) => this._renderHardwareCard(kind, c),
+                )}
+            </div>
         `;
+    }
+
+    /** The two facts, re-read every 30 s while the tab is shown; the
+     *  same tick moves "14 s ago" on. Best-effort: without them the
+     *  right column stays blank. */
+    private async _loadFacts(): Promise<void> {
+        if (!this.api) return;
+        try {
+            this._facts = await this.api.hardwareFacts();
+        } catch {
+            // Keep what we had.
+        }
+        this._now = Date.now();
+    }
+
+    private _startFactsTick(): void {
+        if (this._factsTimer !== null) return;
+        void this._loadFacts();
+        this._factsTimer = setInterval(() => {
+            if (document.visibilityState === "visible") void this._loadFacts();
+        }, FACTS_REFRESH_MS);
+    }
+
+    private _stopFactsTick(): void {
+        if (this._factsTimer !== null) clearInterval(this._factsTimer);
+        this._factsTimer = null;
     }
 
     render() {
@@ -2318,11 +2225,11 @@ export class IrDeviceList extends LitElement {
 
         const devices = this._localDevices ?? this.devices;
         const hasDevices = devices.length > 0;
-        const hasEmitters = this._emitters.length > 0;
-        const { receivers, proxies } = this._classifyHardware();
-        const hasReceivers = receivers.length > 0;
-        const hasProxies = proxies.length > 0;
-        const hasNothing = !hasDevices && !hasEmitters && !hasReceivers && !hasProxies;
+        const sections = hardwareSections(this._hardwareCards());
+        const hasNothing =
+            !hasDevices &&
+            sections.emitters.length === 0 &&
+            sections.receivers.length === 0;
 
         if (hasNothing) {
             return html`
@@ -2415,6 +2322,7 @@ export class IrDeviceList extends LitElement {
                                           ${device.emitter_entity_ids.length > 0
                                               ? html`<span class="badge tx-badge">${t("devlist.tx_badge", { count: device.emitter_entity_ids.length })}</span>`
                                               : html`<span class="badge no-tx-badge">${t("devlist.no_tx")}</span>`}
+                                          ${this._renderProtoGlyphs(device.media)}
                                       </div>
                                   </div>
                                   ${device.id === this.expandedDeviceId && this._expandedDevice
@@ -2527,6 +2435,11 @@ export class IrDeviceList extends LitElement {
                                   })}</span
                               >`
                             : ""}
+                        ${this._renderProtoGlyphs(
+                            (["ir", "rf"] as const).filter((m) =>
+                                this._drawerTriggers.some((trig) => (trig.medium ?? "ir") === m),
+                            ),
+                        )}
                     </div>
                 </div>
                 ${this.expandedDeviceId === TRIGGER_DRAWER_ID
@@ -2677,6 +2590,7 @@ export class IrDeviceList extends LitElement {
                                           })}</span
                                       >`
                                     : ""}
+                                ${this._renderProtoGlyphs(remote.media)}
                             </div>
                         </div>
                         ${remote.id === this.expandedDeviceId
@@ -2931,164 +2845,12 @@ export class IrDeviceList extends LitElement {
                   `
                 : nothing}
 
-            <!-- Emitters -->
-            ${hasEmitters
-                ? html`
-                      <div class="section-header">
-                          <h2>${t("devlist.emitters")}</h2>
-                          <span class="section-count">${this._emitters.length}</span>
-                      </div>
-                      <div class="grid">
-                          ${this._emitters.map((em) => {
-                              const health = this._hwHealth(
-                                  this.hass?.entities?.[em.entity_id]?.device_id,
-                                  [em.entity_id],
-                              );
-                              // The icon follows the emitter alone.
-                              const glyph = cardGlyph(
-                                  partsHealth(this.hass?.states, [em.entity_id]),
-                                  null,
-                              );
-                              return html`
-                                  <div
-                                      class="card hw-card hw-glyph-${glyph} ${health === "offline" ? "is-offline" : ""}"
-                                      tabindex="0"
-                                      @click=${() =>
-                                          this._navigateIntegration(
-                                              this._emitterIntegrationDomain(em.entity_id),
-                                          )}
-                                      @keydown=${(e: KeyboardEvent) => {
-                                          if (e.key === "Enter" || e.key === " ") {
-                                              e.preventDefault();
-                                              this._navigateIntegration(
-                                                  this._emitterIntegrationDomain(em.entity_id),
-                                              );
-                                          }
-                                      }}
-                                  >
-                                      ${this._renderOfflineCorner(health)}
-                                      <div class="card-header">
-                                          <ha-svg-icon .path=${cardIconPath("emitter", glyph)}></ha-svg-icon>
-                                          <div class="card-name" title=${em.fullName}>${em.name}</div>
-                                      </div>
-                                      <div class="card-meta">${em.entity_id}</div>
-                                      <div class="card-footer">
-                                          ${this._renderTxBadge([em.entity_id])}
-                                      </div>
-                                      ${this._renderBroadSniffHint(em.entity_id)}
-                                  </div>
-                              `;
-                          })}
-                      </div>
-                  `
-                : nothing}
-
-            <!-- Receivers (capture-capable hardware; proxies appear here too by design) -->
-            ${hasReceivers
-                ? html`
-                      <div class="section-header">
-                          <h2>${t("devlist.receivers")}</h2>
-                          <span class="section-count">${receivers.length}</span>
-                      </div>
-                      <div class="grid">
-                          ${receivers.map((entry) => {
-                              const health = this._hwHealth(entry.device_id, [
-                                  entry.native_entity_id,
-                                  ...entry.tx_entity_ids,
-                              ]);
-                              // The icon follows the receiver alone.
-                              const glyph = cardGlyph(
-                                  partsHealth(this.hass?.states, [entry.native_entity_id]),
-                                  this._captureGlyphState(entry),
-                              );
-                              return html`
-                                  <div
-                                      class="card hw-card hw-glyph-${glyph} ${health === "offline" ? "is-offline" : ""}"
-                                      tabindex="0"
-                                      @click=${() => this._navigateIntegration(entry.nav_type)}
-                                      @keydown=${(e: KeyboardEvent) => {
-                                          if (e.key === "Enter" || e.key === " ") {
-                                              e.preventDefault();
-                                              this._navigateIntegration(entry.nav_type);
-                                          }
-                                      }}
-                                  >
-                                      ${this._renderOfflineCorner(health)}
-                                      <div class="card-header">
-                                          <ha-svg-icon
-                                              .path=${cardIconPath(
-                                                  this._rxCapture(entry).kind !== null
-                                                      ? "capture"
-                                                      : "receiver",
-                                                  glyph,
-                                              )}
-                                          ></ha-svg-icon>
-                                          <div class="card-name">${entry.name}</div>
-                                      </div>
-                                      <div class="card-meta">${entry.native_entity_id ?? entry.nav_type}</div>
-                                      <div class="card-footer">
-                                          ${this._renderRxBadges(entry)}
-                                      </div>
-                                  </div>
-                              `;
-                          })}
-                      </div>
-                  `
-                : nothing}
-
-            <!-- Proxies (TX + RX hardware) -->
-            ${hasProxies
-                ? html`
-                      <div class="section-header">
-                          <h2>${t("devlist.proxies")}</h2>
-                          <span class="section-count">${proxies.length}</span>
-                      </div>
-                      <div class="grid">
-                          ${proxies.map((entry) => {
-                              const health = this._hwHealth(entry.device_id, [
-                                  entry.native_entity_id,
-                                  ...entry.tx_entity_ids,
-                              ]);
-                              // The icon goes ember if any part is down;
-                              // the TX and RX badges say which.
-                              const glyph = cardGlyph(
-                                  partsHealth(this.hass?.states, [
-                                      entry.native_entity_id,
-                                      ...entry.tx_entity_ids,
-                                  ]),
-                                  this._captureGlyphState(entry),
-                              );
-                              return html`
-                                  <div
-                                      class="card hw-card hw-glyph-${glyph} ${health === "offline" ? "is-offline" : ""}"
-                                      tabindex="0"
-                                      @click=${() => this._navigateIntegration(entry.nav_type)}
-                                      @keydown=${(e: KeyboardEvent) => {
-                                          if (e.key === "Enter" || e.key === " ") {
-                                              e.preventDefault();
-                                              this._navigateIntegration(entry.nav_type);
-                                          }
-                                      }}
-                                  >
-                                      ${this._renderOfflineCorner(health)}
-                                      <div class="card-header">
-                                          <ha-svg-icon .path=${cardIconPath("proxy", glyph)}></ha-svg-icon>
-                                          <div class="card-name">${entry.name}</div>
-                                      </div>
-                                      ${entry.tx_entity_ids[0]
-                                          ? html`<div class="card-meta">${entry.tx_entity_ids[0]}</div>`
-                                          : nothing}
-                                      <div class="card-meta">${entry.native_entity_id ?? entry.nav_type}</div>
-                                      <div class="card-footer">
-                                          ${this._renderTxBadge(entry.tx_entity_ids)}
-                                          ${this._renderRxBadges(entry)}
-                                      </div>
-                                  </div>
-                              `;
-                          })}
-                      </div>
-                  `
-                : nothing}
+            <!-- Hardware: one card per HA device, one row per capability
+                 (RF hear round 1, frontend). Emitters, Receivers and
+                 Proxies as before; a TX+RX device shows in all three. -->
+            ${this._renderHardwareSection("emitters", sections.emitters)}
+            ${this._renderHardwareSection("receivers", sections.receivers)}
+            ${this._renderHardwareSection("proxies", sections.proxies)}
 
             ${this._editTrigger
                 ? html`
@@ -3270,6 +3032,7 @@ export class IrDeviceList extends LitElement {
         exitToEntityButtonStyles,
         settingsButtonStyles,
         bloomStyles,
+        protoGlyphStyles,
         css`
         /* Punch list item 17. A .trh-header .settings-btn rule setting
            margin-right 2px used to live here, from the header this one
@@ -3406,6 +3169,12 @@ export class IrDeviceList extends LitElement {
                alignment being changed here. */
             align-items: stretch;
         }
+        /* Hardware cards are wider than device cards: each row carries a
+           badge, the entity's name and a fact (design
+           homepage-hardware-cards.html). One column on a phone. */
+        .grid.hw-grid {
+            grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+        }
 
         /* --- Shared card styles (neutral, sniffer palette) --- */
         .card {
@@ -3477,6 +3246,13 @@ export class IrDeviceList extends LitElement {
         .broadsniff-hint:focus-visible {
             color: var(--primary-color);
         }
+        /* The protocol glyphs, right of the pill row (glyph spec). */
+        .proto-glyphs {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
         .badge {
             border-radius: 4px;
             padding: 2px 4px;
@@ -3521,30 +3297,53 @@ export class IrDeviceList extends LitElement {
             color: #e65100;
         }
 
-        /* Hardware section badges -- consistent <direction>-<source> pattern. */
-        /* TX-NATIVE and RX-NATIVE share the green palette of .cmd-badge. */
-        .tx-native,
-        .rx-native {
+        /* Hardware cards (RF hear round 1, design
+           homepage-hardware-cards.html): one row per capability under
+           the header. The badge spells medium and direction and carries
+           the entity's health in its colour: the command-count green
+           while the entity answers, ember on a 13 percent ember ground
+           while it is unavailable. No dots. A min-width lines the
+           column up whatever the label. */
+        .cap-rows {
+            margin: 8px 0 0 35px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .cap-row {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.78rem;
+            line-height: 1.25;
+        }
+        /* The thin dashed rule between the infrared and radio rows. */
+        .cap-row.rule-above {
+            margin-top: 3px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--divider-color, rgba(127, 127, 127, 0.35));
+        }
+        .cap-badge {
+            min-width: 3.6em;
+            text-align: center;
+            box-sizing: border-box;
             background: rgba(46, 125, 50, 0.15);
             color: #2e7d32;
         }
-        /* RX-CAPTURE (round 2), when HAIR cannot open the window
-           itself: HAIR's gold, the Listen chip's idle colour. */
-        .rx-capture {
-            background: rgba(245, 166, 35, 0.15);
-            color: #f5a623;
+        .cap-name {
+            color: var(--secondary-text-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        /* RX-BRIDGE uses HAIR's existing orange. */
-        .rx-bridge {
-            background: rgba(255, 152, 0, 0.15);
-            color: #ff9800;
+        .cap-fact {
+            color: var(--secondary-text-color);
+            white-space: nowrap;
+            font-size: 0.74rem;
         }
-        /* Pre-2026.6 upgrade hint: grayed RX-NATIVE alongside RX-BRIDGE. */
-        .rx-native-disabled {
-            background: var(--secondary-background-color);
-            color: var(--disabled-text-color, #999);
-            opacity: 0.6;
-            cursor: help;
+        .cap-row.is-down .cap-fact {
+            color: ${EMBER_VAR};
         }
 
         /* --- Expanded detail row --- */
@@ -3645,26 +3444,20 @@ export class IrDeviceList extends LitElement {
             /* The anchor for the OFFLINE corner word (ember, 2026-10-19). */
             position: relative;
         }
-        /* Health on a hardware card (ember, 2026-10-19; reworked on the
-           owner's bench). The badges carry each entity's health:
-           TX-NATIVE, RX-NATIVE and RX-CAPTURE keep their colour while
-           their own entity answers and turn ember, on a 13 percent
-           ember ground in the .badge shape, while it is unavailable, so
-           a proxy's TX and RX read independently. The icon is the
-           card's own signal (entity-health.ts cardGlyph and
+        /* Health on a hardware card (ember, 2026-10-19; one row per
+           capability since RF hear round 1). Each row's badge carries
+           its own entity's health: green while it answers, ember on a
+           13 percent ember ground in the .badge shape while it is
+           unavailable, so a proxy's rows read independently. The icon
+           is the card's own signal (entity-health.ts cardGlyph and
            partsHealth, card-icons.ts) and follows its own part: an
-           Emitters card its emitter, a Receivers card its receiver, a
-           Proxies card every part, ember if any is down. Answering, it
-           is the solid icon in online green, or a capture device's gold
-           or green following its chip; offline, the outline icon in
-           ember, so it reads by shape as well as colour. Only a card
-           whose infrared entities are all unavailable gets the ember
-           edge at 40 percent and OFFLINE in its top-right corner.
-           RX-BRIDGE and a card with no infrared entity keep today's
-           look. */
-        .badge.tx-native.offline,
-        .badge.rx-native.offline,
-        .badge.rx-capture.offline {
+           Emitters card its transmitters, a Receivers card its
+           receivers, a Proxies card every row, ember if any is down.
+           Answering, it is the solid icon in online green; offline, the
+           outline icon in ember, so it reads by shape as well as
+           colour. Only a card whose every entity is unavailable gets the
+           ember edge at 40 percent and OFFLINE in its top-right corner. */
+        .badge.cap-badge.offline {
             color: ${EMBER_VAR};
             background: color-mix(in srgb, ${EMBER_VAR} 13%, transparent);
         }
@@ -3673,17 +3466,6 @@ export class IrDeviceList extends LitElement {
         }
         .hw-card.hw-glyph-online .card-header ha-svg-icon {
             color: ${ONLINE_VAR};
-        }
-        /* A capture device with no switch yet: the solid icon in the
-           card icons' own grey, like its dimmed chip. */
-        .hw-card.hw-glyph-waiting .card-header ha-svg-icon {
-            color: var(--secondary-text-color);
-        }
-        .hw-card.hw-glyph-ready .card-header ha-svg-icon {
-            color: ${unsafeCSS(LISTEN_GOLD)};
-        }
-        .hw-card.hw-glyph-listening .card-header ha-svg-icon {
-            color: ${unsafeCSS(LISTEN_GREEN)};
         }
         /* Offline: the icon's outline twin (card-icons.ts) in ember, as
            drawn, with no stroke added; a stroke on top read heavy and

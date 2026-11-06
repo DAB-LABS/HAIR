@@ -564,171 +564,81 @@ class TestThePickers:
 
 
 class TestTheListenChip:
-    def test_offline_disables_and_rings(self):
+    """The Sniffer's Listen pill offline (RF hear round 1): ember border
+    and badge, pickers greyed, no press, no window shown."""
+
+    def test_offline_disables_and_goes_ember(self):
         text = _flat("ir-listen-chip.ts")
-        assert "const online = listenOnline(this.hass?.states, row);" in text
-        # Windowed receivers, round 3: offline is one of two blocks (the
-        # other is no switch chosen yet). Offline disables the toggle
-        # everywhere; no switch disables it in the Sniffer, while the
-        # card's split chip opens its switch menu instead (2026-10-20).
-        assert "const block = chipBlock(row, online);" in text
-        assert (
-            'const disabled = this._busy || (this.compact ? block === "offline" : block !== null);'
-        ) in text
-        assert "?disabled=${disabled}" in text
-        assert '<span class="dot ${online ? "" : "offline"}"></span>' in text
-        assert '${online ? "" : "offline"}' in text
-        assert 't("listen.offline_title", { name: row.name })' in text
+        assert "const online = pillOnline(this.hass?.states, row);" in text
+        assert 'const tone = look === "offline" ? EMBER_VAR.cssText' in text
+        assert 'const pressable = look !== "offline" && look !== "waiting" && !this._busy;' in text
+        assert "?disabled=${!pressable}" in text
+        assert 'if (look === "offline") return t("listen.offline_title", { name });' in text
 
     def test_offline_shows_no_window(self):
         text = _flat("ir-listen-chip.ts")
         assert (
-            "const live = online ? this._live() : { on: false, endsAt: null };"
+            "const live = online ? this._live() : "
+            "{ on: false, endsAt: null, phase: null, frequencyHz: null };"
         ) in text
 
-    def test_the_pill_keeps_its_gold_dimmed_not_grey(self):
-        """Kickoff over plan: dimmed gold still reads as a capture
-        device that is down; grey would read as any idle chip."""
-        block = _block(_read("ir-listen-chip.ts"), ".chip.listen.offline")
-        assert "border-color: color-mix(in srgb, var(--tone) 45%, transparent);" in block
-        assert "divider-color" not in block
-
-    def test_the_gold_dot_does_not_fill_the_ring(self):
-        block = _block(_read("ir-listen-chip.ts"), ".chip.listen .dot.offline")
-        assert "background: transparent;" in block
-        assert "box-shadow: none;" in block
-
-
-CARD_SECTIONS = [
-    ("<!-- Emitters -->", "<!-- Receivers"),
-    ("<!-- Receivers", "<!-- Proxies"),
-    ("<!-- Proxies", "${this._editTrigger"),
-]
+    def test_the_pickers_grey_while_down_or_open(self):
+        state = _flat("ir-listen-state.ts")
+        assert (
+            'return look === "idle" || look === "hearing" || look === "waiting";'
+        ) in state
+        chip = _flat("ir-listen-chip.ts")
+        assert "const active = pickersActive(look) && !this._busy;" in chip
+        assert chip.count("?inactive=${!active}") == 3
 
 
 class TestTheHardwareCards:
-    """Owner bench, 2026-10-19: on the Devices tab cards the badges carry
-    health, not a dot. Each badge follows its own entity; a card whose
-    infrared entities are all unavailable gets an ember edge, an ember
-    glyph and "Offline" in its top-right corner instead of a pill."""
+    """Owner bench, 2026-10-19, and RF hear round 1 (one row per
+    capability): each row's badge carries its own entity's health, no
+    dot; a card whose every entity is unavailable gets an ember edge,
+    the outline icon and "Offline" in its top-right corner."""
 
-    def _section(self, start: str, end: str) -> str:
-        text = _read("ir-device-list.ts")
-        return text.split(start, 1)[1].split(end, 1)[0]
+    def _card(self) -> str:
+        return _flat("ir-device-list.ts").split("private _renderHardwareCard(", 1)[1].split(
+            "private _renderHardwareSection(", 1
+        )[0]
 
-    @pytest.mark.parametrize("start,end", CARD_SECTIONS, ids=["emitters", "receivers", "proxies"])
-    def test_no_dot_by_the_name(self, start, end):
-        section = self._section(start, end)
-        assert "_renderHwDot" not in section
-        assert "hw-dot" not in section
-        assert "offline-badge" not in section
+    def test_no_dot_by_the_name(self):
+        card = self._card()
+        assert "_renderHwDot" not in card and "hw-dot" not in card
+        assert "offline-badge" not in card
 
-    @pytest.mark.parametrize("start,end", CARD_SECTIONS, ids=["emitters", "receivers", "proxies"])
-    def test_an_all_offline_card_gets_the_edge_and_the_corner(self, start, end):
-        section = self._section(start, end)
-        assert "const health = this._hwHealth(" in section
-        assert '${health === "offline" ? "is-offline" : ""}' in section
-        # The corner word is the card's own first child, out of the name
-        # row, so a long name keeps its full width.
-        flat = " ".join(section.split())
-        assert '> ${this._renderOfflineCorner(health)} <div class="card-header">' in flat
-        header = section.split('<div class="card-header">', 1)[1].split("</div>", 2)
-        assert "_renderOfflineCorner" not in "".join(header[:2])
+    def test_an_all_offline_card_gets_the_edge_and_the_corner(self):
+        card = self._card()
+        assert "const offline = cardOffline(card);" in card
+        assert '${offline ? "is-offline" : ""}' in card
+        assert '> ${this._renderOfflineCorner(health)} <div class="card-header">' in card
+        rows = _read("ir-hardware-rows.ts")
+        assert "return card.rows.length > 0 && card.rows.every((r) => !r.available);" in rows
 
-    @pytest.mark.parametrize("start,end", CARD_SECTIONS, ids=["emitters", "receivers", "proxies"])
-    def test_the_glyph_class_comes_from_the_rule(self, start, end):
-        section = self._section(start, end)
-        assert 'class="card hw-card hw-glyph-${glyph} ' in section
-        flat = " ".join(section.split())
-        if start == "<!-- Emitters -->":
-            # The emitter alone.
-            assert (
-                "const glyph = cardGlyph( partsHealth(this.hass?.states, [em.entity_id]), null, );"
-            ) in flat
-        elif start == "<!-- Receivers":
-            # The receiver alone, so a proxy's Receivers card goes ember
-            # when its receiver is down even if its transmitter works.
-            assert (
-                "const glyph = cardGlyph( partsHealth(this.hass?.states, "
-                "[entry.native_entity_id]), this._captureGlyphState(entry), );"
-            ) in flat
-        else:
-            # Every part: ember if any one is down.
-            assert (
-                "const glyph = cardGlyph( partsHealth(this.hass?.states, [ "
-                "entry.native_entity_id, ...entry.tx_entity_ids, ]), "
-                "this._captureGlyphState(entry), );"
-            ) in flat
-        # The border and the corner stay with the whole device.
-        assert "const health = this._hwHealth(" in section
-        assert "cardGlyph(health" not in flat
-
-    def test_each_card_draws_its_icon_from_the_pair(self):
-        text = _flat("ir-device-list.ts")
-        assert '<ha-svg-icon .path=${cardIconPath("emitter", glyph)}></ha-svg-icon>' in text
-        assert '<ha-svg-icon .path=${cardIconPath("proxy", glyph)}></ha-svg-icon>' in text
+    def test_the_glyph_class_comes_from_the_rule(self):
+        card = self._card()
+        assert 'class="card hw-card hw-glyph-${glyph} ' in card
         assert (
-            '.path=${cardIconPath( this._rxCapture(entry).kind !== null ? "capture" '
-            ': "receiver", glyph, )}'
-        ) in text
-        # The old single icons are gone.
-        for old in ("ICON_EMITTER", "ICON_RECEIVER", "ICON_PROXY", "ICON_CAPTURE_RECEIVER"):
-            assert old not in text, old
-
-    def test_a_capture_glyph_follows_its_chip(self):
-        text = _flat("ir-device-list.ts")
-        state = text.split("private _captureGlyphState(", 1)[1].split("private ", 1)[0]
-        assert "if (capture.kind === null) return null;" in state
-        assert "const online = listenOnline(states, capture.row);" in state
-        assert "listening: online && listenLive(states, capture.row).on" in state
-        # A static RX-CAPTURE (no switch known) reads the receiver.
-        assert "?.attributes?.capturing === true" in state
-
-    def test_the_badges_follow_their_own_entity(self):
-        emitters = self._section("<!-- Emitters -->", "<!-- Receivers")
-        assert "${this._renderTxBadge([em.entity_id])}" in emitters
-        proxies = self._section("<!-- Proxies", "${this._editTrigger")
-        # A proxy's TX follows its emitters and its RX its receiver,
-        # independently.
-        assert "${this._renderTxBadge(entry.tx_entity_ids)}" in proxies
-        assert "${this._renderRxBadges(entry)}" in proxies
-        native = _flat("ir-device-list.ts").split("private _renderNativeBadge(", 1)[1]
-        native = native.split("private _renderRxBadges", 1)[0]
-        assert "const online = this._anyOnline([entry.native_entity_id]);" in native
-        for cls in ("rx-capture", "rx-native"):
-            assert f'class="badge {cls} ${{online ? "" : "offline"}}"' in native, cls
-        tx = _flat("ir-device-list.ts").split("private _renderTxBadge(", 1)[1]
-        tx = tx.split("private ", 1)[0]
-        assert "const online = this._anyOnline(ids);" in tx
-        assert 'class="badge tx-native ${online ? "" : "offline"}"' in tx
-
-    def test_each_badge_says_its_health(self):
-        text = _flat("ir-device-list.ts")
-        name = text.split("private _badgeName(", 1)[1].split("private ", 1)[0]
-        assert 't(online ? "common.online" : "common.offline")' in name
-        # Tooltip and accessible name, on every health badge.
-        for label in ("TX-NATIVE", "RX-CAPTURE", "RX-NATIVE"):
-            assert f'this._badgeName("{label}", online,' in text, label
-        assert text.count('role="img" aria-label=${name} title=${name}') == 3
-
-    def test_the_compact_listen_badge_says_its_health_and_goes_ember(self):
-        chip = _read("ir-listen-chip.ts")
-        flat = " ".join(chip.split())
-        # Health first; since 2026-10-20 the switch it captures with and
-        # its source follow on their own lines.
+            "const glyph = cardGlyph( partsHealth( this.hass?.states, "
+            "part.map((r) => r.entity_id), ), null, );"
+        ) in card
+        # Its part: an emitter card its transmitters, a receiver card its
+        # receivers, a proxy card every row.
         assert (
-            "const word = this.compact ? [ `${RX_CAPTURE_LABEL}, "
-            '${t(online ? "common.online" : "common.offline")}: ${said}`,'
-        ) in flat
-        offline = _block(chip, ":host([compact]) .chip.listen.offline")
-        assert "color-mix(in srgb, ${EMBER_VAR} 13%, transparent)" in offline
-        toggle = _block(chip, ":host([compact]) .chip.listen.offline .listen-toggle")
-        assert "color: ${EMBER_VAR};" in toggle
-        # Not clickable: the toggle is disabled whenever it is offline
-        # (chipBlock returns "offline" first; round 3), and so is the
-        # split chip's caret.
-        assert 'this._busy || (this.compact ? block === "offline" : block !== null)' in flat
-        assert "?disabled=${!online}" in flat
+            'kind === "emitters" ? r.direction === "tx" : kind === "receivers" '
+            '? r.direction === "rx" : true,'
+        ) in card
+
+    def test_each_row_badge_follows_its_own_entity_and_says_its_health(self):
+        text = _flat("ir-device-list.ts")
+        row = text.split("private _renderCapabilityRow(", 1)[1].split("private ", 1)[0]
+        assert 'class="badge cap-badge ${row.available ? "" : "offline"}"' in row
+        assert 'role="img" aria-label=${title} title=${title}' in row
+        title = text.split("private _badgeTitle(", 1)[1].split("private ", 1)[0]
+        assert 't(row.available ? "common.online" : "common.offline")' in title
+        rows = _read("ir-hardware-rows.ts")
+        assert 'return st !== undefined && st.state !== "unavailable";' in rows
 
     def test_the_corner_shows_only_when_offline(self):
         text = _flat("ir-device-list.ts")
@@ -737,19 +647,20 @@ class TestTheHardwareCards:
         assert 't("devlist.offline_label")' in corner
         assert 'class="hw-offline"' in corner
 
-    def test_rx_bridge_is_unchanged(self):
-        rx = _flat("ir-device-list.ts").split("private _renderRxBadges(", 1)[1]
-        rx = rx.split("render()", 1)[0]
-        bridge = rx.split('class="badge rx-bridge"', 1)[1].split(">RX-BRIDGE", 1)[0]
-        assert "offline" not in bridge and "online" not in bridge
-
-    def test_the_card_reads_the_shared_rule(self):
+    def test_the_right_column_is_blank_until_hair_knows(self):
+        """Ruling Q8: after a restart HAIR cannot tell "never" from "not
+        since the restart", so the column stays blank."""
+        rows = _read("ir-hardware-rows.ts")
+        assert 'if (!at) return { kind: "none" };' in rows
         text = _flat("ir-device-list.ts")
-        assert "return cardHealth( this.hass, deviceId," in text
-        assert "isEntityOnline(this.hass?.states, id)" in text
+        fact = text.split("private _factText(", 1)[1].split("private ", 1)[0]
+        assert 'if (fact.kind === "none") return "";' in fact
+        assert "never" not in fact
 
     def test_blasters_carry_no_health(self):
-        section = self._section("<!-- Blasters", "<!-- Emitters -->")
+        section = _read("ir-device-list.ts").split("<!-- Blasters", 1)[1].split(
+            "<!-- Hardware:", 1
+        )[0]
         assert "_hwHealth" not in section and "offline" not in section
 
 
@@ -790,11 +701,7 @@ class TestTheStyles:
 
     def test_the_card_badges_edge_glyph_and_corner_are_ember(self):
         text = _read("ir-device-list.ts")
-        assert (
-            ".badge.tx-native.offline,\n        .badge.rx-native.offline,\n"
-            "        .badge.rx-capture.offline {"
-        ) in text
-        badge = _block(text, ".badge.rx-capture.offline")
+        badge = _block(text, ".badge.cap-badge.offline")
         assert "color: ${EMBER_VAR};" in badge
         assert "color-mix(in srgb, ${EMBER_VAR} 13%, transparent)" in badge
         edge = _block(text, ".hw-card.is-offline")
@@ -824,11 +731,11 @@ class TestTheStyles:
 
     def test_the_glyph_colours(self):
         text = _read("ir-device-list.ts")
-        for glyph, colour in (
-            ("online", "${ONLINE_VAR}"),
-            ("ready", "${unsafeCSS(LISTEN_GOLD)}"),
-            ("listening", "${unsafeCSS(LISTEN_GREEN)}"),
-        ):
+        # The card is information only since RF hear round 1: no capture
+        # gold or green on its icon, only health.
+        for glyph in ("ready", "listening", "waiting"):
+            assert f"hw-glyph-{glyph}" not in text, glyph
+        for glyph, colour in (("online", "${ONLINE_VAR}"),):
             body = _block(text, f".hw-card.hw-glyph-{glyph} .card-header ha-svg-icon")
             assert f"color: {colour};" in body, glyph
             assert "fill:" not in body and "stroke" not in body, glyph
@@ -920,10 +827,13 @@ class TestTheTokens:
         OFF badge and the delete hover), pinned below; its health code
         uses the token only."""
         text = _read("ir-device-list.ts")
-        helpers = text.split("private _hwHealth(", 1)[1].split("private _renderNativeBadge", 1)[0]
+        helpers = text.split("private _renderOfflineCorner(", 1)[1].split(
+            "private _renderHardwareSection(", 1
+        )[0]
         assert not LITERALS.search(helpers)
+        assert not LITERALS.search(_read("ir-hardware-rows.ts"))
         for selector in (
-            ".badge.rx-capture.offline",
+            ".badge.cap-badge.offline",
             ".hw-card.is-offline",
             ".hw-card.hw-glyph-offline .card-header ha-svg-icon",
             ".hw-card.hw-glyph-online .card-header ha-svg-icon",

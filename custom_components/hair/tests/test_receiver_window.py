@@ -707,6 +707,10 @@ class TestTheReceiversDoors:
             # a software window's live state (both inert on a capture device).
             "capture_device", "software_window",
             "capturing", "window_ends_at", "capture_mode",
+            # RF hear round 1, frontend: what the Sniffer's pickers drive,
+            # a device's declared entities or a software window's choice.
+            "frequency_select", "window_length", "capture_mode_select",
+            "frequency_options", "window_seconds", "window_mode",
         }
         assert (rows[0]["capture_device"], rows[0]["software_window"]) == (True, False)
         assert rows[0]["medium"] == "ir"

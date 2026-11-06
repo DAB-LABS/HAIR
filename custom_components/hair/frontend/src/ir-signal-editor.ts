@@ -17,6 +17,7 @@ import { healthDotClass, isEntityOnline } from "./entity-health.js";
 import { healthDotStyles } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
+import { rfRefusal } from "./rf-errors.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import {
@@ -1352,7 +1353,7 @@ export class IrSignalEditor extends LitElement {
                 );
             }
         } catch (err) {
-            this._error = (err as Error).message;
+            this._error = rfRefusal(err) ?? (err as Error).message;
         } finally {
             this._busy = false;
         }

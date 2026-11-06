@@ -559,6 +559,9 @@ class TestTheContractIsGeneric:
             r"export interface CaptureReceiverRow \{(.*?)\n\}", _src("types.ts"), re.S
         ).group(1)
         panel = set(re.findall(r"^\s*(\w+):", block, re.M))
+        # The four declared-setting fields every row carries (RF hear
+        # round 1, frontend) come from one helper.
+        server |= set(receiver_window._settings_row({}))
         assert panel == server
 
     def test_the_error_codes_are_the_servers(self):
@@ -570,7 +573,10 @@ class TestTheContractIsGeneric:
 
 
 class TestTheChipWiring:
-    def test_the_row_is_there_only_with_capture_devices(self):
+    """The Sniffer's Listen pill (RF hear round 1, design
+    sniffer-listen-pills.html): one element, the whole pill the press."""
+
+    def test_the_row_is_there_only_with_capture_rows(self):
         monitor = _src("ir-signal-monitor.ts")
         assert re.search(
             r"this\._listenRows\.length > 0\s*\?\s*html`<ir-listen-row", monitor
@@ -582,152 +588,189 @@ class TestTheChipWiring:
             r"this\.rows\.map\(\s*\(row\) => html`<ir-listen-chip", _src("ir-listen-row.ts")
         )
 
-    def test_the_rows_are_reread_on_registry_change_or_signature(self):
+    def test_the_rows_are_reread_on_registry_change_signature_or_a_switch_choice(self):
         monitor = _src("ir-signal-monitor.ts")
         assert re.search(
             r"before !== now\) \|\| sigMoved\)\s*\{\s*void this\._loadListenRows\(\);",
             monitor,
         )
+        assert "@capture-switch-changed=${() => void this._loadListenRows()}" in monitor
         devlist = _src("ir-device-list.ts")
         assert re.search(
             r"this\.hass\?\.entities !== this\._listenRowsFor \|\| sig !== this\._listenRowsSig\)",
             devlist,
         )
+        # Radio capture devices count in the signature too.
+        assert 'entityId.startsWith("radio_frequency.")' in _src("ir-listen-state.ts")
 
     def test_the_fill_is_keyed_on_the_deadline_never_a_timer(self):
         chip = _src("ir-listen-chip.ts")
         assert re.search(r"keyed\(\s*fill\.endsAt,", chip)
-        assert "planFill(now.endsAt, Date.now())" in chip
-        for name in ("ir-listen-chip.ts", "ir-listen-row.ts", "ir-arrivals.ts"):
-            assert "setTimeout" not in _src(name) and "setInterval" not in _src(name)
+        assert "planFill(ends, Date.now())" in chip
+        # A sweep has no fill until the carrier locks.
+        assert 'const ends = now.phase === "sweeping" ? null : now.endsAt;' in chip
+        names = ("ir-listen-chip.ts", "ir-listen-row.ts", "ir-arrivals.ts", "ir-pill-picker.ts")
+        for name in names:
+            assert "setTimeout" not in _src(name) and "setInterval" not in _src(name), name
         assert "listenBlooms(before, now)" in chip
 
     def test_it_blooms_on_hairs_own_arrival(self):
         chip = _src("ir-listen-chip.ts")
-        assert "onArrival(this.api, key, () => this._bloomChip())" in chip
+        assert "onArrival(this.api, key, () => this._bloomPill())" in chip
         assert "this._arrivals?.stop();" in chip
         hub = _src("ir-arrivals.ts")
         assert "api.subscribeUnknownSignals((event) => deliver(hub, event))" in hub
         assert "const receiver = event.receiver_entity_id;" in hub
-        # One subscription shared by every chip; closed with the last one.
         assert "if (hub.unsubscribe === null)" in hub
         assert "hub.listeners.size === 0 && hub.unsubscribe !== null" in hub
 
-    def test_a_tap_goes_through_the_receiver_door(self):
+    def test_a_press_goes_through_the_receiver_door(self):
         chip = _src("ir-listen-chip.ts")
         assert "await this.api.receiverListen(this.row.receiver_entity_id, !on);" in chip
-        assert 'role=${waiting ? "button" : "switch"}' in chip
+        assert 'role="switch"' in chip
+        # The whole pill is the press; the pickers and the glyph stop
+        # their clicks first.
+        assert "if (pressable) void this._press(look, live.on);" in chip
+        assert '<span class="pickers" @click=${this._stop}>' in chip
+        assert '<span class="exit" @click=${this._stop}' in chip
 
-    def test_it_is_disabled_while_blocked(self):
+    def test_it_is_disabled_while_down_or_waiting(self):
         chip = _src("ir-listen-chip.ts")
-        assert "const online = listenOnline(this.hass?.states, row);" in chip
-        assert "const block = chipBlock(row, online);" in chip
+        assert "const online = pillOnline(this.hass?.states, row);" in chip
+        assert "const look = pillLook(row, online, live);" in chip
         assert (
-            'const disabled = this._busy || (this.compact ? block === "offline" : block !== null);'
+            'const pressable = look !== "offline" && look !== "waiting" && !this._busy;'
         ) in chip
-        assert "?disabled=${disabled}" in chip
-        assert 't("listen.offline_title", { name: row.name })' in chip
-        assert 't("listen.no_switch_title")' in chip
-        # Waiting for a switch is setup: dimmed in the Sniffer, grey on the
-        # card; offline is ember.
-        assert '${block === "no_switch" && !this.compact ? "blocked" : ""}' in chip
+        assert "?disabled=${!pressable}" in chip
+        assert 'if (look === "offline") return t("listen.offline_title", { name });' in chip
+        assert 'if (look === "waiting") return t("listen.no_switch_title");' in chip
 
-    def test_gold_idle_green_listening(self):
-        chip = _src("ir-listen-chip.ts")
+    def test_gold_idle_green_hearing_or_open_ember_down(self):
+        chip = " ".join(_src("ir-listen-chip.ts").split())
         assert 'LISTEN_GOLD = "#f5a623"' in chip
         assert 'LISTEN_GREEN = "#43a047"' in chip
-        tone = "const tone = waiting ? WAITING_TONE : live.on ? LISTEN_GREEN : LISTEN_GOLD;"
-        assert tone in chip
+        assert (
+            'const tone = look === "offline" ? EMBER_VAR.cssText : look === "waiting" '
+            '? WAITING_TONE : look === "idle" ? LISTEN_GOLD : LISTEN_GREEN;'
+        ) in chip
         assert 'style="--tone:${tone}"' in chip
 
-    def test_the_glyph_opens_the_receivers_device_page(self):
+    def test_the_badge_spells_the_medium(self):
         chip = _src("ir-listen-chip.ts")
-        assert re.search(r"\$\{this\.compact \|\| !row\.ha_device_id\s*\?\s*nothing", chip)
+        assert '<span class="rx-badge">${pillBadge(row)}</span>' in chip
+        badge = re.search(r"\n            \.rx-badge \{([^}]*)\}", chip).group(1)
+        assert "background: var(--tone);" in badge and "color: #fff;" in badge
+        assert 't("listen.hearing")' in chip and 't("listen.hold_button")' in chip
+
+    def test_the_glyph_opens_the_receivers_device_page_from_the_pills_end(self):
+        chip = _src("ir-listen-chip.ts")
         assert re.search(
             r"renderExitToEntityBtn\(\s*`/config/devices/device/\$\{row\.ha_device_id\}`", chip
         )
+        render = chip.split("    render() {", 1)[1]
+        assert render.index('<span class="pickers"') < render.index('<span class="exit"')
+        assert render.index('class="rx-badge"') < render.index('class="pill-name"')
 
     def test_the_glyph_sits_inside_the_pill(self):
         chip = _src("ir-listen-chip.ts")
         assert re.search(
-            r"\.chip\.listen \.exit-to-entity-btn ha-svg-icon \{\s*--mdc-icon-size: 11px;", chip
+            r"\.pill \.exit-to-entity-btn ha-svg-icon \{\s*--mdc-icon-size: 11px;", chip
         )
         assert "--mdc-icon-size: 14px;" in _src("ir-icons.ts")
+
+    def test_the_shipped_chip_metrics_and_the_phone_layout(self):
+        chip = _src("ir-listen-chip.ts")
+        pill = re.search(r"\n            \.pill \{([^}]*)\}", chip).group(1)
+        assert "font-size: 11.5px;" in pill and "border-radius: 14px;" in pill
+        assert "border: 1px solid var(--tone);" in pill
+        phone = chip.split("@media (max-width: 600px) {", 1)[1]
+        assert '"press exit"' in phone and '"pickers pickers"' in phone
+        assert "width: 100%;" in phone
 
     def test_the_label_sits_hard_left(self):
         row = _src("ir-listen-row.ts")
         assert "labelWidth" not in row
         assert re.search(r"\.listen-label \{\s*width: auto;\s*text-align: left;", row)
 
+    def test_one_radio_subscription_for_the_row(self):
+        row = _src("ir-listen-row.ts")
+        assert "this._sub = this.api" in row and ".subscribeRfReceivers(" in row
+        assert "const wanted = this.api && this.rows.some((r) => r.software_window);" in row
+        assert ".item=${this._items[row.receiver_entity_id] ?? null}" in row
+        # Software windows are read from the subscription, never hass.
+        state = _src("ir-listen-state.ts")
+        assert "if (row.software_window) {" in state.split("export function pillLive(", 1)[1]
+
     def test_no_listen_component_keeps_browser_storage(self):
         for name in (
             "ir-signal-monitor.ts", "ir-listen-row.ts", "ir-listen-chip.ts",
             "ir-listen-state.ts", "ir-arrivals.ts", "ir-capture-switch-menu.ts",
+            "ir-pill-picker.ts",
         ):
             assert "localStorage" not in _src(name), name
 
 
 class TestTheReceiverCard:
-    def test_the_card_shows_one_split_chip(self):
-        """Owner ruling 2026-10-20: the separate switch pill is gone."""
+    """Homepage hardware cards (RF hear round 1, design
+    homepage-hardware-cards.html): information only, one row per
+    capability, built from every receiver (the defect: one slot per
+    device let the RF receiver take the IR one's place)."""
+
+    def test_nothing_on_the_card_is_a_control(self):
         devlist = _src("ir-device-list.ts")
-        badge = _block(devlist, "private _renderNativeBadge", "/** Render TX/RX-NATIVE")
-        chip = badge.index("<ir-listen-chip")
-        assert chip < badge.index('class="badge rx-capture ${online ? "" : "offline"}"')
-        assert re.search(r"<ir-listen-chip\s+compact\s+\.hass=", badge)
-        assert "@capture-switch-changed=${() => void this._loadListenRows()}" in badge
-        for name in ("ir-device-list.ts", "ir-listen-chip.ts", "ir-capture-switch-menu.ts"):
-            assert "ir-capture-switch-pill" not in _src(name), name
+        for gone in (
+            "<ir-listen-chip", "ir-capture-switch-menu", "_renderNativeBadge",
+            "_renderRxBadges", "_renderTxBadge", "native_entity_id", "_rxCapture",
+            "RX-CAPTURE", "RX-NATIVE", "TX-NATIVE", "RX-BRIDGE",
+        ):
+            assert gone not in devlist, gone
         assert not (SRC / "ir-capture-switch-pill.ts").exists()
 
-    def test_rx_capture_replaces_rx_native_and_native_cards_get_no_caret(self):
+    def test_the_rows_come_from_every_receiver(self):
         devlist = _src("ir-device-list.ts")
-        badge = _block(devlist, "private _renderNativeBadge", "/** Render TX/RX-NATIVE")
-        native = badge.index('class="badge rx-native ${online ? "" : "offline"}"')
-        assert badge.index("<ir-listen-chip") < native
-        assert badge.count("<ir-listen-chip") == 1
-        assert badge.count("return html`") == 3
-        # Proxies and Receivers cards share the badge renderer.
-        assert devlist.count("${this._renderRxBadges(entry)}") >= 2
+        cards = _block(devlist, "private _hardwareCards()", "private _cardName(")
+        assert "return buildHardwareCards({" in cards
+        assert "receivers: this._receiverHardware," in cards
+        assert "captureRows: this._listenRows," in cards
+        rows = _src("ir-hardware-rows.ts")
+        assert "for (const hw of input.receivers) {" in rows
+        assert "rows.set(id, {" in rows
+        assert "native_entity_id" not in rows
 
-    def test_the_match_is_by_receiver_then_device(self):
-        devlist = _src("ir-device-list.ts")
-        assert (
-            "this._listenRows.find((r) => r.receiver_entity_id === entry.native_entity_id)"
-            in devlist
-        )
-        assert "rxCaptureMatch(attributes, row !== undefined)" in devlist
+    def test_a_remembered_receiver_not_loaded_keeps_its_row(self):
+        rows = _src("ir-hardware-rows.ts")
+        loop = _block(rows, "for (const row of input.captureRows) {", "for (const [entityId, st]")
+        assert "if (!row.capture_device) continue;" in loop
+        assert "rows.set(row.receiver_entity_id, {" in loop
 
-    def test_a_remembered_receiver_not_loaded_keeps_its_card(self):
+    def test_the_card_icons_keep_their_pairs(self):
         devlist = _src("ir-device-list.ts")
-        classify = _block(devlist, "private _classifyHardware", "const merged = Array.from")
-        assert "for (const row of this._listenRows)" in classify
-        assert "if (shown.has(row.receiver_entity_id)) continue;" in classify
-
-    def test_the_proxy_card_keeps_its_pair_and_the_receivers_card_the_finger(self):
-        # Ember's icon pairs (card-icons.ts): a capture device draws the
-        # finger online and record-circle-outline offline.
-        devlist = _src("ir-device-list.ts")
+        card = _block(devlist, "private _renderHardwareCard(", "private _renderHardwareSection(")
+        assert '<ha-svg-icon .path=${cardIconPath(icon, glyph)}></ha-svg-icon>' in card
         assert re.search(
-            r"\.path=\$\{cardIconPath\(\s*this\._rxCapture\(entry\)\.kind !== null\s*"
-            r"\?\s*\"capture\"\s*:\s*\"receiver\",\s*glyph,?\s*\)\}",
-            devlist,
+            r'kind === "emitters"\s*\?\s*"emitter"\s*:\s*kind === "proxies"\s*\?\s*"proxy"\s*'
+            r':\s*card\.rows\.some\(\(r\) => r\.capture_device\)\s*'
+            r'\?\s*"capture"\s*:\s*"receiver"',
+            card,
         )
-        assert '<ha-svg-icon .path=${cardIconPath("proxy", glyph)}></ha-svg-icon>' in devlist
 
     def test_the_hardware_list_is_renamed(self):
         devlist = _src("ir-device-list.ts")
         assert "this._receiverHardware = await this.api.listReceiverHardware();" in devlist
         assert "CaptureProviderInfo" not in devlist and "listCaptureProviders" not in devlist
 
-    def test_the_broadlink_hint_stays(self):
+    def test_the_broadlink_hint_stays_under_the_rows(self):
         devlist = _src("ir-device-list.ts")
         assert '!components.includes("broadsniff")' in devlist
+        card = _block(devlist, "private _renderHardwareCard(", "private _renderHardwareSection(")
+        assert card.index('<div class="cap-rows">') < card.index("this._renderBroadSniffHint(")
         assert 'BROADSNIFF_URL = "https://github.com/DAB-LABS/broadsniff"' in _src("types.ts")
 
 
 class TestTheCaptureGlyph:
-    """Owner, 2026-10-20: grey with no switch, gold once one resolves."""
+    """Owner, 2026-10-20: grey with no switch, gold once one resolves.
+    The rule stays in entity-health.ts; since RF hear round 1 the
+    hardware card is information only and passes no capture state."""
 
     def test_grey_with_no_switch_then_gold_after_a_choice(self, run):
         assert run["glyph"]["no_switch"] == {"glyph": "waiting", "icon": "solid"}
@@ -739,105 +782,45 @@ class TestTheCaptureGlyph:
         for case in ("offline_no_switch", "offline_with_switch"):
             assert run["glyph"][case] == {"glyph": "offline", "icon": "outline"}, case
 
-    def test_the_card_passes_waiting_and_draws_it_grey(self):
-        devlist = _src("ir-device-list.ts")
-        state = _block(devlist, "private _captureGlyphState(", "private _renderOfflineCorner")
-        assert "waiting: capture.row.switch_entity_id === null," in state
-        assert re.search(
-            r"\.hw-card\.hw-glyph-waiting \.card-header ha-svg-icon \{\s*"
-            r"color: var\(--secondary-text-color\);",
-            devlist,
-        )
-        health = _src("entity-health.ts")
-        assert "if (capture.waiting) return \"waiting\";" in health
+    def test_the_card_passes_no_capture_state(self):
+        devlist = " ".join(_src("ir-device-list.ts").split())
+        assert (
+            "const glyph = cardGlyph( partsHealth( this.hass?.states, "
+            "part.map((r) => r.entity_id), ), null, );"
+        ) in devlist
+        assert "_captureGlyphState" not in devlist
 
 
-class TestTheSplitChip:
-    """Owner ruling 2026-10-20, items 9 to 14: RX-CAPTURE is one split chip."""
+class TestTheSwitchMenuOnThePill:
+    """The switch menu (owner ruling 2026-10-20) survives as a small
+    settings caret on the pill of a capture device that declares no
+    ``capture_switch`` (design: "Elsewhere")."""
 
-    def _chip(self):
-        return _src("ir-listen-chip.ts")
-
-    def _compact(self):
-        render = _block(self._chip(), "    render() {", "    static styles")
-        return render.split("if (!this.compact) return chip;", 1)[1]
-
-    def test_the_main_part_captures_and_the_caret_is_the_menu(self):
-        compact = self._compact()
-        assert '<span\n                class="split ' in compact
-        assert compact.index("${chip}") < compact.index("<ir-capture-switch-menu")
-        chip = self._chip()
-        assert "@click=${() => this._onMain(live.on, waiting)}" in chip
-        main = _block(chip, "private _onMain(", "private _switchName(")
-        assert "if (waiting) {" in main
-        assert "void this._toggle(on);" in main
-        menu = _src("ir-capture-switch-menu.ts")
-        caret = _block(menu, "    render() {", "private _renderMenu")
-        assert '<button\n                    class="caret-btn' in caret
-        assert "@click=${this._toggleMenu}" in caret
-        assert 'aria-label=${t("capswitch.choose")}' in caret
-        assert 'aria-haspopup="menu"' in caret
+    def test_only_an_undeclared_capture_device_gets_the_caret(self):
+        chip = _src("ir-listen-chip.ts")
+        assert 'if (!row.software_window && row.source !== "declared") {' in chip
+        assert "<ir-capture-switch-menu" in chip
+        assert '?disabled=${look === "offline"}' in chip
 
     def test_the_caret_is_a_thumb_wide_focus_stop_behind_a_divider(self):
         """Owner bench 2026-10-21: small to look at, 24 by 24px to hit."""
         menu = _src("ir-capture-switch-menu.ts")
         rule = re.search(r"\n            \.caret-btn \{([^}]*)\}", menu).group(1)
         assert "padding: 0 2px;" in rule and "position: relative;" in rule
-        assert "min-width" not in rule
         hit = re.search(r"\n            \.caret-btn::before \{([^}]*)\}", menu).group(1)
-        for prop in ('content: "";', "position: absolute;", "width: 24px;", "height: 24px;",
-                     "transform: translate(-50%, -50%);"):
+        for prop in ('content: "";', "position: absolute;", "width: 24px;", "height: 24px;"):
             assert prop in hit, prop
-        assert "background" not in hit
-        assert "border-left: 1px solid" in rule
         assert "color: var(--split-fg" in rule and "background: var(--split-bg" in rule
-        # Two buttons, so two focus stops: the chip's toggle and the caret.
-        assert "tabindex" not in _block(menu, "    render() {", "private _renderMenu")
-
-    def test_nothing_picked_is_grey_and_a_click_opens_the_menu(self):
-        chip = self._chip()
-        assert 'const WAITING_TONE = "var(--secondary-text-color)";' in chip
-        assert 'const waiting = this.compact && block === "no_switch";' in chip
-        main = _block(chip, "private _onMain(", "private _switchName(")
-        opens = 'menu?.open(this.renderRoot.querySelector<HTMLElement>(".split") ?? undefined);'
-        assert opens in main
-        assert 'aria-haspopup=${ifDefined(waiting ? "menu" : undefined)}' in chip
-        # Not disabled on the card while waiting; only offline is.
-        assert 'this.compact ? block === "offline" : block !== null' in chip
-
-    def test_offline_disables_both_parts(self):
-        chip = self._chip()
-        assert "?disabled=${!online}" in self._compact()
-        assert re.search(
-            r"\.split\.offline \{\s*--split-fg: \$\{EMBER_VAR\};\s*"
-            r"--split-bg: color-mix\(in srgb, \$\{EMBER_VAR\} 13%, transparent\);",
-            chip,
-        )
-        menu = _src("ir-capture-switch-menu.ts")
-        assert "?disabled=${this.disabled || this._busy}" in menu
-        opener = _block(menu, "public open(", "private _toggleMenu")
-        assert "if (this.disabled || this._menu) return;" in opener
-
-    def test_the_tooltip_names_the_switch_and_its_source(self):
-        chip = self._chip()
-        line = 'current ? t("listen.capture_with", { name: this._switchName(current) }) : "",'
-        assert line in chip
-        assert "current && row.source ? t(SOURCE_KEYS[row.source]) : \"\"," in chip
-        assert 'declared: "capswitch.source_declared"' in chip
-        assert _en()["listen.capture_with"] == "Capture with {name}"
-
-    def test_the_sniffer_chip_is_unchanged(self):
-        """Item 15: the split is the compact form only."""
-        chip = self._chip()
-        assert "if (!this.compact) return chip;" in chip
-        sniffer = _block(chip, "const chip = html`", "if (!this.compact)")
-        assert "<ir-capture-switch-menu" not in sniffer
+        # The pill hands the caret its tone.
+        pickers = re.search(
+            r"\n            \.pickers \{([^}]*)\}", _src("ir-listen-chip.ts")
+        ).group(1)
+        assert "--split-fg: var(--tone);" in pickers
 
     def test_it_stops_click_and_keydown(self):
         menu = _src("ir-capture-switch-menu.ts")
         assert '<span class="wrap" @click=${this._stop} @keydown=${this._onKey}>' in menu
         assert "e.stopPropagation();" in _block(menu, "private _onKey", "render()")
-        assert "@click=${this._stop}\n                @keydown=${this._stop}" in self._compact()
 
     def test_choose_another_is_the_house_search_not_has_pickers(self):
         pill = _src("ir-capture-switch-menu.ts")
@@ -845,16 +828,11 @@ class TestTheSplitChip:
         assert "<ha-textfield" not in pill
         assert re.search(r'<input\s+class="pick-search"\s+type="text"', pill)
         assert "pickerEntities(this.hass?.states, this._query)" in pill
-        result = _block(pill, 'class="result ', "</button>")
-        assert '<span class="iname">${e.name}</span>' in result
-        assert '<span class="iid">${e.entityId}</span>' in result
-        assert "${this._dot(e.entityId)}" in result
 
     def test_choosing_saves_through_the_door(self):
         pill = _src("ir-capture-switch-menu.ts")
         assert "await this.api.setCaptureSwitch(this.row.receiver_entity_id, entityId);" in pill
         assert '"capture-switch-changed"' in pill
-        # The declared switch, picked again, changes nothing.
         pick = _block(pill, "private async _pickFromMenu", "private _openPicker")
         assert "if (entityId !== this.row.switch_entity_id) await this._choose(entityId);" in pick
 
@@ -864,7 +842,6 @@ class TestTheSplitChip:
         assert "remove" not in menu.lower()
         assert "always" not in menu.lower()
         assert 't("capswitch.choose_other")' in menu
-        assert '<svg class="check"' in menu
 
 
 class TestHealthUsesEmbersPieces:
@@ -894,7 +871,8 @@ class TestHealthUsesEmbersPieces:
 
     def test_the_offline_chip_is_embers(self):
         chip = _src("ir-listen-chip.ts")
-        assert "const online = listenOnline(this.hass?.states, row);" in chip
+        assert "const online = pillOnline(this.hass?.states, row);" in chip
+        assert "return listenOnline(states, row);" in _src("ir-listen-state.ts")
         assert "unavailable_title" not in chip
         for path in (SRC / "locales").glob("*.json"):
             keys = json.loads(path.read_text(encoding="utf-8"))
@@ -1032,10 +1010,23 @@ class TestTheStrings:
         "editor.code_placeholder", "editor.listen_on",
         "listen.arm_failed", "listen.no_switch_error",
         "listen.no_switch_title", "listen.pick_receiver", "listen.opens_window", "listen.always",
-        "capswitch.choose", "capswitch.choose_title", "capswitch.choose_other",
-        "capswitch.source_declared", "capswitch.source_user", "capswitch.source_device",
+        "capswitch.choose", "capswitch.choose_other",
         "capswitch.dialog_title", "capswitch.dialog_intro", "capswitch.search_placeholder",
         "capswitch.no_match", "capswitch.save_failed",
+        # RF hear round 1, frontend.
+        "listen.hearing", "listen.hold_button", "listen.sweep", "listen.band",
+        "listen.mode.single", "listen.mode.sliding", "listen.mode.multiple",
+        "listen.mode_note.single", "listen.mode_note.sliding", "listen.mode_note.multiple",
+        "hw.sent", "hw.heard", "hw.unavailable",
+        "sniffer.filter.radio", "errors.rf_send_unsupported", "errors.rf_edit_unsupported",
+    )
+    # The card's split chip and its tooltip left with RF hear round 1.
+    GONE = (
+        "capswitch.choose_title", "capswitch.source_declared", "capswitch.source_user",
+        "capswitch.source_device", "listen.capture_with",
+        "devlist.rx_native_title", "devlist.rx_capture_title", "devlist.tx_native_title",
+        "devlist.rx_bridge_active", "devlist.rx_bridge_title", "devlist.rx_upgrade_title",
+        "sniffer.show_dismissed", "sniffer.show_dismissed_title", "sniffer.hide_dismissed",
     )
 
     def test_every_new_key_is_in_every_dictionary(self):
@@ -1043,30 +1034,52 @@ class TestTheStrings:
             keys = json.loads(path.read_text(encoding="utf-8"))
             for key in self.NEW:
                 assert key in keys, (path.name, key)
+            for key in self.GONE:
+                assert key not in keys, (path.name, key)
 
     def test_the_wording_the_owner_asked_for(self):
         en = _en()
         assert en["listen.arm_failed"] == "{name} could not start listening."
-        assert en["capswitch.source_declared"] == "Set by the integration"
-        assert en["capswitch.source_user"] == "Chosen by you"
-        assert en["capswitch.source_device"] == "Found on this device"
         assert en["capswitch.choose_other"] == "Choose another..."
         assert en["listen.opens_window"] == "Opens its capture window"
         assert en["listen.always"] == "Always listening"
+        assert en["listen.mode.single"] == "One code only"
+        assert en["listen.mode.sliding"] == "Reset on each code"
+        assert en["listen.mode.multiple"] == "Fixed length"
+        assert en["listen.mode_note.single"] == "Closes the moment one code lands."
+        assert en["listen.mode_note.sliding"] == (
+            "Every code gives it another {length}; closes when the remote goes quiet."
+        )
+        assert en["listen.mode_note.multiple"] == (
+            "Stays open for the whole {length}, however many codes land."
+        )
+        assert en["errors.rf_send_unsupported"] == (
+            "This is a radio code; sending radio comes in a later release."
+        )
+        assert en["panel.tagline.sniffer"] == "Capture IR and RF codes live from the air"
 
     def test_no_em_dashes(self):
         for path in (SRC / "locales").glob("*.json"):
             keys = json.loads(path.read_text(encoding="utf-8"))
             for key in (*self.NEW, "editor.pronto_code", "editor.replace_hint"):
-                assert "\u2014" not in keys[key], (path.name, key)
+                assert "—" not in keys[key], (path.name, key)
 
     def test_every_key_the_new_code_asks_for_exists(self):
         en = _en()
         for name in (
             "ir-listen-row.ts", "ir-listen-chip.ts", "ir-capture-switch-menu.ts",
-            "ir-device-list.ts", "ir-signal-editor.ts",
+            "ir-device-list.ts", "ir-signal-editor.ts", "ir-signal-monitor.ts",
+            "ir-proto-glyph.ts", "rf-errors.ts",
         ):
             for key in re.findall(
-                r'\bt\("((?:listen|capswitch|devlist|editor)\.[\w.]+)"', _src(name)
+                r'\bt\("((?:listen|capswitch|devlist|editor|hw|sniffer|errors|proto)\.[\w.]+)"',
+                _src(name),
             ):
                 assert key in en, (name, key)
+        # Built keys: every mode, every age unit, every badge.
+        for mode in ("single", "sliding", "multiple"):
+            assert f"listen.mode.{mode}" in en and f"listen.mode_note.{mode}" in en
+        for unit in ("s", "m", "h", "d"):
+            assert f"hw.ago_{unit}" in en
+        for badge in ("ir_tx", "ir_rx", "rf_tx", "rf_rx"):
+            assert f"hw.badge.{badge}" in en

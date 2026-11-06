@@ -25,8 +25,6 @@ from .const import (
     MIRROR_DEVICE_FP,
     RF_SOFTWARE_WINDOW_MAX_S,
     RF_SOFTWARE_WINDOW_MIN_S,
-    RF_SOFTWARE_WINDOW_MODE,
-    RF_SOFTWARE_WINDOW_S,
     SEND_AIR_TIME_MAX_MS,
     SEND_SPACING_MAX_MS,
     SEND_SPACING_MIN_MS,
@@ -103,6 +101,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_receivers)
     websocket_api.async_register_command(hass, ws_capture_receivers)
     websocket_api.async_register_command(hass, ws_receiver_listen)
+    websocket_api.async_register_command(hass, ws_receiver_window_prefs)
+    websocket_api.async_register_command(hass, ws_hardware_facts)
     websocket_api.async_register_command(hass, ws_rf_subscribe)
     websocket_api.async_register_command(hass, ws_set_capture_switch)
     websocket_api.async_register_command(hass, ws_get_sniffer_status)
@@ -264,10 +264,24 @@ def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
         "temperature_sensor_entity_id": device.temperature_sensor_entity_id,
         "humidity_sensor_entity_id": device.humidity_sensor_entity_id,
         "command_count": len(device.commands),
+        # The protocol glyphs on the Devices tab's card (RF hear round 1).
+        "media": _media(device.commands),
         "created_at": device.created_at,
         "updated_at": device.updated_at,
         "ha_device_id": _ha_device_id(hass, device),
     }
+
+
+def _media(rows: Any) -> list[str]:
+    """Which media a device's commands or a remote's triggers use.
+
+    Infrared first, the order the card draws the glyphs in. Empty when
+    there are none: the card then draws no glyph.
+    """
+    from .const import MEDIUM_IR, MEDIUM_RF
+
+    present = {getattr(row, "medium", MEDIUM_IR) or MEDIUM_IR for row in rows}
+    return [m for m in (MEDIUM_IR, MEDIUM_RF) if m in present]
 
 
 async def _device_full(
@@ -1425,10 +1439,10 @@ async def ws_receiver_listen(
     window = always_on.window(receiver) if always_on is not None else None
     if window is not None:
         if msg["on"]:
-            window.open(
-                msg.get("mode", RF_SOFTWARE_WINDOW_MODE),
-                msg.get("seconds", RF_SOFTWARE_WINDOW_S),
-            )
+            # Unasked, the window opens as the user last set it on the
+            # Sniffer's pickers (kept on the receiver's record).
+            seconds, mode = _window_prefs(hass, receiver)
+            window.open(msg.get("mode", mode), msg.get("seconds", seconds))
         else:
             window.close()
         connection.send_result(msg["id"], {"on": msg["on"], **window.state()})
@@ -1453,6 +1467,102 @@ async def ws_receiver_listen(
         connection.send_error(msg["id"], "listen_failed", str(err))
         return
     connection.send_result(msg["id"], {"on": msg["on"]})
+
+
+def _window_prefs(hass: HomeAssistant, receiver: str) -> tuple[int, str]:
+    """The length and mode a receiver's software window opens with."""
+    from homeassistant.helpers import entity_registry as er
+
+    from .receiver_window import _store, default_window
+
+    store = _store(hass)
+    entry = er.async_get(hass).async_get(receiver)
+    if store is None or entry is None:
+        return default_window()
+    return store.window_prefs(entry.id)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/receivers/window_prefs",
+    vol.Required("receiver_entity_id"): str,
+    vol.Required("seconds"): vol.All(
+        int, vol.Range(min=RF_SOFTWARE_WINDOW_MIN_S, max=RF_SOFTWARE_WINDOW_MAX_S)
+    ),
+    vol.Required("mode"): vol.In(("sliding", "single", "multiple")),
+})
+@callback
+def ws_receiver_window_prefs(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Keep the length and mode of a radio receiver's next software window.
+
+    Set from the Sniffer's pickers on an always-on radio receiver's
+    Listen pill; applies to the next window, never the open one. Kept
+    on the receiver's CaptureReceiverStore record (registry entry id),
+    so a rename keeps it and every browser shows the same. A capture
+    device's settings are its own entities, which the panel sets
+    directly, so it is refused here.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    from .receiver_window import _store, says_capture
+    from .rf_receive import is_rf_receiver_state
+
+    receiver = msg["receiver_entity_id"]
+    state = hass.states.get(receiver)
+    if not receiver.startswith("radio_frequency.") or (
+        state is not None and not is_rf_receiver_state(state)
+    ):
+        connection.send_error(
+            msg["id"], "unknown_receiver", f"{receiver} is not a radio receiver"
+        )
+        return
+    if state is not None and says_capture(state):
+        connection.send_error(
+            msg["id"], "capture_device",
+            f"{receiver} is a capture device; its own entities set its window",
+        )
+        return
+    store = _store(hass)
+    entry = er.async_get(hass).async_get(receiver)
+    if store is None or entry is None:
+        connection.send_error(
+            msg["id"], "not_registered", f"{receiver} has no registry entry"
+        )
+        return
+    store.set_window_prefs(entry.id, msg["seconds"], msg["mode"])
+    seconds, mode = store.window_prefs(entry.id)
+    connection.send_result(msg["id"], {"window_seconds": seconds, "window_mode": mode})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/hardware/facts",
+})
+@callback
+def ws_hardware_facts(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The one fact each hardware row shows on the Devices tab.
+
+    ``heard``: receiver entity id to when HAIR last took a code from it
+    (a new row, a known row counting up, or a trigger match; never
+    noise, a dropped radio code or an echo of HAIR's own send).
+    ``sent``: emitter entity id to when HAIR last sent through it. Both
+    in memory since HAIR started, so an entity HAIR has not heard or
+    used since then is absent, and the card leaves its column blank.
+    """
+    data = _get_first_entry_data(hass)
+    monitor = data.get("signal_monitor") if isinstance(data, dict) else None
+    if monitor is None:
+        connection.send_result(msg["id"], {"heard": {}, "sent": {}})
+        return
+    connection.send_result(msg["id"], monitor.hardware_facts())
 
 
 @websocket_api.require_admin
@@ -1876,6 +1986,28 @@ def _unknown_device_summary(device) -> dict[str, Any]:
         "dismissed": device.dismissed,
         "source": device.source,
         "source_wig": dict(device.source_wig) if device.source_wig else None,
+        **_unknown_device_medium(device),
+    }
+
+
+def _unknown_device_medium(device: Any) -> dict[str, Any]:
+    """A radio remote's medium and carrier, for the Sniffer's row.
+
+    Written only for radio, so an infrared summary is unchanged. The
+    carrier is that of the most recently heard signal that has one.
+    """
+    from .const import MEDIUM_RF
+
+    if getattr(device, "medium", None) != MEDIUM_RF:
+        return {}
+    heard = [
+        s for s in device.signals
+        if isinstance(getattr(s, "rf_frequency_hz", None), int)
+    ]
+    heard.sort(key=lambda s: s.last_seen or "", reverse=True)
+    return {
+        "medium": MEDIUM_RF,
+        "rf_frequency_hz": heard[0].rf_frequency_hz if heard else None,
     }
 
 
@@ -4233,6 +4365,7 @@ async def ws_list_trigger_remotes(
             **remote.to_dict(),
             "ha_device_id": _trigger_remote_ha_device_id(hass, remote.id),
             "trigger_count": len(triggers),
+            "media": _media(triggers),
             "enabled_count": enabled_count,
             "disabled_count": len(triggers) - enabled_count,
             "pin_map": pin_map,
