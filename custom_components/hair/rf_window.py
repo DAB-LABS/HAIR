@@ -22,7 +22,7 @@ state, not HA, so the panel reads it from HAIR's doors and its push
 
 THE CEILING. Whatever the mode, the codes that slid it or a listen
 holding it, a software window closes ``RF_WINDOW_MAX_S`` after it
-opened (owner ruling 2026-11-05): a busy receiver hears strangers'
+opened: a busy receiver hears strangers'
 remotes, and an open window mints a card for each. From then on new
 codes are dropped and counted until the user opens it again.
 
@@ -34,11 +34,12 @@ panel, or the ceiling, ends that listen, as a hardware window closing
 does in ``single`` mode.
 
 COUNTERS, in memory since HAIR started hearing the receiver: every
-capture, the captures with no frame in them, bursts that ended with too
-few agreeing frames, rows minted, presses that reached a known row or a
-trigger, and new codes dropped because the window was closed. Cheap
-integers, pushed at most once a second, and the bench's record of a
-noisy receiver being handled.
+capture; noise (captures with no frame in them, and voted codes too
+short to be a remote's); lone frames (bursts that ended with too few
+agreeing frames, nearly all of them noise); rows minted; presses that
+reached a known row or a trigger; and new codes dropped because the
+window was closed. Cheap integers, pushed at most once a second, so a
+noisy receiver can be seen being handled.
 """
 from __future__ import annotations
 
@@ -81,7 +82,7 @@ class Counters:
     since: str = field(default_factory=lambda: _iso(datetime.now(UTC)) or "")
     captures: int = 0
     noise: int = 0
-    bursts_failed: int = 0
+    lone_frames: int = 0
     minted: int = 0
     matched: int = 0
     new_window_closed: int = 0
@@ -309,7 +310,7 @@ class RfAlwaysOn:
     def note_time(self, receiver: str, started_ns: int) -> None:
         """Add one capture's handling time, and once a minute say it.
 
-        Debug only, and the bench's load number: microseconds per capture
+        Debug only, a load measure: microseconds per capture
         on the receive path (the split, the vote or the burst hand-off),
         summed per receiver. The shared pipeline's own cost after a vote
         is not in it; a vote happens a few times a minute, a capture

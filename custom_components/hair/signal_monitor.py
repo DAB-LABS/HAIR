@@ -63,6 +63,7 @@ from .const import (
     PINNED_TICKET_ARM_FALLBACK_S,
     REPEAT_ATTRIBUTION_WINDOW,
     RF_EDIT_UNSUPPORTED,
+    RF_MIN_BODY_EDGES,
     RF_PROTOCOL,
     RF_SEND_UNSUPPORTED,
     SEND_REPEAT_GAP,
@@ -2120,14 +2121,25 @@ class SignalMonitor:
         software = n.rf is not None and self.rf_always_on.attached(
             receiver_entity_id or ""
         )
-        if software:
-            if filed is not None or fired:
-                self.rf_always_on.count(receiver_entity_id, "matched")
-            if filed is None and not self.rf_always_on.window_open(
-                receiver_entity_id or ""
-            ):
-                self.rf_always_on.count(receiver_entity_id, "new_window_closed")
-                return
+        if software and (filed is not None or fired):
+            self.rf_always_on.count(receiver_entity_id, "matched")
+        # A radio body too short to be a remote's never becomes a row: a
+        # repeating scrap of receiver noise can pass the frame vote.
+        if (
+            filed is None
+            and n.rf is not None
+            and n.rf.body_edges < RF_MIN_BODY_EDGES
+        ):
+            if software:
+                self.rf_always_on.count(receiver_entity_id, "noise")
+            return
+        if (
+            software
+            and filed is None
+            and not self.rf_always_on.window_open(receiver_entity_id or "")
+        ):
+            self.rf_always_on.count(receiver_entity_id, "new_window_closed")
+            return
 
         # Step 4: Check dismiss list.
         if self._signal_store.is_dismissed(dev_fp):
@@ -2394,8 +2406,8 @@ class SignalMonitor:
                 on_burst=lambda analysis, signal, rid=receiver_entity_id: (
                     self._emit_rf(analysis, signal, rid)
                 ),
-                on_failed=lambda rid=receiver_entity_id: (
-                    self.rf_always_on.count(rid, "bursts_failed")
+                on_lone=lambda rid=receiver_entity_id: (
+                    self.rf_always_on.count(rid, "lone_frames")
                 ),
                 call_at=loop.call_at,
                 now=loop.time,
