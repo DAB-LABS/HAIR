@@ -27,3 +27,20 @@ const out = {
     groups_none: emitterGroups(options.filter((o) => o.medium === "ir"), ["rf"]),
 };
 console.log(JSON.stringify(out));
+
+// T3: the radio code editor's rules.
+const rf = await import("./rf-code.js");
+const frame = [1282, -382, 458, -1221, 458, -1221, 1282];
+console.log(JSON.stringify({
+    t3: {
+        sub_with_gap: rf.toSub(frame, 433920000, 12909),
+        sub_on_space: rf.toSub([...frame, -9000], 315000000, 12909),
+        sub_no_freq: rf.toSub(frame, null, null),
+        sub_long: rf.toSub([...Array(401).keys()].map((i) => (i % 2 ? -500 : 500)), 433920000, 9000),
+        mhz: ["433.92", "433,92", " 315 ", "303.875 MHz", "0.5", "20000", "abc", "", "433.92.1"].map(rf.mhzToHz),
+        to_mhz: [433920000, 315000000, 303875000, 433420000].map(rf.hzToMhz),
+        preset: [433920000, 315000000, 433420000, null].map(rf.presetOf),
+        source: ["signal", "receiver", "window", "user", "assumed", null, "other"].map(rf.sourceKey),
+        refusal: ["rf_paste_empty", "rf_paste_unreadable", "rf_paste_no_frame", "rf_paste_frames_disagree", "duplicate_signal", null].map(rf.pasteRefusalKey),
+    },
+}));

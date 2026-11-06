@@ -10,7 +10,7 @@ import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
-import { rfRefusal } from "./rf-errors.js";
+import { rfRefusal, substitutedHz } from "./rf-errors.js";
 import {
     ICON_TRASH,
     TRASH_VIEWBOX,
@@ -30,6 +30,7 @@ import "./ir-use-fork-popup.js";
 import "./ir-pin-prompt-dialog.js";
 import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
+import "./ir-rf-editor.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
@@ -46,7 +47,7 @@ import {
     snifferShowsEverything,
     type SnifferShow,
 } from "./sniffer-filter.js";
-import { arrivalBloomKey, captureSignature, lastHeardTarget } from "./ir-listen-state.js";
+import { arrivalBloomKey, bandNumber, captureSignature, lastHeardTarget } from "./ir-listen-state.js";
 import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
     AssignResult,
@@ -1034,8 +1035,12 @@ export class IrSignalMonitor extends LitElement {
             const refused = results
                 .map((r) => (r.status === "rejected" ? rfRefusal(r.reason) : null))
                 .find((m) => m !== null);
+            const at = substitutedHz(results);
             if (refused) {
                 this._testResult = refused;
+            } else if (at !== null && sent > 0) {
+                // A fixed-frequency transmitter sent at its own band.
+                this._testResult = t("mirror.sent_at", { band: bandNumber(at) });
             } else if (sent === total) {
                 this._testResult = total === 1 ? t("mirror.sent") : t("mirror.sent_all_n", { sent, total });
             } else if (sent === 0) {
@@ -1644,7 +1649,21 @@ export class IrSignalMonitor extends LitElement {
                 : ""}
 
             ${this._editSignal
-                ? html`<ir-signal-editor
+                ? this._editSignal.signal.medium === "rf"
+                    ? html`<ir-rf-editor
+                          .api=${this.api}
+                          .deviceId=${this._editSignal.deviceId}
+                          .signalId=${this._editSignal.signal.id}
+                          .initialFrame=${this._editSignal.signal.raw_timings ?? []}
+                          .initialFrequencyHz=${this._editSignal.signal.rf_frequency_hz ?? null}
+                          .initialFrequencySource=${this._editSignal.signal.rf_frequency_source ?? null}
+                          .initialGapUs=${this._editSignal.signal.rf_frame_gap_us ?? null}
+                          .initialAlias=${this._editSignal.signal.alias ?? ""}
+                          .initialSendCount=${this._editSignal.signal.send_count ?? 1}
+                          @signal-edited=${this._onSignalEdited}
+                          @closed=${() => (this._editSignal = null)}
+                      ></ir-rf-editor>`
+                    : html`<ir-signal-editor
                       .api=${this.api}
                       .deviceId=${this._editSignal.deviceId}
                       .signalId=${this._editSignal.signal.id}
@@ -2100,7 +2119,7 @@ export class IrSignalMonitor extends LitElement {
                                             .count=${this._triggerCountFor(sig)}
                                         ></ir-count-dot></button>
                                     <span class="edit-trash-group">
-                                        ${sig.code
+                                        ${sig.code || sig.medium === "rf"
                                             ? renderEditBtn(
                                                   (e: Event) =>
                                                       this._openEditSignal(

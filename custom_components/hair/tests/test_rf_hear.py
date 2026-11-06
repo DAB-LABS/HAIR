@@ -18,7 +18,6 @@ import pytest
 from custom_components.hair import rf_frames, rf_receive
 from custom_components.hair.const import (
     MEDIUM_RF,
-    RF_EDIT_UNSUPPORTED,
     RF_FREQUENCY_SOURCE_RECEIVER,
     RF_FREQUENCY_SOURCE_SIGNAL,
     RF_FREQUENCY_SOURCE_WINDOW,
@@ -543,7 +542,10 @@ class TestRefusals:
             "d", "rf1", "0000 006D 0002 0000 0020 0040 0020 0040"
         )
         assert result["success"] is False
-        assert result["code"] == RF_EDIT_UNSUPPORTED
+        # rf_edit_unsupported until the RF send round, which edits a
+        # radio row as a radio code and refuses Pronto as the other
+        # medium's code (rf-send-doors.md section 5).
+        assert result["code"] == "wrong_medium_code"
 
 
 def _rf_command(keyfob) -> IRCommand:
@@ -603,7 +605,10 @@ class TestDeviceSend:
             "dev1", "c1", pronto="0000 006D 0002 0000 0020 0040 0020 0040"
         )
         assert result["success"] is False
-        assert result["code"] == RF_EDIT_UNSUPPORTED
+        # rf_edit_unsupported until the RF send round, which edits a
+        # radio row as a radio code and refuses Pronto as the other
+        # medium's code (rf-send-doors.md section 5).
+        assert result["code"] == "wrong_medium_code"
 
 
 class TestWigExport:
