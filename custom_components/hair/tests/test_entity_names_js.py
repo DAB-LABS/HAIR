@@ -294,26 +294,29 @@ class TestEverySurfaceNamesOnce:
     def test_the_picker_builds_its_chips_from_the_shared_list(self):
         text = _flat("ir-emitter-picker.ts")
         assert (
-            'import { getEmitterOptions, type EmitterInfo } from "./emitter-options.js";'
-            in text
-        )
+            "import { emitterGroups, getEmitterOptions, type EmitterInfo } "
+            'from "./emitter-options.js";'
+        ) in text
+        # Grouped by medium since the RF send round; still the one list.
         assert (
-            "return getEmitterOptions(this.hass, this._receiverIds, "
-            "this.excludeEntityIds);"
+            "getEmitterOptions(this.hass, this._receiverIds, this.excludeEntityIds), "
+            "this.media,"
         ) in text
         assert "friendly_name" not in _read("ir-emitter-picker.ts").split("*/", 1)[1]
 
     def test_the_picker_chip_says_the_short_name(self):
         text = _flat("ir-emitter-picker.ts")
         assert '<span class="em-name">${em.name}</span>' in text
-        assert 'aria-label="${em.name}, ${word}"' in text
+        # The phrase gains a transmitter's fit note (RF send round).
+        assert "const said = note ? `${word}, ${note}` : word;" in text
+        assert 'aria-label="${em.name}, ${said}"' in text
 
     def test_the_picker_tooltip_keeps_the_full_name(self):
         # Since chip health (ember): "{full name}, online, selected ·
         # {entity id}", still leading with HA's full name.
         text = _flat("ir-emitter-picker.ts")
         assert (
-            'title="${em.fullName}, ${word}${em.fullName === em.entity_id '
+            'title="${em.fullName}, ${said}${em.fullName === em.entity_id '
             '? "" : ` · ${em.entity_id}`}"'
         ) in text
 

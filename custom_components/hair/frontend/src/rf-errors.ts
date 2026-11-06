@@ -1,21 +1,50 @@
 /**
- * The two radio refusals, in the user's language (RF hear round 1).
+ * Send and edit refusals, in the user's language.
  *
- * HAIR hears radio but does not send it yet, and a radio row has no
- * Pronto to edit. The server refuses both with a code
- * (``rf_send_unsupported``, ``rf_edit_unsupported``) on the Test, send
- * and edit doors; the panel shows a sentence for each instead of the
- * raw message.
+ * The server refuses with a code on the Test, send, edit and device
+ * doors (`agent-exchange/rf-hear/rf-send-doors.md` section 2), and the
+ * panel shows a sentence for each instead of the raw message.
+ *
+ * RF hear round 1 had two: HAIR did not send radio yet
+ * (`rf_send_unsupported`), and a radio row had no Pronto to edit
+ * (`rf_edit_unsupported`). The send round retires both, and its own
+ * refusals are about which emitter can send what. The two old codes
+ * keep their sentences until the server stops sending them.
  */
 import { t } from "./localize.js";
 
 export const RF_SEND_UNSUPPORTED = "rf_send_unsupported";
 export const RF_EDIT_UNSUPPORTED = "rf_edit_unsupported";
+export const NO_EMITTER_FOR_MEDIUM = "no_emitter_for_medium";
+export const RF_NO_FREQUENCY = "rf_no_frequency";
+export const RF_FREQUENCY_UNSUPPORTED = "rf_frequency_unsupported";
+export const RF_PLATFORM_NOT_LOADED = "rf_platform_not_loaded";
+export const EMITTER_WRONG_MEDIUM = "emitter_wrong_medium";
+export const INVALID_EMITTER = "invalid_emitter";
 
-/** The sentence for a radio refusal, or null for any other error. */
-export function rfRefusal(err: unknown): string | null {
+const SENTENCES: Record<string, string> = {
+    [RF_SEND_UNSUPPORTED]: "errors.rf_send_unsupported",
+    [RF_EDIT_UNSUPPORTED]: "errors.rf_edit_unsupported",
+    [NO_EMITTER_FOR_MEDIUM]: "errors.no_emitter_for_medium",
+    [RF_NO_FREQUENCY]: "errors.rf_no_frequency",
+    [RF_FREQUENCY_UNSUPPORTED]: "errors.rf_frequency_unsupported",
+    [RF_PLATFORM_NOT_LOADED]: "errors.rf_platform_not_loaded",
+    [EMITTER_WRONG_MEDIUM]: "errors.emitter_wrong_medium",
+    [INVALID_EMITTER]: "errors.invalid_emitter",
+};
+
+/** The locale key for a refusal code, or null for any other error.
+ *  Pure, so the node tests can check the map without localize. */
+export function refusalKey(err: unknown): string | null {
     const code = (err as { code?: unknown } | null)?.code;
-    if (code === RF_SEND_UNSUPPORTED) return t("errors.rf_send_unsupported");
-    if (code === RF_EDIT_UNSUPPORTED) return t("errors.rf_edit_unsupported");
-    return null;
+    return typeof code === "string" ? (SENTENCES[code] ?? null) : null;
 }
+
+/** The sentence for a refusal, or null for any other error. */
+export function sendRefusal(err: unknown): string | null {
+    const key = refusalKey(err);
+    return key ? t(key) : null;
+}
+
+/** The round 1 name, kept for its callers. */
+export const rfRefusal = sendRefusal;

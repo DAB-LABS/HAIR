@@ -1451,7 +1451,8 @@ class TestEmittersShowSelectionAndHealth:
         assert 'class="st"' not in text
         # It still reaches anyone who needs it: "{name}, online, selected".
         assert "const word = healthPhrase(em.available, on, t);" in text
-        assert 'aria-label="${em.name}, ${word}"' in text
+        # Plus a transmitter's fit note, when it has one (RF send round).
+        assert 'aria-label="${em.name}, ${said}"' in text
         assert "title=" in text
 
     def test_no_amber_on_an_emitter_chip(self):

@@ -18,6 +18,7 @@ import type {
     CandidateVerdict,
     CaptureReceiverRow,
     HardwareFacts,
+    RfTransmitter,
     RfReceiverItem,
     WindowMode,
     ClaimsLedger,
@@ -331,6 +332,15 @@ export class HairApi {
     hardwareFacts(): Promise<HardwareFacts> {
         return this.hass.connection.sendMessagePromise<HardwareFacts>({
             type: "hair/hardware/facts",
+        });
+    }
+
+    /** Every radio transmitter, and with a frequency, whether each can
+     *  send it by the send path's own rule (``hair/rf/transmitters``). */
+    rfTransmitters(frequencyHz?: number | null): Promise<RfTransmitter[]> {
+        return this.hass.connection.sendMessagePromise<RfTransmitter[]>({
+            type: "hair/rf/transmitters",
+            ...(frequencyHz ? { frequency_hz: frequencyHz } : {}),
         });
     }
 

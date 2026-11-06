@@ -1747,7 +1747,7 @@ async def test_assign_new_device_success(fake_hass):
             "signal_id": "sig_fp",
             "device_name": "Living Room TV",
             "device_type": "media_player",
-            "emitter_entity_ids": ["remote.ir_blaster"],
+            "emitter_entity_ids": ["infrared.ir_blaster"],
             "command_name": "Power",
             "command_category": "power",
         },
@@ -1787,7 +1787,7 @@ async def test_assign_new_device_invalid_type(fake_hass):
             "signal_id": "sig_fp",
             "device_name": "Test",
             "device_type": "invalid_type",
-            "emitter_entity_ids": ["remote.ir"],
+            "emitter_entity_ids": ["infrared.ir"],
             "command_name": "Power",
         },
     )
@@ -1816,7 +1816,7 @@ async def test_assign_new_device_signal_not_found(fake_hass):
             "signal_id": "nonexistent",
             "device_name": "Test",
             "device_type": "media_player",
-            "emitter_entity_ids": ["remote.ir"],
+            "emitter_entity_ids": ["infrared.ir"],
             "command_name": "Power",
         },
     )
