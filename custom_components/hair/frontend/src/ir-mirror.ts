@@ -45,11 +45,16 @@ import {
     trashButtonStyles,
 } from "./ir-icons.js";
 import { HairApi } from "./api.js";
-import { sendRefusal } from "./rf-errors.js";
+import { sendRefusal, substitutedHz } from "./rf-errors.js";
+import { renderProtoGlyph, protoGlyphStyles } from "./ir-proto-glyph.js";
+import { bandNumber } from "./ir-listen-state.js";
+import { bandLabel } from "./rf-band.js";
+import type { Medium } from "./types.js";
 import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-signal-editor.js";
+import "./ir-rf-editor.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
@@ -133,6 +138,9 @@ export class IrMirror extends LitElement {
     @state() private _receivers: ReceiverInfo[] = [];
     @state() private _hasReceivers = true;
     @state() private _filter: string = "all"; // "all" | "notheard" | emitter name
+    /** Infrared or radio rows only (RF send round); null shows both.
+     *  Independent of the filter above. */
+    @state() private _medium: Medium | null = null;
     @state() private _search = "";
     /** Is the emitter dropdown showing? (punch list item 15) */
     @state() private _emitterOpen = false;
@@ -509,6 +517,9 @@ export class IrMirror extends LitElement {
         } else if (this._filter !== "all") {
             out = out.filter((r) => r.emitters.includes(this._filter));
         }
+        if (this._medium) {
+            out = out.filter((r) => (r.sig.medium ?? "ir") === this._medium);
+        }
         const q = this._search.trim().toLowerCase();
         if (q) {
             out = out.filter((r) =>
@@ -702,8 +713,11 @@ export class IrMirror extends LitElement {
             const refused = results
                 .map((r) => (r.status === "rejected" ? sendRefusal(r.reason) : null))
                 .find((m) => m !== null);
+            const at = substitutedHz(results);
             if (refused) {
                 this._testResult = refused;
+            } else if (at !== null && sent > 0) {
+                this._testResult = t("mirror.sent_at", { band: bandNumber(at) });
             } else if (sent === total) {
                 this._testResult =
                     total === 1
@@ -979,6 +993,18 @@ export class IrMirror extends LitElement {
                           </button>
                       `
                     : ""}
+                ${rows.some((r) => r.sig.medium === "rf")
+                    ? (["ir", "rf"] as Medium[]).map(
+                          (m) => html`<button
+                              class="chip filter fchip medium-chip ${this._medium === m ? "on" : ""}"
+                              aria-pressed=${this._medium === m ? "true" : "false"}
+                              @click=${() => (this._medium = this._medium === m ? null : m)}
+                          >
+                              ${renderProtoGlyph(m, 14)}
+                              ${t(m === "rf" ? "sniffer.filter.radio" : "sniffer.filter.infrared")}
+                          </button>`,
+                      )
+                    : ""}
                 <div class="emitter-pill-wrap">
                     <button
                         class="chip filter fchip emitter-chip ${picked ? "on" : ""} ${this
@@ -1085,7 +1111,8 @@ export class IrMirror extends LitElement {
     private _renderRow(r: MirrorRowView) {
         const sig = r.sig;
         const bloom = this._bloomIds.has(sig.id);
-        const actionable = !!sig.code;
+        // A radio row has no code text; its frame is what it sends.
+        const actionable = !!sig.code || sig.medium === "rf";
         const isTesting = this._testingSignalId === sig.id;
         // Both counts are optional on the wire and mean 1 when absent.
         // The indicators below only render above 1, so the fallback never
@@ -1097,6 +1124,13 @@ export class IrMirror extends LitElement {
             <div class="mrow ${bloom ? "bloom" : ""}">
                 <div class="mrow-main">
                     <div class="mrow-title">
+                        ${renderProtoGlyph(
+                            sig.medium ?? "ir",
+                            16,
+                            sig.medium === "rf" && sig.rf_frequency_hz
+                                ? bandLabel(sig.rf_frequency_hz)
+                                : null,
+                        )}
                         <span class="name">${r.title}</span>
                         ${r.pill
                             ? html`<span
@@ -1205,7 +1239,7 @@ export class IrMirror extends LitElement {
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
                     <span class="edit-trash-group">
-                        ${sig.code
+                        ${actionable
                             ? renderEditBtn((e: Event) => {
                                   e.stopPropagation();
                                   this._editSignal = sig;
@@ -1330,7 +1364,21 @@ export class IrMirror extends LitElement {
                   ></ir-assign-signal-dialog>`
                 : ""}
             ${this._editSignal && this._device
-                ? html`<ir-signal-editor
+                ? this._editSignal.medium === "rf"
+                    ? html`<ir-rf-editor
+                          .api=${this.api}
+                          .deviceId=${this._device.id}
+                          .signalId=${this._editSignal.id}
+                          .initialFrame=${this._editSignal.raw_timings ?? []}
+                          .initialFrequencyHz=${this._editSignal.rf_frequency_hz ?? null}
+                          .initialFrequencySource=${this._editSignal.rf_frequency_source ?? null}
+                          .initialGapUs=${this._editSignal.rf_frame_gap_us ?? null}
+                          .initialAlias=${this._editSignal.alias ?? ""}
+                          .initialSendCount=${this._editSignal.send_count ?? 1}
+                          @signal-edited=${this._onSignalEdited}
+                          @closed=${() => (this._editSignal = null)}
+                      ></ir-rf-editor>`
+                    : html`<ir-signal-editor
                       .api=${this.api}
                       .deviceId=${this._device.id}
                       .signalId=${this._editSignal.id}
@@ -1370,6 +1418,7 @@ export class IrMirror extends LitElement {
     static styles = [
         headerChipStyles,
         actionChipStyles,
+        protoGlyphStyles,
         trashButtonStyles,
         editButtonStyles,
         bloomStyles,
@@ -1703,6 +1752,19 @@ export class IrMirror extends LitElement {
             }
             .mrow-main {
                 min-width: 0;
+            }
+            /* Infrared / Radio, shown once the Mirror holds a radio row. */
+            .medium-chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+            }
+            /* A row's glyph in the meta grey, as the Sniffer's rows have
+               it (fix round 1, item 4). The medium chips keep theirs. */
+            .mrow-title .hair-proto {
+                align-self: center;
+                --hair-proto-source: var(--secondary-text-color);
+                --hair-proto-signal: var(--secondary-text-color);
             }
             .mrow-title {
                 display: flex;

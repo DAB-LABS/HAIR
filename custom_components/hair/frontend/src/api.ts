@@ -19,6 +19,7 @@ import type {
     CaptureReceiverRow,
     HardwareFacts,
     RfTransmitter,
+    RfValidation,
     RfReceiverItem,
     WindowMode,
     ClaimsLedger,
@@ -332,6 +333,31 @@ export class HairApi {
     hardwareFacts(): Promise<HardwareFacts> {
         return this.hass.connection.sendMessagePromise<HardwareFacts>({
             type: "hair/hardware/facts",
+        });
+    }
+
+    /** Read a pasted radio code, live (``hair/rf/validate``). A
+     *  refusal comes back as ``ok: false`` with a code, not an error. */
+    rfValidate(text: string, frequencyHz?: number | null): Promise<RfValidation> {
+        return this.hass.connection.sendMessagePromise<RfValidation>({
+            type: "hair/rf/validate",
+            text,
+            ...(frequencyHz ? { frequency_hz: frequencyHz } : {}),
+        });
+    }
+
+    /** Edit a Sniffer radio row's code or frequency. */
+    editRfSignal(payload: {
+        device_id: string;
+        signal_id: string;
+        rf_code?: string;
+        rf_frequency_hz?: number;
+        alias?: string;
+        send_count?: number;
+    }): Promise<{ signal: UnknownSignal; triggers: { rewired: string[]; skipped: string[] } }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/unknown/signal/edit-rf",
+            ...payload,
         });
     }
 
@@ -1204,6 +1230,9 @@ export class HairApi {
         command_id: string;
         name?: string;
         pronto?: string;
+        /** A radio command's code and frequency (RF send round). */
+        rf_code?: string;
+        rf_frequency_hz?: number;
         send_count?: number;
         repeat_count?: number;
         send_spacing_ms?: number | null;

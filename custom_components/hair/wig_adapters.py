@@ -393,6 +393,29 @@ def convert(text: str, name_hint: str = "") -> AdapterResult:
 # --- Broadlink packets (shared by SmartIR Base64/Hex; RMBridge later) ---
 
 
+def broadlink_payload_ticks(payload: bytes) -> list[int]:
+    """A Broadlink packet's durations in ticks, infrared and radio alike.
+
+    Tick durations, one byte each, a 0x00 byte escaping a big-endian
+    pair for a value over 255. An escape cut off by the payload's end
+    ends the list. The one tick reader: the infrared packets below and
+    the radio packets the editor's paste reads (``rf_paste``) share it.
+    """
+    ticks: list[int] = []
+    i = 0
+    while i < len(payload):
+        value = payload[i]
+        if value == 0:
+            if i + 2 >= len(payload):
+                break
+            value = (payload[i + 1] << 8) | payload[i + 2]
+            i += 3
+        else:
+            i += 1
+        ticks.append(value)
+    return ticks
+
+
 def broadlink_packet_to_pronto(packet: bytes) -> str | None:
     """Decode a Broadlink IR packet into Pronto hex, or None.
 
@@ -412,19 +435,7 @@ def broadlink_packet_to_pronto(packet: bytes) -> str | None:
     if len(packet) < 6 or packet[0] != 0x26:
         return None
     length = packet[2] | (packet[3] << 8)
-    payload = packet[4:4 + length]
-    ticks: list[int] = []
-    i = 0
-    while i < len(payload):
-        value = payload[i]
-        if value == 0:
-            if i + 2 >= len(payload):
-                break
-            value = (payload[i + 1] << 8) | payload[i + 2]
-            i += 3
-        else:
-            i += 1
-        ticks.append(value)
+    ticks = broadlink_payload_ticks(packet[4:4 + length])
     if len(ticks) < 2:
         return None
     # SmartIR trailing gap (smartir-trailing-gap.md, 4b): ticks

@@ -79,6 +79,13 @@ export interface IRCommand {
     protocol: string | null;
     code: string | null;
     raw_timings?: number[] | null;
+    /** Radio commands only (RF send round): the medium, the carrier
+     *  and where it came from, and the gap. */
+    medium?: Medium;
+    rf_frequency_hz?: number | null;
+    rf_frequency_source?: string | null;
+    rf_frame_gap_us?: number | null;
+    rf_frame_gap_source?: string | null;
     frequency: number;
     repeat_count: number;
     // Whole-frame send count (v0.4.x): transmit the built signal this many
@@ -1038,6 +1045,25 @@ export interface RfFit {
     code: string | null;
 }
 
+/** A pasted radio code read (``hair/rf/validate``). */
+export interface RfValidation {
+    ok: boolean;
+    code?: string;
+    error?: string;
+    format?: "sub" | "timings" | "broadlink";
+    frames_found?: number;
+    frames_agreeing?: number;
+    frame?: number[];
+    frequency_hz?: number | null;
+    frequency_source?: string | null;
+    gap_us?: number;
+    gap_source?: string;
+    repeats_observed?: number;
+    fingerprint?: string;
+    frame_hash?: string;
+    sub_text?: string;
+}
+
 /** One radio transmitter (``hair/rf/transmitters``). */
 export interface RfTransmitter {
     entity_id: string;
@@ -1184,6 +1210,11 @@ export interface UnknownSignal {
      *  Hz; an infrared row carries neither. */
     medium?: Medium;
     rf_frequency_hz?: number | null;
+    /** Where the frequency came from: signal, receiver, window, user or
+     *  assumed (RF send round, the editor's source line). */
+    rf_frequency_source?: string | null;
+    rf_frame_gap_us?: number | null;
+    rf_frame_gap_source?: string | null;
     hit_count: number;
     first_seen: string;
     last_seen: string;
@@ -1518,6 +1549,11 @@ export interface AssignResult {
 
 export interface TestSignalResult {
     sent: boolean;
+    /** Radio rows (RF send round): the Hz that went on the air, and
+     *  whether it was the transmitter's own fixed frequency rather than
+     *  the row's. */
+    frequency_hz?: number;
+    substituted?: boolean;
 }
 
 export interface DeleteSignalResult {

@@ -19,7 +19,6 @@ from .const import (
     EMITTER_STAGGER_GAP_S,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
-    RF_EDIT_UNSUPPORTED,
     RF_SEND_UNSUPPORTED,
     SEND_REPEAT_GAP,
     CommandCategory,
@@ -309,6 +308,8 @@ class DeviceManager:
         *,
         name: str | None = None,
         pronto: str | None = None,
+        rf_code: str | None = None,
+        rf_frequency_hz: int | None = None,
         send_count: int | None = None,
         repeat_count: int | None = None,
         send_spacing_ms: int | None = None,
@@ -317,7 +318,12 @@ class DeviceManager:
         set_send_spacing_block: bool = False,
         trigger_manager: TriggerManager | None = None,
     ) -> dict[str, Any]:
-        """Edit a device command's name and/or Pronto in place.
+        """Edit a device command's name and/or code in place.
+
+        An infrared command's code is Pronto (``pronto``); a radio
+        command's is a paste (``rf_code``, read by ``rf_paste``), with its
+        frequency (``rf_frequency_hz``, alone or with the code). Each kind
+        refuses the other's code with ``wrong_medium_code`` (RF send, T3).
 
         On a name change: guard against a duplicate name on the device,
         then cascade the action mappings (every ``command_mapping`` value
@@ -344,11 +350,22 @@ class DeviceManager:
         if command is None:
             return {"success": False, "code": "command_not_found",
                     "error": "Command not found"}
-        # A radio row has no Pronto to edit (RF hear, round 1); a rename
-        # or a send-count change still goes through.
-        if pronto is not None and is_rf(command):
-            return {"success": False, "code": RF_EDIT_UNSUPPORTED,
-                    "error": "A radio code cannot be edited as Pronto"}
+        # Each kind of command takes its own kind of code (RF send, T3):
+        # Pronto would turn a radio frame into an infrared code, and a
+        # radio paste an infrared row into a radio one.
+        if (pronto is not None and is_rf(command)) or (
+            (rf_code is not None or rf_frequency_hz is not None) and not is_rf(command)
+        ):
+            return {"success": False, "code": "wrong_medium_code",
+                    "error": "That code is for the other kind of command"}
+        rf_result = None
+        if rf_code is not None:
+            from . import rf_paste
+
+            rf_result = rf_paste.validate(rf_code, rf_frequency_hz)
+            if not rf_result["ok"]:
+                return {"success": False, "code": rf_result["code"],
+                        "error": rf_result.get("error", "Not a radio code")}
 
         rewire: dict[str, list[str]] = {"rewired": [], "skipped": []}
         mappings_updated = 0
@@ -461,6 +478,29 @@ class DeviceManager:
                     old_decoded_fingerprint=old_decoded_fingerprint,
                     new_decoded_fingerprint=decoded_fingerprint,
                 )
+
+        # --- radio code or frequency (RF send, T3) ---
+        if rf_result is not None:
+            from . import rf_paste
+            from .const import RF_PROTOCOL
+            from .identity import canonical_fingerprint as _rf_fp
+
+            old_fp = _rf_fp(command.protocol, command.code, command.raw_timings)
+            old_byte_hash = command.byte_hash
+            rf_paste.apply_code(command, rf_result)
+            new_fp = rf_result["fingerprint"]
+            if trigger_manager is not None and new_fp and (
+                new_fp != old_fp or command.byte_hash != old_byte_hash
+            ):
+                rewire = await trigger_manager.rewire(
+                    old_fp, new_fp, RF_PROTOCOL, None,
+                    old_byte_hash=old_byte_hash,
+                    new_byte_hash=command.byte_hash,
+                )
+        elif rf_frequency_hz is not None:
+            from . import rf_paste
+
+            rf_paste.set_frequency(command, rf_frequency_hz)
 
         # --- whole-frame send count ---
         if send_count is not None:

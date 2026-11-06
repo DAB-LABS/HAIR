@@ -64,7 +64,6 @@ from .const import (
     PINNED_TICKET_ARM_FALLBACK_S,
     RECEIVER_HEARD_MIN_GAP_S,
     REPEAT_ATTRIBUTION_WINDOW,
-    RF_EDIT_UNSUPPORTED,
     RF_MIN_BODY_EDGES,
     RF_PROTOCOL,
     RF_SEND_UNSUPPORTED,
@@ -3805,11 +3804,12 @@ class SignalMonitor:
             if signal is None:
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found"}
-            # A radio row has no Pronto to edit (RF hear, round 1);
-            # writing one would turn a radio frame into an infrared code.
+            # A radio row has no Pronto to edit: writing one would turn a
+            # radio frame into an infrared code. Its code is edited by
+            # edit_signal_rf (RF send, T3).
             if is_rf(signal):
-                return {"success": False, "code": RF_EDIT_UNSUPPORTED,
-                        "error": "A radio code cannot be edited as Pronto"}
+                return {"success": False, "code": "wrong_medium_code",
+                        "error": "A radio code is edited as a radio code, not Pronto"}
 
             code = result.normalized
             new_fp = canonical_fingerprint("PRONTO", code, [])
@@ -3924,6 +3924,81 @@ class SignalMonitor:
                     new_decoded_fingerprint=decoded_fingerprint,
                 )
 
+            await self._signal_store.async_save()
+
+        return {"success": True, "signal": signal.to_dict(), "triggers": rewire}
+
+    async def edit_signal_rf(
+        self,
+        device_id: str,
+        signal_id: str,
+        *,
+        rf_code: str | None = None,
+        rf_frequency_hz: int | None = None,
+        alias: str | None = None,
+        send_count: int | None = None,
+    ) -> dict[str, Any]:
+        """Edit a radio row's code or frequency in place (RF send, T3).
+
+        The radio twin of ``edit_signal_pronto``. ``rf_code`` is a paste
+        (``.sub``, timings or Broadlink base64), read by ``rf_paste`` the
+        way the editor's validate door reads it; the row's frame, gap and
+        identity are replaced as a capture would write them. A code a
+        different row on this remote already holds is refused. When the
+        identity moves, bound triggers are rewired. ``rf_frequency_hz``
+        alone sets the frequency, the user's step of the ladder.
+        """
+        from . import rf_paste
+
+        result = None
+        if rf_code is not None:
+            result = rf_paste.validate(rf_code, rf_frequency_hz)
+            if not result["ok"]:
+                return {"success": False, "code": result["code"],
+                        "error": result.get("error", "Not a radio code")}
+
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Remote not found"}
+            signal = device.get_signal_by_id(signal_id)
+            if signal is None:
+                return {"success": False, "code": "signal_not_found",
+                        "error": "Signal not found"}
+            if not is_rf(signal):
+                return {"success": False, "code": "wrong_medium_code",
+                        "error": "An infrared code is edited as Pronto"}
+
+            rewire: dict[str, list[str]] = {"rewired": [], "skipped": []}
+            if result is not None:
+                existing = device.get_signal(
+                    result["fingerprint"], result["frame_hash"], None
+                )
+                if existing is not None and existing.id != signal.id:
+                    return {
+                        "success": False,
+                        "code": "duplicate_signal",
+                        "error": "Another signal on this remote already has that code",
+                    }
+                old_fp = signal.fingerprint
+                old_byte_hash = signal.byte_hash
+                rf_paste.apply_code(signal, result)
+                if self._trigger_manager is not None and (
+                    signal.fingerprint != old_fp or signal.byte_hash != old_byte_hash
+                ):
+                    rewire = await self._trigger_manager.rewire(
+                        old_fp, signal.fingerprint, RF_PROTOCOL, None,
+                        old_byte_hash=old_byte_hash,
+                        new_byte_hash=signal.byte_hash,
+                    )
+            elif rf_frequency_hz is not None:
+                rf_paste.set_frequency(signal, rf_frequency_hz)
+            if alias is not None:
+                signal.alias = alias.strip()
+            if send_count is not None:
+                signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
+            signal.last_seen = datetime.now(UTC).isoformat()
             await self._signal_store.async_save()
 
         return {"success": True, "signal": signal.to_dict(), "triggers": rewire}

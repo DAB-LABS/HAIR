@@ -113,6 +113,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_receiver_window_prefs)
     websocket_api.async_register_command(hass, ws_hardware_facts)
     websocket_api.async_register_command(hass, ws_rf_transmitters)
+    websocket_api.async_register_command(hass, ws_rf_validate)
+    websocket_api.async_register_command(hass, ws_unknown_signal_edit_rf)
     websocket_api.async_register_command(hass, ws_rf_subscribe)
     websocket_api.async_register_command(hass, ws_set_capture_switch)
     websocket_api.async_register_command(hass, ws_get_sniffer_status)
@@ -3289,6 +3291,9 @@ def _coerce_paste(
     vol.Required("command_id"): str,
     vol.Optional("name"): str,
     vol.Optional("pronto"): str,
+    # A radio command's code and frequency (RF send, T3).
+    vol.Optional("rf_code"): str,
+    vol.Optional("rf_frequency_hz"): vol.All(int, vol.Range(min=1_000_000, max=10_000_000_000)),
     vol.Optional("send_count"): vol.All(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
@@ -3376,6 +3381,8 @@ async def ws_command_update(
         msg["command_id"],
         name=msg.get("name"),
         pronto=msg.get("pronto"),
+        rf_code=msg.get("rf_code"),
+        rf_frequency_hz=msg.get("rf_frequency_hz"),
         send_count=msg.get("send_count"),
         repeat_count=msg.get("repeat_count"),
         send_spacing_ms=spacing,
@@ -3396,6 +3403,71 @@ async def ws_command_update(
         "triggers": result["triggers"],
         "mappings_updated": result["mappings_updated"],
     })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/rf/validate",
+    vol.Required("text"): vol.All(str, vol.Length(max=200_000)),
+    vol.Optional("frequency_hz"): vol.All(int, vol.Range(min=1_000_000, max=10_000_000_000)),
+})
+@callback
+def ws_rf_validate(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Read a pasted radio code for the editor, live (RF send, T3).
+
+    Flipper ``.sub``, a list of signed timings, or Broadlink RF base64.
+    Answers what the code would become: the frame, how many frames were
+    found and agreed, the frequency and where it came from, the gap, the
+    identity and the ``.sub`` text; or ``ok: false`` with a code
+    (``rf-send-doors.md`` section 5). A refusal is a result, not an
+    error, so the editor can say it under the box as the user types.
+    """
+    from . import rf_paste
+
+    connection.send_result(
+        msg["id"], rf_paste.validate(msg["text"], msg.get("frequency_hz"))
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/unknown/signal/edit-rf",
+    vol.Required("device_id"): str,
+    vol.Required("signal_id"): str,
+    vol.Optional("rf_code"): vol.All(str, vol.Length(max=200_000)),
+    vol.Optional("rf_frequency_hz"): vol.All(int, vol.Range(min=1_000_000, max=10_000_000_000)),
+    vol.Optional("alias"): vol.Any(str, None),
+    vol.Optional("send_count"): vol.All(int, vol.Range(min=1, max=MAX_SEND_COUNT)),
+})
+@websocket_api.async_response
+async def ws_unknown_signal_edit_rf(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Edit a Sniffer radio row's code or frequency (RF send, T3)."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    result = await monitor.edit_signal_rf(
+        msg["device_id"], msg["signal_id"],
+        rf_code=msg.get("rf_code"),
+        rf_frequency_hz=msg.get("rf_frequency_hz"),
+        alias=msg.get("alias"),
+        send_count=msg.get("send_count"),
+    )
+    if not result["success"]:
+        connection.send_error(
+            msg["id"], result.get("code", "edit_failed"), result.get("error", "Edit failed")
+        )
+        return
+    connection.send_result(msg["id"], {"signal": result["signal"], "triggers": result["triggers"]})
 
 
 @websocket_api.require_admin

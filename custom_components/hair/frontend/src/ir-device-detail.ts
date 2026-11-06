@@ -44,6 +44,7 @@ import "./ir-matrix-card.js";
 import type { MatrixCardPick } from "./ir-matrix-card.js";
 import { thinReceipt } from "./matrix-thin.js";
 import "./ir-signal-editor.js";
+import "./ir-rf-editor.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-popover.js";
 import "./ir-action-popover.js";
@@ -1882,7 +1883,22 @@ export class IrDeviceDetail extends LitElement {
                 : ""}
             ${this._editCommand
                 ? html`
-                      <ir-signal-editor
+                      ${this._editCommand.medium === "rf"
+                          ? html`<ir-rf-editor
+                                .api=${this.api}
+                                .deviceId=${this.device.id}
+                                .commandId=${this._editCommand.id}
+                                .initialFrame=${this._editCommand.raw_timings ?? []}
+                                .initialFrequencyHz=${this._editCommand.rf_frequency_hz ?? null}
+                                .initialFrequencySource=${this._editCommand.rf_frequency_source ?? null}
+                                .initialGapUs=${this._editCommand.rf_frame_gap_us ?? null}
+                                .initialAlias=${this._editCommand.name}
+                                .initialSendCount=${this._editCommand.send_count ?? 1}
+                                .hasTrigger=${this._commandHasTrigger(this._editCommand)}
+                                @command-edited=${this._onCommandEdited}
+                                @closed=${() => (this._editCommand = null)}
+                            ></ir-rf-editor>`
+                          : html`<ir-signal-editor
                           .api=${this.api}
                           .hass=${this.hass}
                           .deviceId=${this.device.id}
@@ -1903,7 +1919,7 @@ export class IrDeviceDetail extends LitElement {
                           .hasTrigger=${this._commandHasTrigger(this._editCommand)}
                           @command-edited=${this._onCommandEdited}
                           @closed=${() => (this._editCommand = null)}
-                      ></ir-signal-editor>
+                      ></ir-signal-editor>`}
                   `
                 : ""}
             ${this._triggerPopover

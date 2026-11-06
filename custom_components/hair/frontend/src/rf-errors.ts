@@ -46,5 +46,18 @@ export function sendRefusal(err: unknown): string | null {
     return key ? t(key) : null;
 }
 
+/** The first radio send in a Test fan-out that went out at the
+ *  transmitter's own frequency, as Hz, or null. */
+export function substitutedHz(
+    results: PromiseSettledResult<{ substituted?: boolean; frequency_hz?: number }>[],
+): number | null {
+    for (const r of results) {
+        if (r.status === "fulfilled" && r.value.substituted && r.value.frequency_hz) {
+            return r.value.frequency_hz;
+        }
+    }
+    return null;
+}
+
 /** The round 1 name, kept for its callers. */
 export const rfRefusal = sendRefusal;
