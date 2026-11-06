@@ -72,9 +72,10 @@ def rf_hardware_entry(
 ) -> dict[str, Any]:
     """One radio receiver's entry in ``hair/receivers/hardware``.
 
-    ``always_on`` and ``opted_in`` say whether HAIR hears it: a capture
-    device always; an always-on receiver only once the user opts it in.
-    ``counters`` is null unless HAIR is hearing it as always-on.
+    HAIR hears every radio receiver. ``always_on`` (and its twin
+    ``software_window``) says which kind of Listen it gets: a capture
+    device's window is the receiver's own; an always-on receiver's is
+    HAIR's. ``counters`` is null unless HAIR is hearing it as always-on.
     """
     from .receiver_window import _store, says_capture
     from .rf_receive import supported_ranges
@@ -90,10 +91,6 @@ def rf_hardware_entry(
         store is not None and entry is not None and store.remembered(entry.id)
     )
     always_on = not capture and not remembered
-    opted_in = bool(
-        always_on and store is not None and entry is not None
-        and store.rf_listen(entry.id)
-    )
     tracker = rf_always_on(hass)
     return {
         "type": str(ReceiverHardwareType.NATIVE),
@@ -111,8 +108,7 @@ def rf_hardware_entry(
             [list(r) for r in ranges] if ranges is not None else None
         ),
         "always_on": always_on,
-        "opted_in": opted_in,
-        "software_window": opted_in,
+        "software_window": always_on,
         "counters": tracker.counters(entity_id) if tracker is not None else None,
     }
 

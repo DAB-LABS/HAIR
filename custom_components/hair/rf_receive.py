@@ -171,8 +171,8 @@ def is_always_on(state: Any) -> bool:
 
 
 class RfReceiverTracker:
-    """Keeps HAIR subscribed to every radio capture device, and to every
-    always-on radio receiver the user opted in.
+    """Keeps HAIR subscribed to every radio receiver: capture devices and
+    always-on receivers alike, from the moment one appears.
 
     Mirrors the infrared path in ``signal_monitor``: the domain
     add/remove trackers catch receivers appearing, a state watcher over
@@ -188,15 +188,13 @@ class RfReceiverTracker:
         hass: HomeAssistant,
         on_signal: Callable[[Any, str], None],
         *,
-        opted_in: Callable[[str], bool] | None = None,
         on_attach: Callable[[str], None] | None = None,
         on_detach: Callable[[str], None] | None = None,
     ) -> None:
         self._hass = hass
         self._on_signal = on_signal
-        # Always-on receivers: whether the user opted one in (by entity
-        # id), and who to tell when HAIR starts or stops hearing one.
-        self._opted_in = opted_in or (lambda _entity_id: False)
+        # Always-on receivers: who to tell when HAIR starts or stops
+        # hearing one.
         self._on_attach = on_attach
         self._on_detach = on_detach
         self._always_on: set[str] = set()
@@ -293,10 +291,10 @@ class RfReceiverTracker:
             self._watched = watched
 
     def _wanted(self, entity_id: str | None, state: Any) -> bool:
-        """A capture device, or an always-on receiver the user opted in."""
+        """Every radio receiver that can hear: a capture device or an always-on one."""
         if entity_id is None:
             return False
-        return listens_to(state) or (is_always_on(state) and self._opted_in(entity_id))
+        return listens_to(state) or is_always_on(state)
 
     @callback
     def _subscribe(self, entity_id: str) -> None:
