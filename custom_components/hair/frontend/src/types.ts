@@ -792,6 +792,8 @@ export interface TriggerRemoteInfo {
     updated_at: string;
     ha_device_id: string | null;
     trigger_count: number;
+    /** Which media the remote's triggers use, infrared first. */
+    media?: Medium[];
     // Add Popups signpost 3, Track 2 item 0.6 / Track 3 item 2: the
     // Remote card's ON:/OFF: badge line reads these two straight off
     // the list call, no per-remote follow-up.
@@ -994,10 +996,16 @@ export interface DeviceSummary {
     model: string | null;
     emitter_entity_ids: string[];
     command_count: number;
+    /** Which media the device's commands use, infrared first; the card
+     *  draws one protocol glyph each (RF hear round 1). */
+    media?: Medium[];
     created_at: string;
     updated_at: string;
     ha_device_id: string | null;
 }
+
+/** Infrared or radio. */
+export type Medium = "ir" | "rf";
 
 /** One piece of receiving hardware (``hair/receivers/hardware``): a
  *  native receiver entity, or an ESPHome device seen on the legacy
@@ -1008,6 +1016,40 @@ export interface ReceiverHardwareInfo {
     name: string;
     config_entry_id: string | null;
     receiver_entity_id?: string;
+    /** Radio entries say so (RF hear round 1); infrared ones may omit it. */
+    medium?: Medium;
+    ha_device_id?: string | null;
+    /** Radio: false for a capture device, true for one that hears all
+     *  the time (its Listen pill opens HAIR's own software window). */
+    always_on?: boolean;
+    software_window?: boolean;
+    supported_frequency_ranges?: [number, number][] | null;
+}
+
+/** ``hair/hardware/facts``: when HAIR last took a code from each
+ *  receiver and last sent through each emitter, since it started. */
+export interface HardwareFacts {
+    heard: Record<string, string>;
+    sent: Record<string, string>;
+}
+
+/** One frequency option a capture device declares (``frequency_options``):
+ *  its select's option and the carrier it stands for, null for sweep. */
+export interface FrequencyOption {
+    option: string;
+    hz: number | null;
+}
+
+export type WindowMode = "sliding" | "single" | "multiple";
+
+/** One always-on radio receiver's window, as ``hair/receivers/rf/subscribe``
+ *  pushes it (Shaq's for-kobe-frontend.md). */
+export interface RfReceiverItem {
+    receiver_entity_id: string;
+    capturing: boolean;
+    window_ends_at: string | null;
+    capture_mode: WindowMode | null;
+    counters: Record<string, number | string> | null;
 }
 
 export interface ReceiverInfo {
@@ -1035,7 +1077,7 @@ export interface ReceiverArmFailedEvent {
 export const BROADSNIFF_URL = "https://github.com/DAB-LABS/broadsniff";
 
 /** Where the switch that opens a capture window came from. */
-export type CaptureSwitchSource = "user" | "declared" | "device";
+export type CaptureSwitchSource = "user" | "declared" | "device" | "software";
 
 /** One capture device (``hair/receivers/capture``): an infrared receiver
  *  that hears only while a capture window is open, from any
@@ -1070,6 +1112,16 @@ export interface CaptureReceiverRow {
     window_ends_at: string | null;
     /** The open window's mode, or null. */
     capture_mode: "sliding" | "single" | "multiple" | null;
+    /** What the Sniffer's pickers drive on a capture device: its own
+     *  declared entities (each on its own device), or null. */
+    frequency_select: string | null;
+    window_length: string | null;
+    capture_mode_select: string | null;
+    /** The frequency select's options HAIR offers, in order. */
+    frequency_options: FrequencyOption[];
+    /** A software window's next length and mode (null on a capture device). */
+    window_seconds: number | null;
+    window_mode: WindowMode | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1101,6 +1153,10 @@ export interface UnknownSignal {
     code: string | null;
     raw_timings: number[];
     frequency: number;
+    /** Radio rows only (RF hear round 1): the medium and the carrier in
+     *  Hz; an infrared row carries neither. */
+    medium?: Medium;
+    rf_frequency_hz?: number | null;
     hit_count: number;
     first_seen: string;
     last_seen: string;
@@ -1201,6 +1257,10 @@ export interface UnknownDeviceSummary {
     source_wig_state?: "present" | "renamed" | "gone";
     // The wig's CURRENT filename; present/renamed only.
     source_wig_filename?: string;
+    /** Radio remotes only (RF hear round 1): the medium, and the carrier
+     *  of the most recently heard signal that has one. */
+    medium?: Medium;
+    rf_frequency_hz?: number | null;
 }
 
 export interface UnknownDevice {
@@ -1462,6 +1522,8 @@ export interface IRTrigger {
     id: string;
     name: string;
     signal_fingerprint: string;
+    /** "rf" on a radio trigger; absent on infrared (RF hear round 1). */
+    medium?: Medium;
     protocol: string | null;
     code: string | null;
     min_hits: number;

@@ -340,7 +340,9 @@ class TestEverySurfaceNamesOnce:
         text = _flat("ir-device-list.ts")
         assert "name: entityDisplayName(this.hass, entityId)," in text
         assert "fullName: entityFullName(this.hass, entityId)," in text
-        assert (
-            '<div class="card-name" title=${em.fullName}>${em.name}</div>'
-            in text
-        )
+        # One row per capability since RF hear round 1: each row names
+        # its entity once, the full name in the tooltip.
+        row = text.split("private _renderCapabilityRow(", 1)[1].split("private ", 1)[0]
+        assert "const name = entityDisplayName(this.hass, row.entity_id);" in row
+        assert "const full = entityFullName(this.hass, row.entity_id);" in row
+        assert '<span class="cap-name" title=${full}>${name}</span>' in row

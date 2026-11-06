@@ -611,6 +611,13 @@ class SignalMonitor:
         # Own-beacon suppression marks: emitter -> monotonic timestamp of
         # HAIR's most recent recorded send on that emitter.
         self._own_send_marks: dict[str, float] = {}
+        # The Devices tab's facts (RF hear round 1, frontend): when HAIR
+        # last sent through each emitter and last took a code from each
+        # receiver, as UTC ISO strings. In memory only: after a restart
+        # the card leaves the column blank until a value exists, because
+        # HAIR cannot tell "never" from "not since the restart".
+        self._last_sent_at: dict[str, str] = {}
+        self._last_heard_at: dict[str, str] = {}
         self._beacon_unsub: CALLBACK_TYPE | None = None
         self._lock = asyncio.Lock()
         self._native_mode: bool = False
@@ -1150,8 +1157,10 @@ class SignalMonitor:
             device_name=device_name, command_name=command_name,
             sends=send_count or 1, origin=origin,
         )
+        sent_at = datetime.now(UTC).isoformat()
         for entity_id in emitter_entity_ids:
             self._own_send_marks[entity_id] = now
+            self._last_sent_at[entity_id] = sent_at
 
         row_key = decoded_fp or n.sig_fp
         # How much longer than a bare frame this send keeps the air, and
@@ -2011,6 +2020,8 @@ class SignalMonitor:
                 # its identity (owner ruling 2026-09-29).
                 n.decode_covers,
             )
+        if fired:
+            self._note_heard(receiver_entity_id)
 
         # Step 3b: the lattice (signpost 4, Track M). A matrix Remote
         # hears its own states here, beside the trigger match and
@@ -2105,6 +2116,7 @@ class SignalMonitor:
             # deleted (0.10.2). Nothing new is minted here and nothing
             # reaches the live feed, so dismiss still means dismiss.
             if filed_signal is not None and filed_device is not None:
+                self._note_heard(receiver_entity_id)
                 stamp = datetime.now(UTC).isoformat()
                 async with self._lock:
                     filed_signal.hit_count += 1
@@ -2226,6 +2238,7 @@ class SignalMonitor:
 
         # Step 10: Schedule save.
         self._signal_store.schedule_save()
+        self._note_heard(receiver_entity_id)
 
         # A code HAIR took from an always-on receiver moves its software
         # window: a sliding one's end goes out (never past the ceiling),
@@ -2263,6 +2276,18 @@ class SignalMonitor:
                 subscriber(summary)
             except Exception:
                 _LOGGER.exception("Error notifying signal subscriber")
+
+    def _note_heard(self, receiver_entity_id: str | None) -> None:
+        """Mark a receiver as heard now: HAIR took a code from it."""
+        if receiver_entity_id:
+            self._last_heard_at[receiver_entity_id] = datetime.now(UTC).isoformat()
+
+    def hardware_facts(self) -> dict[str, dict[str, str]]:
+        """When each receiver was last heard and each emitter last used.
+
+        For the Devices tab's hardware rows (``hair/hardware/facts``).
+        """
+        return {"heard": dict(self._last_heard_at), "sent": dict(self._last_sent_at)}
 
     # -----------------------------------------------------------------
     # Native receiver callback (HA 2026.6+)

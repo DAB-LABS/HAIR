@@ -13,7 +13,13 @@
  * docs/windowed-receivers.md). Everything below reads that contract
  * from the receiver entity itself and knows no integration by name.
  */
-import type { CaptureReceiverRow, ReceiverInfo } from "./types.js";
+import type {
+    CaptureReceiverRow,
+    FrequencyOption,
+    ReceiverInfo,
+    RfReceiverItem,
+    WindowMode,
+} from "./types.js";
 import { isEntityOnline } from "./entity-health.js";
 
 /** The longest drain the fill will plan. A deadline further ahead than
@@ -95,7 +101,10 @@ export function listenBlooms(before: ListenLive | undefined, now: ListenLive): b
 export function captureSignature(states: States | undefined): string {
     const ids: string[] = [];
     for (const [entityId, st] of Object.entries(states ?? {})) {
-        if (entityId.startsWith("infrared.") && typeof st?.attributes?.capturing === "boolean") {
+        if (
+            (entityId.startsWith("infrared.") || entityId.startsWith("radio_frequency.")) &&
+            typeof st?.attributes?.capturing === "boolean"
+        ) {
             ids.push(entityId);
         }
     }
@@ -296,4 +305,169 @@ export function pickerMenu(row: CaptureReceiverRow, currentName?: string): Picke
     }
     items.push({ kind: "other" });
     return items;
+}
+
+// ---------------------------------------------------------------------------
+// The Sniffer's Listen pill (RF hear round 1, frontend; design
+// sniffer-listen-pills.html, owner 2026-11-06)
+// ---------------------------------------------------------------------------
+
+/** What a pill shows of its receiver's window: open or not, its end,
+ *  and for radio what an open window is doing and the carrier found. */
+export interface PillLive extends ListenLive {
+    phase: "sweeping" | "listening" | null;
+    frequencyHz: number | null;
+}
+
+/** A pill's window. A capture device's is its receiver's own state,
+ *  live from ``hass``; a software window's is HAIR's, from the radio
+ *  subscription's latest item, else the capture door's row (Shaq's
+ *  doc: never ``hass.states`` for these). */
+export function pillLive(
+    states: States | undefined,
+    row: CaptureReceiverRow,
+    item?: RfReceiverItem | null,
+): PillLive {
+    if (row.software_window) {
+        const on = item ? item.capturing : row.capturing;
+        const ends = item ? item.window_ends_at : row.window_ends_at;
+        return { on, endsAt: on && ends ? ends : null, phase: null, frequencyHz: null };
+    }
+    const base = listenLive(states, row);
+    const attrs = states?.[row.receiver_entity_id]?.attributes;
+    const phase = attrs?.capture_phase;
+    const hz = attrs?.frequency_hz;
+    return {
+        ...base,
+        phase: base.on && (phase === "sweeping" || phase === "listening") ? phase : null,
+        frequencyHz: typeof hz === "number" && hz > 0 ? hz : null,
+    };
+}
+
+/** The pill's five looks, plus a capture device still waiting for a
+ *  switch:
+ *  - ``idle``: gold, a capture device with its window closed;
+ *  - ``hearing``: steady green with the word, an always-on radio
+ *    receiver (heard all the time, nothing new minted);
+ *  - ``open``: green with the drain;
+ *  - ``sweep``: green, no fill, "hold the button", until the carrier
+ *    locks (``capture_phase`` turns ``listening``);
+ *  - ``offline``: ember, no press;
+ *  - ``waiting``: no switch to open the window with yet (dimmed). */
+export type PillLook = "idle" | "hearing" | "open" | "sweep" | "offline" | "waiting";
+
+export function pillLook(row: CaptureReceiverRow, online: boolean, live: PillLive): PillLook {
+    if (!online) return "offline";
+    if (!row.software_window && !row.switch_entity_id) return "waiting";
+    if (live.on && live.phase === "sweeping") return "sweep";
+    if (live.on) return "open";
+    return row.software_window ? "hearing" : "idle";
+}
+
+/** Whether a pill's receiver answers. A software window has no switch,
+ *  so only the receiver counts. */
+export function pillOnline(states: States | undefined, row: CaptureReceiverRow): boolean {
+    return listenOnline(states, row);
+}
+
+/** The badge a pill wears: the medium, receiving. */
+export function pillBadge(row: CaptureReceiverRow): "IR-RX" | "RF-RX" {
+    return row.medium === "rf" ? "RF-RX" : "IR-RX";
+}
+
+// --- The pickers ----------------------------------------------------------
+
+/** The lengths the length picker offers, in seconds. */
+export const WINDOW_LENGTHS = [10, 30, 60, 120, 300] as const;
+
+/** The type picker's order and its contract words: One code only,
+ *  Reset on each code (the default), Fixed length. */
+export const WINDOW_MODES: readonly WindowMode[] = ["single", "sliding", "multiple"];
+
+function numberAttr(attrs: Record<string, any> | undefined, key: string): number | null {
+    const v = attrs?.[key];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/** The lengths a pill offers. A software window takes all five (5 to
+ *  300 s on the server). A capture device offers those inside its
+ *  declared number's own min and max, and none without one. */
+export function lengthChoices(states: States | undefined, row: CaptureReceiverRow): number[] {
+    if (row.software_window) return [...WINDOW_LENGTHS];
+    if (!row.window_length) return [];
+    const attrs = states?.[row.window_length]?.attributes;
+    const min = numberAttr(attrs, "min") ?? -Infinity;
+    const max = numberAttr(attrs, "max") ?? Infinity;
+    return WINDOW_LENGTHS.filter((s) => s >= min && s <= max);
+}
+
+/** The length a pill shows now, in seconds, or null. */
+export function currentLength(states: States | undefined, row: CaptureReceiverRow): number | null {
+    if (row.software_window) return row.window_seconds;
+    if (!row.window_length) return null;
+    const v = Number(states?.[row.window_length]?.state);
+    return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/** The modes a pill offers: all three on a software window; on a
+ *  capture device, those its declared select lists, in the picker's
+ *  order. */
+export function modeChoices(states: States | undefined, row: CaptureReceiverRow): WindowMode[] {
+    if (row.software_window) return [...WINDOW_MODES];
+    if (!row.capture_mode_select) return [];
+    const options = states?.[row.capture_mode_select]?.attributes?.options;
+    if (!Array.isArray(options)) return [];
+    return WINDOW_MODES.filter((m) => options.includes(m));
+}
+
+export function currentMode(states: States | undefined, row: CaptureReceiverRow): WindowMode | null {
+    const value = row.software_window
+        ? row.window_mode
+        : row.capture_mode_select
+          ? states?.[row.capture_mode_select]?.state
+          : null;
+    return (WINDOW_MODES as readonly string[]).includes(String(value)) ? (value as WindowMode) : null;
+}
+
+/** The frequency options a pill offers: those in the declared map, and
+ *  only when there are two or more (a fixed-band receiver shows no
+ *  frequency picker). */
+export function frequencyChoices(row: CaptureReceiverRow): FrequencyOption[] {
+    if (!row.frequency_select) return [];
+    return row.frequency_options.length >= 2 ? row.frequency_options : [];
+}
+
+/** What the frequency picker reads: the band of the select's current
+ *  option, ``sweep``, or for an option not in the map (``custom``) the
+ *  carrier the receiver reports, not offered. While a window is open
+ *  after a sweep has locked, the band found. */
+export function currentFrequency(
+    states: States | undefined,
+    row: CaptureReceiverRow,
+    live: PillLive,
+): { hz: number | null; sweep: boolean } | null {
+    if (!row.frequency_select) return null;
+    const option = states?.[row.frequency_select]?.state;
+    const found = row.frequency_options.find((o) => o.option === option);
+    if (found && found.hz === null) {
+        if (live.on && live.phase === "listening" && live.frequencyHz) {
+            return { hz: live.frequencyHz, sweep: false };
+        }
+        return { hz: null, sweep: true };
+    }
+    if (found) return { hz: found.hz, sweep: false };
+    return { hz: live.frequencyHz, sweep: false };
+}
+
+/** A carrier as a band: 433920000 is "433.92", 315000000 is "315". */
+export function bandNumber(hz: number): string {
+    const mhz = Math.round(hz / 10_000) / 100;
+    return String(mhz);
+}
+
+/** Whether the pickers take a choice: never while that receiver's
+ *  window is open (a change applies to the next window), nor while it
+ *  is down. */
+export function pickersActive(look: PillLook): boolean {
+    return look === "idle" || look === "hearing" || look === "waiting";
 }

@@ -78,6 +78,22 @@ ATTR_CAPTURE_MODE = "capture_mode"
 # listens on once it knows.
 ATTR_CAPTURE_PHASE = "capture_phase"
 ATTR_FREQUENCY_HZ = "frequency_hz"
+# Optional declared settings (RF hear round 1, frontend): the entities on
+# the receiver's own device that set the next window's carrier, length
+# and mode, so the Sniffer's pickers can drive them, and the map that
+# says which carrier each frequency option stands for.
+ATTR_FREQUENCY_SELECT = "frequency_select"
+ATTR_WINDOW_LENGTH = "window_length"
+ATTR_CAPTURE_MODE_SELECT = "capture_mode_select"
+ATTR_FREQUENCY_OPTIONS = "frequency_options"
+SWEEP = "sweep"
+# The domain each declared setting must be in.
+SETTING_DOMAINS = {
+    ATTR_FREQUENCY_SELECT: "select",
+    ATTR_WINDOW_LENGTH: "number",
+    ATTR_CAPTURE_MODE_SELECT: "select",
+}
+CAPTURE_MODES = ("sliding", "single", "multiple")
 PHASE_SWEEPING = "sweeping"
 PHASE_LISTENING = "listening"
 CAPTURE_PHASES = frozenset({PHASE_SWEEPING, PHASE_LISTENING})
@@ -217,6 +233,12 @@ class CaptureReceiverStore:
             declared = record.get("declared")
             if isinstance(declared, str) and declared:
                 kept[entry_id]["declared"] = declared
+            settings = _clean_settings(record.get("settings"))
+            if settings:
+                kept[entry_id]["settings"] = settings
+            window = _clean_window(record.get("window"))
+            if window is not None:
+                kept[entry_id]["window"] = window
         self._records = kept
         # An older build kept a per-receiver radio opt-in here
         # ("rf_listen"); every radio receiver is heard now, so the key is
@@ -228,7 +250,8 @@ class CaptureReceiverStore:
             retired += 1
             kept_record = kept.get(entry_id)
             if kept_record is not None and not any(
-                kept_record.get(key) for key in ("capture", "switch", "declared")
+                kept_record.get(key)
+                for key in ("capture", "switch", "declared", "settings", "window")
             ):
                 kept.pop(entry_id)
         if retired or len(kept) != len(records):
@@ -266,6 +289,55 @@ class CaptureReceiverStore:
             record.pop("declared", None)
         self._schedule_save()
 
+    def settings(self, entry_id: str | None) -> dict[str, Any]:
+        """The declared settings the receiver last made while available."""
+        if not entry_id:
+            return {}
+        return dict(self._records.get(entry_id, {}).get("settings") or {})
+
+    def note_settings(self, entry_id: str | None, settings: dict[str, Any]) -> None:
+        """Record an available capture device's valid declared settings.
+
+        Kept for the same reason as the declared switch: HA writes no
+        extra attributes while an entity is unavailable, and the pickers
+        should still show what the device offers while it is down.
+        """
+        record = self._records.get(entry_id) if entry_id else None
+        cleaned = _clean_settings(settings)
+        if record is None or (record.get("settings") or {}) == cleaned:
+            return
+        if cleaned:
+            record["settings"] = cleaned
+        else:
+            record.pop("settings", None)
+        self._schedule_save()
+
+    def window_prefs(self, entry_id: str | None) -> tuple[int, str]:
+        """The length and mode of a software window's next opening.
+
+        Defaults (30 s, sliding) until the user picks on the Sniffer.
+        """
+        window = self._records.get(entry_id, {}).get("window") if entry_id else None
+        if not window:
+            return default_window()
+        return window["seconds"], window["mode"]
+
+    def set_window_prefs(self, entry_id: str, seconds: int, mode: str) -> None:
+        """Keep the length and mode the user picked for a software window.
+
+        On the receiver's record, keyed by registry entry id like every
+        other choice here, so a rename keeps it and every browser shows
+        the same. A record created here is not a capture device.
+        """
+        window = _clean_window({"seconds": seconds, "mode": mode})
+        if window is None:
+            raise ValueError(f"not a window: {seconds} s, {mode}")
+        record = self._records.setdefault(entry_id, {"capture": False, "switch": None})
+        if record.get("window") == window:
+            return
+        record["window"] = window
+        self._schedule_save()
+
     def note_capture(self, entry_id: str | None, capture: bool) -> None:
         """Record what an available receiver just said about itself."""
         if not entry_id:
@@ -285,6 +357,112 @@ class CaptureReceiverStore:
         record["capture"] = True
         record["switch"] = entity_id
         self._schedule_save()
+
+
+def default_window() -> tuple[int, str]:
+    """A software window's length and mode before the user picks any."""
+    from .const import RF_SOFTWARE_WINDOW_MODE, RF_SOFTWARE_WINDOW_S
+
+    return RF_SOFTWARE_WINDOW_S, RF_SOFTWARE_WINDOW_MODE
+
+
+def _clean_window(window: Any) -> dict[str, Any] | None:
+    """A stored software-window choice, or None if it is not one."""
+    from .const import RF_SOFTWARE_WINDOW_MAX_S, RF_SOFTWARE_WINDOW_MIN_S
+
+    if not isinstance(window, dict):
+        return None
+    seconds = window.get("seconds")
+    mode = window.get("mode")
+    if (
+        not isinstance(seconds, int)
+        or isinstance(seconds, bool)
+        or not RF_SOFTWARE_WINDOW_MIN_S <= seconds <= RF_SOFTWARE_WINDOW_MAX_S
+        or mode not in CAPTURE_MODES
+    ):
+        return None
+    return {"seconds": seconds, "mode": mode}
+
+
+def frequency_options(value: Any) -> list[dict[str, Any]]:
+    """A declared ``frequency_options`` map, as the panel's picker list.
+
+    The map goes from each option of the receiver's frequency select to
+    a carrier in Hz, or to the word ``sweep``. Order is kept. Entries
+    that are neither are dropped, so a bad entry costs one option, not
+    the picker. ``hz`` is None for sweep.
+    """
+    if not isinstance(value, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for option, carrier in value.items():
+        if not isinstance(option, str) or not option:
+            continue
+        if carrier == SWEEP:
+            out.append({"option": option, "hz": None})
+        elif isinstance(carrier, int) and not isinstance(carrier, bool) and carrier > 0:
+            out.append({"option": option, "hz": carrier})
+    return out
+
+
+def _clean_settings(settings: Any) -> dict[str, Any]:
+    """Declared settings as stored: entity ids and the options list."""
+    if not isinstance(settings, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key in SETTING_DOMAINS:
+        value = settings.get(key)
+        if isinstance(value, str) and value:
+            out[key] = value
+    options = settings.get(ATTR_FREQUENCY_OPTIONS)
+    if ATTR_FREQUENCY_SELECT in out and isinstance(options, list):
+        kept = [
+            o for o in options
+            if isinstance(o, dict) and isinstance(o.get("option"), str)
+            and (o.get("hz") is None or (isinstance(o.get("hz"), int) and o["hz"] > 0))
+        ]
+        if kept:
+            out[ATTR_FREQUENCY_OPTIONS] = [
+                {"option": o["option"], "hz": o.get("hz")} for o in kept
+            ]
+    return out
+
+
+def declared_settings(
+    registry: Any, state: Any, device_id: str | None
+) -> dict[str, Any]:
+    """The settings a receiver declares that pass the safety rule.
+
+    Each must name an entity on the receiver's own device, in its
+    domain (a select for the frequency and the mode, a number for the
+    length), the rule ``capture_switch`` follows. The frequency options
+    count only beside a valid frequency select.
+    """
+    if state is None or not device_id:
+        return {}
+    out: dict[str, Any] = {}
+    for key, domain in SETTING_DOMAINS.items():
+        value = state.attributes.get(key)
+        if not isinstance(value, str) or _domain(value) != domain:
+            continue
+        entry = registry.async_get(value)
+        if entry is not None and entry.device_id == device_id:
+            out[key] = value
+    if ATTR_FREQUENCY_SELECT in out:
+        options = frequency_options(state.attributes.get(ATTR_FREQUENCY_OPTIONS))
+        if options:
+            out[ATTR_FREQUENCY_OPTIONS] = options
+    return out
+
+
+def _settings_row(settings: dict[str, Any]) -> dict[str, Any]:
+    """The four declared-setting fields every capture row carries."""
+    return {
+        ATTR_FREQUENCY_SELECT: settings.get(ATTR_FREQUENCY_SELECT),
+        ATTR_WINDOW_LENGTH: settings.get(ATTR_WINDOW_LENGTH),
+        ATTR_CAPTURE_MODE_SELECT: settings.get(ATTR_CAPTURE_MODE_SELECT),
+        ATTR_FREQUENCY_OPTIONS: list(settings.get(ATTR_FREQUENCY_OPTIONS) or []),
+    }
 
 
 def _store(hass: HomeAssistant) -> CaptureReceiverStore | None:
@@ -455,12 +633,19 @@ def capture_receivers(
                 candidates.append(entry.entity_id)
 
     rows: list[dict[str, Any]] = []
+    registry = er.async_get(hass)
     for receiver in candidates:
         found = resolve(hass, receiver, store)
         if found is None:
             continue
         state = hass.states.get(receiver)
         attributes = state.attributes if state is not None else {}
+        if found.available:
+            settings = declared_settings(registry, state, found.device_id)
+            if store is not None:
+                store.note_settings(found.entry_id, settings)
+        else:
+            settings = store.settings(found.entry_id) if store is not None else {}
         phase = attributes.get(ATTR_CAPTURE_PHASE)
         frequency_hz = attributes.get(ATTR_FREQUENCY_HZ)
         rows.append({
@@ -492,13 +677,19 @@ def capture_receivers(
             "window_ends_at": attributes.get(ATTR_WINDOW_ENDS_AT)
             if is_capturing(state) else None,
             "capture_mode": capture_mode(state) if is_capturing(state) else None,
+            # What the Sniffer's pickers drive: the device's own entities.
+            **_settings_row(settings),
+            "window_seconds": None,
+            "window_mode": None,
         })
-    rows.extend(_software_rows(hass))
+    rows.extend(_software_rows(hass, store))
     rows.sort(key=lambda row: row["name"].casefold())
     return rows
 
 
-def _software_rows(hass: HomeAssistant) -> list[dict[str, Any]]:
+def _software_rows(
+    hass: HomeAssistant, store: CaptureReceiverStore | None = None
+) -> list[dict[str, Any]]:
     """One row per always-on radio receiver HAIR is hearing.
 
     Its window is HAIR's own (``rf_window.py``), so there is no switch
@@ -506,6 +697,7 @@ def _software_rows(hass: HomeAssistant) -> list[dict[str, Any]]:
     """
     from .rf_window import rf_always_on
 
+    store = store if store is not None else _store(hass)
     always_on = rf_always_on(hass)
     if always_on is None:
         return []
@@ -517,6 +709,11 @@ def _software_rows(hass: HomeAssistant) -> list[dict[str, Any]]:
             continue
         entry = registry.async_get(receiver)
         device_id = entry.device_id if entry is not None else None
+        seconds, mode = (
+            store.window_prefs(entry.id if entry is not None else None)
+            if store is not None
+            else default_window()
+        )
         rows.append({
             "receiver_entity_id": receiver,
             "name": _name(hass, device_id, receiver),
@@ -531,6 +728,11 @@ def _software_rows(hass: HomeAssistant) -> list[dict[str, Any]]:
             "capture_device": False,
             "software_window": True,
             **window.state(),
+            # HAIR's own window has no entities to drive; the pickers set
+            # these, kept on the receiver's record.
+            **_settings_row({}),
+            "window_seconds": seconds,
+            "window_mode": mode,
         })
     return rows
 
