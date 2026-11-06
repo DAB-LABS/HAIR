@@ -1,13 +1,13 @@
-"""Always-on radio receivers: the opt-in, HAIR's own Listen window, the counters.
+"""Always-on radio receivers: HAIR's own Listen window, the counters.
 
 A radio receiver whose state carries no ``capturing`` listens all the
 time. On a fixed 433 MHz module that means thousands of noise captures
 an hour with nobody pressing anything, and every real press in range:
-the neighbours' keyfobs, weather stations, tyre sensors. HAIR does not
-subscribe to such a receiver until the user opts it in; once opted in,
-HAIR hears it all the time for the rows it already knows (triggers fire,
-Remotes hear, existing Sniffer rows count up) and mints new cards only
-while the user is listening.
+the neighbours' keyfobs, weather stations, tyre sensors. HAIR hears it
+all the time, as it does every receiver, for the rows it already knows
+(triggers fire, Remotes hear, existing Sniffer rows count up), and mints
+new cards only while the user is listening. The burst and body gates
+keep the noise out.
 
 THE SOFTWARE WINDOW. A capture device's window is the receiver's own:
 HAIR toggles a switch and reads ``capturing`` from the receiver's state.
@@ -65,10 +65,6 @@ _LOGGER = logging.getLogger(__name__)
 
 MODES = ("sliding", "single", "multiple")
 
-NOT_ALWAYS_ON_CODE = "not_always_on"
-NOT_OPTED_IN_CODE = "not_opted_in"
-NOT_REGISTERED_CODE = "not_registered"
-UNKNOWN_RECEIVER_CODE = "unknown_receiver"
 
 
 def _iso(moment: datetime | None) -> str | None:
@@ -219,7 +215,7 @@ class SoftwareWindow:
 
 
 class RfAlwaysOn:
-    """Every opted-in always-on receiver HAIR is hearing: windows and counters.
+    """Every always-on receiver HAIR is hearing: windows and counters.
 
     Owned by the signal monitor. The receiver tracker attaches a receiver
     when it subscribes to it as an always-on receiver and detaches it when

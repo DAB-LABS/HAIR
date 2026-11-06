@@ -594,7 +594,7 @@ class SignalMonitor:
         # Radio capture devices (RF hear, round 1): rf_receive.py's
         # tracker, started beside the infrared path.
         self._rf_tracker: Any = None
-        # Always-on radio receivers the user opted in: their software
+        # Always-on radio receivers: their software
         # Listen windows and counters (rf_window.py), and one burst
         # assembler per radio receiver for split delivery (rf_burst.py).
         from .rf_window import RfAlwaysOn
@@ -751,7 +751,6 @@ class SignalMonitor:
         self._rf_tracker = RfReceiverTracker(
             self._hass,
             self._on_rf_signal,
-            opted_in=self._rf_opted_in,
             on_attach=self.rf_always_on.attach,
             on_detach=self._rf_detach,
         )
@@ -920,8 +919,8 @@ class SignalMonitor:
                 _LOGGER.info(
                     "Not subscribing to %s: it reads as an RF receiver, "
                     "and HAIR captures IR only (ambient RF chatter would "
-                    "flood the Sniffer). RF support is on the roadmap as "
-                    "an explicit opt-in",
+                    "flood the Sniffer). Radio receivers are heard "
+                    "through the radio_frequency platform instead",
                     entity_id,
                 )
         current = set(ir_ids)
@@ -2324,18 +2323,6 @@ class SignalMonitor:
     # -----------------------------------------------------------------
     # Radio receiver callback (RF hear, round 1)
     # -----------------------------------------------------------------
-
-    def _rf_opted_in(self, entity_id: str) -> bool:
-        """Whether the user opted HAIR in to this always-on radio receiver."""
-        from homeassistant.helpers import entity_registry as er
-
-        from .receiver_window import _store
-
-        store = _store(self._hass)
-        if store is None:
-            return False
-        entry = er.async_get(self._hass).async_get(entity_id)
-        return store.rf_listen(entry.id if entry is not None else None)
 
     @callback
     def _rf_detach(self, receiver_entity_id: str) -> None:
