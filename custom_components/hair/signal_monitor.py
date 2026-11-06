@@ -4073,6 +4073,16 @@ class SignalMonitor:
             if source_wig is not None:
                 device.source_wig = dict(source_wig)
             for entry in entries:
+                if entry.get("medium") == MEDIUM_RF:
+                    outcome = self._import_radio_entry(device, entry, now_iso)
+                    if outcome == "duplicate":
+                        skipped += 1
+                        duplicates += 1
+                    elif outcome == "invalid":
+                        skipped += 1
+                    else:
+                        imported += 1
+                    continue
                 result = validate_pronto(entry.get("code") or "")
                 if not result.valid:
                     skipped += 1
@@ -4161,6 +4171,57 @@ class SignalMonitor:
             "duplicates": duplicates,
             "merged": not created,
         }
+
+    def _import_radio_entry(
+        self, device: UnknownDevice, entry: dict[str, Any], now_iso: str
+    ) -> str:
+        """One radio entry of a wig import (hair-wig/5) onto a clipped
+        remote: "imported", "duplicate" or "invalid". Called under the
+        lock by ``import_manual_remote``.
+
+        The row is written by ``rf_paste.apply_code`` from
+        ``result_of_frame``, as the editor writes a paste, so a wig's
+        radio row and the same code pasted are the same row. The
+        frequency is the wig's, source ``signal``.
+        """
+        from .rf_paste import apply_code, result_of_frame
+
+        rf = entry.get("rf") or {}
+        frame = rf.get("frame")
+        if not isinstance(frame, list) or not frame:
+            return "invalid"
+        result = result_of_frame(
+            frame, rf.get("frequency_hz"), rf.get("frame_gap_us")
+        )
+        if not result["ok"]:
+            return "invalid"
+        if device.get_signal(
+            result["fingerprint"], result["frame_hash"], None
+        ) is not None:
+            return "duplicate"
+        send_count = entry.get("send_count", 1)
+        if not isinstance(send_count, int) or isinstance(send_count, bool):
+            send_count = 1
+        signal = UnknownSignal(
+            fingerprint=result["fingerprint"],
+            byte_hash=result["frame_hash"],
+            protocol=RF_PROTOCOL,
+            code=None,
+            raw_timings=[],
+            hit_count=1,
+            first_seen=now_iso,
+            last_seen=now_iso,
+            source="manual",
+            alias=(entry.get("name") or "").strip(),
+            send_count=max(1, min(send_count, MAX_SEND_COUNT)),
+        )
+        apply_code(signal, result)
+        modulation = rf.get("modulation")
+        if isinstance(modulation, str) and modulation:
+            signal.rf_modulation = modulation.upper()
+        device.signals.append(signal)
+        self._signal_store.index_signal(device, signal)
+        return "imported"
 
     async def set_signal_tx_force_raw(
         self, device_id: str, signal_id: str, tx_force_raw: bool

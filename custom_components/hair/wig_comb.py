@@ -48,7 +48,7 @@ from . import field_readers
 from .const import PRONTO_BYTE_HASH_BIN, PRONTO_GAP_THRESHOLD
 from .decoders import split_frames
 from .wig_fitting import normalized_pronto
-from .wig_format import ClimateMatrix, Wig, cell_key
+from .wig_format import ClimateMatrix, Wig, cell_key, signal_row_digest
 
 # Bumped when a check changes what it reports, so a stored receipt can be
 # read as "checked by a version that did not know about X".
@@ -1478,7 +1478,14 @@ def _duplicate_label_findings(wig: Wig) -> list[Finding]:
     """
     groups: dict[str, list[str]] = {}
     for sig in wig.signals:
-        groups.setdefault(normalized_pronto(sig.pronto), []).append(sig.alias)
+        # A radio row has no Pronto; its code is its row digest, which
+        # is "the same code" for radio exactly as the normalized Pronto
+        # is for infrared, and can never equal one.
+        payload = (
+            "rf:" + signal_row_digest(sig) if sig.rf is not None
+            else normalized_pronto(sig.pronto)
+        )
+        groups.setdefault(payload, []).append(sig.alias)
     return [
         Finding(
             check=CHECK_DUPLICATE_LABELS, keys=list(aliases),
@@ -1570,10 +1577,13 @@ def comb_wig(wig: Wig) -> CombReport:
     skipped = sorted(
         sig.alias for sig in wig.signals if sig.bypass_protocol
     )
+    # A RADIO ROW IS NOT COMBED (RF send round). Every check below reads
+    # a Pronto frame, and a radio frame has none; it neither joins the
+    # shape population nor gets judged against it.
     rows: list[tuple[str, str]] = [
         (sig.alias, sig.pronto)
         for sig in wig.signals
-        if not sig.bypass_protocol
+        if not sig.bypass_protocol and sig.rf is None
     ]
     coverage.declined(
         CHECK_FRAME_DISAGREEMENT, DECLINE_PINNED_TO_RAW, len(skipped))

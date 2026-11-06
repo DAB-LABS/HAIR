@@ -324,6 +324,22 @@ def materialize_wig(
     for i, sig in enumerate(wig.signals):
         if wanted is not None and i not in wanted:
             continue
+        if sig.rf is not None:
+            # A radio row (hair-wig/5) has no Pronto to decode. It goes
+            # to the Clipper as its code, and import_manual_remote
+            # writes it the way the editor writes a paste.
+            entries.append({
+                "name": sig.alias,
+                "medium": "rf",
+                "rf": {
+                    "frequency_hz": sig.rf.frequency_hz,
+                    "frame": list(sig.rf.frame),
+                    "modulation": sig.rf.modulation,
+                    "frame_gap_us": sig.rf.frame_gap_us,
+                },
+                "send_count": sig.send_count,
+            })
+            continue
         entry = _entry(
             sig.alias, sig.pronto, sig.send_count, sig.bypass_protocol
         )

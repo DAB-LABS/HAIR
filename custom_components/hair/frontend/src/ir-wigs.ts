@@ -79,6 +79,7 @@ import type {
 } from "./types.js";
 import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import { singleOppositeLink } from "./ir-pin-link-match.js";
+import { wigSubFiles } from "./rf-code.js";
 
 type FilterChip = "all" | "library" | "yours" | "perfect";
 
@@ -1281,10 +1282,10 @@ export class IrWigs extends LitElement {
     }
 
     private async _downloadText(
-        filename: string, text: string,
+        filename: string, text: string, type = "application/json",
     ): Promise<void> {
         try {
-            const blob = new Blob([text], { type: "application/json" });
+            const blob = new Blob([text], { type });
             const url = URL.createObjectURL(blob);
             const anchor = document.createElement("a");
             anchor.href = url;
@@ -1311,6 +1312,11 @@ export class IrWigs extends LitElement {
                 wig.filename,
             );
             await this._downloadText(download_filename, text);
+            // A wig with radio rows (hair-wig/5) also gives each one as a
+            // Flipper .sub, the format radio codes travel in outside HAIR.
+            for (const sub of wigSubFiles(text, download_filename)) {
+                await this._downloadText(sub.filename, sub.text, "text/plain");
+            }
         } catch (err) {
             this._flash((err as Error).message);
         }

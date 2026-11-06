@@ -248,3 +248,27 @@ class TestTheMirrorForRadio:
         for lang, d in locales.items():
             for key in ("panel.tagline.mirror", "mirror.empty_sub"):
                 assert "—" not in d[key], (lang, key)
+
+
+class TestTheClosetDownload:
+    """T5: a wig with radio rows downloads each as a .sub as well."""
+
+    def test_each_radio_row_is_a_sub_the_server_would_write(self, run):
+        from custom_components.hair import rf_paste
+
+        subs = run["t5"]["subs"]
+        assert [s["filename"] for s in subs] == [
+            "acme-fan-fobs-fan-low.sub",
+            "acme-fan-fobs-fan-low-2.sub",
+            "acme-fan-fobs-code.sub",
+        ]
+        assert subs[0]["text"] == rf_paste.to_sub(
+            [1282, -382, 458, -1221, 1282], 433_920_000, 12_909
+        )
+        assert subs[1]["text"] == rf_paste.to_sub([500, -500, 500], 315_000_000, None)
+        assert run["t5"]["none"] == [] and run["t5"]["junk"] == []
+
+    def test_the_closet_downloads_them_after_the_wig(self):
+        wigs = _flat("ir-wigs.ts")
+        assert "for (const sub of wigSubFiles(text, download_filename)) {" in wigs
+        assert 'await this._downloadText(sub.filename, sub.text, "text/plain");' in wigs

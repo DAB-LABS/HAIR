@@ -20,10 +20,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .const import MAX_DITTO_COUNT
+from .const import MAX_DITTO_COUNT, RF_GAP_MEASURED
 from .ir_command import carrier_or_default, raw_to_pronto
 from .models import IRDevice, is_rf
-from .wig_format import ClimateMatrix, Wig, WigSignal
+from .wig_format import (
+    RF_FREQUENCY_MAX_HZ,
+    RF_FREQUENCY_MIN_HZ,
+    ClimateMatrix,
+    Wig,
+    WigRf,
+    WigSignal,
+)
 
 # Device-type to wig kind. THE RULE: a device type maps to a kind only
 # when one word on KIND_LIST is the unmistakable default for it.
@@ -69,6 +76,39 @@ class WigBuild:
     # format exists to prevent. Same shape as the adapters' skipped
     # list: human strings, surfaced beside the export.
     notes: list[str] = field(default_factory=list)
+
+
+def wig_rf_of(row) -> WigRf | None:
+    """A radio row's code as a wig's ``rf`` object, or None.
+
+    The stored frame ends on its gap when the gap was measured
+    (rf-send-doors.md section 1); the wig carries the frame without it
+    and the gap apart. An assumed gap is not written: the next install
+    assumes its own. None when the row has no usable frequency or frame.
+    """
+    hz = getattr(row, "rf_frequency_hz", None)
+    if not hz or not (RF_FREQUENCY_MIN_HZ <= int(hz) <= RF_FREQUENCY_MAX_HZ):
+        return None
+    frame = [int(v) for v in (row.raw_timings or []) if v]
+    trailing = None
+    while frame and frame[-1] < 0:
+        trailing = -frame.pop()
+    while frame and frame[0] < 0:
+        frame.pop(0)
+    if len(frame) < 2:
+        return None
+    gap = None
+    if getattr(row, "rf_frame_gap_source", None) == RF_GAP_MEASURED:
+        gap = getattr(row, "rf_frame_gap_us", None) or trailing
+    elif trailing:
+        gap = trailing
+    modulation = (getattr(row, "rf_modulation", None) or "ook").lower()
+    return WigRf(
+        frequency_hz=int(hz),
+        frame=frame,
+        modulation=modulation,
+        frame_gap_us=int(gap) if gap else None,
+    )
 
 
 def _pronto_for(
@@ -144,18 +184,27 @@ def build_wig_from_device(
         # exported, and this one is exported, as a cell.
         if command.matrix_cell:
             continue
-        # A RADIO ROW IS NOT IN A WIG YET (RF hear, round 1). Its frame
-        # has no Pronto form (a radio carrier rounds to a zero frequency
-        # word), and writing it as one would hand the next person an
-        # infrared code that was never sent. Skipped, counted, and named
-        # in the receipts, until the wig format carries radio.
+        # A RADIO ROW TRAVELS AS ``rf`` (hair-wig/5, RF send round). Its
+        # frame has no Pronto form (a radio carrier rounds to a zero
+        # frequency word), so it is written as its own object. A row
+        # with no frequency cannot be sent or digested by its band, so
+        # it is the one radio row still left out, and named.
         if is_rf(command):
-            skipped += 1
-            notes.append(
-                f"{(command.name or '').strip() or f'Command {i}'} is a "
-                "radio code and was left out: wigs carry infrared only "
-                "in this release."
-            )
+            alias = (command.name or "").strip() or f"Command {i}"
+            rf = wig_rf_of(command)
+            if rf is None:
+                skipped += 1
+                notes.append(
+                    f"{alias} is a radio code with no frequency set and "
+                    "was left out. Set its frequency in the editor, then "
+                    "save again."
+                )
+                continue
+            signals.append(WigSignal(
+                alias=alias, pronto="", send_count=command.send_count,
+                send_spacing_ms=command.send_spacing_ms, rf=rf,
+            ))
+            sources.append(command.id)
             continue
         pronto = _pronto_for(
             command.protocol,

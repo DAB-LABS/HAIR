@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .const import MEDIUM_IR, MEDIUM_RF
 from .models import CaptureResult
 from .pronto_validator import validate_pronto
 
@@ -48,6 +49,40 @@ class WigSignalIdentity:
     # dataclass; without the verdict on it, a wig row carrying a false
     # decode would be adopted as a fully trusted command.
     decode_covers: bool | None = None
+    # A radio signal (hair-wig/5) is "rf": ``pronto`` is empty,
+    # ``raw_timings`` is the stored frame (gap last when the wig gave
+    # one), ``fingerprint`` and ``byte_hash`` are the frame's, read by
+    # rf_frames exactly as a captured radio row's are, and the decoded
+    # fields are None. The carrier stays on the wig signal.
+    medium: str = MEDIUM_IR
+
+
+def wig_rf_identity(rf) -> WigSignalIdentity | None:
+    """The identity of a wig's radio code (``WigRf``), or None.
+
+    Read by ``rf_paste.result_of_frame``, the path an adopted radio row
+    is written by, so a wig row and the command it becomes can never
+    disagree about who they are.
+    """
+    from .rf_paste import result_of_frame
+
+    result = result_of_frame(rf.frame, rf.frequency_hz, rf.frame_gap_us)
+    if not result["ok"]:
+        return None
+    return WigSignalIdentity(
+        pronto="",
+        raw_timings=list(result["frame"]),
+        frequency=0,
+        fingerprint=result["fingerprint"],
+        byte_hash=result["frame_hash"],
+        decoded_protocol=None,
+        decoded_address=None,
+        decoded_command=None,
+        decoded_fingerprint=None,
+        decoded_extras=None,
+        decode_covers=None,
+        medium=MEDIUM_RF,
+    )
 
 
 def wig_signal_identity(pronto: str) -> WigSignalIdentity | None:
@@ -136,7 +171,9 @@ def wig_signal_identities(wig) -> list[WigSignalIdentity | None]:
     if cached is not None:
         return cached
     identities = [
-        wig_signal_identity(sig.pronto) for sig in wig.signals
+        wig_rf_identity(sig.rf) if getattr(sig, "rf", None) is not None
+        else wig_signal_identity(sig.pronto)
+        for sig in wig.signals
     ]
     if len(_IDENTITY_CACHE) >= _IDENTITY_CACHE_MAX:
         _IDENTITY_CACHE.pop(next(iter(_IDENTITY_CACHE)))
