@@ -63,16 +63,27 @@
  * names: `name`, with a doubled device name said once, is what the
  * chip says, and `fullName`, HA's friendly name as composed, stays in
  * the tooltip.
+ *
+ * RADIO (RF send round, T2). Radio frequency transmitters are emitters
+ * too, and a device may hold both kinds: each command goes only to its
+ * own kind. `media` says which kinds the target can use (a radio code:
+ * radio only; a new device: both), and with both shown the chips split
+ * into an Infrared and a Radio group. With `rfFrequencyHz`, each
+ * transmitter is checked against that frequency by the send path's own
+ * rule (`hair/rf/transmitters`): one that cannot send it is greyed with
+ * the reason and cannot be turned on, though it can still be turned off.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
-import { getEmitterOptions, type EmitterInfo } from "./emitter-options.js";
+import { emitterGroups, getEmitterOptions, type EmitterInfo } from "./emitter-options.js";
+import { bandNumber } from "./ir-listen-state.js";
+import type { Medium, RfFit } from "./types.js";
 import { healthChipClass, healthDotClass, healthPhrase } from "./entity-health.js";
 import { healthDotStyles } from "./ir-header-chip-styles.js";
 
-export { getEmitterOptions, type EmitterInfo };
+export { emitterGroups, getEmitterOptions, type EmitterInfo };
 
 @customElement("ir-emitter-picker")
 export class IrEmitterPicker extends LitElement {
@@ -95,6 +106,15 @@ export class IrEmitterPicker extends LitElement {
     /** Entity IDs to exclude entirely (e.g. extra hand-picked exclusions). */
     @property({ attribute: false }) public excludeEntityIds: string[] = [];
 
+    /** Which kinds of emitter the target can use; null for both. */
+    @property({ attribute: false }) public media: Medium[] | null = null;
+
+    /** A radio code's frequency, to check each transmitter against. */
+    @property({ attribute: false }) public rfFrequencyHz: number | null = null;
+
+    @state() private _fits = new Map<string, RfFit>();
+    private _fitsFor: number | null | undefined = undefined;
+
     @state() private _didAutoSelect = false;
     @state() private _receiverIds = new Set<string>();
     private _receiversLoaded = false;
@@ -105,6 +125,10 @@ export class IrEmitterPicker extends LitElement {
         if (changed.has("api") && this.api && !this._receiversLoaded) {
             this._receiversLoaded = true;
             void this._loadReceivers();
+        }
+        if (this.api && this._fitsFor !== this.rfFrequencyHz) {
+            this._fitsFor = this.rfFrequencyHz;
+            void this._loadFits();
         }
 
         // First-render decision. Two cases:
@@ -141,8 +165,43 @@ export class IrEmitterPicker extends LitElement {
         }
     }
 
+    private async _loadFits(): Promise<void> {
+        const asked = this.rfFrequencyHz;
+        if (!this.api || !asked) {
+            this._fits = new Map();
+            return;
+        }
+        try {
+            const items = await this.api.rfTransmitters(asked);
+            if (asked !== this.rfFrequencyHz) return;
+            this._fits = new Map(
+                items.filter((it) => it.fit).map((it) => [it.entity_id, it.fit as RfFit]),
+            );
+        } catch {
+            this._fits = new Map();
+        }
+    }
+
+    /** The emitters the target can use, of the media it takes. */
     private _getEmitters(): EmitterInfo[] {
-        return getEmitterOptions(this.hass, this._receiverIds, this.excludeEntityIds);
+        return emitterGroups(
+            getEmitterOptions(this.hass, this._receiverIds, this.excludeEntityIds),
+            this.media,
+        ).flatMap((group) => group.items);
+    }
+
+    /** Why a transmitter cannot send the code's frequency, or how it
+     *  will; empty when it simply can. */
+    private _fitNote(em: EmitterInfo): { blocked: boolean; note: string } {
+        const fit = em.medium === "rf" ? this._fits.get(em.entity_id) : undefined;
+        if (!fit || !this.rfFrequencyHz) return { blocked: false, note: "" };
+        if (fit.ok) {
+            return fit.substituted && fit.send_hz
+                ? { blocked: false, note: t("picker.fit_substituted", { band: bandNumber(fit.send_hz) }) }
+                : { blocked: false, note: "" };
+        }
+        if (fit.code === "no_ranges") return { blocked: true, note: t("picker.fit_no_ranges") };
+        return { blocked: true, note: t("picker.fit_unsupported", { band: bandNumber(this.rfFrequencyHz) }) };
     }
 
     /**
@@ -150,8 +209,11 @@ export class IrEmitterPicker extends LitElement {
      * from a dropdown and removing used to mean hitting an x on a chip;
      * both were the same question asked of the same list.
      */
-    private _toggle(entityId: string): void {
+    private _toggle(entityId: string, blocked = false): void {
         if (this.disabled) return;
+        // A transmitter that cannot send the code is never turned on; one
+        // already chosen can still be turned off.
+        if (blocked && !this.value.includes(entityId)) return;
         this._fireChange(
             this.value.includes(entityId)
                 ? this.value.filter((id) => id !== entityId)
@@ -171,16 +233,38 @@ export class IrEmitterPicker extends LitElement {
     }
 
     render() {
-        const emitters = this._getEmitters();
+        const groups = emitterGroups(
+            getEmitterOptions(this.hass, this._receiverIds, this.excludeEntityIds),
+            this.media,
+        );
+        const onlyRf = this.media?.length === 1 && this.media[0] === "rf";
+        const label = onlyRf
+            ? t("picker.transmitters_label")
+            : this.media?.length === 1 || !groups.some((g) => g.medium === "rf")
+              ? t("picker.emitters_label")
+              : t("picker.both_label");
+        if (groups.length === 0) {
+            return html`<label>${label}</label>
+                <div class="chips">
+                    <span class="no-emitters"
+                        >${onlyRf ? t("picker.no_transmitters") : t("picker.no_emitters")}</span
+                    >
+                </div>`;
+        }
+        // One medium: one row of chips, as before. Both: a small heading
+        // over each group.
         return html`
-            <label>${t("picker.emitters_label")}</label>
-            <div class="chips">
-                ${emitters.length === 0
-                    ? html`<span class="no-emitters"
-                          >${t("picker.no_emitters")}</span
-                      >`
-                    : emitters.map((em) => this._renderChip(em))}
-            </div>
+            <label>${label}</label>
+            ${groups.length === 1
+                ? html`<div class="chips">${groups[0].items.map((em) => this._renderChip(em))}</div>`
+                : groups.map(
+                      (group) => html`<div class="group">
+                          <span class="group-name"
+                              >${t(group.medium === "rf" ? "picker.group_rf" : "picker.group_ir")}</span
+                          >
+                          <div class="chips">${group.items.map((em) => this._renderChip(em))}</div>
+                      </div>`,
+                  )}
         `;
     }
 
@@ -188,6 +272,8 @@ export class IrEmitterPicker extends LitElement {
         const on = this.value.includes(em.entity_id);
         const cls = healthChipClass(on, em.available);
         const word = healthPhrase(em.available, on, t);
+        const { blocked, note } = this._fitNote(em);
+        const said = note ? `${word}, ${note}` : word;
         // The dot carries the state and the name carries itself. A word
         // spelled out beside every chip turned a row of three into a row
         // of six things to read, which is the opposite of what the
@@ -198,13 +284,14 @@ export class IrEmitterPicker extends LitElement {
         // "{full name}, online, selected · {entity id}".
         return html`
             <button
-                class="em ${cls}"
+                class="em ${cls} ${blocked ? "nofit" : ""}"
                 role="switch"
                 aria-checked=${on ? "true" : "false"}
-                aria-label="${em.name}, ${word}"
+                aria-disabled=${blocked && !on ? "true" : "false"}
+                aria-label="${em.name}, ${said}"
                 ?disabled=${this.disabled}
-                title="${em.fullName}, ${word}${em.fullName === em.entity_id ? "" : ` · ${em.entity_id}`}"
-                @click=${() => this._toggle(em.entity_id)}
+                title="${em.fullName}, ${said}${em.fullName === em.entity_id ? "" : ` · ${em.entity_id}`}"
+                @click=${() => this._toggle(em.entity_id, blocked)}
             >
                 <span class="dot ${healthDotClass(em.available)}"></span>
                 <span class="em-name">${em.name}</span>
@@ -277,6 +364,22 @@ export class IrEmitterPicker extends LitElement {
             border-color: rgba(79, 158, 90, 0.5);
             background: rgba(79, 158, 90, 0.12);
             color: var(--primary-text-color);
+        }
+        /* Both kinds shown: a quiet heading over each group. */
+        .group + .group {
+            margin-top: 8px;
+        }
+        .group-name {
+            display: block;
+            font-size: 0.66rem;
+            color: var(--secondary-text-color);
+            margin-bottom: 3px;
+        }
+        /* A transmitter that cannot send this code's frequency. */
+        .em.nofit:not(.on) {
+            opacity: 0.45;
+            cursor: not-allowed;
+            border-style: dashed;
         }
         .no-emitters {
             font-size: 0.85rem;

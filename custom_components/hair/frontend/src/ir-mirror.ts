@@ -45,6 +45,7 @@ import {
     trashButtonStyles,
 } from "./ir-icons.js";
 import { HairApi } from "./api.js";
+import { sendRefusal } from "./rf-errors.js";
 import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
@@ -696,7 +697,14 @@ export class IrMirror extends LitElement {
                 (r) => r.status === "fulfilled" && r.value.sent,
             ).length;
             const total = emitters.length;
-            if (sent === total) {
+            // A refusal says why in a sentence (a radio code with no
+            // frequency, a transmitter that cannot send it).
+            const refused = results
+                .map((r) => (r.status === "rejected" ? sendRefusal(r.reason) : null))
+                .find((m) => m !== null);
+            if (refused) {
+                this._testResult = refused;
+            } else if (sent === total) {
                 this._testResult =
                     total === 1
                         ? t("mirror.sent")
@@ -1348,6 +1356,8 @@ export class IrMirror extends LitElement {
                       .api=${this.api}
                       .hass=${this.hass}
                       .value=${this._testEmitters}
+                      .media=${[this._testDialog.medium ?? "ir"]}
+                      .rfFrequencyHz=${this._testDialog.rf_frequency_hz ?? null}
                       @emitters-changed=${(e: CustomEvent) =>
                           (this._testEmitters = e.detail.value)}
                       @send=${this._sendTest}

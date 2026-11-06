@@ -1026,6 +1026,30 @@ export interface ReceiverHardwareInfo {
     supported_frequency_ranges?: [number, number][] | null;
 }
 
+/** Whether a radio transmitter can send one frequency, by the send
+ *  path's own rule: a fixed-frequency transmitter close enough to the
+ *  row's Hz sends at its own (``substituted``). ``code`` says why not:
+ *  ``rf_frequency_unsupported``, ``rf_no_frequency`` or ``no_ranges``
+ *  (the transmitter declares no frequency). */
+export interface RfFit {
+    ok: boolean;
+    send_hz: number | null;
+    substituted: boolean;
+    code: string | null;
+}
+
+/** One radio transmitter (``hair/rf/transmitters``). */
+export interface RfTransmitter {
+    entity_id: string;
+    name: string;
+    ha_device_id: string | null;
+    available: boolean;
+    ranges: [number, number][];
+    /** Its one frequency when it declares a single fixed one. */
+    fixed_hz: number | null;
+    fit: RfFit | null;
+}
+
 /** ``hair/hardware/facts``: when HAIR last took a code from each
  *  receiver and last sent through each emitter, since it started. */
 export interface HardwareFacts {

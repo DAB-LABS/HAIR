@@ -478,6 +478,8 @@ export class IrAssignSignalDialog extends LitElement {
             <ir-emitter-picker
                 .hass=${this.hass}
                 .api=${this.api}
+                .media=${[this.signal?.medium ?? "ir"]}
+                .rfFrequencyHz=${this.signal?.rf_frequency_hz ?? null}
                 .value=${this._newEmitterIds}
                 ?disabled=${this._busy}
                 @emitters-changed=${(e: CustomEvent) =>

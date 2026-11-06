@@ -19,6 +19,8 @@ import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
+import { emitterMedium } from "./emitter-options.js";
+import type { Medium } from "./types.js";
 
 @customElement("ir-test-emitter-dialog")
 export class IrTestEmitterDialog extends LitElement {
@@ -31,12 +33,25 @@ export class IrTestEmitterDialog extends LitElement {
     /** Set true while the parent's WS fan-out is in flight. */
     @property({ type: Boolean }) public busy = false;
 
+    /** The code's medium picks the emitters it can go through: infrared
+     *  emitters unless the parent says radio. */
+    @property({ attribute: false }) public media: Medium[] = ["ir"];
+
+    /** A radio code's frequency, so a transmitter that cannot send it
+     *  is greyed with the reason. */
+    @property({ attribute: false }) public rfFrequencyHz: number | null = null;
+
     @state() private _local: string[] = [];
 
     connectedCallback(): void {
         super.connectedCallback();
         // Seed local state from parent so the picker shows the remembered chips.
-        this._local = [...this.value];
+        // Only emitters of this code's medium: the remembered list may
+        // hold the other kind from an earlier test.
+        this._local = this.value.filter((id) => {
+            const medium = emitterMedium(id);
+            return medium !== null && this.media.includes(medium);
+        });
     }
 
     private _close(): void {
@@ -80,6 +95,8 @@ export class IrTestEmitterDialog extends LitElement {
                 <ir-emitter-picker
                     .hass=${this.hass}
                     .api=${this.api}
+                    .media=${this.media}
+                    .rfFrequencyHz=${this.rfFrequencyHz}
                     .value=${this._local}
                     ?disabled=${this.busy}
                     @emitters-changed=${this._onEmittersChanged}

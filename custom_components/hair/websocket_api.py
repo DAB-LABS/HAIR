@@ -22,6 +22,8 @@ from .const import (
     FITTING_LISTEN_TIMEOUT_S,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
+    MEDIUM_IR,
+    MEDIUM_RF,
     MIRROR_DEVICE_FP,
     RF_SOFTWARE_WINDOW_MAX_S,
     RF_SOFTWARE_WINDOW_MIN_S,
@@ -34,6 +36,13 @@ from .const import (
 )
 from .device_manager import DeviceManager, RfSendUnsupportedError
 from .device_registry_compat import device_by_identifier, hair_config_entry_id
+from .emitters import (
+    EMITTER_WRONG_MEDIUM,
+    emitter_medium,
+    emitters_error,
+    of_medium,
+    transmitter_items,
+)
 from .frequency_standards import IR_CARRIER_STANDARDS_HZ
 from .identity import (
     SignalIdentity,
@@ -103,6 +112,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_receiver_listen)
     websocket_api.async_register_command(hass, ws_receiver_window_prefs)
     websocket_api.async_register_command(hass, ws_hardware_facts)
+    websocket_api.async_register_command(hass, ws_rf_transmitters)
     websocket_api.async_register_command(hass, ws_rf_subscribe)
     websocket_api.async_register_command(hass, ws_set_capture_switch)
     websocket_api.async_register_command(hass, ws_get_sniffer_status)
@@ -281,7 +291,6 @@ def _media(rows: Any, *, matrix: bool = False) -> list[str]:
     item 13: matrix ACs made from wigs drew no glyph). Empty when there
     is nothing to go on: the card then draws no glyph.
     """
-    from .const import MEDIUM_IR, MEDIUM_RF
 
     present = {getattr(row, "medium", MEDIUM_IR) or MEDIUM_IR for row in rows}
     if matrix:
@@ -693,6 +702,12 @@ async def ws_create_device(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
+    # Emitters are checked before anything is written (RF send, T2):
+    # infrared emitters and radio transmitters, mixed, and nothing else.
+    emitter_error = emitters_error(hass, list(msg["emitter_entity_ids"]))
+    if emitter_error is not None:
+        connection.send_error(msg["id"], *emitter_error)
+        return
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
@@ -772,6 +787,20 @@ async def ws_update_device(
     if device is None:
         connection.send_error(msg["id"], "not_found", "Device not found")
         return
+    # Emitters are checked before anything is written (RF send, T2):
+    # infrared emitters and radio transmitters, mixed, and nothing else.
+    # Only the ones being added: a device that already holds an emitter
+    # HAIR can no longer send through (an old remote.* entry) is not
+    # stuck, since the picker hands its list back unchanged.
+    if "emitter_entity_ids" in msg:
+        added = [
+            entity_id for entity_id in msg["emitter_entity_ids"]
+            if entity_id not in device.emitter_entity_ids
+        ]
+        emitter_error = emitters_error(hass, added)
+        if emitter_error is not None:
+            connection.send_error(msg["id"], *emitter_error)
+            return
 
     # The speed cycle settings are checked before ANY field is
     # written, so a refused request leaves the device as it was.
@@ -1580,6 +1609,28 @@ def ws_hardware_facts(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/rf/transmitters",
+    vol.Optional("frequency_hz"): vol.All(int, vol.Range(min=1)),
+})
+@callback
+def ws_rf_transmitters(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Every radio transmitter, for the emitter picker (RF send, T2).
+
+    Each item names the transmitter, the ranges it declares, its one
+    frequency when it is fixed, and, when ``frequency_hz`` is asked,
+    whether it can send that frequency by the send path's own rule
+    (``rf_send.transmitter_fit``). An empty list when the radio
+    frequency platform is not loaded.
+    """
+    connection.send_result(msg["id"], transmitter_items(hass, msg.get("frequency_hz")))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/receivers/rf/subscribe",
 })
 @callback
@@ -2009,7 +2060,6 @@ def _unknown_device_medium(device: Any) -> dict[str, Any]:
     Written only for radio, so an infrared summary is unchanged. The
     carrier is that of the most recently heard signal that has one.
     """
-    from .const import MEDIUM_RF
 
     if getattr(device, "medium", None) != MEDIUM_RF:
         return {}
@@ -2321,19 +2371,40 @@ async def ws_test_signal(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
 
+    monitor: SignalMonitor = data["signal_monitor"]
+    # The row's medium picks which emitters can send it (RF send, T2):
+    # an infrared row through an infrared emitter, a radio row through a
+    # radio transmitter. An unknown signal id falls through to the
+    # monitor, which says signal_not_found as before.
+    signal = None
+    for remote in monitor._signal_store.get_all_devices():
+        signal = remote.get_signal_by_id(msg["signal_id"])
+        if signal is not None:
+            break
+    medium = MEDIUM_RF if getattr(signal, "medium", None) == MEDIUM_RF else MEDIUM_IR
+
     emitter_id = msg.get("emitter_entity_id")
+    named = emitter_medium(emitter_id) if emitter_id else None
+    if signal is not None and named is not None and named != medium:
+        connection.send_error(
+            msg["id"], EMITTER_WRONG_MEDIUM,
+            f"{emitter_id} cannot send a "
+            + ("radio" if medium == MEDIUM_RF else "infrared") + " code",
+        )
+        return
     if not emitter_id:
-        # Default to the first emitter configured on any HAIR device.
+        # Default to the first emitter of the row's medium configured on
+        # any HAIR device.
         store = data["store"]
         for dev in store.get_all_devices():
-            if dev.emitter_entity_ids:
-                emitter_id = dev.emitter_entity_ids[0]
+            mine = of_medium(list(dev.emitter_entity_ids), medium)
+            if mine:
+                emitter_id = mine[0]
                 break
     if not emitter_id:
         connection.send_error(msg["id"], "no_emitter", "No emitter entity configured")
         return
 
-    monitor: SignalMonitor = data["signal_monitor"]
     result = await monitor.test_signal(
         msg["signal_id"], emitter_id
     )
@@ -2400,6 +2471,12 @@ async def ws_assign_new_device(
     msg: dict[str, Any],
 ) -> None:
     """Create a new HAIR device and assign an unknown signal atomically."""
+    # Emitters are checked before anything is written (RF send, T2):
+    # infrared emitters and radio transmitters, mixed, and nothing else.
+    emitter_error = emitters_error(hass, list(msg["emitter_entity_ids"]))
+    if emitter_error is not None:
+        connection.send_error(msg["id"], *emitter_error)
+        return
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
@@ -7301,6 +7378,12 @@ async def ws_wig_make_device(
     auto-map running over THEM only -- the cells are the climate
     entity's, not the command list's.
     """
+    # Emitters are checked before anything is written (RF send, T2):
+    # infrared emitters and radio transmitters, mixed, and nothing else.
+    emitter_error = emitters_error(hass, list(msg["emitter_entity_ids"]))
+    if emitter_error is not None:
+        connection.send_error(msg["id"], *emitter_error)
+        return
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
@@ -7516,6 +7599,12 @@ async def ws_trigger_remote_make_device(
     (IRDevice.source_remote_id) -- the Track 3.5 pin prompt's trivial
     "content match", mirroring the other direction above.
     """
+    # Emitters are checked before anything is written (RF send, T2):
+    # infrared emitters and radio transmitters, mixed, and nothing else.
+    emitter_error = emitters_error(hass, list(msg["emitter_entity_ids"]))
+    if emitter_error is not None:
+        connection.send_error(msg["id"], *emitter_error)
+        return
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")

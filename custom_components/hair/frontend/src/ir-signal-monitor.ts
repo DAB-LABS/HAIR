@@ -1732,6 +1732,8 @@ export class IrSignalMonitor extends LitElement {
                           .api=${this.api}
                           .hass=${this.hass}
                           .value=${this._testEmitters}
+                          .media=${[this._testDialog.signal.medium ?? "ir"]}
+                          .rfFrequencyHz=${this._testDialog.signal.rf_frequency_hz ?? null}
                           @emitters-changed=${(e: CustomEvent) =>
                               (this._testEmitters = e.detail.value)}
                           @send=${this._sendTest}
