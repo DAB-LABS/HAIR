@@ -17,6 +17,9 @@ import type {
     AssignResult,
     CandidateVerdict,
     CaptureReceiverRow,
+    HardwareFacts,
+    RfReceiverItem,
+    WindowMode,
     ClaimsLedger,
     CodeBrand,
     CombReport,
@@ -285,12 +288,46 @@ export class HairApi {
     }
 
     /** Open or close a capture device's window. Takes the receiver; the
-     *  server resolves what to toggle. */
+     *  server resolves what to toggle. A software window opens with the
+     *  length and mode kept on the receiver unless told otherwise. */
     receiverListen(receiverEntityId: string, on: boolean): Promise<{ on: boolean }> {
         return this.hass.connection.sendMessagePromise<{ on: boolean }>({
             type: "hair/receivers/listen",
             receiver_entity_id: receiverEntityId,
             on,
+        });
+    }
+
+    /** Keep the length and mode of an always-on radio receiver's next
+     *  software window (the Sniffer's pickers). */
+    setWindowPrefs(
+        receiverEntityId: string,
+        seconds: number,
+        mode: WindowMode,
+    ): Promise<{ window_seconds: number; window_mode: WindowMode }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/receivers/window_prefs",
+            receiver_entity_id: receiverEntityId,
+            seconds,
+            mode,
+        });
+    }
+
+    /** When HAIR last heard each receiver and last sent through each
+     *  emitter, for the Devices tab's hardware rows. */
+    hardwareFacts(): Promise<HardwareFacts> {
+        return this.hass.connection.sendMessagePromise<HardwareFacts>({
+            type: "hair/hardware/facts",
+        });
+    }
+
+    /** The always-on radio receivers' windows, one item per change
+     *  (``hair/receivers/rf/subscribe``). The door's snapshot is its
+     *  result, which a subscription does not hand on, so the panel
+     *  starts from the capture door's software rows (same fields). */
+    subscribeRfReceivers(onItem: (item: RfReceiverItem) => void): Promise<() => void> {
+        return this.hass.connection.subscribeMessage<RfReceiverItem>(onItem, {
+            type: "hair/receivers/rf/subscribe",
         });
     }
 

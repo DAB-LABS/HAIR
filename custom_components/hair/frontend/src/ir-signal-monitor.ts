@@ -10,6 +10,7 @@ import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
+import { rfRefusal } from "./rf-errors.js";
 import {
     ICON_TRASH,
     TRASH_VIEWBOX,
@@ -36,6 +37,9 @@ import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
 import "./ir-tx-knobs.js";
 import "./ir-listen-row.js";
+import { headerChipStyles } from "./ir-header-chip-styles.js";
+import { protoGlyphStyles, protoLabel, renderProtoGlyph } from "./ir-proto-glyph.js";
+import { carrierParts, snifferShows, type SnifferFilter } from "./sniffer-filter.js";
 import { arrivalBloomKey, captureSignature, lastHeardTarget } from "./ir-listen-state.js";
 import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
@@ -90,7 +94,7 @@ const ICON_SIGNAL =
     "M12 9.188c-1.553 0-2.812 1.259-2.812 2.812s1.259 2.812 2.812 2.812c1.553 0 2.812-1.259 2.812-2.812v0c-0.002-1.552-1.26-2.81-2.812-2.812h-0zM12 13.688c-0.932 0-1.688-0.755-1.688-1.688s0.755-1.688 1.688-1.688c0.932 0 1.688 0.755 1.688 1.688v0c-0.002 0.931-0.756 1.686-1.688 1.688h-0zM2.062 12c0.16-2.665 1.25-5.049 2.948-6.856l-0.005 0.006c0.098-0.101 0.159-0.239 0.159-0.392 0-0.31-0.252-0.562-0.562-0.562-0.153 0-0.291 0.061-0.393 0.16l0-0c-1.906 1.998-3.125 4.667-3.27 7.618l-0.001 0.028c0.146 2.979 1.365 5.647 3.275 7.652l-0.005-0.005c0.101 0.098 0.239 0.159 0.392 0.159 0.31 0 0.562-0.252 0.562-0.562 0-0.152-0.061-0.291-0.16-0.392l0 0c-1.694-1.8-2.785-4.185-2.94-6.821l-0.002-0.03zM6.647 12c0.113-1.859 0.874-3.523 2.058-4.784l-0.004 0.004c0.098-0.101 0.159-0.239 0.159-0.392 0-0.31-0.252-0.562-0.562-0.562-0.153 0-0.291 0.061-0.392 0.16l0-0c-1.39 1.457-2.278 3.403-2.383 5.554l-0.001 0.02c0.105 2.171 0.994 4.117 2.386 5.577l-0.003-0.004c0.102 0.104 0.244 0.167 0.4 0.167 0.31 0 0.562-0.251 0.562-0.562 0-0.156-0.064-0.297-0.167-0.399l-0-0c-1.183-1.256-1.944-2.92-2.053-4.759l-0.001-0.021zM19.793 4.355c-0.102-0.101-0.241-0.164-0.396-0.164-0.31 0-0.562 0.252-0.562 0.562 0 0.154 0.062 0.294 0.162 0.395l-0-0c1.691 1.802 2.782 4.185 2.94 6.82l0.002 0.03c-0.16 2.665-1.249 5.05-2.947 6.857l0.005-0.006c-0.105 0.102-0.17 0.244-0.17 0.403 0 0.31 0.252 0.562 0.562 0.562 0.158 0 0.301-0.065 0.404-0.171l0-0c1.906-1.999 3.125-4.667 3.268-7.618l0.001-0.028c-0.146-2.978-1.364-5.647-3.274-7.65l0.005 0.005zM15.299 6.425c-0.102 0.102-0.165 0.242-0.165 0.398 0 0.154 0.062 0.295 0.164 0.397l-0-0c1.181 1.257 1.942 2.92 2.054 4.758l0.001 0.022c-0.114 1.86-0.875 3.523-2.059 4.784l0.004-0.004c-0.101 0.102-0.164 0.241-0.164 0.396 0 0.311 0.252 0.563 0.563 0.563 0.155 0 0.295-0.062 0.397-0.164l-0 0c1.389-1.458 2.277-3.404 2.383-5.555l0.001-0.02c-0.105-2.172-0.994-4.118-2.388-5.578l0.003 0.003c-0.101-0.102-0.242-0.165-0.397-0.165s-0.295 0.063-0.397 0.165l-0 0z";
 
 // MDI path: mdi:eye-off-outline
-const ICON_DISMISS =
+const ICON_HIDE =
     "M2,5.27L3.28,4L20,20.72L18.73,22L15.65,18.92C14.5,19.3 13.28,19.5 12,19.5C7,19.5 2.73,16.39 1,12C1.69,10.24 2.79,8.69 4.19,7.46L2,5.27M12,9A3,3 0 0,1 15,12C15,12.35 14.94,12.69 14.83,13L11,9.17C11.31,9.06 11.65,9 12,9M12,4.5C17,4.5 21.27,7.61 23,12C22.18,14.08 20.79,15.88 19,17.19L17.58,15.76C18.94,14.82 20.06,13.54 20.82,12C19.17,8.64 15.76,6.5 12,6.5C10.91,6.5 9.84,6.68 8.84,7L7.3,5.47C8.74,4.85 10.33,4.5 12,4.5M3.18,12C4.83,15.36 8.24,17.5 12,17.5C12.69,17.5 13.37,17.43 14,17.29L11.72,15C10.29,14.85 9.15,13.71 9,12.28L5.6,8.87C4.61,9.72 3.78,10.78 3.18,12Z";
 
 // MDI path: mdi:close. The corner delete's glyph (remote-header
@@ -123,6 +127,21 @@ const ICON_GRIP =
 const REORDER_DEBOUNCE_MS = 500;
 
 
+/** A radio remote's band ("433.92 MHz"), or null. */
+export function remoteBand(d: { medium?: string; rf_frequency_hz?: number | null }): string | null {
+    if (d.medium !== "rf") return null;
+    const parts = carrierParts(d);
+    return parts && "band" in parts ? t("listen.band", { band: parts.band }) : null;
+}
+
+/** A signal row's carrier: the band for radio ("433.92 MHz"), kHz for
+ *  infrared, and nothing for a radio row heard with no carrier. */
+export function signalCarrier(sig: { medium?: string; rf_frequency_hz?: number | null; frequency: number }): string {
+    const parts = carrierParts(sig);
+    if (!parts) return "";
+    return "band" in parts ? t("listen.band", { band: parts.band }) : `${parts.khz} kHz`;
+}
+
 @customElement("ir-signal-monitor")
 export class IrSignalMonitor extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -152,7 +171,10 @@ export class IrSignalMonitor extends LitElement {
     // yet" in the empty state. Optimistic default so the page does not
     // flash the no-receiver message before the status query returns.
     @state() private _hasReceivers = true;
-    @state() private _showDismissed = false;
+    /** The SHOW chips (RF hear round 1): every remote, infrared only,
+     *  radio only, or the hidden ones. Hidden is the one way to see a
+     *  hidden remote; the bottom bar's button is gone. */
+    @state() private _filter: SnifferFilter = "all";
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
     /** Rows blooming right now: ``dev:<remote id>`` for a collapsed
@@ -244,28 +266,28 @@ export class IrSignalMonitor extends LitElement {
     @state() private _testDialog: { signal: UnknownSignal } | null = null;
     @state() private _testEmitters: string[] = [];
 
-    // Dismiss-activity surface (Show Dismissed button).
-    // ``_dismissGlowActive`` drives the transient blue glow class on the
-    // button -- it flips true on every dismiss-activity bus event and
-    // clears after a hold timer (slightly longer than the hit-flash so
-    // it stays discoverable).
-    // ``_dismissDotVisible`` is the persistent dot indicator -- it sticks
-    // from the first dismiss-activity event after panel mount until the
-    // user clicks Show Dismissed (which is the click-through that owns
-    // restoring those remotes).
-    @state() private _dismissGlowActive = false;
-    @state() private _dismissDotVisible = false;
+    // Hidden-activity surface (the Hidden chip).
+    // ``_hiddenGlow`` drives the transient blue glow on the chip -- it
+    // flips true on every hidden-activity bus event (a hidden remote
+    // was heard) and clears after a hold timer (slightly longer than
+    // the hit-flash so it stays discoverable).
+    // ``_hiddenDot`` is the persistent dot indicator -- it sticks from
+    // the first hidden-activity event after panel mount until the user
+    // presses the Hidden chip (the click-through that owns restoring
+    // those remotes).
+    @state() private _hiddenGlow = false;
+    @state() private _hiddenDot = false;
 
     private _unsubLive: (() => Promise<void>) | null = null;
     private _unsubRemoved: (() => Promise<void>) | null = null;
-    private _unsubDismiss: (() => Promise<void>) | null = null;
-    private _dismissGlowTimer: ReturnType<typeof setTimeout> | null = null;
+    private _unsubHidden: (() => Promise<void>) | null = null;
+    private _hiddenGlowTimer: ReturnType<typeof setTimeout> | null = null;
     /**
-     * Glow hold duration in ms. Hit-flash is ~2500ms; the dismiss-activity
+     * Glow hold duration in ms. Hit-flash is ~2500ms; the hidden-activity
      * glow holds ~3800ms so it sits 1-1.5 seconds longer than a hit-flash,
      * per the v0.2.0 plan decision: discoverable, not loud.
      */
-    private static readonly DISMISS_GLOW_HOLD_MS = 3800;
+    private static readonly HIDDEN_GLOW_HOLD_MS = 3800;
 
     // Drag-to-reorder (remotes + signals-within-a-remote).
     @state() private _remotesVersion = 0;
@@ -281,7 +303,7 @@ export class IrSignalMonitor extends LitElement {
         void this._load();
         void this._subscribeLive();
         void this._subscribeRemoved();
-        void this._subscribeDismissActivity();
+        void this._subscribeHiddenActivity();
         void this._subscribeUpdated();
     }
 
@@ -325,12 +347,12 @@ export class IrSignalMonitor extends LitElement {
         super.disconnectedCallback();
         void this._unsubscribeLive();
         void this._unsubscribeRemoved();
-        void this._unsubscribeDismissActivity();
+        void this._unsubscribeHiddenActivity();
         void this._unsubscribeUpdated();
         this._removePopoverDismiss();
-        if (this._dismissGlowTimer !== null) {
-            clearTimeout(this._dismissGlowTimer);
-            this._dismissGlowTimer = null;
+        if (this._hiddenGlowTimer !== null) {
+            clearTimeout(this._hiddenGlowTimer);
+            this._hiddenGlowTimer = null;
         }
         this._remotesSortable?.destroy();
         this._remotesSortable = null;
@@ -346,6 +368,9 @@ export class IrSignalMonitor extends LitElement {
      *  an expand change rebinds cleanly. */
     private _syncSortables(): void {
         const remotes = this.renderRoot.querySelector(".device-list") as HTMLElement | null;
+        // Reordering moves remotes in the whole list, so it runs only
+        // while every remote is shown.
+        this._remotesSortable?.option("disabled", this._filter !== "all");
         if (remotes && !this._remotesSortable) {
             this._attachRemotesSortable(remotes);
         } else if (!remotes && this._remotesSortable) {
@@ -367,7 +392,8 @@ export class IrSignalMonitor extends LitElement {
 
     private _attachRemotesSortable(container: HTMLElement): void {
         this._remotesSortable = Sortable.create(container, {
-            handle: ".remote-grip",
+            handle: ".remote-handle",
+            disabled: this._filter !== "all",
             animation: 150,
             ghostClass: "sortable-ghost",
             onEnd: (e) => {
@@ -458,7 +484,7 @@ export class IrSignalMonitor extends LitElement {
         try {
             const [unknowns, hairDevs, triggers, status] = await Promise.all([
                 this.api.getUnknownDevices({
-                    include_dismissed: this._showDismissed,
+                    include_dismissed: this._filter === "hidden",
                     source: "sniffed",
                 }),
                 this.api.listDevices(),
@@ -560,11 +586,11 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
-    // --- Dismiss-activity surface (Show Dismissed glow + dot) ---
+    // --- Hidden-activity surface (the Hidden chip's glow + dot) ---
 
     /**
-     * Subscribe to the dismiss-activity bus event. Each event represents
-     * a signal that arrived from a remote in the persisted dismiss set
+     * Subscribe to the hidden-activity bus event. Each event represents
+     * a signal that arrived from a remote in the persisted hidden set
      * and got dropped from the live feed -- but the user should still
      * know it is firing so they can decide whether to restore it.
      *
@@ -573,38 +599,38 @@ export class IrSignalMonitor extends LitElement {
      * (b) flip the persistent dot. Multiple events from the same
      * fingerprint just re-trigger the glow timer.
      */
-    private async _subscribeDismissActivity(): Promise<void> {
+    private async _subscribeHiddenActivity(): Promise<void> {
         try {
-            this._unsubDismiss = await this.api.subscribeDismissActivity(
-                () => this._onDismissActivity(),
+            this._unsubHidden = await this.api.subscribeDismissActivity(
+                () => this._onHiddenActivity(),
             );
         } catch {
             // Non-fatal -- the glow + dot just won't surface.
         }
     }
 
-    private async _unsubscribeDismissActivity(): Promise<void> {
-        if (this._unsubDismiss) {
-            await this._unsubDismiss();
-            this._unsubDismiss = null;
+    private async _unsubscribeHiddenActivity(): Promise<void> {
+        if (this._unsubHidden) {
+            await this._unsubHidden();
+            this._unsubHidden = null;
         }
     }
 
     /**
-     * Handle one dismiss-activity event. Restarts the glow hold timer
+     * Handle one hidden-activity event. Restarts the glow hold timer
      * (so a held-down button keeps the button lit instead of flickering)
      * and sets the persistent dot until the user clicks through.
      */
-    private _onDismissActivity(): void {
-        this._dismissDotVisible = true;
-        this._dismissGlowActive = true;
-        if (this._dismissGlowTimer !== null) {
-            clearTimeout(this._dismissGlowTimer);
+    private _onHiddenActivity(): void {
+        this._hiddenDot = true;
+        this._hiddenGlow = true;
+        if (this._hiddenGlowTimer !== null) {
+            clearTimeout(this._hiddenGlowTimer);
         }
-        this._dismissGlowTimer = setTimeout(() => {
-            this._dismissGlowActive = false;
-            this._dismissGlowTimer = null;
-        }, IrSignalMonitor.DISMISS_GLOW_HOLD_MS);
+        this._hiddenGlowTimer = setTimeout(() => {
+            this._hiddenGlow = false;
+            this._hiddenGlowTimer = null;
+        }, IrSignalMonitor.HIDDEN_GLOW_HOLD_MS);
     }
 
     // --- Inline rename ---
@@ -647,7 +673,7 @@ export class IrSignalMonitor extends LitElement {
     /**
      * ADOPT DEVICE (owner ask 2026-07-28, the closet polish landing
      * here too): the promote chip and the linked-count chip collapse
-     * into one green button next to Dismiss, wearing the count-dot
+     * into one green button next to Hide, wearing the count-dot
      * convention (v0.6.6 Assign/Trigger precedent). Zero linked
      * devices opens the promote dialog directly; one or more opens
      * the shared action-popover anatomy with a "+ new device" accent
@@ -979,7 +1005,12 @@ export class IrSignalMonitor extends LitElement {
                 (r) => r.status === "fulfilled" && r.value.sent,
             ).length;
             const total = emitters.length;
-            if (sent === total) {
+            const refused = results
+                .map((r) => (r.status === "rejected" ? rfRefusal(r.reason) : null))
+                .find((m) => m !== null);
+            if (refused) {
+                this._testResult = refused;
+            } else if (sent === total) {
                 this._testResult = total === 1 ? t("mirror.sent") : t("mirror.sent_all_n", { sent, total });
             } else if (sent === 0) {
                 this._testResult = t("mirror.failed");
@@ -1329,7 +1360,7 @@ export class IrSignalMonitor extends LitElement {
         await this._load();
     }
 
-    private async _dismiss(deviceId: string): Promise<void> {
+    private async _hide(deviceId: string): Promise<void> {
         try {
             await this.api.dismissUnknown(deviceId);
             await this._load();
@@ -1338,11 +1369,11 @@ export class IrSignalMonitor extends LitElement {
                 this._expandedDevice = null;
             }
         } catch (err) {
-            this._error = `Dismiss failed: ${(err as Error).message}`;
+            this._error = `Hide failed: ${(err as Error).message}`;
         }
     }
 
-    private async _undismiss(deviceId: string): Promise<void> {
+    private async _unhide(deviceId: string): Promise<void> {
         try {
             await this.api.undismissUnknown(deviceId);
             await this._load();
@@ -1363,13 +1394,48 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
-    private _toggleDismissed(): void {
-        this._showDismissed = !this._showDismissed;
-        // Click-through clears the persistent dot. The user has now
-        // acknowledged the dismissed-activity surface; further events
-        // can re-light it. Glow runs out on its own timer.
-        this._dismissDotVisible = false;
-        void this._load();
+    /** A SHOW chip. Hidden reloads with the hidden remotes; leaving it
+     *  reloads without them. Pressing Hidden clears its dot: the user
+     *  has acknowledged the hidden-activity surface; further events can
+     *  re-light it. The glow runs out on its own timer. */
+    private _setFilter(filter: SnifferFilter): void {
+        if (filter === this._filter) return;
+        const reload = filter === "hidden" || this._filter === "hidden";
+        this._filter = filter;
+        if (filter === "hidden") this._hiddenDot = false;
+        if (reload) void this._load();
+    }
+
+    /** The remotes the current chip shows. */
+    private _visibleDevices(): UnknownDeviceSummary[] {
+        return this._devices.filter((d) => snifferShows(this._filter, d));
+    }
+
+    private _renderShowRow() {
+        const chips: { id: SnifferFilter; label: string }[] = [
+            { id: "all", label: t("sniffer.filter.all") },
+            { id: "ir", label: t("sniffer.filter.infrared") },
+            { id: "rf", label: t("sniffer.filter.radio") },
+            { id: "hidden", label: t("sniffer.filter.hidden") },
+        ];
+        return html`<div class="hdr-row show-row" role="group" aria-label=${t("sniffer.filter.label")}>
+            <span class="hdr-row-label">${t("sniffer.filter.label")}</span>
+            <div class="hdr-row-pills">
+                ${chips.map(
+                    (c) => html`<button
+                        class="show-chip ${this._filter === c.id ? "on" : ""} ${c.id === "hidden" && this._hiddenGlow ? "hidden-glow" : ""}"
+                        aria-pressed=${this._filter === c.id ? "true" : "false"}
+                        title=${c.id === "hidden" ? t("sniffer.filter.hidden_title") : c.label}
+                        @click=${() => this._setFilter(c.id)}
+                    >
+                        ${c.label}
+                        ${c.id === "hidden" && this._hiddenDot
+                            ? html`<span class="hidden-dot" aria-hidden="true"></span>`
+                            : nothing}
+                    </button>`,
+                )}
+            </div>
+        </div>`;
     }
 
     render() {
@@ -1390,14 +1456,18 @@ export class IrSignalMonitor extends LitElement {
                 </div>
             </div>
 
-            ${this._listenRows.length > 0
-                ? html`<ir-listen-row
-                      class="listen-row"
-                      .hass=${this.hass}
-                      .api=${this.api}
-                      .rows=${this._listenRows}
-                  ></ir-listen-row>`
-                : nothing}
+            <div class="sniffer-head">
+                ${this._listenRows.length > 0
+                    ? html`<ir-listen-row
+                          class="listen-row"
+                          .hass=${this.hass}
+                          .api=${this.api}
+                          .rows=${this._listenRows}
+                          @capture-switch-changed=${() => void this._loadListenRows()}
+                      ></ir-listen-row>`
+                    : nothing}
+                ${this._renderShowRow()}
+            </div>
 
             ${this._error
                 ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
@@ -1423,12 +1493,14 @@ export class IrSignalMonitor extends LitElement {
                             <p class="hint">${t("sniffer.norx_hint")}</p>
                         </ha-card>
                     `
-                  : html`
+                  : this._visibleDevices().length === 0
+                    ? html`<div class="filter-empty">${t("sniffer.filter.none")}</div>`
+                    : html`
                         <div class="device-list">
                             ${keyed(
                                 this._remotesVersion,
                                 repeat(
-                                    this._devices,
+                                    this._visibleDevices(),
                                     (d) => d.id,
                                     (d) => this._renderDevice(d),
                                 ),
@@ -1437,17 +1509,7 @@ export class IrSignalMonitor extends LitElement {
                     `}
 
             <div class="bottom-bar">
-                <button
-                    class="action-btn dismiss-btn ${this._dismissGlowActive ? "dismiss-glow" : ""}"
-                    title=${t("sniffer.show_dismissed_title")}
-                    @click=${this._toggleDismissed}
-                >
-                    ${this._showDismissed ? t("sniffer.hide_dismissed") : t("sniffer.show_dismissed")}
-                    ${this._dismissDotVisible
-                        ? html`<span class="dismiss-dot" aria-hidden="true"></span>`
-                        : ""}
-                </button>
-                ${this._devices.length > 0 || this._showDismissed
+                ${this._devices.length > 0 || this._filter === "hidden"
                     ? html`<button
                           class="action-btn delete-btn"
                           title=${t("sniffer.clear_all_title")}
@@ -1675,7 +1737,7 @@ export class IrSignalMonitor extends LitElement {
 
         return html`
             <ha-card
-                class="device ${d.dismissed ? "dismissed" : ""}"
+                class="device ${d.dismissed ? "hidden-remote" : ""}"
             >
                 <div
                     class="device-row ${blooming ? "bloom" : ""} ${this._heard.deviceId === d.id ? "last-heard" : ""} ${
@@ -1695,12 +1757,20 @@ export class IrSignalMonitor extends LitElement {
                                       @blur=${() => void this._commitRename(d.id)}
                                       @click=${(e: Event) => e.stopPropagation()}
                                   />`
-                                : html`<ha-svg-icon
-                                          class="remote-grip"
-                                          .path=${ICON_GRIP}
+                                : html`<button
+                                          class="remote-handle"
+                                          aria-label=${t("sniffer.drag_handle", {
+                                              medium: protoLabel(d.medium ?? "ir", remoteBand(d)),
+                                              name: d.label ?? d.protocol ?? t("common.raw"),
+                                          })}
                                           title=${t("devdetail.drag")}
                                           @click=${(e: Event) => e.stopPropagation()}
-                                      ></ha-svg-icon>
+                                      >
+                                          <span class="handle-glyph"
+                                              >${renderProtoGlyph(d.medium ?? "ir", 18, remoteBand(d))}</span
+                                          >
+                                          <ha-svg-icon class="remote-grip" .path=${ICON_GRIP}></ha-svg-icon>
+                                      </button>
                                       ${d.dismissed
                                           ? html`<span class="protocol locked"
                                                 >${d.label ?? d.protocol ?? t("common.raw")}</span
@@ -1720,12 +1790,15 @@ export class IrSignalMonitor extends LitElement {
                                     ${tp("sniffer.signal_word", d.signal_count)}</span
                                 >
                                 <span class="stat last-seen" title=${fmtTime(d.last_seen)}>${relTime(d.last_seen)}</span>
+                                ${d.medium === "rf" && remoteBand(d)
+                                    ? html`<span class="stat band">${remoteBand(d)}</span>`
+                                    : nothing}
                             </span>
                             ${d.device_address
                                 ? html`<span class="address">${t("sniffer.addr", { address: d.device_address })}</span>`
                                 : ""}
                             ${d.dismissed
-                                ? html`<span class="dismissed-badge">${t("sniffer.dismissed")}</span>`
+                                ? html`<span class="hidden-badge">${t("sniffer.hidden_badge")}</span>`
                                 : ""}
                         </div>
                     </div>
@@ -1784,21 +1857,21 @@ export class IrSignalMonitor extends LitElement {
                             : "corner-hide"}"
                         title=${d.dismissed
                             ? t("sniffer.restore")
-                            : t("sniffer.dismiss")}
+                            : t("sniffer.hide")}
                         aria-label=${d.dismissed
                             ? t("sniffer.restore")
-                            : t("sniffer.dismiss")}
+                            : t("sniffer.hide")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             if (d.dismissed) {
-                                void this._undismiss(d.id);
+                                void this._unhide(d.id);
                             } else {
-                                void this._dismiss(d.id);
+                                void this._hide(d.id);
                             }
                         }}
                     >
                         <ha-svg-icon
-                            .path=${d.dismissed ? ICON_RESTORE : ICON_DISMISS}
+                            .path=${d.dismissed ? ICON_RESTORE : ICON_HIDE}
                         ></ha-svg-icon>
                     </button>
                 </div>
@@ -1825,21 +1898,21 @@ export class IrSignalMonitor extends LitElement {
         return html`
             <div class="row-actions-narrow">
                 <button
-                    class="action-btn dismiss-btn"
-                    title=${d.dismissed ? t("sniffer.restore") : t("sniffer.dismiss")}
+                    class="action-btn hide-btn"
+                    title=${d.dismissed ? t("sniffer.restore") : t("sniffer.hide")}
                     @click=${(e: Event) => {
                         e.stopPropagation();
                         if (d.dismissed) {
-                            void this._undismiss(d.id);
+                            void this._unhide(d.id);
                         } else {
-                            void this._dismiss(d.id);
+                            void this._hide(d.id);
                         }
                     }}
                 >
                     <ha-svg-icon
-                        .path=${d.dismissed ? ICON_RESTORE : ICON_DISMISS}
+                        .path=${d.dismissed ? ICON_RESTORE : ICON_HIDE}
                     ></ha-svg-icon>
-                    ${d.dismissed ? t("sniffer.restore") : t("sniffer.dismiss")}
+                    ${d.dismissed ? t("sniffer.restore") : t("sniffer.hide")}
                 </button>
                 ${d.dismissed
                     ? ""
@@ -1934,7 +2007,7 @@ export class IrSignalMonitor extends LitElement {
                                         >${relTime(sig.last_seen)}</span
                                     >
                                     <span class="meta-freq"
-                                        >${Math.round(sig.frequency / 1000)} kHz</span
+                                        >${signalCarrier(sig)}</span
                                     >
                                 </div>
                                 <div class="signal-actions">
@@ -2027,7 +2100,7 @@ export class IrSignalMonitor extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bloomStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bloomStyles, headerChipStyles, protoGlyphStyles, css`
         /* Edit + trash sit as one unit, hover boxes butted with zero
            gap -- same pairing ir-command-row.ts's device-detail rows
            use (edit-and-actions bench passes, 2026-08-11), rolled out
@@ -2103,7 +2176,7 @@ export class IrSignalMonitor extends LitElement {
 
         /* Clear All anchor below the unknown-devices list.
            Moved out of the top toolbar in v0.2.1 to pair visually with
-           the new "Clear All also wipes the dismiss list" semantic, and
+           the new "Clear All also wipes the hidden list" semantic, and
            to force the user to scroll past what they are about to delete
            before pressing the destructive button. */
         .clear-all-row {
@@ -2111,7 +2184,8 @@ export class IrSignalMonitor extends LitElement {
             justify-content: flex-end;
             margin-top: 16px;
         }
-        /* Show Dismissed stacked above Clear All, both right-aligned. */
+        /* Clear All, right-aligned (the Show hidden button above it left
+           for the Hidden chip, RF hear round 1). */
         .bottom-bar {
             display: flex;
             flex-direction: column;
@@ -2232,7 +2306,7 @@ export class IrSignalMonitor extends LitElement {
             border-bottom-left-radius: 0;
             border-bottom-right-radius: 0;
         }
-        .device.dismissed {
+        .device.hidden-remote {
             opacity: 0.6;
         }
 
@@ -2296,19 +2370,71 @@ export class IrSignalMonitor extends LitElement {
             flex-shrink: 0;
         }
         /* Remote drag handle (replaces the radio icon): blue, matches tab. */
-        .remote-grip {
-            --mdc-icon-size: 18px;
-            color: var(--primary-color);
+        /* The remote's drag handle (glyph spec, RF hear round 1): a real
+           button in a fixed 24px slot holding the protocol glyph, which
+           crossfades to the blue grip on row hover or handle focus (about
+           120ms; instant under reduced motion). The whole slot is the
+           drag target, glyph or grip; the slot never changes width, so
+           the name never shifts. On touch there is no hover: the glyph
+           stays. */
+        .remote-handle {
+            position: relative;
+            flex: none;
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            border: none;
+            background: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             cursor: grab;
-            flex-shrink: 0;
-            opacity: 0.85;
+            border-radius: 4px;
+        }
+        .remote-handle:active {
+            cursor: grabbing;
+        }
+        .remote-handle:focus-visible {
+            outline: 2px solid var(--primary-color);
+            outline-offset: 1px;
+        }
+        .remote-handle .handle-glyph,
+        .remote-handle .remote-grip {
+            position: absolute;
+            inset: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             transition: opacity 120ms ease;
         }
-        .remote-grip:hover {
-            opacity: 1;
+        .remote-handle .remote-grip {
+            --mdc-icon-size: 18px;
+            color: var(--primary-color);
+            opacity: 0;
         }
-        .remote-grip:active {
-            cursor: grabbing;
+        @media (hover: hover) {
+            .device-row:hover .remote-handle .handle-glyph,
+            .remote-handle:focus-visible .handle-glyph {
+                opacity: 0;
+            }
+            .device-row:hover .remote-handle .remote-grip,
+            .remote-handle:focus-visible .remote-grip {
+                opacity: 1;
+            }
+        }
+        @media (hover: none) {
+            .remote-handle:focus-visible .handle-glyph {
+                opacity: 0;
+            }
+            .remote-handle:focus-visible .remote-grip {
+                opacity: 1;
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .remote-handle .handle-glyph,
+            .remote-handle .remote-grip {
+                transition: none;
+            }
         }
         /* Signal drag handle: gray, same as the hits / time / frequency meta. */
         .signal-grip {
@@ -2351,7 +2477,7 @@ export class IrSignalMonitor extends LitElement {
             color: var(--primary-color);
         }
         /* ADOPT DEVICE (2026-07-28): the promote and linked-count chips
-           collapsed into one green button next to Dismiss, matching the
+           collapsed into one green button next to Hide, matching the
            closet's -- green family, dot as the count. */
         .action-btn.adopt-btn {
             flex-shrink: 0;
@@ -2380,7 +2506,7 @@ export class IrSignalMonitor extends LitElement {
             color: var(--secondary-text-color);
             font-family: monospace;
         }
-        .dismissed-badge {
+        .hidden-badge {
             font-size: 0.7rem;
             background: var(--disabled-color, #999);
             color: white;
@@ -2649,7 +2775,7 @@ export class IrSignalMonitor extends LitElement {
             .device-header {
                 display: contents;
             }
-            .device-row .remote-grip {
+            .device-row .remote-handle {
                 grid-area: grip;
             }
             .device-row .protocol,
@@ -2677,7 +2803,7 @@ export class IrSignalMonitor extends LitElement {
                 white-space: nowrap;
             }
             .device-row .address,
-            .device-row .dismissed-badge {
+            .device-row .hidden-badge {
                 grid-column: 1 / -1;
                 justify-self: start;
                 margin-left: 26px;
@@ -2786,8 +2912,9 @@ export class IrSignalMonitor extends LitElement {
            years, so a signal heard three years ago reads "1095d ago"
            and still fits.
 
-           42px on the frequency covers "455 kHz" (40.9), the widest
-           carrier the decoders report; the common "38 kHz" is 34.6. */
+           The frequency column is sized for a radio band, "433.92 MHz"
+           (about 64px) since RF hear round 1; infrared's widest carrier,
+           "455 kHz", is 40.9px. */
         .signal-meta {
             display: flex;
             gap: 8px;
@@ -2800,7 +2927,7 @@ export class IrSignalMonitor extends LitElement {
             text-align: center;
         }
         .meta-freq {
-            flex: 0 0 42px;
+            flex: 0 0 66px;
             text-align: center;
         }
         .signal-actions {
@@ -2809,28 +2936,67 @@ export class IrSignalMonitor extends LitElement {
             flex-shrink: 0;
         }
 
-        /* Transient blue pulse on the Show Dismissed button when a
-           signal arrives from a remote in the dismiss set. Reuses the
-           same --primary-color blue users associate with "a signal just
-           arrived", held ~3.8s so it sits about 1.3s longer than the
-           hit-flash and stays discoverable. */
-        .action-btn.dismiss-btn.dismiss-glow {
-            animation: dismiss-pulse 3.8s ease-out;
+        /* The Listen and SHOW rows under the title (RF hear round 1):
+           the shared header-chip rows, their labels in one column. */
+        .sniffer-head {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin: 4px 0 12px;
+        }
+        .show-chip {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border: 1px solid var(--divider-color);
+            border-radius: 14px;
+            background: none;
+            font: inherit;
+            font-size: 11.5px;
+            color: var(--secondary-text-color);
+            cursor: pointer;
+        }
+        .show-chip:hover {
             border-color: var(--primary-color);
         }
-        @keyframes dismiss-pulse {
+        .show-chip.on {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+            background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+        }
+        .show-chip:focus-visible {
+            outline: 2px solid var(--primary-color);
+            outline-offset: 1px;
+        }
+        .filter-empty {
+            padding: 24px;
+            text-align: center;
+            color: var(--secondary-text-color);
+            font-size: 0.85rem;
+        }
+
+        /* Transient blue pulse on the Hidden chip when a signal arrives
+           from a hidden remote. Reuses the same --primary-color blue
+           users associate with "a signal just arrived", held ~3.8s so it
+           sits about 1.3s longer than the hit-flash and stays
+           discoverable. */
+        .show-chip.hidden-glow {
+            animation: hidden-pulse 3.8s ease-out;
+            border-color: var(--primary-color);
+        }
+        @keyframes hidden-pulse {
             0% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.0); }
             12% { box-shadow: 0 0 10px 3px rgba(33, 150, 243, 0.55); }
             70% { box-shadow: 0 0 6px 2px rgba(33, 150, 243, 0.3); }
             100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.0); }
         }
 
-        /* Persistent dot indicator anchored to the top-right of the
-           Show Dismissed button. Stays visible from the first
-           dismiss-activity event after panel mount until the user
-           clicks the button (the natural click-through that owns
-           restoring dismissed remotes). */
-        .dismiss-dot {
+        /* Persistent dot on the Hidden chip's top-right. Stays from the
+           first hidden-activity event after panel mount until the user
+           presses the chip (the click-through that owns restoring hidden
+           remotes). */
+        .hidden-dot {
             position: absolute;
             top: -3px;
             right: -3px;

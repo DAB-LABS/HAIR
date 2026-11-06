@@ -6,6 +6,7 @@ import { LitElement, html, css, nothing } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp, tv } from "./localize.js";
+import { rfRefusal } from "./rf-errors.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -1118,7 +1119,9 @@ export class IrDeviceDetail extends LitElement {
             await this.api.sendCommand(this.device.id, command.id);
             this._flash(t("devdetail.sent_cmd", { name: command.name }));
         } catch (err) {
-            this._flash(t("devdetail.send_failed", { message: (err as Error).message }));
+            this._flash(
+                rfRefusal(err) ?? t("devdetail.send_failed", { message: (err as Error).message }),
+            );
         } finally {
             this._busy = false;
         }

@@ -5574,8 +5574,10 @@ class TestTheSnifferRowCornerControls:
         text = _read("ir-signal-monitor.ts")
         block = text.split('class="corner-btn ${d.dismissed', 1)[1]
         block = block.split("</button>", 1)[0]
-        assert "this._undismiss(d.id)" in block
-        assert "this._dismiss(d.id)" in block
+        # Renamed to hide / unhide with the Hidden chip (RF hear round 1,
+        # ruling Q1); still no confirm.
+        assert "this._unhide(d.id)" in block
+        assert "this._hide(d.id)" in block
         assert "ir-confirm-dialog" not in block
 
     def test_the_three_opacity_stages_are_all_there(self):
@@ -5604,9 +5606,11 @@ class TestTheSnifferRowCornerControls:
         find either control."""
         text = _read("ir-signal-monitor.ts")
         assert "@media (hover: none) {" in text
-        block = text.split("@media (hover: none) {", 1)[1].split("}", 1)[0]
-        assert ".corner-btn" in block
-        assert "opacity: 0.5" in block
+        # The remote handle has a hover-none block of its own (RF hear
+        # round 1); the corner buttons' is the one that names them.
+        blocks = [b.split("}", 1)[0] for b in text.split("@media (hover: none) {")[1:]]
+        corner = [b for b in blocks if ".corner-btn" in b]
+        assert corner and "opacity: 0.5" in corner[0]
 
     def test_the_chevron_numbers_are_tunable_in_one_place(self):
         """Owner ruling 2026-09-12: these three are being tuned live,
@@ -5680,20 +5684,25 @@ class TestTheSnifferRowCornerControls:
         assert "padding: 12px 16px" in block
 
     def test_the_footer_speaks_of_hiding_not_dismissing(self):
+        """RF hear round 1, ruling Q1: the footer's Show hidden button
+        became the header's Hidden chip, and "dismissed" left the keys
+        as well as the words."""
         data = json.loads(
             (LOCALES / "en.json").read_text(encoding="utf-8")
         )
-        assert data["sniffer.show_dismissed"] == "Show hidden"
-        assert data["sniffer.hide_dismissed"] == "Hide"
-        assert data["sniffer.dismiss"] == "Hide"
-        assert "dismissed" not in data["sniffer.show_dismissed_title"].lower()
+        assert "sniffer.show_dismissed" not in data
+        assert data["sniffer.filter.hidden"] == "Hidden"
+        assert data["sniffer.hide"] == "Hide"
+        assert "dismiss" not in data["sniffer.filter.hidden_title"].lower()
 
     def test_the_footer_glow_and_dot_are_untouched(self):
-        """Only the label moved. The transient pulse and the sticky dot
-        around new hidden-remote activity are a separate mechanism."""
+        """The transient pulse and the sticky dot around new
+        hidden-remote activity are a separate mechanism, and moved with
+        the button onto the Hidden chip (RF hear round 1, ruling Q1)."""
         text = _read("ir-signal-monitor.ts")
-        assert "dismiss-glow" in text
-        assert "_dismissDotVisible" in text
+        assert '"hidden-glow"' in text
+        assert "this._hiddenDot" in text
+        assert '<span class="hidden-dot"' in text
 
     def test_the_clipper_and_the_plucker_got_the_same_corner_delete(self):
         """Owner ruling 2026-09-12, after the Sniffer pass was locked:
