@@ -6,7 +6,7 @@ platform receiver entities. HAIR subscribes to every receiver in the
 domain, so an RF receiver feeds ambient radio chatter straight into
 the unknown-signal store: the GH #72 install accumulated 104k
 undecodable signals and 500 phantom remotes in 33 hours that way.
-HAIR captures IR only; RF support is roadmapped as an explicit opt-in.
+HAIR hears radio through the ``radio_frequency`` platform instead.
 
 Discriminator (verified against HA 2026.7.2 core source, 2026-07-29):
 there is no honest attribute. Core ``InfraredReceiverEntity`` exposes

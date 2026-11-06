@@ -450,7 +450,7 @@ class TestTracker:
     def _live(self, platform):
         return sorted(s["entity_id"] for s in platform.subscriptions if s["live"])
 
-    def test_a_capture_device_is_subscribed_and_an_always_on_one_is_not(
+    def test_a_capture_device_and_an_always_on_one_are_both_subscribed(
         self, rf_platform
     ):
         states = {
@@ -462,11 +462,12 @@ class TestTracker:
             self._hass(states), lambda signal, rid: heard.append((signal, rid))
         )
         tracker.async_start()
-        assert tracker.subscribed == [RECEIVER]
-        assert self._live(rf_platform) == [RECEIVER]
-        # The subscription hands captures to the monitor with the receiver.
-        rf_platform.subscriptions[0]["callback"]("sig")
-        assert heard == [("sig", RECEIVER)]
+        assert tracker.subscribed == sorted([ALWAYS_ON, RECEIVER])
+        assert self._live(rf_platform) == sorted([ALWAYS_ON, RECEIVER])
+        # Each subscription hands captures to the monitor with its receiver.
+        for sub in rf_platform.subscriptions:
+            sub["callback"]("sig")
+        assert sorted(heard) == [("sig", ALWAYS_ON), ("sig", RECEIVER)]
 
     def test_it_survives_a_reload(self, rf_platform):
         states = {RECEIVER: _state(RECEIVER, capturing=False)}

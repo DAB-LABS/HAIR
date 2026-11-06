@@ -1,9 +1,8 @@
-"""Always-on radio receivers: the stored opt-in, the tracker, and the doors.
+"""Always-on radio receivers: the tracker, the doors, and what a restart keeps.
 
-The opt-in lives on the receiver's ``CaptureReceiverStore`` record,
-keyed by registry entry id, beside the capture-device memory. These
-tests reuse the registry and in-memory store fakes from
-``test_receiver_window``.
+HAIR hears every radio receiver from the moment it appears; nothing is
+stored to decide it. These tests reuse the registry and in-memory store
+fakes from ``test_receiver_window``.
 """
 from __future__ import annotations
 
@@ -87,31 +86,27 @@ def _conn():
 
 class TestTheStore:
     @pytest.mark.asyncio
-    async def test_the_opt_in_survives_a_restart_and_is_not_a_capture_memory(self):
-        _, store, _ = await _setup({ALWAYS_ON: _rf_state(ALWAYS_ON)})
-        store.set_rf_listen(ALWAYS_ON_ENTRY, True)
-        saved = _MemStore.saved[-1]
-        assert saved == {"receivers": {
+    async def test_an_old_radio_choice_is_dropped_on_load(self):
+        """An older build kept a per-receiver radio opt-in on this record."""
+        loaded = {"receivers": {
             ALWAYS_ON_ENTRY: {"capture": False, "switch": None, "rf_listen": True},
+            CAPTURE_ENTRY: {"capture": True, "switch": None, "rf_listen": True},
         }}
-        assert store.rf_listen(ALWAYS_ON_ENTRY)
-        assert not store.remembered(ALWAYS_ON_ENTRY)
-        # A restart: loaded back, still opted in.
-        _hass, again, _ = await _setup({ALWAYS_ON: _rf_state(ALWAYS_ON)}, loaded=saved)
-        assert again.rf_listen(ALWAYS_ON_ENTRY)
-
-    @pytest.mark.asyncio
-    async def test_opting_out_forgets_a_record_with_nothing_else_in_it(self):
-        _hass, store, _ = await _setup({})
-        store.set_rf_listen(ALWAYS_ON_ENTRY, True)
-        store.set_rf_listen(ALWAYS_ON_ENTRY, False)
-        assert _MemStore.saved[-1] == {"receivers": {}}
-
-    @pytest.mark.asyncio
-    async def test_a_record_for_a_receiver_gone_from_the_registry_is_dropped(self):
-        loaded = {"receivers": {"reg-gone": {"capture": False, "switch": None, "rf_listen": True}}}
         _hass, store, _ = await _setup({}, loaded=loaded)
-        assert not store.rf_listen("reg-gone")
+        # The record that held only the choice is gone; the capture
+        # memory stays, without the key.
+        assert store.entry_ids() == [CAPTURE_ENTRY]
+        assert store.remembered(CAPTURE_ENTRY)
+        assert _MemStore.saved[-1] == {"receivers": {
+            CAPTURE_ENTRY: {"capture": True, "switch": None},
+        }}
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_saved_for_an_always_on_receiver(self):
+        _, store, monitor = await _setup({ALWAYS_ON: _rf_state(ALWAYS_ON)})
+        monitor.rf_always_on.attach(ALWAYS_ON)
+        monitor.rf_always_on.window(ALWAYS_ON).open()
+        assert store.entry_ids() == [] and _MemStore.saved == []
 
 
 class TestTheTracker:
@@ -125,36 +120,44 @@ class TestTheTracker:
         monkeypatch.setattr(rf_receive, "async_track_state_change_event",
                             lambda hass, ids, cb: self.watch.append(cb) or (lambda: None))
 
-    def test_an_always_on_receiver_is_subscribed_only_once_opted_in(self, rf_platform):
-        states = {ALWAYS_ON: _rf_state(ALWAYS_ON), CAPTURE: _rf_state(CAPTURE, capturing=False)}
-        hass = _Hass(states)
-        opted = set()
-        attached, detached = [], []
-        tracker = rf_receive.RfReceiverTracker(
-            hass, lambda *a: None,
-            opted_in=lambda eid: eid in opted,
-            on_attach=attached.append, on_detach=detached.append,
+    def _tracker(self, hass, attached, detached):
+        return rf_receive.RfReceiverTracker(
+            hass, lambda *a: None, on_attach=attached.append, on_detach=detached.append,
         )
-        tracker.async_start()
-        assert tracker.subscribed == [CAPTURE]
-        assert attached == []  # a capture device is not attached as always-on
-        opted.add(ALWAYS_ON)
-        tracker.reconcile()
-        assert tracker.subscribed == sorted([ALWAYS_ON, CAPTURE])
-        assert attached == [ALWAYS_ON]
-        opted.clear()
-        tracker.reconcile()
-        assert tracker.subscribed == [CAPTURE]
-        assert detached == [ALWAYS_ON]
 
-    def test_an_opted_in_receiver_going_unavailable_is_let_go(self, rf_platform):
+    def test_every_radio_receiver_is_subscribed_from_the_start(self, rf_platform):
+        states = {ALWAYS_ON: _rf_state(ALWAYS_ON), CAPTURE: _rf_state(CAPTURE, capturing=False)}
+        attached, detached = [], []
+        tracker = self._tracker(_Hass(states), attached, detached)
+        tracker.async_start()
+        assert tracker.subscribed == sorted([ALWAYS_ON, CAPTURE])
+        # Only the always-on one gets a software window and counters.
+        assert attached == [ALWAYS_ON] and detached == []
+
+    def test_an_always_on_receiver_is_subscribed_on_appearance(self, rf_platform):
+        hass = _Hass({})
+        attached, detached = [], []
+        tracker = self._tracker(hass, attached, detached)
+        tracker.async_start()
+        assert tracker.subscribed == []
+        hass._states[ALWAYS_ON] = _rf_state(ALWAYS_ON)
+        tracker._on_added(types.SimpleNamespace(data={"entity_id": ALWAYS_ON}))
+        assert tracker.subscribed == [ALWAYS_ON] and attached == [ALWAYS_ON]
+
+    def test_a_restart_subscribes_again_with_nothing_stored(self, rf_platform):
+        states = {ALWAYS_ON: _rf_state(ALWAYS_ON)}
+        for _start in range(2):
+            attached = []
+            tracker = self._tracker(_Hass(states), attached, [])
+            tracker.async_start()
+            assert tracker.subscribed == [ALWAYS_ON] and attached == [ALWAYS_ON]
+            tracker.async_stop()
+
+    def test_a_receiver_going_unavailable_is_let_go(self, rf_platform):
         states = {ALWAYS_ON: _rf_state(ALWAYS_ON)}
         hass = _Hass(states)
         detached = []
-        tracker = rf_receive.RfReceiverTracker(
-            hass, lambda *a: None, opted_in=lambda eid: True,
-            on_attach=lambda eid: None, on_detach=detached.append,
-        )
+        tracker = self._tracker(hass, [], detached)
         tracker.async_start()
         down = _rf_state(ALWAYS_ON, state="unavailable")
         states[ALWAYS_ON] = down
@@ -172,42 +175,28 @@ def rf_platform(monkeypatch):
 
 class TestTheDoors:
     @pytest.mark.asyncio
-    async def test_opt_in_and_out(self):
-        from custom_components.hair.websocket_api import ws_rf_opt_in
+    async def test_the_hardware_door_tells_the_two_kinds_apart(self):
+        from custom_components.hair.receiver_discovery import rf_hardware_entry
 
-        hass, store, _ = await _setup({ALWAYS_ON: _rf_state(ALWAYS_ON)})
-        conn = _conn()
-        with _registry(_Registry(_entries())), patch(
-            "custom_components.hair.websocket_api._get_first_entry_data",
-            return_value=hass.data[DOMAIN]["entry"],
-        ):
-            ws_rf_opt_in(hass, conn, {"id": 1, "receiver_entity_id": ALWAYS_ON, "enabled": True})
-            entry = conn.send_result.call_args.args[1]
-            assert entry["always_on"] and entry["opted_in"] and entry["software_window"]
-            assert entry["counters"] is None  # nobody attached it in this test
-            assert store.rf_listen(ALWAYS_ON_ENTRY)
-            ws_rf_opt_in(hass, conn, {"id": 2, "receiver_entity_id": ALWAYS_ON, "enabled": False})
-            assert not conn.send_result.call_args.args[1]["opted_in"]
-        conn.send_error.assert_not_called()
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(("receiver", "code"), [
-        (CAPTURE, "not_always_on"),
-        ("radio_frequency.nobody", "unknown_receiver"),
-        ("radio_frequency.unregistered", "not_registered"),
-    ])
-    async def test_opt_in_refusals(self, receiver, code):
-        from custom_components.hair.websocket_api import ws_rf_opt_in
-
-        hass, _store, _ = await _setup({
-            ALWAYS_ON: _rf_state(ALWAYS_ON),
-            CAPTURE: _rf_state(CAPTURE, capturing=False),
-            "radio_frequency.unregistered": _rf_state("radio_frequency.unregistered"),
+        hass, _store, monitor = await _setup({
+            ALWAYS_ON: _rf_state(ALWAYS_ON), CAPTURE: _rf_state(CAPTURE, capturing=False),
         })
-        conn = _conn()
+        monitor.rf_always_on.attach(ALWAYS_ON)
         with _registry(_Registry(_entries())):
-            ws_rf_opt_in(hass, conn, {"id": 1, "receiver_entity_id": receiver, "enabled": True})
-        assert conn.send_error.call_args.args[1] == code
+            athom = rf_hardware_entry(hass, ALWAYS_ON)
+            rm4 = rf_hardware_entry(hass, CAPTURE)
+        assert "opted_in" not in athom and "opted_in" not in rm4
+        assert (athom["always_on"], athom["software_window"]) == (True, True)
+        assert athom["counters"]["captures"] == 0
+        assert (rm4["always_on"], rm4["software_window"], rm4["capture_device"]) == (
+            False, False, True,
+        )
+        assert rm4["counters"] is None
+
+    def test_the_opt_in_door_is_gone(self):
+        from custom_components.hair import websocket_api
+
+        assert not hasattr(websocket_api, "ws_rf_opt_in")
 
     @pytest.mark.asyncio
     async def test_listen_opens_the_software_window_with_its_defaults_and_limits(self):
@@ -237,7 +226,7 @@ class TestTheDoors:
         assert not window.capturing
 
     @pytest.mark.asyncio
-    async def test_listen_on_an_always_on_receiver_not_opted_in(self):
+    async def test_listen_before_the_tracker_has_caught_up(self):
         from custom_components.hair.websocket_api import ws_receiver_listen
 
         hass, _store, _ = await _setup({ALWAYS_ON: _rf_state(ALWAYS_ON)})
@@ -246,7 +235,7 @@ class TestTheDoors:
             await ws_receiver_listen(
                 hass, conn, {"id": 1, "receiver_entity_id": ALWAYS_ON, "on": True}
             )
-        assert conn.send_error.call_args.args[1] == "not_opted_in"
+        assert conn.send_error.call_args.args[1] == "receiver_unavailable"
 
     @pytest.mark.asyncio
     async def test_the_capture_door_lists_a_software_row(self):
@@ -300,7 +289,7 @@ class TestTheDoors:
         hass.loop.advance_to(hass.loop.now + 1.01)
         assert conn.send_event.call_count == sent + 1
         assert conn.send_event.call_args.args[1]["counters"]["captures"] == 50
-        # Opting out: a last item with no counters.
+        # HAIR stops hearing it: a last item with no counters.
         always_on.detach(ALWAYS_ON)
         assert conn.send_event.call_args.args[1]["counters"] is None
         conn.subscriptions[7]()
