@@ -25,6 +25,7 @@ from .const import (
     MEDIUM_IR,
     MEDIUM_RF,
     MIRROR_DEVICE_FP,
+    RF_PROTOCOL,
     RF_SOFTWARE_WINDOW_MAX_S,
     RF_SOFTWARE_WINDOW_MIN_S,
     SEND_AIR_TIME_MAX_MS,
@@ -7374,6 +7375,8 @@ def _command_from_wig_signal(
     from .models import CommandCategory
 
     name = sig.alias.strip() or f"Signal {index}"
+    if getattr(sig, "rf", None) is not None:
+        return _wig_radio_command(sig, name, suspects, findings)
     # WHERE THE BYTES CAME FROM (2026-08-18). The default mint stamps
     # CAPTURED, which is true of a sniffed row and of nothing here: this
     # command came out of a wig file and never crossed the air. The
@@ -7409,6 +7412,42 @@ def _command_from_wig_signal(
         comb_suspect=sig.alias in suspects,
         comb_finding=findings.get(sig.alias),
     )
+
+
+def _wig_radio_command(
+    sig: Any, name: str, suspects: set[str], findings: dict[str, Any],
+) -> Any:
+    """A wig's radio row (hair-wig/5) as a device command.
+
+    Written by ``rf_paste.apply_code`` from ``result_of_frame``, the
+    paths the editor's paste takes, so an adopted radio row is the row a
+    paste of the same code would have made: one frame, the gap last when
+    the wig gave it, the frequency with source ``signal`` (the wig says
+    the Hz). ``send_count`` and the spacing ride as on an infrared row;
+    a radio row has no dittos and no raw pin.
+    """
+    from .mint import mint_command
+    from .models import CommandCategory
+    from .rf_paste import apply_code, result_of_frame
+
+    result = result_of_frame(
+        sig.rf.frame, sig.rf.frequency_hz, sig.rf.frame_gap_us
+    )
+    command = mint_command(
+        name=name,
+        category=CommandCategory.CUSTOM,
+        source=CommandSource.IMPORTED,
+        protocol=RF_PROTOCOL,
+        send_count=max(1, sig.send_count or 1),
+        send_spacing_ms=sig.send_spacing_ms,
+        estimate_spacing=False,
+        repeat_count=0,
+        comb_suspect=sig.alias in suspects,
+        comb_finding=findings.get(sig.alias),
+    )
+    apply_code(command, result)
+    command.rf_modulation = sig.rf.modulation.upper()
+    return command
 
 
 @websocket_api.require_admin
@@ -7917,11 +7956,16 @@ async def ws_wig_make_remote(
         if ident is None:
             continue
         trig_name = sig.alias.strip() or f"Signal {i}"
+        # A radio row (hair-wig/5) makes a radio trigger: no code, the
+        # frame's fingerprint and hash, which is what a radio receiver's
+        # capture of the same button reads as. RF_PROTOCOL sets the
+        # trigger's medium.
+        radio = ident.medium == MEDIUM_RF
         trigger = IRTrigger(
             name=trig_name,
             signal_fingerprint=ident.fingerprint,
-            protocol="PRONTO",
-            code=ident.pronto,
+            protocol=RF_PROTOCOL if radio else "PRONTO",
+            code=None if radio else ident.pronto,
             byte_hash=ident.byte_hash,
             decoded_fingerprint=ident.decoded_fingerprint,
             trigger_remote_id=remote.id,
@@ -8282,7 +8326,10 @@ async def ws_wig_signals(
     for index, (sig, identity) in enumerate(
         zip(wig.signals, identities, strict=True)
     ):
-        if identity is None:
+        # A radio row (hair-wig/5) is left out: this list seeds infrared
+        # trigger rows from a Pronto code, and a radio trigger is made
+        # from the Sniffer, where the receiver heard it.
+        if identity is None or identity.medium != MEDIUM_IR:
             continue
         signals.append({
             "name": sig.alias.strip() or f"Signal {index}",

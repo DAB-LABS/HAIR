@@ -37,6 +37,7 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 from .const import (
     MAX_DITTO_COUNT,
@@ -45,6 +46,7 @@ from .const import (
     SEND_SPACING_MIN_MS,
 )
 from .pronto_validator import validate_pronto
+from .rf_band import band_key
 
 WIG_FORMAT_NAME = "hair-wig"
 WIG_FORMAT_MAJOR = 1
@@ -88,10 +90,34 @@ WIG_FORMAT_MAJOR_RECIPE = 3
 # still a /3 file that every install reads, and only a wig that carries
 # one demands the version it needs.
 WIG_FORMAT_MAJOR_EXTRAS = 4
+# hair-wig/5 (RF send round): a flat signal may carry an ``rf`` object
+# in place of ``pronto``: a radio code, one frame of signed timings with
+# its carrier, modulation and frame gap. A Pronto has no form for a
+# radio carrier (it rounds to a zero frequency word), so the shape is
+# new, and every older reader requires ``pronto`` on every signal.
+# Refusing on the version says "update HAIR" instead of "signals[3]:
+# pronto required".
+#
+# The version follows the content, as /2 and /4 did: only a wig that
+# holds a radio row stamps /5, and every infrared wig writes exactly
+# what it wrote before, byte for byte. ``rf`` on a signal in a file
+# stamped below /5 is an error, the same floor ``extras`` has.
+WIG_FORMAT_MAJOR_RADIO = 5
 WIG_FORMAT_V1 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR}"
 WIG_FORMAT_V2 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_CLIMATE}"
 WIG_FORMAT_V3 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_RECIPE}"
 WIG_FORMAT_V4 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_EXTRAS}"
+WIG_FORMAT_V5 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_RADIO}"
+
+# A radio signal's ``rf`` object (hair-wig/5). Modulation is the one the
+# send path knows; a wig naming another is refused rather than sent as
+# something it is not.
+RF_MODULATIONS = ("ook",)
+RF_FREQUENCY_MIN_HZ = 1_000_000
+RF_FREQUENCY_MAX_HZ = 10_000_000_000
+# A frame longer than this is not one frame of a remote's code.
+RF_FRAME_MAX_VALUES = 20_000
+_KNOWN_RF = {"frequency_hz", "frame", "modulation", "frame_gap_us"}
 
 WIG_SUFFIX = ".wig.json"
 
@@ -157,7 +183,7 @@ class KindEntry:
 # Order is the order the dropdown shows: video and displays, then audio
 # and switching, then air, then light, then the rest, with "other"
 # last. It is grouped by what a person is looking at rather than
-# alphabetically, because a list of twenty-seven words sorted a-z is a
+# alphabetically, because a list of thirty-two words sorted a-z is a
 # list nobody reads to the end of.
 #
 # ``other`` is a real entry, not a null: a device that fits no word is
@@ -190,11 +216,18 @@ KIND_LIST: tuple[KindEntry, ...] = (
     KindEntry("heater", "ac", "wigs.kind.heater"),
     KindEntry("fireplace", "ac", "wigs.kind.fireplace"),
     KindEntry("fan", "fan", "wigs.kind.fan"),
+    KindEntry("ceilingfan", "fan", "wigs.kind.ceilingfan"),
     KindEntry("airpurifier", "fan", "wigs.kind.airpurifier"),
     KindEntry("humidifier", "other", "wigs.kind.humidifier"),
     KindEntry("dehumidifier", "other", "wigs.kind.dehumidifier"),
     KindEntry("light", "light", "wigs.kind.light"),
     KindEntry("candles", "light", "wigs.kind.candles"),
+    # Radio first (RF send round): an outlet is switched, the rest have
+    # no entity platform of their own yet.
+    KindEntry("outlet", "switch", "wigs.kind.outlet"),
+    KindEntry("doorbell", "other", "wigs.kind.doorbell"),
+    KindEntry("gate", "other", "wigs.kind.gate"),
+    KindEntry("sensor", "other", "wigs.kind.sensor"),
     KindEntry("robotvacuum", "other", "wigs.kind.robotvacuum"),
     KindEntry("other", "other", "wigs.kind.other"),
 )
@@ -317,15 +350,37 @@ def identifier_values(
 
 _KNOWN_SIGNAL = {
     "alias", "pronto", "send_count", "send_spacing_ms", "ditto_count",
-    "bypass_protocol",
+    "bypass_protocol", "rf",
 }
 
 _OPTIONAL_TOP_STRINGS = ("brand", "model", "kind", "notes", "origin")
 
 
 @dataclass
+class WigRf:
+    """A radio signal's code (hair-wig/5): one frame and its carrier.
+
+    ``frame`` is the row's one frame of signed microseconds WITHOUT its
+    trailing gap; the gap rides apart in ``frame_gap_us`` (None: not
+    known, the send path assumes one). ``frequency_hz`` is the exact
+    carrier the author had, which the digest reads only as its band.
+    """
+
+    frequency_hz: int
+    frame: list[int]
+    modulation: str = "ook"
+    frame_gap_us: int | None = None
+    extra: dict = field(default_factory=dict)
+
+
+@dataclass
 class WigSignal:
-    """One signal in a wig: alias + raw Pronto, optional send count."""
+    """One signal in a wig: alias + raw Pronto, optional send count.
+
+    A radio signal (hair-wig/5) carries ``rf`` and an empty ``pronto``:
+    exactly one of the two holds the code. Read ``is_radio_signal``
+    rather than testing either field.
+    """
 
     alias: str
     pronto: str
@@ -378,6 +433,14 @@ class WigSignal:
     # because it changes what transmits.
     bypass_protocol: bool = False
     extra: dict = field(default_factory=dict)
+    # The radio code, in place of ``pronto`` (hair-wig/5). Last, so every
+    # positional constructor written before radio still means the same.
+    rf: WigRf | None = None
+
+
+def is_radio_signal(signal: object) -> bool:
+    """Whether a wig signal is a radio code (hair-wig/5)."""
+    return getattr(signal, "rf", None) is not None
 
 
 @dataclass
@@ -596,7 +659,7 @@ def parse_wig(text: str) -> WigParseResult:
         return WigParseResult(None, [
             f'"format" is {fmt!r}, expected "hair-wig/1"'
         ])
-    if int(match.group(1)) > WIG_FORMAT_MAJOR_EXTRAS:
+    if int(match.group(1)) > WIG_FORMAT_MAJOR_RADIO:
         return WigParseResult(None, [
             f"this wig uses {fmt}, which this version of HAIR does not "
             "read yet; update HAIR to import it"
@@ -659,8 +722,12 @@ def parse_wig(text: str) -> WigParseResult:
                 errors.append(
                     f"signals[{i}].alias: required, non-empty string"
                 )
+            rf: WigRf | None = None
             pronto = raw.get("pronto")
-            if not isinstance(pronto, str) or not pronto.strip():
+            if "rf" in raw:
+                rf = _parse_rf(raw, i, errors, int(match.group(1)))
+                pronto = ""
+            elif not isinstance(pronto, str) or not pronto.strip():
                 errors.append(
                     f"signals[{i}].pronto: required, non-empty string"
                 )
@@ -723,6 +790,15 @@ def parse_wig(text: str) -> WigParseResult:
                     "present"
                 )
                 ditto_count = 0
+            if "rf" in raw and (ditto_count != 0 or bypass):
+                # A radio frame has no encoder to append dittos or to
+                # bypass; a value here is an authoring mistake, and
+                # carrying it would put a waveform claim in the file
+                # that nothing transmits.
+                errors.append(
+                    f"signals[{i}]: a radio signal carries ditto_count 0 "
+                    "and bypass_protocol false"
+                )
             if len(errors) > signals_errors_before:
                 continue
             signals.append(WigSignal(
@@ -735,6 +811,7 @@ def parse_wig(text: str) -> WigParseResult:
                 ditto_count=max(0, min(ditto_count, MAX_DITTO_COUNT)),
                 bypass_protocol=bypass,
                 extra={k: v for k, v in raw.items() if k not in _KNOWN_SIGNAL},
+                rf=rf,
             ))
 
     if errors:
@@ -760,6 +837,82 @@ def parse_wig(text: str) -> WigParseResult:
             extra={k: v for k, v in data.items() if k not in _KNOWN_TOP},
         ),
         [],
+    )
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _parse_rf(
+    raw: dict, i: int, errors: list[str], major: int
+) -> WigRf | None:
+    """One signal's ``rf`` object, or None with the reasons appended.
+
+    Refused rather than coerced throughout, the posture every hashed
+    field takes: the frame and the band are in the digest.
+    """
+    where = f"signals[{i}].rf"
+    before = len(errors)
+    if major < WIG_FORMAT_MAJOR_RADIO:
+        errors.append(
+            f"{where}: a radio signal needs {WIG_FORMAT_V5}; this file "
+            f"says {WIG_FORMAT_NAME}/{major}"
+        )
+    if "pronto" in raw:
+        errors.append(
+            f"signals[{i}]: carries both pronto and rf; a signal is one or "
+            "the other"
+        )
+    value = raw["rf"]
+    if not isinstance(value, dict):
+        errors.append(f"{where}: must be an object")
+        return None
+    hz = value.get("frequency_hz")
+    if not _is_int(hz) or not (
+        RF_FREQUENCY_MIN_HZ <= hz <= RF_FREQUENCY_MAX_HZ
+    ):
+        errors.append(
+            f"{where}.frequency_hz: required, an integer in Hz between "
+            f"{RF_FREQUENCY_MIN_HZ} and {RF_FREQUENCY_MAX_HZ}"
+        )
+    frame = value.get("frame")
+    if (
+        not isinstance(frame, list)
+        or len(frame) < 2
+        or len(frame) > RF_FRAME_MAX_VALUES
+        or not all(_is_int(v) and v != 0 for v in frame)
+    ):
+        errors.append(
+            f"{where}.frame: required, a list of 2 to "
+            f"{RF_FRAME_MAX_VALUES} non-zero signed integers (microseconds)"
+        )
+    elif frame[0] < 0 or any(
+        (a > 0) == (b > 0) for a, b in pairwise(frame)
+    ):
+        errors.append(
+            f"{where}.frame: must start on a mark and alternate marks "
+            "(positive) and spaces (negative)"
+        )
+    modulation = value.get("modulation", "ook")
+    if modulation not in RF_MODULATIONS:
+        errors.append(
+            f"{where}.modulation: {modulation!r} is not one this HAIR "
+            f"sends ({', '.join(RF_MODULATIONS)})"
+        )
+    gap = value.get("frame_gap_us")
+    if gap is not None and (not _is_int(gap) or gap <= 0):
+        errors.append(
+            f"{where}.frame_gap_us: a positive integer when present"
+        )
+    if len(errors) > before:
+        return None
+    return WigRf(
+        frequency_hz=hz,
+        frame=list(frame),
+        modulation=modulation,
+        frame_gap_us=gap,
+        extra={k: v for k, v in value.items() if k not in _KNOWN_RF},
     )
 
 
@@ -1067,6 +1220,12 @@ def serialize_wig(wig: Wig) -> str:
     fmt = WIG_FORMAT_V3
     if wig.climate is not None and wig.climate.extras:
         fmt = WIG_FORMAT_V4
+    # /5 ONLY FOR A WIG THAT HOLDS A RADIO ROW, the same rule: an older
+    # reader requires pronto on every signal, so it must refuse on the
+    # version, and an infrared wig must not demand a version it does
+    # not need.
+    if any(is_radio_signal(s) for s in wig.signals):
+        fmt = WIG_FORMAT_V5
     # No wig reaches disk without an identity (v0.9.5). See
     # ensure_wig_id for why this is here and not at each constructor.
     ensure_wig_id(wig)
@@ -1112,7 +1271,11 @@ def _signal_out(sig: WigSignal) -> dict:
     shorthand because it is no longer hashed, so its presence in the
     file is a readability question rather than a correctness one.
     """
-    out: dict = {"alias": sig.alias, "pronto": sig.pronto}
+    out: dict = {"alias": sig.alias}
+    if sig.rf is not None:
+        out["rf"] = _rf_out(sig.rf)
+    else:
+        out["pronto"] = sig.pronto
     if sig.send_count != 1:
         out["send_count"] = sig.send_count
     if sig.send_spacing_ms is not None:
@@ -1120,6 +1283,18 @@ def _signal_out(sig: WigSignal) -> dict:
     out["ditto_count"] = sig.ditto_count
     out["bypass_protocol"] = sig.bypass_protocol
     out.update(sig.extra)
+    return out
+
+
+def _rf_out(rf: WigRf) -> dict:
+    """A radio code, keys in reading order: the carrier, then the frame."""
+    out: dict = {
+        "frequency_hz": rf.frequency_hz,
+        "modulation": rf.modulation,
+        "frame": list(rf.frame),
+        "frame_gap_us": rf.frame_gap_us,
+    }
+    out.update(rf.extra)
     return out
 
 
@@ -1209,6 +1384,22 @@ def canonical_signals_json(signals: list[WigSignal]) -> str:
     """
     canon = []
     for sig in signals:
+        if sig.rf is not None:
+            # A radio signal (hair-wig/5): the same four keys, the code
+            # under ``rf`` as the digest reads it -- the band, never the
+            # exact Hz, and no gap. An infrared signal is untouched, so
+            # every infrared wig keeps the hash it had.
+            canon.append({
+                "alias": sig.alias,
+                "rf": {
+                    "band": rf_band(sig.rf.frequency_hz),
+                    "frame": list(sig.rf.frame),
+                    "modulation": sig.rf.modulation,
+                },
+                "ditto_count": 0,
+                "bypass_protocol": False,
+            })
+            continue
         result = validate_pronto(sig.pronto)
         pronto = (
             result.normalized if result.valid else sig.pronto
@@ -1479,8 +1670,51 @@ def row_digest(
     return hashlib.sha256(recipe.encode("utf-8")).hexdigest()[:16]
 
 
+def rf_band(frequency_hz: int) -> str:
+    """The band a carrier digests as: MHz to one decimal ("433.9").
+
+    ``rf_band.band_key``, the one band rule the panel uses too (fix
+    round 1, item 8): a carrier within 150 kHz of a preset centre reads
+    as that centre, any other is rounded half up to 100 kHz. Plain
+    rounding alone would split one handset in two (433.84 rounds to
+    433.8, 433.92 to 433.9), which is the spread the band exists to
+    absorb.
+    """
+    return band_key(frequency_hz)
+
+
+def rf_row_digest(
+    frequency_hz: int, frame: list[int], modulation: str = "ook"
+) -> str:
+    """The digest of a radio row (hair-wig/5). Reproduce byte-for-byte.
+
+    ``sha256("rf|" + band + "|" + modulation + "|" + frame + "|d0|b0")``
+    truncated to 16 hex characters, where ``band`` is ``rf_band`` and
+    ``frame`` is the signed microsecond values joined with commas, no
+    spaces, no trailing gap.
+
+    The infrared digest hashes what changes the waveform, and its Pronto
+    carries the carrier; this one carries the band and not the exact Hz,
+    so correcting an assumed 433.92 MHz to a measured 433.84 keeps every
+    claim, and moving a row from 315 to 433 does not. The frame gap is
+    a send setting like ``send_spacing_ms`` and stays out, as does the
+    alias. ``|d0|b0`` keeps the infrared layout's tail: a radio row has
+    no dittos and no encoder to bypass.
+    """
+    recipe = (
+        f"rf|{rf_band(frequency_hz)}|{modulation}|"
+        + ",".join(str(int(v)) for v in frame)
+        + "|d0|b0"
+    )
+    return hashlib.sha256(recipe.encode("utf-8")).hexdigest()[:16]
+
+
 def signal_row_digest(signal: WigSignal) -> str:
-    """The digest of a flat wig's signal row."""
+    """The digest of a flat wig's signal row, either medium."""
+    if signal.rf is not None:
+        return rf_row_digest(
+            signal.rf.frequency_hz, signal.rf.frame, signal.rf.modulation
+        )
     return row_digest(
         signal.pronto, signal.ditto_count, signal.bypass_protocol
     )

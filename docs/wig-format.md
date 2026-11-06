@@ -86,11 +86,16 @@ Since 2026-09-16 it is **a value from one list**, offered as a dropdown everywhe
 | `heater` | Heater | `ac` |
 | `fireplace` | Fireplace | `ac` |
 | `fan` | Fan | `fan` |
+| `ceilingfan` | Ceiling fan | `fan` |
 | `airpurifier` | Air purifier | `fan` |
 | `humidifier` | Humidifier | `other` |
 | `dehumidifier` | Dehumidifier | `other` |
 | `light` | Light | `light` |
 | `candles` | Candles | `light` |
+| `outlet` | Outlet | `switch` |
+| `doorbell` | Doorbell | `other` |
+| `gate` | Gate or garage door | `other` |
+| `sensor` | Sensor | `other` |
 | `robotvacuum` | Robot vacuum | `other` |
 | `other` | Other | `other` |
 
@@ -189,6 +194,36 @@ Some sources vary a dimension the climate block has no axis for. The clearest ca
 
 A wig may carry a matrix, flat `signals`, or both. The flat signals alongside a matrix are the depth-0 extras (sleep timers, LED toggles, one-shot codes) that are buttons, not states.
 
+## Radio signals (hair-wig/5)
+
+A flat signal may carry a radio code in place of `pronto`. Pronto has no form for a radio carrier, so the code has its own object:
+
+```json
+{
+    "alias": "Fan low",
+    "rf": {
+        "frequency_hz": 433920000,
+        "modulation": "ook",
+        "frame": [350, -1050, 1050, -350, 350, -1050],
+        "frame_gap_us": 10850
+    },
+    "send_count": 5,
+    "ditto_count": 0,
+    "bypass_protocol": false
+}
+```
+
+- **`frequency_hz`** (required): the carrier in Hz, an integer from 1 MHz to 10 GHz.
+- **`frame`** (required): one frame of the code in signed microseconds, marks positive and spaces negative, starting on a mark and alternating. The frame ends on its last mark: the gap before the next repeat is not part of it.
+- **`modulation`** (optional, default `"ook"`): the only value this release sends. Any other value is refused with the value named.
+- **`frame_gap_us`** (optional, positive integer or `null`): the space between repeats, when the author measured one. HAIR assumes a gap when it is absent.
+
+A signal carries `pronto` or `rf`, never both. A radio signal writes `ditto_count: 0` and `bypass_protocol: false` (a radio frame has no encoder), and any other value is refused. `send_count` and `send_spacing_ms` mean what they mean on any signal. Radio codes appear only in `signals`, never in a climate block.
+
+**The version follows the content.** A file is `hair-wig/5` only when it holds at least one radio signal; every infrared wig writes exactly what it wrote before. A reader that knows only up to 4 refuses a v5 file with a version message instead of reporting `pronto` missing, and a file carrying `rf` under a stamp below 5 is refused too, the same floor `extras` has.
+
+In the canonical signals form a radio signal carries `alias`, `ditto_count`, `bypass_protocol`, and `rf` as an object of exactly `band`, `frame`, and `modulation` (keys sorted, `band` as in the row digest below). The exact frequency and the gap are out, for the reasons given there.
+
 ## Canonical signals form
 
 A canonical form for the `signals` array, so every install computes identical hashes. As of 0.9.5 a flat wig's claims bind per-row digests instead (see Row digests below) and nothing in HAIR writes a wig-level signals hash any more, but the form stays specified: it is what tools built against the superseded majors computed, and dropping the definition would leave those files undecipherable.
@@ -232,6 +267,14 @@ Exact layout, so any external verifier reproduces it byte for byte: the normaliz
 **`send_count` is out, and must never be added.** How many times to press depends on the room rather than the device, so two people proving the same codes at three sends and at five are proving the same thing.
 
 What is in is exactly what changes the waveform: the bytes, the repeat frames appended to them, and whether the encoder is bypassed. That is the set a claim needs to bind, because it is the set that decides what leaves the emitter.
+
+A **radio row** (hair-wig/5) has its own layout:
+
+```
+sha256("rf|" + band + "|" + modulation + "|" + frame + "|d0|b0")   truncated to 16 hex characters
+```
+
+`band` is the carrier written in MHz with one decimal, after two steps. A carrier within 150 kHz of one of the bands radio remotes use (303.875, 310, 315, 318, 350, 390, 418, 433.42, 433.92, 868.35 and 915 MHz) is first moved to that band; any carrier is then rounded to the nearest 100 kHz. So `433920000` and `433840000` both give `433.9`, `433420000` gives `433.4`, and `315000000` gives `315.0`. `frame` is the frame's values as decimal integers joined by commas, with no spaces. The band is in and the exact frequency is out: correcting a carrier from an assumed 433.92 MHz to a measured 433.84 MHz keeps every claim on the row, while moving it from 315 MHz to 433.92 MHz does not. The frame gap is out, as `send_spacing_ms` is: it is how the code is delivered, not what it is.
 
 ## Claims
 

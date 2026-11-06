@@ -310,6 +310,49 @@ def validate(text: str, frequency_hz: int | None = None) -> dict[str, Any]:
     }
 
 
+def result_of_frame(
+    frame: list[int],
+    frequency_hz: int | None,
+    gap_us: int | None = None,
+    frequency_source: str = SOURCE_SIGNAL,
+) -> dict[str, Any]:
+    """A code that arrives already as one frame (a wig's ``rf``, T5), in
+    the shape ``validate`` answers, so ``apply_code`` writes it as it
+    writes a paste.
+
+    ``frame`` has no gap; a known ``gap_us`` is appended as the stored
+    frame's trailing space and is measured, otherwise the gap is
+    assumed. The identity is read off the stored frame, as ``validate``
+    reads it.
+    """
+    from . import rf_frames
+
+    values = [int(v) for v in frame if v]
+    while values and values[-1] < 0:
+        values.pop()
+    stored = list(values)
+    if gap_us:
+        stored.append(-int(gap_us))
+    identity = rf_frames.identity_of_frame(stored)
+    if identity is None or identity.body_edges < RF_MIN_BODY_EDGES:
+        return {"ok": False, "code": PASTE_NO_FRAME, "error": "No frame with a body was found"}
+    return {
+        "ok": True,
+        "format": FORMAT_TIMINGS,
+        "frames_found": 1,
+        "frames_agreeing": 1,
+        "frame": stored,
+        "frequency_hz": int(frequency_hz) if frequency_hz else None,
+        "frequency_source": frequency_source if frequency_hz else None,
+        "gap_us": int(gap_us) if gap_us else identity.gap_us,
+        "gap_source": RF_GAP_MEASURED if gap_us else identity.gap_source,
+        "repeats_observed": 1,
+        "fingerprint": identity.fingerprint,
+        "frame_hash": identity.frame_hash,
+        "header_shape": identity.header_shape,
+    }
+
+
 def apply_code(row: Any, result: dict[str, Any]) -> None:
     """Write a validated paste onto a radio row, as a capture would.
 

@@ -44,3 +44,21 @@ console.log(JSON.stringify({
         refusal: ["rf_paste_empty", "rf_paste_unreadable", "rf_paste_no_frame", "rf_paste_frames_disagree", "duplicate_signal", null].map(rf.pasteRefusalKey),
     },
 }));
+
+// T5: a wig's radio rows as .sub files for the Closet download.
+const wigText = JSON.stringify({
+    format: "hair-wig/5", name: "Fobs",
+    signals: [
+        { alias: "Power", pronto: "0000 006D 0002 0000 0020 0040 0020 0040" },
+        { alias: "Fan Low!", rf: { frequency_hz: 433920000, frame: [1282, -382, 458, -1221, 1282], frame_gap_us: 12909 } },
+        { alias: "fan low", rf: { frequency_hz: 315000000, frame: [500, -500, 500], frame_gap_us: null } },
+        { alias: "", rf: { frequency_hz: 433920000, frame: [500, -500, 500] } },
+    ],
+});
+console.log(JSON.stringify({
+    t5: {
+        subs: rf.wigSubFiles(wigText, "acme-fan-fobs.wig.json"),
+        none: rf.wigSubFiles(JSON.stringify({ signals: [{ alias: "A", pronto: "x" }] }), "a.wig.json"),
+        junk: rf.wigSubFiles("not json", "a.wig.json"),
+    },
+}));

@@ -612,19 +612,38 @@ class TestDeviceSend:
 
 
 class TestWigExport:
-    def test_radio_rows_are_skipped_and_named(self, keyfob):
-        from custom_components.hair.wig_export import build_wig_from_device
+    """Round 1 skipped radio rows; the RF send round (T5) writes them as
+    hair-wig/5 ``rf`` signals, and only a row with no frequency is left
+    out and named."""
 
+    def _mixed(self, keyfob, hz=433_920_000):
         ir = IRCommand(
             id="c0", name="Power", category=CommandCategory.POWER,
             source=CommandSource.CAPTURED, protocol="PRONTO",
             code="0000 006D 0002 0000 0020 0040 0020 0040",
         )
-        device = IRDevice(
+        radio = _rf_command(keyfob)
+        radio.rf_frequency_hz = hz
+        return IRDevice(
             id="dev1", name="Mixed", device_type="custom",
-            commands=[ir, _rf_command(keyfob)],
+            commands=[ir, radio],
         )
-        built = build_wig_from_device(device)
+
+    def test_radio_rows_travel_as_rf(self, keyfob):
+        from custom_components.hair.wig_export import build_wig_from_device
+
+        built = build_wig_from_device(self._mixed(keyfob))
+        assert built.skipped == 0
+        assert built.sources == ["c0", "c1"]
+        radio = built.wig.signals[1]
+        assert radio.rf is not None and radio.pronto == ""
+        assert radio.rf.frequency_hz == 433_920_000
+        assert radio.rf.frame[0] > 0 and radio.rf.frame[-1] > 0
+
+    def test_a_radio_row_with_no_frequency_is_skipped_and_named(self, keyfob):
+        from custom_components.hair.wig_export import build_wig_from_device
+
+        built = build_wig_from_device(self._mixed(keyfob, hz=None))
         assert built.skipped == 1
         assert any("Button 1" in note for note in built.notes)
         assert built.sources == ["c0"]

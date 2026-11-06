@@ -87,3 +87,46 @@ export function pasteRefusalKey(code: string | null | undefined): string | null 
             return null;
     }
 }
+
+/** A wig's radio rows (hair-wig/5) as `.sub` files, one per row, for
+ *  the Closet's download (T5). `wigText` is the wig file as the server
+ *  serves it; `baseName` is its download name. Rows named alike get a
+ *  number, so no file overwrites another. Infrared wigs give none. */
+export function wigSubFiles(
+    wigText: string, baseName: string,
+): { filename: string; text: string }[] {
+    let wig: { signals?: unknown };
+    try {
+        wig = JSON.parse(wigText);
+    } catch {
+        return [];
+    }
+    const signals = Array.isArray(wig?.signals) ? wig.signals : [];
+    const base = baseName.replace(/\.wig\.json$/i, "").replace(/\.json$/i, "");
+    const taken = new Set<string>();
+    const out: { filename: string; text: string }[] = [];
+    for (const raw of signals) {
+        const sig = raw as {
+            alias?: unknown;
+            rf?: { frequency_hz?: unknown; frame?: unknown; frame_gap_us?: unknown };
+        };
+        const rf = sig?.rf;
+        if (!rf || !Array.isArray(rf.frame)) continue;
+        const slug = String(sig.alias ?? "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "") || "code";
+        let name = `${base}-${slug}`;
+        for (let n = 2; taken.has(name); n += 1) name = `${base}-${slug}-${n}`;
+        taken.add(name);
+        out.push({
+            filename: `${name}.sub`,
+            text: toSub(
+                rf.frame as number[],
+                typeof rf.frequency_hz === "number" ? rf.frequency_hz : null,
+                typeof rf.frame_gap_us === "number" ? rf.frame_gap_us : null,
+            ),
+        });
+    }
+    return out;
+}

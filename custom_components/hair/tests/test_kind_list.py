@@ -107,8 +107,10 @@ class TestTheListIsWellFormed:
         assert "other" in KIND_BY_KEY
         assert KIND_LIST[-1].key == "other"
 
-    def test_the_list_is_the_ruled_twenty_six_plus_other(self):
-        assert len(KIND_LIST) == 27
+    def test_the_list_is_the_ruled_thirty_one_plus_other(self):
+        # Twenty-six, then five for radio (RF send round): ceilingfan,
+        # outlet, doorbell, gate, sensor.
+        assert len(KIND_LIST) == 32
 
     def test_every_alias_points_at_a_real_key(self):
         """An alias to nothing is worse than no alias: the value reads
@@ -140,10 +142,11 @@ class TestNormalizeKind:
 
     def test_a_word_the_list_does_not_have_is_none(self):
         """None is the honest answer, and the save handlers turn it
-        into a refusal. "Ceiling Fan" squashes to ceilingfan, which is
-        not the word "fan" and is not aliased to it -- guessing that it
-        means a fan is how a vocabulary stops meaning anything."""
-        assert normalize_kind("Ceiling Fan") is None
+        into a refusal. "Box Fan" squashes to boxfan, which is not the
+        word "fan" and is not aliased to it -- guessing that it means a
+        fan is how a vocabulary stops meaning anything. ("Ceiling Fan"
+        was the example until ceilingfan joined the list for radio.)"""
+        assert normalize_kind("Box Fan") is None
         assert normalize_kind("toaster") is None
         assert normalize_kind("projectorscreen") is None
 

@@ -58,7 +58,13 @@ from .wig_comb import (
     read_family,
 )
 from .wig_export import build_wig_from_device
-from .wig_format import ClimateCell, ClimateMatrix, cell_key, row_digest
+from .wig_format import (
+    ClimateCell,
+    ClimateMatrix,
+    cell_key,
+    row_digest,
+    signal_row_digest,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -441,7 +447,10 @@ def list_tangles(
     by_id = {command.id: command for command in device.commands}
     for signal in wig.signals:
         findings = grouped.pop(signal.alias, None)
-        if not findings:
+        # A radio row has no Pronto to detangle (RF send round): the
+        # comb never judges one, and the only finding that can name it
+        # is the advisory duplicate-label one, which needs no repair.
+        if not findings or signal.rf is not None:
             continue
         command_id = sources.get(signal.alias)
         command = by_id.get(command_id or "")
@@ -558,6 +567,7 @@ def read_lattice(
         codes = [
             Code(key=signal.alias, pronto=signal.pronto)
             for signal in wig.signals
+            if signal.rf is None
         ]
         cells = {}
     else:
@@ -1830,9 +1840,7 @@ def written_digest(
     )
     if signal is None:
         return None
-    return row_digest(
-        signal.pronto, signal.ditto_count, signal.bypass_protocol
-    )
+    return signal_row_digest(signal)
 
 
 def attest_override(
