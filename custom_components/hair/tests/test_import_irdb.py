@@ -146,6 +146,11 @@ TABLE: dict[str, tuple] = {
     "JVC": (67, -1, 3, 38000,
             {leg: ("JVC", 67, 3, None) for leg in ("lib", "nolib")},
             {"lib": False, "nolib": False}),
+    # The RCA frame at 38.7 kHz. The decode rebuilds at RCA's default
+    # carrier, so the bypass keeps the code as built.
+    "RCA-38": (15, -1, 84, 38700,
+               {leg: ("RCA", 15, 84, None) for leg in ("lib", "nolib")},
+               {"lib": True, "nolib": True}),
     # JVC learned without its lead-in: the same remote, built as JVC.
     "JVC{2}": (67, -1, 3, 38000,
                {leg: ("JVC", 67, 3, None) for leg in ("lib", "nolib")},
@@ -172,7 +177,8 @@ TABLE: dict[str, tuple] = {
 #: Protocols whose S defaults to 255-D when the row gives -1.
 S_DEFAULTS = {"NEC", "NEC1", "NEC2", "NEC1-f16", "NECx1", "NECx2", "Pioneer"}
 #: Protocols with no S at all: the row must give -1.
-NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "Sharp", "Denon", "JVC", "JVC{2}",
+NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "RCA-38", "Sharp", "Denon",
+        "JVC", "JVC{2}",
         "Mitsubishi", "RECS80", "G.I.Cable"}
 #: Protocols whose S has no default: -1 is refused.
 S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa", "Dish_Network"}
@@ -278,6 +284,14 @@ class TestRefusals:
             irdb_csv.build("JVC", 256, -1, 3)
         with pytest.raises(IrdbError, match="JVC function 256 is outside 0 to 255"):
             irdb_csv.build("JVC", 67, -1, 256)
+
+    def test_rca_38_is_the_rca_frame_at_38_7_khz(self):
+        _, t38, hz38 = _built("RCA-38", 15, -1, 84)
+        _, t58, hz58 = _built("RCA", 15, -1, 84)
+        assert t38 == t58
+        assert (hz38, hz58) == (38700, 58000)
+        with pytest.raises(IrdbError, match="RCA-38 device 16 is outside 0 to 15"):
+            irdb_csv.build("RCA-38", 16, -1, 84)
 
     def test_jvc_2_is_jvc_with_its_lead_in(self):
         """JVC{2} is JVC learned without the lead-in; the row builds the

@@ -383,12 +383,18 @@ def _pioneer(d: int, s: int, f: int) -> Any:
     return PioneerCommand(address=d | (s << 8), command=f | ((~f & 0xFF) << 8))
 
 
-def _rca(d: int, s: int, f: int) -> Any:
-    """RCA: D 4 bits, F 8 bits, both complemented, at the protocol's 58 kHz."""
-    _field("device", d, 15, "RCA")
-    _none("subdevice", s, "RCA")
-    _field("function", f, 0xFF, "RCA")
-    return _registered("RCA")(device=d, function=f, modulation=58000)
+def _rca(protocol: str, carrier: int) -> Callable[[int, int, int], Any]:
+    """RCA: D 4 bits, F 8 bits, both complemented, at the protocol's carrier.
+
+    RCA is 58 kHz. RCA-38 is the same frame at 38.7 kHz, which is the
+    only difference the protocol reference gives between the two.
+    """
+    def build(d: int, s: int, f: int) -> Any:
+        _field("device", d, 15, protocol)
+        _none("subdevice", s, protocol)
+        _field("function", f, 0xFF, protocol)
+        return _registered("RCA")(device=d, function=f, modulation=carrier)
+    return build
 
 
 def _sharp(protocol: str, extension: int) -> Callable[[int, int, int], Any]:
@@ -492,7 +498,8 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("Panasonic", _panasonic),
         ("Denon-K", _denon_k),
         ("Pioneer", _pioneer),
-        ("RCA", _rca),
+        ("RCA", _rca("RCA", 58000)),
+        ("RCA-38", _rca("RCA-38", 38700)),
         ("Sharp", _sharp("Sharp", 1)),
         ("Denon", _sharp("Denon", 0)),
         ("Aiwa", _aiwa),
