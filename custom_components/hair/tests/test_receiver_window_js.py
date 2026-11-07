@@ -663,9 +663,10 @@ class TestTheChipWiring:
 
     def test_the_badge_spells_the_medium(self):
         chip = _src("ir-listen-chip.ts")
-        # Solid while the receiver captures new codes, light over a pale
-        # wash of the tone otherwise (owner, 2026-11-06 19:06); no state
-        # words, the sweep's instruction stays (item 2).
+        # Solid while the receiver captures new codes, light otherwise
+        # (owner, 2026-11-06 19:06), on the pickers' background (item 12,
+        # 2026-11-07 00:15); no state words, the sweep's instruction
+        # stays (item 2).
         flat = " ".join(chip.split())
         assert '<span class="rx-badge ${badgeSolid(look) ? "solid" : "hollow"}"' in flat
         state = " ".join(_src("ir-listen-state.ts").split())
@@ -673,7 +674,24 @@ class TestTheChipWiring:
         solid = re.search(r"\n            \.rx-badge\.solid \{([^}]*)\}", chip).group(1)
         assert "background: var(--tone);" in solid and "color: #fff;" in solid
         hollow = re.search(r"\n            \.rx-badge\.hollow \{([^}]*)\}", chip).group(1)
-        assert "color-mix(in srgb, var(--tone) 16%, var(--card-background-color, #fff))" in hollow
+        grey = (
+            "background: color-mix(in srgb, var(--primary-text-color) 14%, "
+            "var(--card-background-color, #fff));"
+        )
+        assert grey in hollow
+        picker = _src("ir-pill-picker.ts").split("        .box {", 1)[1].split("}", 1)[0]
+        assert grey in " ".join(picker.split())
+        badge = re.search(r"\n            \.rx-badge \{([^}]*)\}", chip).group(1)
+        # Item 11: centred on the capitals, not on a line with descender room.
+        assert "text-box: trim-both cap alphabetic;" in badge
+        assert "line-height: 1;" in badge and "letter-spacing" not in badge
+        # Trimming works on a block's own lines, not a flex item's.
+        assert "display: inline-block;" in badge and "flex" not in badge.replace("flex: none;", "")
+        # One box for both states (owner, 00:36): the border lives on the
+        # badge, and neither state changes the padding.
+        assert "padding" not in hollow and "padding" not in solid and "border" not in solid
+        assert "padding: 3px 5.4px 3px 4.6px;" in badge
+        assert "border: 1px solid var(--tone);" in badge
         assert "color: var(--tone);" in hollow
         assert 't("listen.hearing")' not in chip
         assert 'const word = look === "sweep" ? t("listen.hold_button") : "";' in chip

@@ -172,7 +172,10 @@ export class IrPillPicker extends LitElement {
             padding: 0 3px 0 5px;
             border: 1px solid color-mix(in srgb, var(--primary-text-color) 22%, transparent);
             border-radius: 8px;
-            background: var(--card-background-color, #fff);
+            /* Grey in both themes (owner, 2026-11-07 00:31): the card's
+               own color is white in light and near black in dark, and
+               neither read as a control on the pill's wash. */
+            background: color-mix(in srgb, var(--primary-text-color) 14%, var(--card-background-color, #fff));
             font: inherit;
             font-size: 0.64rem;
             line-height: 1;
