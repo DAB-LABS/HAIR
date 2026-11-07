@@ -14788,7 +14788,10 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
             padding: 0 3px 0 5px;
             border: 1px solid color-mix(in srgb, var(--primary-text-color) 22%, transparent);
             border-radius: 8px;
-            background: var(--card-background-color, #fff);
+            /* Grey in both themes (owner, 2026-11-07 00:31): the card's
+               own color is white in light and near black in dark, and
+               neither read as a control on the pill's wash. */
+            background: color-mix(in srgb, var(--primary-text-color) 14%, var(--card-background-color, #fff));
             font: inherit;
             font-size: 0.64rem;
             line-height: 1;
@@ -15015,23 +15018,47 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                Light otherwise: the tone's border and letters over a pale
                wash of it (owner 18:20: not stark white). Same box either
                way, so a window opening changes colour and nothing else. */
+            /* Letters centered on their ink (fix round 1, item 11). The
+               badge is a block whose line is trimmed to the capitals
+               (text-box), so the content box is exactly the capitals'
+               height and equal top and bottom padding centers them by
+               construction. Trimming applies to a block's own lines, not
+               to a flex item's, which is why this is not a flex box. No
+               letter spacing, which only added room after the last
+               letter. The 0.4px between the side paddings is the
+               capitals' own side bearings: I and R carry more blank on
+               their left than R and F on their right, measured in Roboto
+               at this size. Both states share this box and its 1px
+               border, in the fill's color when solid (owner, 00:36). */
             .rx-badge {
                 flex: none;
                 box-sizing: border-box;
-                padding: 1px 5px;
+                display: inline-block;
+                padding: 3px 5.4px 3px 4.6px;
                 border: 1px solid var(--tone);
                 border-radius: 10px;
                 font-weight: 600;
                 font-size: 10.5px;
-                line-height: 1.2;
-                letter-spacing: 0.02em;
+                line-height: 1;
+                text-box: trim-both cap alphabetic;
+            }
+            /* Without text-box (Firefox today) the line keeps its full
+               height: less padding keeps the badge the same size. */
+            @supports not (text-box: trim-both cap alphabetic) {
+                .rx-badge {
+                    padding-top: 1.5px;
+                    padding-bottom: 1.5px;
+                }
             }
             .rx-badge.solid {
                 background: var(--tone);
                 color: #fff;
             }
+            /* Light: the pickers' background (item 12), so the badge and
+               the pickers read as one family; the stroke and letters keep
+               the pill's state color. */
             .rx-badge.hollow {
-                background: color-mix(in srgb, var(--tone) 16%, var(--card-background-color, #fff));
+                background: color-mix(in srgb, var(--primary-text-color) 14%, var(--card-background-color, #fff));
                 color: var(--tone);
             }
             .pill-name {
