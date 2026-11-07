@@ -146,6 +146,10 @@ TABLE: dict[str, tuple] = {
     "JVC": (67, -1, 3, 38000,
             {leg: ("JVC", 67, 3, None) for leg in ("lib", "nolib")},
             {"lib": False, "nolib": False}),
+    # JVC learned without its lead-in: the same remote, built as JVC.
+    "JVC{2}": (67, -1, 3, 38000,
+               {leg: ("JVC", 67, 3, None) for leg in ("lib", "nolib")},
+               {"lib": False, "nolib": False}),
     # Encode only (encoders/mitsubishi.py): nothing decodes it, so it is
     # stored as built. The frame itself is checked in test_irdb_encoders.
     "Mitsubishi": (71, -1, 23, 32600,
@@ -168,7 +172,7 @@ TABLE: dict[str, tuple] = {
 #: Protocols whose S defaults to 255-D when the row gives -1.
 S_DEFAULTS = {"NEC", "NEC1", "NEC2", "NEC1-f16", "NECx1", "NECx2", "Pioneer"}
 #: Protocols with no S at all: the row must give -1.
-NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "Sharp", "Denon", "JVC",
+NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "Sharp", "Denon", "JVC", "JVC{2}",
         "Mitsubishi", "RECS80", "G.I.Cable"}
 #: Protocols whose S has no default: -1 is refused.
 S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa", "Dish_Network"}
@@ -274,6 +278,16 @@ class TestRefusals:
             irdb_csv.build("JVC", 256, -1, 3)
         with pytest.raises(IrdbError, match="JVC function 256 is outside 0 to 255"):
             irdb_csv.build("JVC", 67, -1, 256)
+
+    def test_jvc_2_is_jvc_with_its_lead_in(self):
+        """JVC{2} is JVC learned without the lead-in; the row builds the
+        frame the handset sends, the same as a JVC row."""
+        _, jvc2, _ = _built("JVC{2}", 67, -1, 3)
+        _, jvc, _ = _built("JVC", 67, -1, 3)
+        assert jvc2 == jvc
+        assert jvc2[:2] == [8400, -4200]
+        with pytest.raises(IrdbError, match=r"JVC\{2\} has no subdevice"):
+            irdb_csv.build("JVC{2}", 67, 1, 3)
 
     def test_jvc_decodes_to_its_own_fingerprint(self):
         _, timings, _ = _built("JVC", 67, -1, 3)
