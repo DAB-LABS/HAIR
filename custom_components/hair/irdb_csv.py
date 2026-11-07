@@ -430,6 +430,16 @@ def _mitsubishi(d: int, s: int, f: int) -> Any:
     return MitsubishiCommand(device=d, function=f)
 
 
+def _recs80(d: int, s: int, f: int) -> Any:
+    """RECS80: D 3 bits, F 6 bits, toggle 0, at 38 kHz. Encode only."""
+    from .encoders.recs80 import RECS80Command
+
+    _field("device", d, 7, "RECS80")
+    _none("subdevice", s, "RECS80")
+    _field("function", f, 63, "RECS80")
+    return RECS80Command(device=d, function=f, toggle=0)
+
+
 #: irdb protocol name (lower case) -> (its spelling, the builder).
 IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
     name.lower(): (name, build)
@@ -455,6 +465,7 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("Aiwa", _aiwa),
         ("JVC", _jvc),
         ("Mitsubishi", _mitsubishi),
+        ("RECS80", _recs80),
     )
 }
 
