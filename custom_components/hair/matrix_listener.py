@@ -1506,10 +1506,13 @@ class MatrixListener:
             # ONE PRESS IS ONE EVENT. Two receivers observing the same
             # frame arrive here twice, and so do the two frames a single
             # press of an AC state code is made of (103 to 148 ms apart
-            # on the bench). The window slides for the same reason the
-            # trigger dedup's does, so a held button collapses too, and
-            # it is keyed on the CELL as well as the remote: hearing a
-            # different state inside the window is a different press.
+            # on the bench). This window SLIDES: every suppressed frame
+            # refreshes the stamp below, so a held button collapses to
+            # one event. The trigger fire dedup is the other way round,
+            # anchored, so a held button re-fires there (const.py,
+            # TRIGGER_FIRE_DEDUP_WINDOW_S). It is keyed on the CELL as well
+            # as the remote: hearing a different state inside the window
+            # is a different press.
             now = time.monotonic()
             key = (remote.id, hit.cell_key)
             if (

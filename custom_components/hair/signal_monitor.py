@@ -1232,8 +1232,22 @@ class SignalMonitor:
             if expectation in self._echo_expectations:
                 self._echo_expectations.remove(expectation)
 
+        # THE TICKET LIVES AS LONG AS ITS OWN WINDOWS (GH #237 note,
+        # section 6). The cleanup used to fire at a fixed 3.0 s while
+        # ``expires`` and ``garble_expires`` above are widened by the
+        # send's own length, so a long bundled send lost its widened
+        # window at 3.0 s and its last echoes read as a stranger's
+        # press. Read from the ticket itself, so the two cannot drift
+        # apart again; the guard, armed at most
+        # PINNED_TICKET_ARM_FALLBACK_S after minting, ends before both.
         expectation["cancel"] = self._hass.loop.call_later(
-            max(MIRROR_ECHO_TTL_S, MIRROR_OWN_BEACON_WINDOW_S), _expire
+            max(
+                MIRROR_ECHO_TTL_S,
+                MIRROR_OWN_BEACON_WINDOW_S,
+                expectation["expires"] - now,
+                expectation["garble_expires"] - now,
+            ),
+            _expire,
         )
 
         def _arm_fallback() -> None:
