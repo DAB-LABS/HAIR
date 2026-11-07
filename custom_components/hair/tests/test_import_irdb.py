@@ -151,13 +151,17 @@ TABLE: dict[str, tuple] = {
     "Mitsubishi": (71, -1, 23, 32600,
                    {"lib": None, "nolib": None},
                    {"lib": False, "nolib": False}),
+    # Encode only (encoders/recs80.py), toggle 0.
+    "RECS80": (5, -1, 38, 38000,
+               {"lib": None, "nolib": None},
+               {"lib": False, "nolib": False}),
 }
 
 #: Protocols whose S defaults to 255-D when the row gives -1.
 S_DEFAULTS = {"NEC", "NEC1", "NEC2", "NEC1-f16", "NECx1", "NECx2", "Pioneer"}
 #: Protocols with no S at all: the row must give -1.
 NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "Sharp", "Denon", "JVC",
-        "Mitsubishi"}
+        "Mitsubishi", "RECS80"}
 #: Protocols whose S has no default: -1 is refused.
 S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa"}
 
