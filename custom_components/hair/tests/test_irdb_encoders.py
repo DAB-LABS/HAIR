@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from custom_components.hair import irdb_csv
+from custom_components.hair.encoders.gi_cable import GICableCommand
 from custom_components.hair.encoders.mitsubishi import MitsubishiCommand
 from custom_components.hair.encoders.recs80 import RECS80Command
 from custom_components.hair.ir_command import raw_to_pronto
@@ -153,3 +154,78 @@ class TestRECS80:
     def test_stored_as_built(self):
         timings = RECS80Command(device=5, function=38).get_raw_timings()
         assert _triple_reproduces(raw_to_pronto(timings, frequency=38000), timings)
+
+
+# --- G.I. Cable --------------------------------------------------------------
+#
+# {38.7k,490}<1,-4.5|1,-9>(18,-9,F:8,D:4,C:4,1,-84,(18,-4.5,1,-178)*)
+# {C = -(D + F:4 + F:4:4)} [D:0..15,F:0..255], LSB first.
+
+_GI_LEAD = [8820, -4410]
+_GI_TAIL = [490, -41160]
+
+
+class TestGICable:
+    def test_the_frame_written_out(self):
+        # F = 29 = 0b00011101 -> 1011 1000, D = 0 -> 0000.
+        # C = -(0 + 13 + 1) mod 16 = 2 -> 0100.
+        expected = _GI_LEAD + _train(
+            "10111000" + "0000" + "0100", 490, 2205, 4410
+        ) + _GI_TAIL
+        assert GICableCommand(device=0, function=29).get_raw_timings() == expected
+
+    def test_the_check_with_a_device(self):
+        # D = 3 -> 1100. C = -(3 + 13 + 1) mod 16 = 15 -> 1111.
+        expected = _GI_LEAD + _train(
+            "10111000" + "1100" + "1111", 490, 2205, 4410
+        ) + _GI_TAIL
+        assert GICableCommand(device=3, function=29).get_raw_timings() == expected
+
+    def test_the_four_bits_always_sum_to_zero(self):
+        for d in range(16):
+            for f in range(256):
+                t = GICableCommand(device=d, function=f).get_raw_timings()
+                bits = [1 if space == -4410 else 0 for space in t[3:35:2]]
+                value = sum(b << i for i, b in enumerate(bits))
+                nibbles = [(value >> s) & 0xF for s in (0, 4, 8, 12)]
+                assert sum(nibbles) % 16 == 0, (d, f)
+
+    def test_carrier(self):
+        assert GICableCommand(device=0, function=0).modulation == 38700
+
+    def test_a_repeat_is_a_ditto(self):
+        frame = GICableCommand(device=0, function=7).get_raw_timings()
+        held = GICableCommand(
+            device=0, function=7, repeat_count=2
+        ).get_raw_timings()
+        assert held == frame + [8820, -2205, 490, -87220] * 2
+
+    @pytest.mark.parametrize(("d", "f"), [(16, 0), (0, 256), (-1, 0)])
+    def test_out_of_range_is_refused(self, d, f):
+        with pytest.raises(ValueError):
+            GICableCommand(device=d, function=f)
+
+    def test_the_row_builds_it(self):
+        assert irdb_csv.build("G.I.Cable", 0, -1, 29).get_raw_timings() == (
+            GICableCommand(device=0, function=29).get_raw_timings()
+        )
+        # irdb's name in any letter case.
+        assert irdb_csv.build("g.i.cable", 0, -1, 29).get_raw_timings() == (
+            GICableCommand(device=0, function=29).get_raw_timings()
+        )
+
+    def test_the_row_refuses_what_the_protocol_does_not_define(self):
+        with pytest.raises(IrdbError, match=r"G\.I\.Cable device 16 is outside 0 to 15"):
+            irdb_csv.build("G.I.Cable", 16, -1, 1)
+        with pytest.raises(IrdbError, match=r"G\.I\.Cable has no subdevice"):
+            irdb_csv.build("G.I.Cable", 0, 0, 1)
+
+    @pytest.mark.parametrize("d", [0, 1, 7, 15])
+    def test_no_decoder_claims_it(self, d):
+        for f in range(256):
+            timings = GICableCommand(device=d, function=f).get_raw_timings()
+            assert _nothing_decodes(timings), (d, f)
+
+    def test_stored_as_built(self):
+        timings = GICableCommand(device=0, function=29).get_raw_timings()
+        assert _triple_reproduces(raw_to_pronto(timings, frequency=38700), timings)

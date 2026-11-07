@@ -440,6 +440,20 @@ def _recs80(d: int, s: int, f: int) -> Any:
     return RECS80Command(device=d, function=f, toggle=0)
 
 
+def _gi_cable(d: int, s: int, f: int) -> Any:
+    """G.I.Cable: F 8 bits, D 4 bits and a check nibble, at 38.7 kHz.
+
+    Encode only. Every irdb row gives D 0, the device the reference
+    lists for these boxes, but any D up to 15 is the protocol's own.
+    """
+    from .encoders.gi_cable import GICableCommand
+
+    _field("device", d, 15, "G.I.Cable")
+    _none("subdevice", s, "G.I.Cable")
+    _field("function", f, 0xFF, "G.I.Cable")
+    return GICableCommand(device=d, function=f)
+
+
 #: irdb protocol name (lower case) -> (its spelling, the builder).
 IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
     name.lower(): (name, build)
@@ -466,6 +480,7 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("JVC", _jvc),
         ("Mitsubishi", _mitsubishi),
         ("RECS80", _recs80),
+        ("G.I.Cable", _gi_cable),
     )
 }
 
