@@ -154,6 +154,33 @@ def seed_send_count(repeats_observed: int | None) -> int:
     return max(RF_MIN_SEND_COUNT, min(int(repeats_observed), MAX_SEND_COUNT))
 
 
+def seed_stored_send_counts(data: dict[str, Any]) -> int:
+    """Seed the count of radio commands stored before HAIR sent radio.
+
+    A command assigned from a radio row under the hearing round kept the
+    stored default of 1, which plays one frame where the remote sent
+    several. Runs once, from the device store's v1.3 migration, so a 1 a
+    person sets afterwards is never touched again. Returns how many
+    commands it seeded.
+    """
+    seeded = 0
+    for device in data.get("devices") or []:
+        if not isinstance(device, dict):
+            continue
+        for command in device.get("commands") or []:
+            if not isinstance(command, dict) or command.get("medium") != "rf":
+                continue
+            if (command.get("send_count") or 1) > 1:
+                continue
+            command["send_count"] = seed_send_count(command.get("rf_repeats_observed"))
+            seeded += 1
+    if seeded:
+        _LOGGER.info(
+            "Radio send: seeded the send count of %d stored radio command(s)", seeded
+        )
+    return seeded
+
+
 def send_count_for(row: Any, timings: list[int]) -> int:
     """The row's ``send_count``, clamped, then held to the air-time cap."""
     count = max(1, min(int(getattr(row, "send_count", None) or 1), MAX_SEND_COUNT))
@@ -307,14 +334,29 @@ def plan_radio_send(
             )
             continue
         plan.attempted.append(entity_id)
-    if not plan.attempted and unfit and unfit == len(
-        [e for e in radio_ids if plan.skipped.get(e) != "unavailable"]
-    ):
-        raise SendRefusedError(
-            RF_FREQUENCY_UNSUPPORTED,
-            f"No radio transmitter on {owner} takes "
-            f"{band_label(frequency_hz)} MHz",
+    if not plan.attempted and unfit:
+        # Nothing can go out, and at least one transmitter that is up
+        # cannot take the carrier. Name the reason the user can act on: a
+        # transmitter that declares no frequency is a YAML fix, not a band
+        # mismatch; and a transmitter that is merely down may well take it.
+        down = sorted(e for e, why in plan.skipped.items() if why == "unavailable")
+        no_ranges = all(
+            plan.fits[e].code == RF_NO_RANGES
+            for e in plan.fits if not plan.fits[e].ok
         )
+        if no_ranges:
+            message = (
+                f"The radio transmitter on {owner} declares no frequency; "
+                "add frequency: to its YAML"
+            )
+        else:
+            message = (
+                f"No radio transmitter on {owner} that is up takes "
+                f"{band_label(frequency_hz)} MHz"
+            )
+        if down:
+            message += f" ({', '.join(down)} unavailable)"
+        raise SendRefusedError(RF_FREQUENCY_UNSUPPORTED, message)
     return plan
 
 

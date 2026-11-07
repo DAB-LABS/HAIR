@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import logging
 import math
 import time
@@ -171,6 +172,9 @@ class NormalizedSignal:
     # A radio capture (RF hear, round 1): the frame analysis, carried so
     # the mint copies it onto the row. None for infrared.
     rf: Any = None
+    # A radio capture's carrier, as its producer or receiver gave it, so a
+    # Mirror row for a send nobody in HAIR made still shows its band.
+    rf_frequency_hz: int | None = None
 
     @property
     def medium(self) -> str:
@@ -207,6 +211,7 @@ def _normalize_rf(parsed: Any) -> NormalizedSignal:
         norm_fp=None,
         decode_covers=None,
         rf=analysis,
+        rf_frequency_hz=getattr(parsed, "rf_frequency_hz", None),
     )
 
 
@@ -1253,9 +1258,21 @@ class SignalMonitor:
         if not is_radio_entity(emitter_entity_id):
             return {"success": False, "code": EMITTER_WRONG_MEDIUM,
                     "error": f"{emitter_entity_id} is not a radio transmitter"}
+        # A Sniffer row is minted with the default count of 1, which is not
+        # a choice: Test sends what one press carried, as an assigned
+        # command would (``seed_send_count``), so a good capture does not
+        # test as a dud on a receiver that wants two agreeing frames.
+        row = signal
+        if (getattr(signal, "send_count", None) or 1) <= 1:
+            from .rf_send import seed_send_count
+
+            row = copy.copy(signal)
+            row.send_count = seed_send_count(
+                getattr(signal, "rf_repeats_observed", None)
+            )
         try:
             plan = plan_radio_send(
-                self._hass, signal, [emitter_entity_id],
+                self._hass, row, [emitter_entity_id],
                 signal.alias or "This radio code",
             )
         except SendRefusedError as err:
@@ -1985,6 +2002,12 @@ class SignalMonitor:
                 signal.medium = MEDIUM_RF
             if rf_fields is not None:
                 copy_rf_fields(rf_fields, signal)
+            elif n.rf is not None and n.rf_frequency_hz and not getattr(
+                signal, "rf_frequency_hz", None
+            ):
+                # A foreign radio send heard back: the carrier the
+                # receiver heard it at, so the Mirror's band cell is set.
+                signal.rf_frequency_hz = n.rf_frequency_hz
             signal.hit_count += 1
             signal.last_seen = now_iso
             signal.echo_source = echo_source

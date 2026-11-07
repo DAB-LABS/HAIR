@@ -64,6 +64,10 @@ class _HAIRDeviceStore(Store):
 
         v1.1 is the initial schema.
 
+        v1.3 seeds the send count of radio commands stored before HAIR
+        could send radio (they kept the default 1); see
+        ``rf_send.seed_stored_send_counts``.
+
         v1.2 is the Dyson counter split. The rolling counter moved from
         the F byte's low two bits to its high two, so every stored DYSON
         row's function and counter are recomputed through the byte both
@@ -84,6 +88,10 @@ class _HAIRDeviceStore(Store):
 
             self.dyson_split_ran = True
             self.dyson_split_rows = migrate_device_store(old_data)
+        if old_major_version == 1 and old_minor_version < 3:
+            from .rf_send import seed_stored_send_counts
+
+            seed_stored_send_counts(old_data)
         return old_data
 
 

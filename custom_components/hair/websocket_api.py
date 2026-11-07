@@ -2418,7 +2418,12 @@ async def ws_test_signal(
             result.get("error", "Test failed"),
         )
         return
-    connection.send_result(msg["id"], {"sent": True})
+    # A radio Test says what went on the air (addendum a): the carrier,
+    # and whether a fixed transmitter sent its own instead of the row's.
+    connection.send_result(msg["id"], {
+        "sent": True,
+        **{k: result[k] for k in ("frequency_hz", "substituted") if k in result},
+    })
 
 
 @websocket_api.require_admin
