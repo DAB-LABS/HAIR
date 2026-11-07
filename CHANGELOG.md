@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-07 -- Flat Ironed
+
 ### Changed
 
 - HAIR keeps using its own decoder for a protocol until it has checked that the library's decodes the same codes the same way.
