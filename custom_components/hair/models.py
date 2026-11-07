@@ -616,6 +616,7 @@ _KNOWN_DEVICE = frozenset({
     "humidity_sensor_entity_id", "commands", "entity_config", "database_id",
     "climate_matrix", "source_wig_id", "source_file", "source_remote_id",
     "origin", "created_at", "updated_at", "tangle_attestations",
+    "press_counters",
     # RETIRED, consumed so they are dropped: the Learn dialog's capture
     # hardware fields (windowed receivers round 3, owner ruling
     # 2026-10-18). Listed here rather than deleted so a stored device
@@ -623,6 +624,17 @@ _KNOWN_DEVICE = frozenset({
     # instead of carrying them forever as unknown keys.
     *_RETIRED_DEVICE_KEYS,
 })
+
+
+def _press_counters(raw: Any) -> dict[str, int]:
+    """Read ``press_counters``, keeping only well-formed entries."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, int] = {}
+    for key, value in raw.items():
+        if isinstance(key, str) and isinstance(value, int) and not isinstance(value, bool):
+            out[key] = value & 0x3
+    return out
 
 
 @dataclass
@@ -726,6 +738,13 @@ class IRDevice:
     origin: str | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+    # PER-PRESS STATE THAT BELONGS TO THE DEVICE, not to a command
+    # (GH #33). ``"DYSON:<address>"`` -> the last rolling counter the fan
+    # is known to have accepted from that address; ``dyson_counter`` has
+    # the rule. Absent on every device until its first Dyson press after
+    # 1.1.1. An older HAIR keeps the key through its own saves (0.10.1
+    # item 2) and goes on using the command rows' counters.
+    press_counters: dict[str, int] = field(default_factory=dict)
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
@@ -858,6 +877,10 @@ class IRDevice:
             # duplicate path (device_manager/WS) via copy_matrix,
             # since a dataclass copy cannot touch disk.
             climate_matrix=self.climate_matrix,
+            # The rolling counters ride with the emitters: until the
+            # clone is re-pointed it sends to the same fan, which still
+            # remembers the last counter it accepted.
+            press_counters=dict(self.press_counters),
             # Whatever a newer build knew and this one does not
             # (0.10.1 item 2).
             _extra=dict(self._extra),
@@ -928,6 +951,9 @@ class IRDevice:
         # rather than being frozen into every record at the next save.
         if self.power_settle_s is not None:
             data["power_settle_s"] = self.power_settle_s
+        # Written only once a press has set one, for the same reason.
+        if self.press_counters:
+            data["press_counters"] = dict(self.press_counters)
         return _with_extra(data, self._extra)
 
     @classmethod
@@ -990,6 +1016,7 @@ class IRDevice:
             origin=data.get("origin") or None,
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
+            press_counters=_press_counters(data.get("press_counters")),
         ), data, _KNOWN_DEVICE)
 
 

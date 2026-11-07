@@ -63,13 +63,13 @@ hooks (storage minor version 1 to 2), gated on the version because the
 remap is a bijection and not idempotent; triggers are re-decoded from
 their stored code on the same hop.
 
-WHETHER THE COUNTER ROTATES OVER FOUR VALUES IS STILL OPEN. The
-definition can only ever emit the pairs ``10`` and ``01``, because its
-two toggle bits are one field rendered twice with opposite polarity,
-and upstream's enum shows 00, 01 and 10 but never 11. Nothing available
-settles whether the fourth value is legal, so the mod-4 advance in the
-transmit path is deliberately unchanged; the GH #33 hardware capture
-has to answer it before that moves.
+THE COUNTER HAS THREE VALUES, AND IT IS THE REMOTE'S. Settled by the
+GH #33 AM07 hardware captures (channafam, 2026-10-23): over eight presses
+of four different buttons the last two wire bits went 00, 01, 10, 00,
+01, 10, 00, 01, never 11, and the counter kept advancing across buttons.
+In this module's numbering that is 0, 2, 1, 0. The decoder still reads
+whatever two bits arrive; the transmit side keeps one counter per device
+in that order and never sends 3 (``dyson_counter``).
 
 Device values seen in the wild: 5 (AM02/AM03 towers), 9 (AM04/AM07/
 AM09 -- the ``0b1001000`` preamble of upstream's encoder is this same
@@ -138,8 +138,9 @@ class DysonCommand(Command):
 
         :param device: fan family code D (7 bits; 5=AM02/03, 9=AM04/07/09)
         :param function: button code (6 bits)
-        :param counter: mod-4 rolling press counter (2 bits; press
-            state, not identity -- the fan rejects a reused value)
+        :param counter: rolling press counter (2 bits; press state, not
+            identity -- the fan rejects a reused value; the handset
+            sends 0, 2, 1 in turn and never 3)
         """
         super().__init__(modulation=modulation)
         self.device = device & 0x7F

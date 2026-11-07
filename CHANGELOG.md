@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - HAIR keeps using its own decoder for a protocol until it has checked that the library's decodes the same codes the same way.
 
+### Fixed
+
+- A Dyson fan no longer ignores a press from HAIR after a different button. The fan's rolling counter belongs to the remote, not to each button, and has three values, so HAIR now keeps one counter per device, steps it in the order the handset uses, and picks up from a handset press that a receiver hears. Thanks to @channafam for the captures that settled it (GH #33).
+
 ## [1.1.0] - 2026-11-04 -- Volumizer
 
 ### Added
