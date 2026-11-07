@@ -412,12 +412,21 @@ def _aiwa(d: int, s: int, f: int) -> Any:
     return NEC42Command(address=d | (s << 8), command=f)
 
 
-def _jvc(d: int, s: int, f: int) -> Any:
-    """JVC: D 8 bits, F 8 bits, no subdevice, at the class's 38 kHz."""
-    _field("device", d, 0xFF, "JVC")
-    _none("subdevice", s, "JVC")
-    _field("function", f, 0xFF, "JVC")
-    return _registered("JVC")(address=d, command=f)
+def _jvc(protocol: str) -> Callable[[int, int, int], Any]:
+    """JVC: D 8 bits, F 8 bits, no subdevice, at the class's 38 kHz.
+
+    JVC{2} is the same remote: DecodeIR's name for a JVC signal learned
+    without its lead-in, which only a press's first frame carries. The
+    reference says that when JVC{2} is correct it means the same as JVC,
+    so its rows build the full JVC frame, lead-in and all, as the
+    handset sends it.
+    """
+    def build(d: int, s: int, f: int) -> Any:
+        _field("device", d, 0xFF, protocol)
+        _none("subdevice", s, protocol)
+        _field("function", f, 0xFF, protocol)
+        return _registered("JVC")(address=d, command=f)
+    return build
 
 
 def _mitsubishi(d: int, s: int, f: int) -> Any:
@@ -487,7 +496,8 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("Sharp", _sharp("Sharp", 1)),
         ("Denon", _sharp("Denon", 0)),
         ("Aiwa", _aiwa),
-        ("JVC", _jvc),
+        ("JVC", _jvc("JVC")),
+        ("JVC{2}", _jvc("JVC{2}")),
         ("Mitsubishi", _mitsubishi),
         ("RECS80", _recs80),
         ("G.I.Cable", _gi_cable),
