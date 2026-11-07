@@ -432,7 +432,7 @@
     "listen.failed": "{name} konnte nicht mit dem Lauschen beginnen. Für einen neuen Versuch klicken.",
     "listen.offline_title": "{name} ist offline. Lauschen geht wieder, sobald Home Assistant das Gerät erreicht.",
     "listen.arm_failed": "{name} konnte nicht mit dem Lauschen beginnen.",
-    "listen.no_switch_error": "Für das Aufnahmefenster von {name} ist noch kein Schalter gewählt. Auf seiner Karte unter Geräte einen wählen.",
+    "listen.no_switch_error": "Noch nichts öffnet das Aufnahmefenster von {name}. Wähle seinen Schalter mit dem Pfeil an seiner Pille oben im Sniffer.",
     "listen.no_switch_title": "Zuerst den Schalter wählen, der das Fenster öffnet.",
     "listen.hearing": "lauscht",
     "listen.hold_button": "Taste gedrückt halten",

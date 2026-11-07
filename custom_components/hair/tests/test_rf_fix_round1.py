@@ -221,3 +221,57 @@ class TestTheFilterGlyphs:
         stroke = "color-mix(in srgb, var(--primary-color) 30%, transparent);"
         assert stroke in lit
         assert f"border-color: {stroke}" in flat
+
+
+class TestAFilterIsNotAReload:
+    """Item 10 (owner, 21:01 PT): the glyphs filter the rows in place;
+    "Searching for signals" is for a list with nothing to show."""
+
+    def _flat(self):
+        from pathlib import Path
+
+        src = (
+            Path(__file__).parent.parent / "frontend" / "src" / "ir-signal-monitor.ts"
+        ).read_text(encoding="utf-8")
+        return " ".join(src.split())
+
+    def test_hidden_off_drops_rows_without_a_fetch(self):
+        body = self._flat().split("private _toggleShow(kind: keyof SnifferShow): void {", 1)[1]
+        body = body.split("/** The remotes the lit glyphs show. */", 1)[0]
+        off = body.split("} else {", 1)[1]
+        assert "this._devices = this._devices.filter((d) => !d.dismissed);" in off
+        assert "_load(" not in off
+        assert body.count("void this._load();") == 1
+
+    def test_the_scanning_state_only_with_nothing_on_screen(self):
+        flat = self._flat()
+        scanning = '${this._loading && this._devices.length === 0 ? html`<div class="loading">'
+        count = '${!this._loading || this._devices.length > 0 ? html`<span class="toolbar-count"'
+        assert scanning in flat and count in flat
+
+    def test_an_older_answer_never_overwrites_a_newer_one(self):
+        body = self._flat().split("private async _load(): Promise<void> {", 1)[1]
+        body = body.split("/** Best-effort: the Listen row is extra", 1)[0]
+        assert "const seq = ++this._loadSeq;" in body
+        assert body.index("if (seq !== this._loadSeq) return;") < body.index("this._devices =")
+        assert "if (seq === this._loadSeq) this._loading = false;" in body
+        assert ": unknowns.filter((d) => !d.dismissed);" in body
+
+
+class TestTheNoSwitchMessage:
+    """Owner, 21:40 PT: the hardware cards lost their controls in round 1,
+    so the message points at the caret on the receiver's pill."""
+
+    def test_it_points_at_the_pill(self):
+        import json
+        from pathlib import Path
+
+        locales = Path(__file__).parent.parent / "frontend" / "src" / "locales"
+        en = json.loads((locales / "en.json").read_text(encoding="utf-8"))
+        assert en["listen.no_switch_error"] == (
+            "Nothing opens {name}'s capture window yet. Choose its switch with the "
+            "caret on its pill at the top of the Sniffer."
+        )
+        for path in locales.glob("*.json"):
+            text = json.loads(path.read_text(encoding="utf-8"))["listen.no_switch_error"]
+            assert "{name}" in text and "Sniffer" in text, path.name

@@ -432,7 +432,7 @@
     "listen.failed": "{name} could not start listening. Click to try again.",
     "listen.offline_title": "{name} is offline. It can listen again once Home Assistant reaches it.",
     "listen.arm_failed": "{name} could not start listening.",
-    "listen.no_switch_error": "Nothing is chosen to open {name}'s capture window yet. Choose a switch on its card in Devices.",
+    "listen.no_switch_error": "Nothing opens {name}'s capture window yet. Choose its switch with the caret on its pill at the top of the Sniffer.",
     "listen.no_switch_title": "Choose the switch that opens its window first.",
     "listen.hearing": "hearing",
     "listen.hold_button": "hold the button",

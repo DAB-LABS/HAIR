@@ -432,7 +432,7 @@
     "listen.failed": "{name} non è riuscito a mettersi in ascolto. Clicca per riprovare.",
     "listen.offline_title": "{name} è offline. Potrà ascoltare di nuovo quando Home Assistant lo raggiunge.",
     "listen.arm_failed": "{name} non è riuscito a mettersi in ascolto.",
-    "listen.no_switch_error": "Non è ancora scelto nulla per aprire la finestra di cattura di {name}. Scegli un interruttore sulla sua scheda in Dispositivi.",
+    "listen.no_switch_error": "Ancora nulla apre la finestra di cattura di {name}. Scegli il suo interruttore con la freccia sulla sua pillola, in alto nello Sniffer.",
     "listen.no_switch_title": "Scegli prima l'interruttore che apre la sua finestra.",
     "listen.hearing": "in ascolto",
     "listen.hold_button": "tieni premuto il tasto",
