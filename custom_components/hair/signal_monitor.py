@@ -3928,6 +3928,69 @@ class SignalMonitor:
 
         return {"success": True, "signal": signal.to_dict(), "triggers": rewire}
 
+    async def create_manual_rf_signal(
+        self,
+        device_id: str,
+        rf_code: str,
+        *,
+        rf_frequency_hz: int | None = None,
+        alias: str = "",
+        send_count: int | None = None,
+    ) -> dict[str, Any]:
+        """Add a pasted radio code to a clipped remote (RF send, T6).
+
+        The radio twin of ``create_manual_signal``: the paste is read by
+        ``rf_paste.validate``, as the editor's validate door reads it, and
+        written by ``apply_code``, so a Clipper row and the same code
+        edited in are the same row. A code already on the remote is
+        refused. A paste with no frequency of its own and none given is
+        kept; the row is not sent until one is set in the editor.
+        """
+        from . import rf_paste
+
+        result = rf_paste.validate(rf_code, rf_frequency_hz)
+        if not result["ok"]:
+            return {"success": False, "code": result["code"],
+                    "error": result.get("error", "Not a radio code")}
+
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Clipped remote not found"}
+            if device.source != "manual":
+                return {"success": False, "code": "not_manual",
+                        "error": "Can only add signals to a clipped remote"}
+            if device.get_signal(
+                result["fingerprint"], result["frame_hash"], None
+            ) is not None:
+                return {
+                    "success": False,
+                    "code": "duplicate_signal",
+                    "error": "This signal is already on this remote",
+                }
+            now_iso = datetime.now(UTC).isoformat()
+            signal = UnknownSignal(
+                fingerprint=result["fingerprint"],
+                byte_hash=result["frame_hash"],
+                protocol=RF_PROTOCOL,
+                code=None,
+                raw_timings=[],
+                hit_count=1,
+                first_seen=now_iso,
+                last_seen=now_iso,
+                source="manual",
+                alias=(alias or "").strip(),
+            )
+            rf_paste.apply_code(signal, result)
+            if send_count is not None:
+                signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
+            device.signals.append(signal)
+            self._signal_store.index_signal(device, signal)
+            device.last_seen = now_iso
+            await self._signal_store.async_save()
+        return {"success": True, "signal": signal.to_dict()}
+
     async def edit_signal_rf(
         self,
         device_id: str,

@@ -57,6 +57,10 @@ import type {
 } from "./types.js";
 import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import { singleOppositeLink } from "./ir-pin-link-match.js";
+import "./ir-rf-editor.js";
+import { carrierParts } from "./sniffer-filter.js";
+import { sendRefusal, substitutedHz } from "./rf-errors.js";
+import { bandNumber } from "./ir-listen-state.js";
 
 /** The USE fork's two possible sources on this surface (signpost 3,
  *  Track 3 item 1): a Clipper catalog row, or -- via the matrix-clip
@@ -103,6 +107,14 @@ const ICON_GRIP =
 /** Debounce delay (ms) between a drop and the persist call. */
 const REORDER_DEBOUNCE_MS = 500;
 
+/** A Clipper row's carrier: the band for a radio row ("433.92 MHz"),
+ *  kHz for infrared, nothing for a radio row with no frequency yet. */
+function clipCarrier(sig: UnknownSignal): string {
+    const parts = carrierParts(sig);
+    if (!parts) return "";
+    return "band" in parts ? t("listen.band", { band: parts.band }) : `${parts.khz} kHz`;
+}
+
 @customElement("ir-clips")
 export class IrClips extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -128,6 +140,8 @@ export class IrClips extends LitElement {
     // Dialog state
     @state() private _createRemoteOpen = false;
     @state() private _createSignalDeviceId: string | null = null;
+    // A pasted radio code (RF send, T6): its own editor, ir-rf-editor.
+    @state() private _createRfDeviceId: string | null = null;
     @state() private _editSignal: {
         deviceId: string;
         signal: UnknownSignal;
@@ -451,8 +465,14 @@ export class IrClips extends LitElement {
         this._createSignalDeviceId = deviceId;
     }
 
+    private _openCreateRfSignal(deviceId: string, e: Event): void {
+        e.stopPropagation();
+        this._createRfDeviceId = deviceId;
+    }
+
     private async _onSignalCreated(): Promise<void> {
         this._createSignalDeviceId = null;
+        this._createRfDeviceId = null;
         await this._refreshExpanded();
         await this._load();
     }
@@ -969,7 +989,16 @@ export class IrClips extends LitElement {
                 (r) => r.status === "fulfilled" && r.value.sent,
             ).length;
             const total = emitters.length;
-            if (sent === total) {
+            const refused = results
+                .map((r) => (r.status === "rejected" ? sendRefusal(r.reason) : null))
+                .find((m) => m !== null);
+            const at = substitutedHz(results);
+            if (refused) {
+                this._testResult = refused;
+            } else if (at !== null && sent > 0) {
+                // A fixed-frequency transmitter sent at its own band.
+                this._testResult = t("mirror.sent_at", { band: bandNumber(at) });
+            } else if (sent === total) {
                 this._testResult = total === 1 ? t("mirror.sent") : t("mirror.sent_all_n", { sent, total });
             } else if (sent === 0) {
                 this._testResult = t("mirror.failed");
@@ -1340,6 +1369,13 @@ export class IrClips extends LitElement {
                     >
                         ${t("clips.add_signal")}
                     </button>
+                    <button
+                        class="create-signal-btn"
+                        title=${t("clips.add_rf_signal_title")}
+                        @click=${(e: Event) => this._openCreateRfSignal(device.id, e)}
+                    >
+                        ${t("clips.add_rf_signal")}
+                    </button>
                 </div>
                 ${device.signals.length === 0
                     ? html`<div class="no-signals-row">
@@ -1401,22 +1437,27 @@ export class IrClips extends LitElement {
                     </ir-signal-alias>
                 </div>
                 <div class="chip-col">
-                    <ir-protocol-chip
-                        .protocol=${sig.decoded_protocol ?? null}
-                        .bypass=${!!sig.tx_force_raw}
-                        interactive
-                        @toggle-bypass=${(e: CustomEvent) =>
-                            this._onToggleBypass(
-                                deviceId,
-                                sig.id,
-                                e.detail.bypass,
-                            )}
-                    ></ir-protocol-chip>
+                    ${sig.medium === "rf"
+                        ? // No infrared chip on a radio row, and no glyph:
+                          // the Clipper carries none (round 1 ruling). The
+                          // band beside it says radio.
+                          ""
+                        : html`<ir-protocol-chip
+                              .protocol=${sig.decoded_protocol ?? null}
+                              .bypass=${!!sig.tx_force_raw}
+                              interactive
+                              @toggle-bypass=${(e: CustomEvent) =>
+                                  this._onToggleBypass(
+                                      deviceId,
+                                      sig.id,
+                                      e.detail.bypass,
+                                  )}
+                          ></ir-protocol-chip>`}
                 </div>
                 <div class="signal-meta">
                     ${isTesting && this._testResult
                         ? html`<span class="test-result">${this._testResult}</span>`
-                        : html`<span>${Math.round(sig.frequency / 1000)} kHz</span>`}
+                        : html`<span>${clipCarrier(sig)}</span>`}
                 </div>
                 <div class="signal-actions">
                     <button
@@ -1457,7 +1498,7 @@ export class IrClips extends LitElement {
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
                     <span class="edit-trash-group">
-                        ${sig.code
+                        ${sig.code || sig.medium === "rf"
                             ? renderEditBtn(
                                   (e: Event) =>
                                       this._openEditSignal(deviceId, sig, e),
@@ -1504,7 +1545,31 @@ export class IrClips extends LitElement {
                   ></ir-signal-editor>`
                 : ""}
 
-            ${this._editSignal
+            ${this._createRfDeviceId
+                ? html`<ir-rf-editor
+                      .api=${this.api}
+                      .deviceId=${this._createRfDeviceId}
+                      @signal-created=${this._onSignalCreated}
+                      @closed=${() => (this._createRfDeviceId = null)}
+                  ></ir-rf-editor>`
+                : ""}
+
+            ${this._editSignal?.signal.medium === "rf"
+                ? html`<ir-rf-editor
+                      .api=${this.api}
+                      .deviceId=${this._editSignal.deviceId}
+                      .signalId=${this._editSignal.signal.id}
+                      .initialFrame=${this._editSignal.signal.raw_timings ?? []}
+                      .initialFrequencyHz=${this._editSignal.signal.rf_frequency_hz ?? null}
+                      .initialFrequencySource=${this._editSignal.signal.rf_frequency_source ?? null}
+                      .initialGapUs=${this._editSignal.signal.rf_frame_gap_us ?? null}
+                      .initialAlias=${this._editSignal.signal.alias ?? ""}
+                      .initialSendCount=${this._editSignal.signal.send_count ?? 1}
+                      .hasTrigger=${this._hasTrigger(this._editSignal.signal)}
+                      @signal-edited=${this._onSignalEdited}
+                      @closed=${() => (this._editSignal = null)}
+                  ></ir-rf-editor>`
+                : this._editSignal
                 ? html`<ir-signal-editor
                       .api=${this.api}
                       .deviceId=${this._editSignal.deviceId}
@@ -1706,6 +1771,8 @@ export class IrClips extends LitElement {
                       .api=${this.api}
                       .hass=${this.hass}
                       .value=${this._testEmitters}
+                      .media=${[this._testDialog.signal.medium ?? "ir"]}
+                      .rfFrequencyHz=${this._testDialog.signal.rf_frequency_hz ?? null}
                       @emitters-changed=${(e: CustomEvent) =>
                           (this._testEmitters = e.detail.value)}
                       @send=${this._sendTest}

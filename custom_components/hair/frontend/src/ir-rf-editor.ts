@@ -16,6 +16,10 @@
  * the frequency ladder (go-rf-send-beta.md, decision 5). Then Send N
  * times. No snap, no ditto, no spacing: those are infrared settings.
  *
+ * With neither a signal nor a command it CREATES (T6): the Clipper's
+ * "Add radio code" opens it empty on a clipped remote, and Save adds the
+ * paste as a new row (`signal-created`).
+ *
  * A separate dialog from ir-signal-editor rather than a mode inside it:
  * that editor's Pronto, snap, ditto and repair paths do not apply to a
  * radio frame, and a second code path inside them would be easy to
@@ -78,7 +82,10 @@ export class IrRfEditor extends LitElement {
 
     connectedCallback(): void {
         super.connectedCallback();
-        this._initialCode = toSub(this.initialFrame, this.initialFrequencyHz, this.initialGapUs);
+        // A new code opens empty; an existing row opens on its .sub.
+        this._initialCode = this._creating
+            ? ""
+            : toSub(this.initialFrame, this.initialFrequencyHz, this.initialGapUs);
         this._code = this._initialCode;
         this._alias = this.initialAlias;
         this._sendCount = Math.max(1, this.initialSendCount || 1);
@@ -91,6 +98,11 @@ export class IrRfEditor extends LitElement {
     disconnectedCallback(): void {
         super.disconnectedCallback();
         if (this._timer !== null) clearTimeout(this._timer);
+    }
+
+    /** No row yet: a new radio code on a clipped remote (T6). */
+    private get _creating(): boolean {
+        return this.signalId === null && this.commandId === null;
     }
 
     private get _codeChanged(): boolean {
@@ -157,6 +169,7 @@ export class IrRfEditor extends LitElement {
     private get _canSave(): boolean {
         if (this._busy || this._validating || this._typedInvalid) return false;
         if (this._codeChanged && !this._validation?.ok) return false;
+        if (this._creating && !this._codeChanged) return false;
         return true;
     }
 
@@ -192,6 +205,15 @@ export class IrRfEditor extends LitElement {
                     send_count: this._sendCount,
                 });
                 this._fire("command-edited", result);
+            } else if (this._creating) {
+                const result = await this.api.createRfSignal({
+                    device_id: this.deviceId,
+                    rf_code: this._code,
+                    ...(rfFrequency !== undefined ? { rf_frequency_hz: rfFrequency } : {}),
+                    alias: this._alias.trim(),
+                    send_count: this._sendCount,
+                });
+                this._fire("signal-created", result);
             } else if (this.signalId !== null) {
                 const result = await this.api.editRfSignal({
                     device_id: this.deviceId,
@@ -283,7 +305,11 @@ export class IrRfEditor extends LitElement {
     }
 
     render() {
-        const heading = this.commandId !== null ? t("rfedit.edit_command") : t("rfedit.edit_signal");
+        const heading = this._creating
+            ? t("rfedit.new_signal")
+            : this.commandId !== null
+              ? t("rfedit.edit_command")
+              : t("rfedit.edit_signal");
         return html`<ha-dialog open heading=${heading} scrimClickAction="" @closed=${this._close}>
             ${this._error ? html`<ha-alert alert-type="error">${this._error}</ha-alert>` : nothing}
             <div class="medium">${renderProtoGlyph("rf", 16)}<span>${t("rfedit.radio")}</span></div>
@@ -335,7 +361,11 @@ export class IrRfEditor extends LitElement {
                 : nothing}
 
             <div class="dialog-actions">
-                <button class="action-btn cancel-btn" @click=${() => void this._copy()} ?disabled=${this._busy}>
+                <button
+                    class="action-btn cancel-btn"
+                    @click=${() => void this._copy()}
+                    ?disabled=${this._busy || !this._code.trim()}
+                >
                     ${this._copied ? t("rfedit.copied") : t("rfedit.copy_sub")}
                 </button>
                 <span class="actions-spacer"></span>
