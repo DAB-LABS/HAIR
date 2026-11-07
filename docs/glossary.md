@@ -330,7 +330,8 @@ fires, so an accidental single press does not set something off.
 
 **Tap and hold.** A single tap on a handset counts once. Holding a button
 steps about three times a second, through the trigger and through any Device
-the Remote is pinned to.
+the Remote is pinned to. A quick double press counts twice when the remote's
+own frames mark the second press as new, as NEC, JVC and RC5/RC6 remotes do.
 
 **Pin / PINNED.** Pin a Remote to a Device and pressing the handset sends the
 matching command out that Device's emitters; HAIR works out which button
