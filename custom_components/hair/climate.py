@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
     ATTR_FAN_MODE,
+    ATTR_HVAC_MODE,
     ATTR_PRESET_MODE,
     ATTR_SWING_MODE,
     ATTR_TEMPERATURE,
@@ -1420,9 +1421,22 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         raw_target = kwargs.get(ATTR_TEMPERATURE)
         if raw_target is None:
             return
+        # THE MODE IN THE SAME CALL (GH #168 note, section 2.1). Home
+        # Assistant validates the range and then hands the whole call
+        # here, ``hvac_mode`` included, and nowhere else: it never calls
+        # set_hvac_mode for a set_temperature. So the mode is this
+        # method's to apply, together with the temperature.
+        raw_mode = kwargs.get(ATTR_HVAC_MODE)
+        hvac_mode = HVACMode(raw_mode) if raw_mode is not None else None
         self._preset_mode = None
         if self._matrix_mode:
             self._target_temperature = float(raw_target)
+            if hvac_mode is not None:
+                # One send: the mode path resolves the cell for the new
+                # mode at the temperature just stored, or turns the unit
+                # off and keeps the temperature for the next mode.
+                await self.async_set_hvac_mode(hvac_mode)
+                return
             if self._hvac_mode != HVACMode.OFF:
                 # _async_send_cell snaps the dial to the transmitted
                 # cell's temperature.
@@ -1434,9 +1448,22 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         # ``target`` must already be a plain float where the lambda captures it.
         target = float(raw_target)
         presets = self._device.entity_config.temperature_presets or []
-        if presets:
-            snapped = min(presets, key=lambda t: abs(t - target))
-            target = float(snapped)
+        snapped = (
+            float(min(presets, key=lambda t: abs(t - target)))
+            if presets else None
+        )
+        if hvac_mode == HVACMode.OFF:
+            # Off with a temperature: keep the temperature, send no
+            # temperature command to a unit being turned off, then off.
+            self._target_temperature = target if snapped is None else snapped
+            await self.async_set_hvac_mode(HVACMode.OFF)
+            return
+        if hvac_mode is not None and hvac_mode != self._hvac_mode:
+            # Mode first, then temperature: the order a person presses
+            # them. A mode the entity already shows is not pressed again.
+            await self.async_set_hvac_mode(hvac_mode)
+        if snapped is not None:
+            target = snapped
             await self._send(f"temp_{int(snapped)}")
         self._target_temperature = target
         self.async_write_ha_state()
