@@ -454,6 +454,16 @@ def _gi_cable(d: int, s: int, f: int) -> Any:
     return GICableCommand(device=d, function=f)
 
 
+def _dish_network(d: int, s: int, f: int) -> Any:
+    """Dish_Network: F 6 bits, S 5 bits, D 5 bits, at 57.6 kHz. Encode only."""
+    from .encoders.dish_network import DishNetworkCommand
+
+    _field("device", d, 31, "Dish_Network")
+    _field("subdevice", s, 31, "Dish_Network")
+    _field("function", f, 63, "Dish_Network")
+    return DishNetworkCommand(device=d, subdevice=s, function=f)
+
+
 #: irdb protocol name (lower case) -> (its spelling, the builder).
 IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
     name.lower(): (name, build)
@@ -481,6 +491,7 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("Mitsubishi", _mitsubishi),
         ("RECS80", _recs80),
         ("G.I.Cable", _gi_cable),
+        ("Dish_Network", _dish_network),
     )
 }
 
