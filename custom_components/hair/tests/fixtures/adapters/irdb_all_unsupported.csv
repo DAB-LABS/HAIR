@@ -1,4 +1,4 @@
 functionname,protocol,device,subdevice,function
-POWER,Mitsubishi,71,-1,23
-VOL+,Mitsubishi,71,-1,30
-VOL-,Mitsubishi,71,-1,31
+POWER,Velleman,0,-1,23
+VOL+,Velleman,0,-1,30
+VOL-,Velleman,0,-1,31

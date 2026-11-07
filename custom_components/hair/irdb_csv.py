@@ -11,11 +11,12 @@ and ``-1`` means "use the protocol's default". The meaning of each field
 is the protocol's published definition (the IRP notation the JP1 and
 DecodeIR community maintains), never another program's code.
 
-ONE TABLE, BUILT FROM THE CLASSES HAIR ALREADY HAS. ``IRDB_PROTOCOLS``
-maps a protocol name to a builder that constructs a registered command
-class or one of this package's own decoders, the way the Flipper reader
-does. There is no encoder here. A protocol HAIR has no class for is not
-in the table, and its rows come back as a receipt naming it.
+ONE TABLE. ``IRDB_PROTOCOLS`` maps a protocol name to a builder that
+constructs a registered command class or one of this package's own
+decoders, the way the Flipper reader does, or, for a protocol HAIR does
+not decode, one of the encode-only classes in ``encoders``. There is no
+encoding in this module itself. A protocol outside the table has its
+rows come back as a receipt naming it.
 
 THE FILE SHAPES ACCEPTED, from a measurement of irdb's files:
 
@@ -419,6 +420,16 @@ def _jvc(d: int, s: int, f: int) -> Any:
     return _registered("JVC")(address=d, command=f)
 
 
+def _mitsubishi(d: int, s: int, f: int) -> Any:
+    """Mitsubishi: D 8 bits (0 to 127), F 8 bits, at 32.6 kHz. Encode only."""
+    from .encoders.mitsubishi import MitsubishiCommand
+
+    _field("device", d, 127, "Mitsubishi")
+    _none("subdevice", s, "Mitsubishi")
+    _field("function", f, 0xFF, "Mitsubishi")
+    return MitsubishiCommand(device=d, function=f)
+
+
 #: irdb protocol name (lower case) -> (its spelling, the builder).
 IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
     name.lower(): (name, build)
@@ -443,6 +454,7 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("Denon", _sharp("Denon", 0)),
         ("Aiwa", _aiwa),
         ("JVC", _jvc),
+        ("Mitsubishi", _mitsubishi),
     )
 }
 
