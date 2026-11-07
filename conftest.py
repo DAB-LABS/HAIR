@@ -305,6 +305,7 @@ class _ClimateEntity:
 _stub("homeassistant.components.climate", {
     "ATTR_TEMPERATURE": "temperature",
     "ATTR_FAN_MODE": "fan_mode",
+    "ATTR_HVAC_MODE": "hvac_mode",
     "ATTR_SWING_MODE": "swing_mode",
     # Needed since climate.py restores the starred preset with a match
     # check (restore completeness, 2026-08-23).

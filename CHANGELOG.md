@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A Dyson fan no longer ignores a press from HAIR after a different button. The fan's rolling counter belongs to the remote, not to each button, and has three values, so HAIR now keeps one counter per device, steps it in the order the handset uses, and picks up from a handset press that a receiver hears. Thanks to @channafam for the captures that settled it (GH #33).
+- A climate set-temperature call that also names a mode now switches to that mode, so "heat to 26" sent while the unit is in cool or off goes out as heat at 26. Setting a temperature with the mode off turns the unit off and keeps the temperature for next time.
 
 ## [1.1.0] - 2026-11-04 -- Volumizer
 
