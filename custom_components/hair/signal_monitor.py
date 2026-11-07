@@ -393,17 +393,22 @@ def _apply_signal_provenance(
         command.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
     else:
         command.repeat_count = signal.repeat_count
-    if send_count is not None:
-        command.send_count = max(1, send_count)
-    elif is_rf(signal) and (signal.send_count or 1) <= 1:
-        # A radio row nobody has set a count on sends what one press
-        # carried (RF send, T1): fixed-code receivers want several frames,
-        # and a count of 1 is the dataclass default, not a choice.
+    if is_rf(signal) and (send_count is None or send_count <= 1):
+        # A RADIO COUNT OF 1 IS UNSET (RF send, T1; review F5). The panel's
+        # assign and make-device doors pass 1 when nobody touched the knob,
+        # and 1 is also the row's stored default, so neither is a choice:
+        # the row's own count wins when somebody raised it, otherwise the
+        # command sends what one press carried (fixed-code receivers want
+        # several frames). The editor's own door is a choice and does not
+        # come through here.
         from .rf_send import seed_send_count
 
-        command.send_count = seed_send_count(
+        own = signal.send_count or 1
+        command.send_count = own if own > 1 else seed_send_count(
             getattr(signal, "rf_repeats_observed", None)
         )
+    elif send_count is not None:
+        command.send_count = max(1, send_count)
     else:
         command.send_count = max(1, signal.send_count or 1)
     # The spacing rides across with the count it belongs to. A signal
