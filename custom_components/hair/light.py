@@ -19,7 +19,7 @@ from .const import DOMAIN, DeviceType
 from .models import EntityConfig, IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
 from .remote_state import RemoteStateMixin, register_remote_platform
-from .send_follow import mapped_keys, power_after
+from .send_follow import mapped_keys, power_after, toggle_already_there
 from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 
 _LOGGER = logging.getLogger(__name__)
@@ -194,14 +194,26 @@ class HAIRLightEntity(RestoreEntity, LightEntity):
             self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self._send("turn_on", "power_toggle")
+        # A toggle sent to a device already believed in the wanted state
+        # would flip it the wrong way (GH #229 point 1); a discrete code
+        # always sends.
+        if not self._toggle_already_there(("turn_on", "power_toggle"), True):
+            await self._send("turn_on", "power_toggle")
         self._is_on = True
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._send("turn_off", "power_toggle")
+        if not self._toggle_already_there(("turn_off", "power_toggle"), False):
+            await self._send("turn_off", "power_toggle")
         self._is_on = False
         self.async_write_ha_state()
+
+    def _toggle_already_there(self, keys: tuple[str, ...], want_on: bool) -> bool:
+        """Would the power press for ``keys`` toggle the wrong way?"""
+        return toggle_already_there(
+            self._device, self._entity_config.command_mapping, keys,
+            self._is_on, want_on,
+        )
 
     @callback
     def update_device(self, device: IRDevice) -> None:

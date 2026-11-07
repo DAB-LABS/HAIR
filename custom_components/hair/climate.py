@@ -47,6 +47,7 @@ from .const import DOMAIN, CommandSource, DeviceType
 from .matrix_store import SIGNAL_MATRIX_CHANGED
 from .models import IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
+from .send_follow import toggle_already_there
 from .send_signal import (
     ORIGIN_ENTITY,
     SIGNAL_DEVICE_SENT,
@@ -1401,7 +1402,8 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             self.async_write_ha_state()
             return
         if hvac_mode == HVACMode.OFF:
-            await self._send("turn_off", "power_toggle")
+            if not self._toggle_already_there(("turn_off", "power_toggle"), False):
+                await self._send("turn_off", "power_toggle")
             self._capture_active_mode()
             self._hvac_mode = HVACMode.OFF
             self.async_write_ha_state()
@@ -1413,6 +1415,13 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             self.async_write_ha_state()
             return
         # Fall back to power-on if no mode-specific command was captured.
+        if self._toggle_already_there(("turn_on", "power_toggle"), True):
+            # The unit is believed on and power-on is the toggle: pressing
+            # it would turn the unit off (GH #229 point 1). There is no
+            # command for this mode, so nothing is sent and the mode the
+            # entity shows stays as it is.
+            self.async_write_ha_state()
+            return
         if await self._send("turn_on", "power_toggle"):
             self._hvac_mode = hvac_mode
             self.async_write_ha_state()
@@ -1581,7 +1590,8 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 self._hvac_mode = target
             self.async_write_ha_state()
             return
-        await self._send("turn_on", "power_toggle")
+        if not self._toggle_already_there(("turn_on", "power_toggle"), True):
+            await self._send("turn_on", "power_toggle")
         if self._hvac_mode == HVACMode.OFF:
             self._hvac_mode = HVACMode.AUTO
         self.async_write_ha_state()
@@ -1591,10 +1601,19 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         if self._matrix_mode:
             await self._async_matrix_off()
             return
-        await self._send("turn_off", "power_toggle")
+        if not self._toggle_already_there(("turn_off", "power_toggle"), False):
+            await self._send("turn_off", "power_toggle")
         self._capture_active_mode()
         self._hvac_mode = HVACMode.OFF
         self.async_write_ha_state()
+
+    def _toggle_already_there(self, keys: tuple[str, ...], want_on: bool) -> bool:
+        """Preset mode: would the power press for ``keys`` toggle the unit
+        the wrong way (GH #229 point 1)? Matrix mode never asks."""
+        return toggle_already_there(
+            self._device, self._device.entity_config.command_mapping, keys,
+            self._hvac_mode != HVACMode.OFF, want_on,
+        )
 
     @callback
     def update_device(self, device: IRDevice) -> None:
