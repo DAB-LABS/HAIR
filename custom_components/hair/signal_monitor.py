@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import time
 from collections import defaultdict
 from collections.abc import Callable
@@ -64,9 +65,9 @@ from .const import (
     PINNED_TICKET_ARM_FALLBACK_S,
     RECEIVER_HEARD_MIN_GAP_S,
     REPEAT_ATTRIBUTION_WINDOW,
+    RF_BURST_HOLD_S,
     RF_MIN_BODY_EDGES,
     RF_PROTOCOL,
-    RF_SEND_UNSUPPORTED,
     SEND_REPEAT_GAP,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
@@ -389,6 +390,15 @@ def _apply_signal_provenance(
         command.repeat_count = signal.repeat_count
     if send_count is not None:
         command.send_count = max(1, send_count)
+    elif is_rf(signal) and (signal.send_count or 1) <= 1:
+        # A radio row nobody has set a count on sends what one press
+        # carried (RF send, T1): fixed-code receivers want several frames,
+        # and a count of 1 is the dataclass default, not a choice.
+        from .rf_send import seed_send_count
+
+        command.send_count = seed_send_count(
+            getattr(signal, "rf_repeats_observed", None)
+        )
     else:
         command.send_count = max(1, signal.send_count or 1)
     # The spacing rides across with the count it belongs to. A signal
@@ -1109,6 +1119,170 @@ class SignalMonitor:
     # The Mirror (v0.6.6): send audit + echo attribution
     # -----------------------------------------------------------------
 
+    def record_send_rf(
+        self,
+        row: Any,
+        plan: Any,
+        source_label: str,
+        heard_future: asyncio.Future[str | None] | None = None,
+    ) -> None:
+        """``record_send`` for a radio send (RF send, T1; plan 5.10).
+
+        The Mirror row and the echo ticket are made from what goes on the
+        air, read by the receive path's own code: the wire frame repeated,
+        through ``rf_frames.analyze``, so a receiver hearing HAIR's burst
+        votes to the same fingerprint the ticket holds, whether it gets
+        the burst whole (an RM4 Pro window) or a frame per capture (an
+        Athom, through the burst assembler). The ticket is radio-only and
+        claims on that exact fingerprint. Its budget is in bursts, because
+        the receive path hands the pipeline one capture per burst: one,
+        unless the send outlasts ``RF_BURST_HOLD_S``.
+        """
+        from . import rf_frames
+
+        try:
+            # Three copies, not two: the receive path reads a capture's
+            # last space as the receiver's idle, so the final frame never
+            # counts as closed, and the vote needs two closed frames.
+            analysis = rf_frames.analyze(list(plan.timings) * 3)
+            if analysis is None:
+                raise ValueError("the wire frame did not vote")
+            parsed = CaptureResult(
+                protocol=RF_PROTOCOL,
+                code=None,
+                raw_timings=list(analysis.frame),
+                medium=MEDIUM_RF,
+                rf_frame_hash=analysis.frame_hash,
+                rf_repeats_observed=plan.count,
+                rf_frame_gap_us=analysis.gap_us,
+                rf_frame_gap_source=analysis.gap_source,
+                rf_header_shape=analysis.header_shape,
+                rf_short_mark_us=analysis.short_mark_us,
+            )
+            copy_rf_fields(row, parsed)
+            parsed.medium = MEDIUM_RF
+            # The Mirror says what went on the air, after substitution.
+            parsed.rf_frequency_hz = plan.on_air_hz or getattr(
+                row, "rf_frequency_hz", None
+            )
+            parsed.rf_frame_hash = analysis.frame_hash
+            parsed.rf_repeats_observed = plan.count
+            parsed.rf = analysis  # type: ignore[attr-defined]
+            n = _normalize_rf(parsed)
+        except Exception:  # never let audit bookkeeping break a send
+            _LOGGER.exception("Mirror: failed to read an outgoing radio send")
+            return
+        emitter_ids = list(plan.attempted)
+        emitters = ", ".join(
+            self._friendly_name(e) for e in emitter_ids
+        ) or "unknown transmitter"
+        label = f"{source_label} -- via {emitters}"
+        now = monotonic()
+        sent_at = datetime.now(UTC).isoformat()
+        for entity_id in emitter_ids:
+            self._own_send_marks[entity_id] = now
+            self._last_sent_at[entity_id] = sent_at
+        self._hass.async_create_task(
+            self._mirror_upsert(
+                n,
+                decoded_fp=None,
+                echo_source=label,
+                reset_heard=True,
+                send_count=plan.count,
+                repeat_count=0,
+                rf_fields=parsed,
+            )
+        )
+        extra_window_s = max(0.0, float(plan.air_s)) + MIRROR_ECHO_MARGIN_S
+        expectation: dict[str, Any] = {
+            "medium": MEDIUM_RF,
+            "decoded_fp": None,
+            "sig_fp": n.sig_fp,
+            "norm_fp": None,
+            "row_key": n.sig_fp,
+            "extra_window_s": extra_window_s,
+            "expires": now + MIRROR_ECHO_TTL_S + extra_window_s,
+            # No garble swallow for radio (plan 5.10).
+            "sl": None,
+            "garble_expires": 0.0,
+            "burst": None,
+            "burst_sl": None,
+            "burst_sig_fp": None,
+            "frame_entries": len(n.raw_timings),
+            "cancel": None,
+            "heard_future": heard_future,
+            "claim_budget": max(1, math.ceil(plan.air_s / RF_BURST_HOLD_S)),
+            "claims_left": {},
+            "garble_left": {},
+            "emitters": emitter_ids,
+            "armed_at": None,
+            "guard_until": 0.0,
+            "candy_seq": None,
+        }
+        self._echo_expectations.append(expectation)
+
+        def _expire() -> None:
+            if expectation in self._echo_expectations:
+                self._echo_expectations.remove(expectation)
+
+        expectation["cancel"] = self._hass.loop.call_later(
+            max(MIRROR_ECHO_TTL_S, MIRROR_OWN_BEACON_WINDOW_S) + extra_window_s,
+            _expire,
+        )
+
+        def _arm_fallback() -> None:
+            if expectation.get("armed_at") is None:
+                self._arm_expectation(expectation, monotonic())
+
+        self._hass.loop.call_later(PINNED_TICKET_ARM_FALLBACK_S, _arm_fallback)
+
+    async def _test_radio(
+        self, signal: Any, emitter_entity_id: str
+    ) -> dict[str, Any]:
+        """The Sniffer's Test for a radio row, through one transmitter."""
+        from .emitters import EMITTER_WRONG_MEDIUM
+        from .rf_send import (
+            SendRefusedError,
+            async_transmit,
+            is_radio_entity,
+            plan_radio_send,
+        )
+
+        # The door refuses the other medium first (T2); this is the
+        # second line, with the same code.
+        if not is_radio_entity(emitter_entity_id):
+            return {"success": False, "code": EMITTER_WRONG_MEDIUM,
+                    "error": f"{emitter_entity_id} is not a radio transmitter"}
+        try:
+            plan = plan_radio_send(
+                self._hass, signal, [emitter_entity_id],
+                signal.alias or "This radio code",
+            )
+        except SendRefusedError as err:
+            return {"success": False, "code": err.code, "error": str(err)}
+        if not plan.attempted:
+            return {"success": False, "code": "send_failed",
+                    "error": f"{emitter_entity_id} is unavailable"}
+        label = (
+            f"Manual test send: {signal.alias}" if signal.alias
+            else "Manual test send"
+        )
+        self.record_send_rf(signal, plan, label)
+        await async_transmit(self._hass, plan)
+        if not plan.landed:
+            reason = plan.failures.get(emitter_entity_id, "")
+            if reason == "timed out":
+                return {"success": False, "code": "send_timeout",
+                        "error": "Transmitter timed out"}
+            return {"success": False, "code": "send_failed",
+                    "error": f"Transmitter did not respond: {reason}"}
+        return {
+            "success": True,
+            "sent": True,
+            "frequency_hz": plan.on_air_hz,
+            "substituted": plan.substituted,
+        }
+
     def record_send(
         self,
         command: Any,
@@ -1410,14 +1584,21 @@ class SignalMonitor:
         """
         data = event.data
         entity_id = data.get("entity_id") or ""
-        if not entity_id.startswith("infrared."):
+        # Infrared emitters and, since RF send T1, radio transmitters:
+        # core writes a radio transmitter's state on every send exactly
+        # as it writes an infrared emitter's (``async_send_command_internal``).
+        if entity_id.startswith("infrared."):
+            beacon_class, medium = "emitter", "ir"
+        elif entity_id.startswith("radio_frequency."):
+            beacon_class, medium = "transmitter", MEDIUM_RF
+        else:
             return
         new_state = data.get("new_state")
         old_state = data.get("old_state")
         if new_state is None or old_state is None:
             return  # startup restore / removal, not a send
         attrs = getattr(new_state, "attributes", {}) or {}
-        if attrs.get("device_class") != "emitter":
+        if attrs.get("device_class") != beacon_class:
             return
         if attrs.get(TWEEZER_OBSERVER_ATTR):
             return  # the Tweezer observes; it does not transmit
@@ -1477,6 +1658,9 @@ class SignalMonitor:
             "label": caused,
             "echoed": False,
             "cancel": None,
+            # A foreign send's echo is claimed only by a capture of its
+            # own medium: an infrared beacon never takes a radio press.
+            "medium": medium,
         }
         self._foreign_pending[entity_id] = record
 
@@ -1488,7 +1672,9 @@ class SignalMonitor:
             if not record["echoed"]:
                 # Sent, never heard, identity unknown: still audited.
                 self._hass.async_create_task(
-                    self._mirror_upsert_unknown(entity_id, record["label"])
+                    self._mirror_upsert_unknown(
+                        entity_id, record["label"], medium=record["medium"]
+                    )
                 )
 
         record["cancel"] = self._hass.loop.call_later(
@@ -1517,6 +1703,16 @@ class SignalMonitor:
             # Skipping here is what stops a press's own repeat frames
             # from spending the echo's ticket.
             if exp.get("armed_at") is None:
+                continue
+            # A ticket claims only captures of its own medium. For radio
+            # the identity below reduces to the exact fingerprint: radio
+            # has no decoded or receiver-tolerant tier and its tickets
+            # carry no burst shape, and the garble swallow further down
+            # never runs on a radio capture (it has no Pronto pattern).
+            # That is the plan's rule (5.10): "socket 1 on" and "socket 1
+            # off" differ in four of 24 symbols, and a person's "off"
+            # pressed just after HAIR's "on" must stay a press.
+            if (exp.get("medium") or "ir") != n.medium:
                 continue
             matched = (
                 (
@@ -1616,6 +1812,8 @@ class SignalMonitor:
             return EchoVerdict(candy_feed.ECHO_GUARD, guard_hit)
         for entity_id, pending in list(self._foreign_pending.items()):
             if now > pending["expires"]:
+                continue
+            if (pending.get("medium") or "ir") != n.medium:
                 continue
             # One identity-minting claim per beacon. Without this, a
             # pending window kept eating every capture for its full TTL,
@@ -1743,6 +1941,7 @@ class SignalMonitor:
         heard: str | None = None,
         send_count: int | None = None,
         repeat_count: int | None = None,
+        rf_fields: Any = None,
     ) -> None:
         """Create or bump a Mirror row keyed by the send's identity.
 
@@ -1780,6 +1979,12 @@ class SignalMonitor:
                     heard_by=[],
                 )
                 device.signals.insert(0, signal)
+            # A radio send or echo carries its medium and, for HAIR's own
+            # sends, the on-air carrier and frame fields (doors section 6).
+            if n.rf is not None:
+                signal.medium = MEDIUM_RF
+            if rf_fields is not None:
+                copy_rf_fields(rf_fields, signal)
             signal.hit_count += 1
             signal.last_seen = now_iso
             signal.echo_source = echo_source
@@ -1833,7 +2038,7 @@ class SignalMonitor:
         self._notify_subscribers(summary)
 
     async def _mirror_upsert_unknown(
-        self, emitter_entity_id: str, label: str
+        self, emitter_entity_id: str, label: str, medium: str = "ir"
     ) -> None:
         """A foreign send no receiver heard: audited, identity unknown."""
         now_iso = datetime.now(UTC).isoformat()
@@ -1857,6 +2062,8 @@ class SignalMonitor:
                     source="echo",
                     heard_by=[],
                 )
+                if medium == MEDIUM_RF:
+                    signal.medium = MEDIUM_RF
                 device.signals.insert(0, signal)
             signal.hit_count += 1
             signal.last_seen = now_iso
@@ -2043,13 +2250,12 @@ class SignalMonitor:
         # own transmissions never fire them (the feedback-loop class) and
         # never pollute the human-press catalog. Claimed captures enrich
         # the Mirror's heard_by instead.
-        # Radio is never claimed as an echo this round: HAIR sends no
-        # radio, and an infrared send's beacon window must not swallow a
-        # radio press that happens to land inside it.
-        echo = (
-            None if n.rf is not None
-            else await self._match_echo(n, receiver_entity_id)
-        )
+        # Radio too, since RF send T1: a capture of HAIR's own radio
+        # send is claimed here, before triggers, the Sniffer and the
+        # receiver-heard event, exactly as an infrared echo is. Tickets
+        # and beacon windows are per medium, so neither kind of send can
+        # swallow a press of the other kind.
+        echo = await self._match_echo(n, receiver_entity_id)
         if self._candy and n.rf is None:
             # The Candy Drawer prints every frame here, echo or not:
             # after the echo verdict exists, before the dismiss list,
@@ -3072,11 +3278,9 @@ class SignalMonitor:
             return {"success": False, "code": "signal_not_found",
                     "error": "Signal not found"}
 
-        # A radio row is not sent yet (RF hear, round 1): the catalog
-        # half of device_manager.async_send_command's refusal.
+        # A radio row goes through its own path (RF send, T1).
         if is_rf(signal):
-            return {"success": False, "code": RF_SEND_UNSUPPORTED,
-                    "error": "HAIR does not send radio codes yet"}
+            return await self._test_radio(signal, emitter_entity_id)
 
         # Lazy imports: infrared component only available at runtime on HA 2026.4+.
         from homeassistant.components.infrared import (

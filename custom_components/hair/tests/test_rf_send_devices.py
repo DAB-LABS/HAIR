@@ -8,15 +8,13 @@ sends a row only through an emitter of its own medium; and
 can send a frequency, by the send path's own rule
 (``agent-exchange/rf-hear/rf-send-doors.md`` sections 3 and 4).
 
-``rf_send`` is Shaq's (T1). Until it lands these tests stand in a
-module with the two functions the contract names.
+The fit is ``rf_send``'s own rule (T1); only what Home Assistant would
+say about each transmitter's ranges is faked here.
 """
 from __future__ import annotations
 
-import sys
 import types
-from dataclasses import dataclass
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -59,37 +57,15 @@ RANGES = {
 }
 
 
-@dataclass(frozen=True)
-class _Fit:
-    ok: bool
-    send_hz: int | None
-    substituted: bool
-    code: str | None
-
-
-def _fit(hass, entity_id, frequency_hz):
-    """The stand-in for rf_send.transmitter_fit: the plan 5.7 rule."""
-    ranges = RANGES.get(entity_id) or []
-    if not ranges:
-        return _Fit(False, None, False, "no_ranges")
-    if any(low <= frequency_hz <= high for low, high in ranges):
-        return _Fit(True, frequency_hz, False, None)
-    fixed = len(ranges) == 1 and ranges[0][0] == ranges[0][1]
-    if fixed and abs(ranges[0][0] - frequency_hz) <= 400_000:
-        return _Fit(True, ranges[0][0], True, None)
-    return _Fit(False, None, False, "rf_frequency_unsupported")
-
-
 @pytest.fixture(autouse=True)
-def _rf_send():
-    fake = types.ModuleType("custom_components.hair.rf_send")
-    fake.transmitter_ranges = lambda hass, entity_id: RANGES.get(entity_id)
-    fake.transmitter_fit = _fit
-    import custom_components.hair as pkg
+def _rf_send(monkeypatch):
+    """The real rule, over the transmitters' declared ranges."""
+    from custom_components.hair import rf_send
 
-    with patch.dict(sys.modules, {"custom_components.hair.rf_send": fake}), \
-            patch.object(pkg, "rf_send", fake, create=True):
-        yield fake
+    monkeypatch.setattr(
+        rf_send, "transmitter_ranges", lambda hass, entity_id: RANGES.get(entity_id)
+    )
+    return rf_send
 
 
 class _Hass:
