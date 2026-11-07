@@ -19,7 +19,7 @@ from .const import (
     EMITTER_STAGGER_GAP_S,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
-    RF_SEND_UNSUPPORTED,
+    NO_EMITTER_FOR_MEDIUM,
     SEND_REPEAT_GAP,
     CommandCategory,
     CommandSource,
@@ -29,6 +29,7 @@ from .device_registry_compat import device_by_identifier
 from .entity_factory import EntityFactory
 from .models import IRCommand, IRDevice, is_rf
 from .power_monitor import PowerMonitor
+from .rf_send import SendRefusedError, is_radio_entity
 from .storage import HAIRStore
 from .vocabulary import localized_auto_map
 
@@ -39,13 +40,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class RfSendUnsupportedError(RuntimeError):
-    """A send of a radio row, which HAIR cannot transmit yet.
-
-    ``code`` is the error code the panel maps to its own text.
-    """
-
-    code = RF_SEND_UNSUPPORTED
+__all__ = ["DeviceManager", "SendRefusedError"]
 
 # Maps a captured command name (lowercased) → a feature key on the entity.
 # The key space is platform-specific; the entity reads
@@ -935,18 +930,29 @@ class DeviceManager:
         if command is None:
             raise KeyError(f"Unknown command {command_id} on device {device_id}")
 
-        # A RADIO ROW IS NOT SENT YET (RF hear, round 1). Refused here,
-        # the one door every send of a device command passes (the panel's
-        # Test, an HA button, every entity action), so no path can turn
-        # a radio frame into an infrared transmission.
-        if is_rf(command):
-            raise RfSendUnsupportedError(
-                f"{command.name or command_id} is a radio code; HAIR does "
-                "not send radio codes yet"
-            )
-
         if not device.emitter_entity_ids:
             raise RuntimeError(f"Device {device_id} has no emitters configured")
+
+        # EACH COMMAND GOES TO ITS OWN KIND OF EMITTER (RF send, T1). This
+        # is the one door every send of a device command passes (the
+        # panel's Test, an HA button, every entity action, a pinned
+        # retransmit), so a radio frame can never reach an infrared
+        # emitter and the reverse: a radio row goes only to the device's
+        # radio transmitters, an infrared row only to the rest.
+        if is_rf(command):
+            from .send_signal import ORIGIN_MANAGER
+
+            await self._async_broadcast_rf(
+                device,
+                command,
+                command.name,
+                heard_future=heard_future,
+                pinned=pinned,
+                sent=self._sent_for_command(
+                    device, command, origin or ORIGIN_MANAGER
+                ),
+            )
+            return
 
         from .ir_command import (
             build_command,
@@ -1169,7 +1175,19 @@ class DeviceManager:
         skipped: dict[str, str] = {}
         attempt_ids: list[str] = []
         carrierless = is_unmodulated(ir_cmd)
-        for emitter_id in device.emitter_entity_ids:
+        # An infrared code goes to the device's infrared emitters only
+        # (RF send, T1): a device may hold radio transmitters too, and
+        # those never see an infrared frame. Every device stored before
+        # radio could be sent has only infrared emitters, so this is the
+        # list it always had.
+        infrared_ids = [
+            e for e in device.emitter_entity_ids if not is_radio_entity(e)
+        ]
+        if not infrared_ids:
+            raise SendRefusedError(
+                NO_EMITTER_FOR_MEDIUM, f"{device.name} has no infrared emitter"
+            )
+        for emitter_id in infrared_ids:
             state = self._hass.states.get(emitter_id)
             # "unavailable" is down. "unknown" is merely NEVER USED: an
             # infrared emitter's state is the timestamp of its last
@@ -1418,6 +1436,85 @@ class DeviceManager:
             async_dispatcher_send(self._hass, SIGNAL_DEVICE_SENT, sent)
         return landed
 
+    async def _async_broadcast_rf(
+        self,
+        device: IRDevice,
+        command: IRCommand,
+        send_name: str,
+        *,
+        heard_future: Any | None = None,
+        pinned: bool = False,
+        sent: Any | None = None,
+    ) -> set[str]:
+        """The radio twin of ``_async_broadcast`` (RF send, T1).
+
+        The same contract, line for line: refusals the user can act on
+        raise ``SendRefusedError`` before anything is sent; transmitters
+        HA knows are down are pre-skipped; each call is guarded with the
+        assign timeout and a failing transmitter dropped; the Mirror's
+        echo ticket is armed BEFORE transmitting; the degrade
+        notification is raised and self-dismissed the same way; the
+        entities hear about the send once one transmitter accepted it.
+        A twin and not a branch, so the infrared send stays as it is.
+        """
+        from .rf_send import async_transmit, plan_radio_send
+
+        plan = plan_radio_send(
+            self._hass, command, list(device.emitter_entity_ids), device.name
+        )
+        unavailable = {
+            e: why for e, why in plan.skipped.items() if why == "unavailable"
+        }
+        if not plan.attempted:
+            self._notify_emitter_degraded(device, unavailable, medium="rf")
+            raise RuntimeError(
+                f"All radio transmitters for {device.name} are unavailable"
+            )
+
+        monitor = self._signal_monitor()
+        if monitor is not None:
+            monitor.record_send_rf(
+                command,
+                plan,
+                (
+                    f"Pinned send: {device.name} / {send_name}"
+                    if pinned
+                    else f"{device.name} / {send_name}"
+                ),
+                heard_future=heard_future,
+            )
+
+        await async_transmit(self._hass, plan)
+
+        if not plan.landed:
+            _LOGGER.warning(
+                "Send %s / %s: every radio transmitter failed: %s",
+                device.name, send_name, {**plan.skipped, **plan.failures},
+            )
+            self._notify_emitter_degraded(
+                device, {**unavailable, **plan.failures}, medium="rf"
+            )
+            raise RuntimeError(
+                f"All radio transmitters for {device.name} are unavailable"
+            )
+        if plan.failures or plan.skipped:
+            _LOGGER.warning(
+                "Send %s / %s went out via %s; skipped/failed: %s",
+                device.name, send_name, sorted(plan.landed),
+                {**plan.skipped, **plan.failures},
+            )
+            if unavailable or plan.failures:
+                self._notify_emitter_degraded(
+                    device, {**unavailable, **plan.failures}, medium="rf"
+                )
+        for entity_id in plan.landed:
+            self._dismiss_emitter_notification(entity_id)
+        if sent is not None:
+            from .send_signal import SIGNAL_DEVICE_SENT
+
+            async_dispatcher_send(self._hass, SIGNAL_DEVICE_SENT, sent)
+        return plan.landed
+
     async def async_send_matrix_cell(
         self,
         device_id: str,
@@ -1589,11 +1686,15 @@ class DeviceManager:
         return f"hair_emitter_down_{emitter_id}"
 
     def _notify_emitter_degraded(
-        self, device: IRDevice, problems: dict[str, str]
+        self, device: IRDevice, problems: dict[str, str], medium: str = "ir"
     ) -> None:
         try:
             from homeassistant.components import persistent_notification
 
+            kind, title = (
+                ("transmitter", "radio transmitter") if medium == "rf"
+                else ("emitter", "IR emitter")
+            )
             for emitter_id, reason in problems.items():
                 state = self._hass.states.get(emitter_id)
                 attrs = getattr(state, "attributes", None) or {}
@@ -1604,9 +1705,9 @@ class DeviceManager:
                         f"{name} did not answer while sending to "
                         f"{device.name} ({reason}). Check its power and "
                         "network. This notice clears itself the next "
-                        "time the emitter answers."
+                        f"time the {kind} answers."
                     ),
-                    title="HAIR: IR emitter not responding",
+                    title=f"HAIR: {title} not responding",
                     notification_id=self._emitter_notification_id(
                         emitter_id
                     ),

@@ -22,7 +22,6 @@ from custom_components.hair.const import (
     RF_FREQUENCY_SOURCE_SIGNAL,
     RF_FREQUENCY_SOURCE_WINDOW,
     RF_PROTOCOL,
-    RF_SEND_UNSUPPORTED,
 )
 from custom_components.hair.models import (
     RF_ROW_FIELDS,
@@ -411,9 +410,12 @@ class TestHearing:
         assert store.get_all_devices() == []
 
     @pytest.mark.asyncio
-    async def test_radio_is_never_claimed_as_an_echo(self, fake_hass, captures):
+    async def test_a_press_with_no_radio_send_in_flight_is_not_an_echo(
+        self, fake_hass, captures
+    ):
+        """Radio goes through the echo claim since RF send T1; with no
+        radio ticket and no radio beacon it claims nothing."""
         monitor, store = _monitor(fake_hass)
-        monitor._match_echo = AsyncMock(side_effect=AssertionError("echo ran"))
         await self._hear(fake_hass, captures[:2], monitor)
         assert len(store.get_all_devices()) == 1
 
@@ -520,7 +522,10 @@ class TestTracker:
 
 class TestRefusals:
     @pytest.mark.asyncio
-    async def test_the_catalog_test_send_is_refused(self, fake_hass, keyfob):
+    async def test_the_catalog_test_refuses_an_infrared_emitter(
+        self, fake_hass, keyfob
+    ):
+        """A radio row is sent since RF send T1, but never by infrared."""
         monitor, store = _monitor(fake_hass)
         store.add_device(UnknownDevice(
             id="d", fingerprint=keyfob.device_key, source="sniffed",
@@ -529,7 +534,7 @@ class TestRefusals:
         fake_hass.states.get = MagicMock(return_value=_state("infrared.tx"))
         result = await monitor.test_signal("rf1", "infrared.tx")
         assert result["success"] is False
-        assert result["code"] == RF_SEND_UNSUPPORTED
+        assert result["code"] == "emitter_wrong_medium"
 
     @pytest.mark.asyncio
     async def test_a_pronto_edit_is_refused(self, fake_hass, keyfob):
@@ -588,15 +593,16 @@ class TestDeviceSend:
         )
 
     @pytest.mark.asyncio
-    async def test_a_radio_command_is_refused_before_any_emitter(
+    async def test_a_radio_command_never_reaches_an_infrared_emitter(
         self, manager, keyfob
     ):
-        from custom_components.hair.device_manager import RfSendUnsupportedError
+        """Refused before anything is sent: the device has no transmitter."""
+        from custom_components.hair.device_manager import SendRefusedError
 
         manager._store.get_device = MagicMock(return_value=self._device(keyfob))
-        with pytest.raises(RfSendUnsupportedError) as caught:
+        with pytest.raises(SendRefusedError) as caught:
             await manager.async_send_command("dev1", "c1")
-        assert caught.value.code == RF_SEND_UNSUPPORTED
+        assert caught.value.code == "no_emitter_for_medium"
 
     @pytest.mark.asyncio
     async def test_a_pronto_edit_of_a_radio_command_is_refused(self, manager, keyfob):

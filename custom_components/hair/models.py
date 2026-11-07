@@ -1778,6 +1778,12 @@ class CaptureResult:
             frequency=self.frequency,
         )
         copy_rf_fields(self, command)
+        if is_rf(self):
+            # A capture has no count of its own: a radio one sends what
+            # the press carried (RF send, T1).
+            from .rf_send import seed_send_count
+
+            command.send_count = seed_send_count(self.rf_repeats_observed)
         return command
 
     def to_dict(self) -> dict[str, Any]:

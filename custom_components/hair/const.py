@@ -556,9 +556,27 @@ RF_FREQUENCY_SOURCE_RECEIVER = "receiver"
 # Whether an RF row's inter-frame gap was measured inside a capture.
 RF_GAP_MEASURED = "measured"
 RF_GAP_ASSUMED = "assumed"
-# The error code a send of an RF row returns until HAIR can transmit
-# radio; the panel maps it to text.
+# Retired by RF send T1: HAIR sends radio now. Kept until the panel's
+# string for it goes (the doors' "until both land"); nothing raises it.
 RF_SEND_UNSUPPORTED = "rf_send_unsupported"
+# Why a send was refused (RF send, T1; the doors' section 2). The panel
+# says each from its code; the message beside it is English, for the log.
+NO_EMITTER_FOR_MEDIUM = "no_emitter_for_medium"
+RF_NO_FREQUENCY = "rf_no_frequency"
+RF_FREQUENCY_UNSUPPORTED = "rf_frequency_unsupported"
+RF_PLATFORM_NOT_LOADED = "rf_platform_not_loaded"
+# A transmitter that declares no frequency ((0, 0) or nothing): the
+# picker's reason, never a send.
+RF_NO_RANGES = "no_ranges"
+# A fixed-frequency transmitter (one range, min == max) this close to a
+# row's carrier sends at its own value: its radio is fixed there anyway,
+# and core would otherwise refuse a row learned at 433.84 MHz on a puck
+# declared at 433.92. Under the 500 kHz between 433.42 and 433.92.
+RF_SEND_SUBSTITUTE_TOLERANCE_HZ = 400_000
+# A radio row's sends when nothing measured its repeats; a measured
+# count seeds from rf_repeats_observed, never below RF_MIN_SEND_COUNT.
+RF_DEFAULT_SEND_COUNT = 4
+RF_MIN_SEND_COUNT = 2
 # The error code a Pronto edit of an RF row returns: a radio frame has no
 # Pronto form. Renames and send counts are not refused.
 RF_EDIT_UNSUPPORTED = "rf_edit_unsupported"

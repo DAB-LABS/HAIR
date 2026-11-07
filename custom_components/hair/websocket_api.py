@@ -35,7 +35,7 @@ from .const import (
     CommandSource,
     DeviceType,
 )
-from .device_manager import DeviceManager, RfSendUnsupportedError
+from .device_manager import DeviceManager, SendRefusedError
 from .device_registry_compat import device_by_identifier, hair_config_entry_id
 from .emitters import (
     EMITTER_WRONG_MEDIUM,
@@ -1057,7 +1057,7 @@ async def ws_send_command(
         heard_future.cancel()
         connection.send_error(msg["id"], "not_found", str(err))
         return
-    except RfSendUnsupportedError as err:
+    except SendRefusedError as err:
         heard_future.cancel()
         connection.send_error(msg["id"], err.code, str(err))
         return

@@ -1,4 +1,4 @@
-"""Transmit gate: serialize IR sends across emitters.
+"""Transmit gate: serialize sends across emitters, one gate per medium.
 
 IR is a shared medium. When HAIR broadcasts one command through two
 emitters, or the user tests a signal out of several blasters at once,
@@ -43,25 +43,44 @@ from typing import Any
 
 from .const import EMITTER_STAGGER_GAP_S
 
-_lock = asyncio.Lock()
-_last_emitter: str | None = None
-_last_ack: float = 0.0
-# Planned air time of the last send, in seconds. Zero for every caller
-# that does not know (which is every caller on the old path), and the
-# hold then falls back to EMITTER_STAGGER_GAP_S alone.
-_last_air: float = 0.0
-# Bumped on every stamp. The hold is computed outside the lock, so this
-# is how a waiter tells "nothing moved while I waited" (my hold is still
-# good) from "somebody else keyed up" (recompute before sending).
-_ack_seq: int = 0
+
+class _Medium:
+    """One medium's gate: its lock and the last send's stamps.
+
+    Infrared and radio do not share the air, so a radio send never waits
+    on an infrared burst elsewhere (and the reverse); within a medium the
+    rule above applies unchanged.
+    """
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.last_emitter: str | None = None
+        self.last_ack: float = 0.0
+        # Planned air time of the last send, in seconds. Zero for every
+        # caller that does not know (which is every caller on the old
+        # path), and the hold then falls back to EMITTER_STAGGER_GAP_S.
+        self.last_air: float = 0.0
+        # Bumped on every stamp. The hold is computed outside the lock,
+        # so this is how a waiter tells "nothing moved while I waited"
+        # (my hold is still good) from "somebody else keyed up".
+        self.ack_seq: int = 0
+
+    def hold_for(self, emitter_id: str) -> float:
+        """Seconds still owed before ``emitter_id`` may key up, or 0."""
+        if self.last_emitter is None or self.last_emitter == emitter_id:
+            return 0.0
+        quiet = max(EMITTER_STAGGER_GAP_S, self.last_air)
+        return max(0.0, quiet - (time.monotonic() - self.last_ack))
 
 
-def _hold_for(emitter_id: str) -> float:
-    """Seconds still owed before ``emitter_id`` may key up, or 0."""
-    if _last_emitter is None or _last_emitter == emitter_id:
-        return 0.0
-    quiet = max(EMITTER_STAGGER_GAP_S, _last_air)
-    return max(0.0, quiet - (time.monotonic() - _last_ack))
+_media: dict[str, _Medium] = {}
+
+
+def _gate(medium: str) -> _Medium:
+    gate = _media.get(medium)
+    if gate is None:
+        gate = _media[medium] = _Medium()
+    return gate
 
 
 async def gated_send(
@@ -70,33 +89,37 @@ async def gated_send(
     ir_cmd: Any,
     sender: Callable[[Any, str, Any], Awaitable[None]],
     air_s: float = 0.0,
+    medium: str = "ir",
 ) -> None:
     """Send ``ir_cmd`` via ``sender``, staggering emitter changes.
 
-    ``sender`` is the infrared component's ``async_send_command`` (passed
-    in so its lazy runtime import stays at the call site, matching the
-    existing send paths).
+    ``sender`` is the medium's ``async_send_command`` (passed in so its
+    lazy runtime import stays at the call site, matching the existing
+    send paths).
 
     ``air_s`` is how long THIS call will keep the air busy once the
     service returns. A bundled burst radiates for far longer than its
     own ack, so the next emitter has to wait on the air rather than on
     the ack (send spacing, GH #151). Zero, the default, gives exactly
     today's EMITTER_STAGGER_GAP_S behaviour.
+
+    ``medium`` picks the gate: ``"ir"`` (the default, every infrared
+    caller) or ``"rf"``.
     """
-    global _last_emitter, _last_ack, _last_air, _ack_seq
+    gate = _gate(medium)
     # Wait outside the lock: a hold that can now run to a second and a
     # half must not block a same-emitter send that owes nothing.
-    seen = _ack_seq
-    wait = _hold_for(emitter_id)
+    seen = gate.ack_seq
+    wait = gate.hold_for(emitter_id)
     if wait > 0:
         await asyncio.sleep(wait)
-    async with _lock:
+    async with gate.lock:
         # Re-check under the lock, but only when somebody else keyed up
         # while this call was waiting. Nothing moved means the hold just
         # slept is still the right one, and sleeping it again would
         # double every stagger on the quiet path.
-        if _ack_seq != seen:
-            wait = _hold_for(emitter_id)
+        if gate.ack_seq != seen:
+            wait = gate.hold_for(emitter_id)
             if wait > 0:
                 await asyncio.sleep(wait)
         try:
@@ -104,16 +127,12 @@ async def gated_send(
         finally:
             # Stamp even on failure: the blaster may have partially
             # transmitted before erroring, so the quiet gap still applies.
-            _last_emitter = emitter_id
-            _last_ack = time.monotonic()
-            _last_air = max(0.0, float(air_s or 0.0))
-            _ack_seq += 1
+            gate.last_emitter = emitter_id
+            gate.last_ack = time.monotonic()
+            gate.last_air = max(0.0, float(air_s or 0.0))
+            gate.ack_seq += 1
 
 
 def reset_for_test() -> None:
     """Reset module state between tests."""
-    global _last_emitter, _last_ack, _last_air, _ack_seq
-    _last_emitter = None
-    _last_ack = 0.0
-    _last_air = 0.0
-    _ack_seq = 0
+    _media.clear()
