@@ -1848,6 +1848,36 @@ class SignalMonitor:
             parsed, receiver_entity_id=None, arrived_at=arrived_at
         )
 
+    async def _observe_dyson_press(self, n: Any) -> None:
+        """Set a device's Dyson counter to the one a receiver just heard.
+
+        ``dyson_counter.observe_heard_press`` has the rule; this only
+        feeds it a human press (the caller is past the echo claim) and
+        saves when a device moved.
+        """
+        from .dyson_counter import (
+            is_dyson,
+            last_frame_counter,
+            observe_heard_press,
+        )
+
+        if not is_dyson(n.decoded_protocol) or n.decoded_address is None:
+            return
+        if n.decode_covers is False:
+            return
+        counter = last_frame_counter(n.raw_timings)
+        if counter is None:
+            return
+        try:
+            devices = self._hair_store.get_all_devices()
+        except Exception:  # a store that cannot list devices moves nothing
+            return
+        moved = observe_heard_press(devices, int(n.decoded_address), counter)
+        if moved is None:
+            return
+        self._hair_store.update_device(moved)
+        await self._hair_store.async_save()
+
     async def _process_parsed_signal(
         self,
         parsed: Any,
@@ -1903,6 +1933,13 @@ class SignalMonitor:
         if echo:
             self._ditto_anchor.pop(rid_key, None)
             return
+
+        # Step 2b: a Dyson handset press moves its device's rolling
+        # counter (GH #33), so HAIR's next send to that fan uses the
+        # value after the one the fan just accepted. Behind the echo
+        # gate, so HAIR hearing its own send never moves it; ahead of
+        # the triggers, so a send a trigger starts already sees it.
+        await self._observe_dyson_press(n)
 
         # Step 3: Check triggers. Threads the capturing receiver so scoped
         # triggers can match and the payload carries receiver + area
@@ -2717,12 +2754,17 @@ class SignalMonitor:
                 signal.decoded_protocol, signal.frequency
             )
         ):
+            extras = signal.decoded_extras
+            if extras and int(extras.get("counter", 0)) & 0x3 == 3:
+                # Never send the Dyson counter 3 (GH #33): a row stored
+                # with it starts the handset's cycle again at 0.
+                extras["counter"] = 0
             ir_cmd = build_decoded_command(
                 signal.decoded_protocol,
                 signal.decoded_address,
                 signal.decoded_command,
                 repeat_count=signal.repeat_count or 0,
-                decoded_extras=signal.decoded_extras,
+                decoded_extras=extras,
             )
         decoded_tx = ir_cmd is not None
         if ir_cmd is None:
@@ -2884,8 +2926,9 @@ class SignalMonitor:
         # excludes toggle, so the catalog row's identity is unchanged.
         # Per-press protocol state advances on catalog Test too, so a
         # bench test press behaves like a real press (RC-5 toggles flip;
-        # the Dyson mod-4 counter increments so consecutive tests never
-        # reuse a counter the fan already saw -- GH #33).
+        # the Dyson counter steps in the handset's order 0, 2, 1 and
+        # never sends 3 -- GH #33). A catalog row belongs to no device,
+        # so its counter stays its own; ``dyson_counter`` has why.
         if decoded_tx and signal.decoded_extras:
             advanced = False
             if "toggle" in signal.decoded_extras:
@@ -2894,9 +2937,11 @@ class SignalMonitor:
                 )
                 advanced = True
             if "counter" in signal.decoded_extras:
-                signal.decoded_extras["counter"] = (
-                    int(signal.decoded_extras["counter"]) + 1
-                ) & 0x3
+                from .dyson_counter import next_counter
+
+                signal.decoded_extras["counter"] = next_counter(
+                    signal.decoded_extras["counter"]
+                )
                 advanced = True
             if advanced:
                 await self._signal_store.async_save()

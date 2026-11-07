@@ -416,9 +416,9 @@ def _construct_symphony(cls: type, label: str, address: int, command: int,
 
 
 def _extract_dyson(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
-    # Identity = device + function; the mod-4 rolling counter is press
-    # state (the fan rejects a reused value), carried for TX and
-    # advanced after every send like an RC-5 toggle.
+    # Identity = device + function; the rolling counter is press state
+    # (the fan rejects a reused value), carried for TX. The send path
+    # keeps one counter per device instead (``dyson_counter``).
     return ("DYSON", int(cmd.device), int(cmd.function),
             {"counter": int(cmd.counter)})
 
