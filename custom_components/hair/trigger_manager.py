@@ -157,9 +157,10 @@ class TriggerManager:
         """Does this trigger hold a file-sourced code of several frames?
 
         Both halves matter. Multi-frame is what makes one press take
-        more than the ordinary window; file-sourced is what keeps the
-        wider window off receiver-learned rows, whose repeat frames are
-        the case the 100 ms window was sized for in the first place.
+        more than the ordinary window (TRIGGER_FIRE_DEDUP_WINDOW_S,
+        300 ms); file-sourced is what keeps the wider window off
+        receiver-learned rows, whose repeat frames are what the ordinary
+        window is sized for.
         """
         from .identity import file_sourced_trigger, is_multi_frame_code
 
@@ -260,11 +261,11 @@ class TriggerManager:
             # entirely: while the frames kept arriving the window never
             # expired, so a two-second hold produced one fire and no
             # further sign of itself. Anchored, the window expires on
-            # schedule and the next repeat re-fires -- at 250 ms against a
-            # ~108 ms full-frame repeat, about three fires a second, the
-            # cadence the appliance repeats at. Sony's 45 ms frames still
-            # collapse to one fire per press because five of them span
-            # 180 ms, inside the window.
+            # schedule and the next repeat re-fires -- at 300 ms
+            # (TRIGGER_FIRE_DEDUP_WINDOW_S) against a ~108 ms full-frame
+            # repeat, one fire every 324 to 400 ms, between 2.5 and 3 a
+            # second. Sony's 45 ms frames still collapse to one fire per
+            # press because five of them span 180 ms, inside the window.
             #
             # Keyed on the trigger id ALONE (unified identity): under
             # tiered matching two receivers can compute DIFFERENT
