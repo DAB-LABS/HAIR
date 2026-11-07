@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An air conditioner made from a climate wig now offers, in each mode, only the fan speeds, swing settings and temperatures that mode really has. A setting that never changes the code the unit is sent is not shown, so a dry mode stored with one code at every temperature shows no temperature, and a fan-only mode shows none either. The temperature range comes from the codes the wig still holds, so a thinned wig no longer offers temperatures it has dropped. After a mode change the card shows the fan and swing that actually went out, and goes back to the ones last chosen when the unit returns to a mode that has them. Requested by @marcos-mvs (GH #168).
 - A fan speed or swing setting that the current mode does not offer is now refused by Home Assistant, rather than sent as a different setting.
 - The Devices tab's hardware cards list one row per capability, with when each last sent or heard. Capture moved from the cards to the Sniffer.
+- A quick double press of a remote button now counts as two presses in the Sniffer, in triggers and through pinned Devices, for remotes whose frames mark a new press (NEC and JVC remotes and RC5/RC6 remotes, among others). An automation on such a button runs twice for a quick double press, as it already did for two slower presses. A held button still steps about three times a second, as before. Reported by @pbo10 (GH #237).
+- A trigger with min hits above 1 counts a quick double press on such a remote as two hits, so a trigger set to 2 now fires on one quick double press.
 
 ### Fixed
 

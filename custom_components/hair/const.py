@@ -297,6 +297,60 @@ MATRIX_STATE_DEDUP_WINDOW_S = 0.400
 # window always wins where it applies.
 TRIGGER_FIRE_DEDUP_WINDOW_S = 0.300
 
+# PRESS CUES (GH #237). The windows above are timing alone, and a quick
+# double press lands inside them: the second press is counted as a repeat
+# of the first. Some protocols say in the frame itself that a new press
+# began, and press_cues.py reads that before the windows do:
+#
+# - Rule N, the NEC-style protocols. A held button sends one full frame
+#   and then short dittos, which never reach the windows (they are
+#   dropped as repeats before decode). So a second full frame of the same
+#   button, more than one repeat period after the first, is a new press.
+#   A full frame sooner than that is a remote that repeats whole frames
+#   (a Pioneer decodes as NEC and repeats every 89 ms); that button is
+#   remembered as such and left to the windows from then on.
+# - Rule T, the toggle protocols. The toggle bit flips on every press, so
+#   a frame whose toggle differs from the previous one is a new press.
+# - Rule J, JVC. Only the first frame of a press carries the leader, and
+#   a capture decodes as JVC only when it has one.
+#
+# A cue only ever says "new press" or nothing. Nothing leaves the windows
+# exactly as they were, so a capture that counts today still counts.
+#
+# The periods are each protocol's repeat period, start to start, from its
+# decoder (NEC, Apple and NEC42 108 ms; RC5 and Marantz 114; RC6 107;
+# Nokia32 about 100; JVC 41 to 58 with a fixed 23.6 ms leadout, so its
+# longest). No cue fires sooner than PRESS_CUE_REPEAT_FACTOR periods after
+# the previous frame: 1.2 leaves room for receiver jitter (Samsung32's
+# 108 ms period measured 102 to 119 ms on the bench) and stays under the
+# quickest double press a hand makes (130 ms for NEC, where the frame alone
+# takes 67.5 ms to send). Rule N also reads that same bound as the line
+# between "repeats whole frames" and "a new press".
+#
+# Kaseikyo is left out on purpose: most Panasonic remotes repeat the
+# whole frame, so its full frames say nothing about a press without a
+# repeat marker to learn from.
+PRESS_CUE_REPEAT_FACTOR = 1.2
+PRESS_CUE_REPEAT_PERIOD_S: dict[str, float] = {
+    "NEC": 0.108,
+    "APPLE": 0.108,
+    "NEC42": 0.108,
+    "NEC42EXT": 0.108,
+    "RC5": 0.114,
+    "MARANTZ": 0.114,
+    "RC6": 0.107,
+    "NOKIA32": 0.100,
+    "JVC": 0.058,
+}
+PRESS_CUE_DITTO_PROTOCOLS = frozenset({"NEC", "APPLE", "NEC42", "NEC42EXT"})
+PRESS_CUE_TOGGLE_PROTOCOLS = frozenset({"RC5", "MARANTZ", "RC6", "NOKIA32"})
+PRESS_CUE_LEADER_PROTOCOLS = frozenset({"JVC"})
+# How long a button's last frame is remembered on a receiver. Ten minutes
+# keeps a learned "repeats whole frames" in mind across a session of use;
+# a button not heard for longer is judged by the windows alone on its
+# first frame back, which is what happens today.
+PRESS_CUE_TTL_S = 600.0
+
 # Pronto S/L classification threshold (in Pronto timing units).
 # Timing words below this are "short" (S), above are "long" (L).
 # Real-world IR remotes cluster around ~0x20 (short) and ~0x40 (long)
