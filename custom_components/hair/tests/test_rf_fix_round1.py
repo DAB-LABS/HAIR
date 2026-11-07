@@ -275,3 +275,38 @@ class TestTheNoSwitchMessage:
         for path in locales.glob("*.json"):
             text = json.loads(path.read_text(encoding="utf-8"))["listen.no_switch_error"]
             assert "{name}" in text and "Sniffer" in text, path.name
+
+
+class TestEveryCardHasAGlyph:
+    """Item 13 (owner, 00:19 PT): the climate-matrix ACs made from wigs,
+    and a matrix remote with no triggers, drew no medium glyph. Their
+    codes live in the matrix, which only holds infrared codes."""
+
+    def _rows(self, *media):
+        from types import SimpleNamespace
+
+        return [SimpleNamespace(medium=m) for m in media]
+
+    def test_a_matrix_with_no_flat_rows_is_infrared(self):
+        from custom_components.hair.websocket_api import _media
+
+        assert _media([], matrix=True) == ["ir"]
+        assert _media(self._rows("rf"), matrix=True) == ["ir", "rf"]
+
+    def test_rows_without_a_stored_medium_are_infrared(self):
+        from custom_components.hair.websocket_api import _media
+
+        assert _media(self._rows(None, "ir")) == ["ir"]
+        assert _media(self._rows("rf")) == ["rf"]
+
+    def test_nothing_to_go_on_draws_nothing(self):
+        from custom_components.hair.websocket_api import _media
+
+        assert _media([]) == []
+
+    def test_both_cards_pass_their_matrix(self):
+        from pathlib import Path
+
+        src = (Path(__file__).parent.parent / "websocket_api.py").read_text(encoding="utf-8")
+        assert '"media": _media(device.commands, matrix=device.climate_matrix),' in src
+        assert '"media": _media(triggers, matrix=remote.climate_matrix),' in src
