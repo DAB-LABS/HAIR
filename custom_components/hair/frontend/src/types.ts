@@ -1106,6 +1106,9 @@ export interface CaptureReceiverRow {
     capture_device: boolean;
     /** True for an opted-in always-on radio receiver (no switch). */
     software_window: boolean;
+    /** True for an always-on infrared receiver: a status row on the
+     *  Sniffer's receiver row, nothing to open (fix round 1). */
+    always_on?: boolean;
     /** The window is open now. */
     capturing: boolean;
     /** When the open window closes (ISO 8601), or null. */

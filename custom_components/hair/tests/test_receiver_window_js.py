@@ -233,7 +233,7 @@ const out = {
 // chip, a delivery per receiver, closed with its last listener.
 const fake = { subscribed: 0, closed: 0, cb: null };
 const api = {
-    subscribeUnknownSignals: async (cb) => {
+    subscribeReceiverHeard: async (cb) => {
         fake.subscribed += 1; fake.cb = cb;
         return async () => { fake.closed += 1; };
     },
@@ -581,7 +581,9 @@ class TestTheChipWiring:
         assert re.search(
             r"this\._listenRows\.length > 0\s*\?\s*html`<ir-listen-row", monitor
         )
-        assert "this._listenRows = await this.api.captureReceivers();" in monitor
+        # Every receiver, always-on infrared ones as status pills (fix
+        # round 1, item 6).
+        assert "this._listenRows = await this.api.captureReceivers(true);" in monitor
         assert re.search(r"catch \{\s*this\._listenRows = \[\];", monitor)
         assert "if (this.rows.length === 0) return nothing;" in _src("ir-listen-row.ts")
         assert re.search(
@@ -619,7 +621,9 @@ class TestTheChipWiring:
         assert "onArrival(this.api, key, () => this._bloomPill())" in chip
         assert "this._arrivals?.stop();" in chip
         hub = _src("ir-arrivals.ts")
-        assert "api.subscribeUnknownSignals((event) => deliver(hub, event))" in hub
+        # HAIR's own acceptance (fix round 1): a row minted or bumped, or
+        # a trigger matched; never a code HAIR drops.
+        assert "api.subscribeReceiverHeard((event) => deliver(hub, event))" in hub
         assert "const receiver = event.receiver_entity_id;" in hub
         assert "if (hub.unsubscribe === null)" in hub
         assert "hub.listeners.size === 0 && hub.unsubscribe !== null" in hub
@@ -638,9 +642,11 @@ class TestTheChipWiring:
         chip = _src("ir-listen-chip.ts")
         assert "const online = pillOnline(this.hass?.states, row);" in chip
         assert "const look = pillLook(row, online, live);" in chip
+        assert "const pressable = pillPressable(look) && !this._busy;" in chip
+        state = _src("ir-listen-state.ts")
         assert (
-            'const pressable = look !== "offline" && look !== "waiting" && !this._busy;'
-        ) in chip
+            'return look !== "offline" && look !== "waiting" && look !== "status";'
+        ) in state
         assert "?disabled=${!pressable}" in chip
         assert 'if (look === "offline") return t("listen.offline_title", { name });' in chip
         assert 'if (look === "waiting") return t("listen.no_switch_title");' in chip
@@ -657,10 +663,20 @@ class TestTheChipWiring:
 
     def test_the_badge_spells_the_medium(self):
         chip = _src("ir-listen-chip.ts")
-        assert '<span class="rx-badge">${pillBadge(row)}</span>' in chip
-        badge = re.search(r"\n            \.rx-badge \{([^}]*)\}", chip).group(1)
-        assert "background: var(--tone);" in badge and "color: #fff;" in badge
-        assert 't("listen.hearing")' in chip and 't("listen.hold_button")' in chip
+        # Solid while the receiver captures new codes, light over a pale
+        # wash of the tone otherwise (owner, 2026-11-06 19:06); no state
+        # words, the sweep's instruction stays (item 2).
+        flat = " ".join(chip.split())
+        assert '<span class="rx-badge ${badgeSolid(look) ? "solid" : "hollow"}"' in flat
+        state = " ".join(_src("ir-listen-state.ts").split())
+        assert 'return look === "status" || look === "open" || look === "sweep";' in state
+        solid = re.search(r"\n            \.rx-badge\.solid \{([^}]*)\}", chip).group(1)
+        assert "background: var(--tone);" in solid and "color: #fff;" in solid
+        hollow = re.search(r"\n            \.rx-badge\.hollow \{([^}]*)\}", chip).group(1)
+        assert "color-mix(in srgb, var(--tone) 16%, var(--card-background-color, #fff))" in hollow
+        assert "color: var(--tone);" in hollow
+        assert 't("listen.hearing")' not in chip
+        assert 'const word = look === "sweep" ? t("listen.hold_button") : "";' in chip
 
     def test_the_glyph_opens_the_receivers_device_page_from_the_pills_end(self):
         chip = _src("ir-listen-chip.ts")
@@ -669,7 +685,7 @@ class TestTheChipWiring:
         )
         render = chip.split("    render() {", 1)[1]
         assert render.index('<span class="pickers"') < render.index('<span class="exit"')
-        assert render.index('class="rx-badge"') < render.index('class="pill-name"')
+        assert render.index('class="rx-badge') < render.index('class="pill-name"')
 
     def test_the_glyph_sits_inside_the_pill(self):
         chip = _src("ir-listen-chip.ts")
@@ -687,10 +703,13 @@ class TestTheChipWiring:
         assert '"press exit"' in phone and '"pickers pickers"' in phone
         assert "width: 100%;" in phone
 
-    def test_the_label_sits_hard_left(self):
+    def test_no_label_the_row_is_the_receivers(self):
+        """Fix round 1, item 6: the "Listen" label goes; the group keeps
+        the word for screen readers."""
         row = _src("ir-listen-row.ts")
         assert "labelWidth" not in row
-        assert re.search(r"\.listen-label \{\s*width: auto;\s*text-align: left;", row)
+        assert "hdr-row-label" not in row and "listen-label" not in row
+        assert 'aria-label=${t("listen.label")}' in row
 
     def test_one_radio_subscription_for_the_row(self):
         row = _src("ir-listen-row.ts")

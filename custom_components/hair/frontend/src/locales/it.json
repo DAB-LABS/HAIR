@@ -437,6 +437,7 @@
     "listen.hearing": "in ascolto",
     "listen.hold_button": "tieni premuto il tasto",
     "listen.hearing_title": "{name} ascolta sempre: i codici noti scattano. Clicca per aprire una finestra per nuovi telecomandi.",
+    "listen.status_title": "{name} ascolta sempre: ogni codice che sente arriva a HAIR.",
     "listen.sweep_title": "{name} cerca la portante. Tieni premuto il tasto del telecomando finché non la trova. Clicca per fermare.",
     "listen.sweep": "Scansione",
     "listen.band": "{band} MHz",

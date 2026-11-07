@@ -437,6 +437,7 @@
     "listen.hearing": "持续接收",
     "listen.hold_button": "按住按钮",
     "listen.hearing_title": "{name} 一直在接收：已知的码会触发。点击为新遥控器打开一个窗口。",
+    "listen.status_title": "{name} 始终在接收：它收到的每个代码都会送达 HAIR。",
     "listen.sweep_title": "{name} 正在寻找载波。按住遥控器按钮直到锁定。点击停止。",
     "listen.sweep": "扫频",
     "listen.band": "{band} MHz",

@@ -3,11 +3,13 @@
  * device since windowed receivers, round 3; every radio receiver since
  * RF hear round 1).
  *
- * A "Listen" label and one pill (``ir-listen-chip``) per receiver whose
- * capture window is pressed open here: every capture device, infrared
- * or radio, and every always-on radio receiver (its window is HAIR's
- * own: known codes fire all the time, new radio remotes are minted only
- * while it is open). Always-on infrared receivers have no pill.
+ * One pill (``ir-listen-chip``) per receiver, ordered by device name so
+ * one device's IR and RF pills sit together (fix round 1, item 6): every
+ * capture device, infrared or radio; every always-on radio receiver (its
+ * window is HAIR's own: known codes fire all the time, new radio
+ * remotes are minted only while it is open); and every always-on
+ * infrared receiver, as a status pill with nothing to press. No label:
+ * the Sniffer puts its filter glyphs at the right end of the same line.
  *
  * The row holds the one radio subscription (``hair/receivers/rf/
  * subscribe``) its software-window pills read their window from, and
@@ -67,9 +69,10 @@ export class IrListenRow extends LitElement {
 
     render() {
         if (this.rows.length === 0) return nothing;
+        // No "Listen" label (fix round 1, item 6): the row is the
+        // receivers, live; the group keeps the word for screen readers.
         return html`
             <div class="hdr-row" role="group" aria-label=${t("listen.label")}>
-                <span class="hdr-row-label listen-label">${t("listen.label")}</span>
                 <div class="hdr-row-pills">
                     ${this.rows.map(
                         (row) => html`<ir-listen-chip
@@ -89,11 +92,6 @@ export class IrListenRow extends LitElement {
         css`
             :host {
                 display: block;
-            }
-            /* Flush left, sized to its word: no shared label column. */
-            .listen-label {
-                width: auto;
-                text-align: left;
             }
         `,
     ];

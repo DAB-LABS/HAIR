@@ -46,6 +46,7 @@ from .const import (
     DITTO_INTER_FRAME_MAX_S,
     ECHO_GARBLE_SIMILARITY,
     EVENT_DISMISS_ACTIVITY,
+    EVENT_RECEIVER_HEARD,
     EVENT_SIGNAL_DETECTED,
     EVENT_SIGNAL_REMOVED,
     EVENT_SIGNAL_UPDATED,
@@ -61,6 +62,7 @@ from .const import (
     MIRROR_UNKNOWN_SEND_FP_PREFIX,
     PINNED_ECHO_GUARD_S,
     PINNED_TICKET_ARM_FALLBACK_S,
+    RECEIVER_HEARD_MIN_GAP_S,
     REPEAT_ATTRIBUTION_WINDOW,
     RF_EDIT_UNSUPPORTED,
     RF_MIN_BODY_EDGES,
@@ -618,6 +620,8 @@ class SignalMonitor:
         # HAIR cannot tell "never" from "not since the restart".
         self._last_sent_at: dict[str, str] = {}
         self._last_heard_at: dict[str, str] = {}
+        # When each receiver's last EVENT_RECEIVER_HEARD went out (monotonic).
+        self._heard_pushed: dict[str, float] = {}
         self._beacon_unsub: CALLBACK_TYPE | None = None
         self._lock = asyncio.Lock()
         self._native_mode: bool = False
@@ -2329,9 +2333,28 @@ class SignalMonitor:
                 _LOGGER.exception("Error notifying signal subscriber")
 
     def _note_heard(self, receiver_entity_id: str | None) -> None:
-        """Mark a receiver as heard now: HAIR took a code from it."""
-        if receiver_entity_id:
-            self._last_heard_at[receiver_entity_id] = datetime.now(UTC).isoformat()
+        """Mark a receiver as heard now: HAIR took a code from it.
+
+        Also tells the panel (``EVENT_RECEIVER_HEARD``), at most once per
+        ``RECEIVER_HEARD_MIN_GAP_S`` per receiver: a press that matches a
+        trigger and bumps a row is one bloom, not two.
+        """
+        if not receiver_entity_id:
+            return
+        self._last_heard_at[receiver_entity_id] = datetime.now(UTC).isoformat()
+        now = monotonic()
+        # Read defensively: a few test doubles build the monitor without
+        # __init__, and the push is a nicety, never a reason to fail.
+        pushed = self.__dict__.setdefault("_heard_pushed", {})
+        last = pushed.get(receiver_entity_id)
+        if last is not None and now - last < RECEIVER_HEARD_MIN_GAP_S:
+            return
+        pushed[receiver_entity_id] = now
+        hass = getattr(self, "_hass", None)
+        if hass is not None:
+            hass.bus.async_fire(
+                EVENT_RECEIVER_HEARD, {"receiver_entity_id": receiver_entity_id}
+            )
 
     def hardware_facts(self) -> dict[str, dict[str, str]]:
         """When each receiver was last heard and each emitter last used.

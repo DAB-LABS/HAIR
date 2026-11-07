@@ -437,6 +437,7 @@
     "listen.hearing": "escutando",
     "listen.hold_button": "segure o botão",
     "listen.hearing_title": "{name} escuta o tempo todo: códigos conhecidos disparam. Clique para abrir uma janela para controles novos.",
+    "listen.status_title": "{name} escuta o tempo todo: cada código que ouve chega ao HAIR.",
     "listen.sweep_title": "{name} está procurando a portadora. Segure o botão do controle até ela ser encontrada. Clique para parar.",
     "listen.sweep": "Varredura",
     "listen.band": "{band} MHz",
