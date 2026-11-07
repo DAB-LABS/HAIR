@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from custom_components.hair import irdb_csv
+from custom_components.hair.encoders.dish_network import DishNetworkCommand
 from custom_components.hair.encoders.gi_cable import GICableCommand
 from custom_components.hair.encoders.mitsubishi import MitsubishiCommand
 from custom_components.hair.encoders.recs80 import RECS80Command
@@ -229,3 +230,74 @@ class TestGICable:
     def test_stored_as_built(self):
         timings = GICableCommand(device=0, function=29).get_raw_timings()
         assert _triple_reproduces(raw_to_pronto(timings, frequency=38700), timings)
+
+
+# --- Dish Network ------------------------------------------------------------
+#
+# {57.6k,406}<1,-7|1,-4>(1,-15,(F:-6,S:5,D:5,1,-15)+)
+# [F:0..63,S:0..31,D:0..31]. F high bit first, S and D low bit first,
+# and the LONG space is 0.
+
+_DISH_GAP = [406, -6090]
+
+
+class TestDishNetwork:
+    def test_the_frame_written_out(self):
+        # F = 35 = 100011 high bit first; S = 2 -> 01000; D = 24 -> 00011.
+        expected = _DISH_GAP + _train(
+            "100011" + "01000" + "00011", 406, 2842, 1624
+        ) + _DISH_GAP
+        assert DishNetworkCommand(
+            device=24, subdevice=2, function=35
+        ).get_raw_timings() == expected
+
+    def test_f_is_high_bit_first_and_d_low_bit_first(self):
+        """F = 1 lands on F's last bit; D = 1 on D's first."""
+        f1 = DishNetworkCommand(device=0, subdevice=0, function=1).get_raw_timings()
+        d1 = DishNetworkCommand(device=1, subdevice=0, function=0).get_raw_timings()
+        # The bit spaces sit at every other index from 3 (after the
+        # lead-in pair and the first bit's mark).
+        assert [i for i, s in enumerate(f1[3:35:2]) if s == -1624] == [5]
+        assert [i for i, s in enumerate(d1[3:35:2]) if s == -1624] == [11]
+
+    def test_carrier(self):
+        command = DishNetworkCommand(device=0, subdevice=0, function=0)
+        assert command.modulation == 57600
+
+    def test_a_repeat_is_the_frame_without_the_lead_in(self):
+        once = DishNetworkCommand(device=3, subdevice=1, function=9).get_raw_timings()
+        held = DishNetworkCommand(
+            device=3, subdevice=1, function=9, repeat_count=1
+        ).get_raw_timings()
+        assert held == once + once[2:]
+
+    @pytest.mark.parametrize(
+        ("d", "s", "f"), [(32, 0, 0), (0, 32, 0), (0, 0, 64), (-1, 0, 0)]
+    )
+    def test_out_of_range_is_refused(self, d, s, f):
+        with pytest.raises(ValueError):
+            DishNetworkCommand(device=d, subdevice=s, function=f)
+
+    def test_the_row_builds_it(self):
+        assert irdb_csv.build("Dish_Network", 24, 2, 35).get_raw_timings() == (
+            DishNetworkCommand(device=24, subdevice=2, function=35).get_raw_timings()
+        )
+
+    def test_the_row_refuses_what_the_protocol_does_not_define(self):
+        with pytest.raises(IrdbError, match="Dish_Network needs a subdevice"):
+            irdb_csv.build("Dish_Network", 24, -1, 35)
+        with pytest.raises(IrdbError, match="Dish_Network function 64 is outside 0 to 63"):
+            irdb_csv.build("Dish_Network", 24, 2, 64)
+
+    @pytest.mark.parametrize("d", [0, 1, 24, 31])
+    def test_no_decoder_claims_it(self, d):
+        for s in range(32):
+            for f in range(0, 64, 3):
+                timings = DishNetworkCommand(
+                    device=d, subdevice=s, function=f
+                ).get_raw_timings()
+                assert _nothing_decodes(timings), (d, s, f)
+
+    def test_stored_as_built(self):
+        timings = DishNetworkCommand(device=24, subdevice=2, function=35).get_raw_timings()
+        assert _triple_reproduces(raw_to_pronto(timings, frequency=57600), timings)

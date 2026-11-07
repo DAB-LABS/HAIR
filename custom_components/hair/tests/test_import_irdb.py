@@ -159,6 +159,10 @@ TABLE: dict[str, tuple] = {
     "G.I.Cable": (0, -1, 29, 38700,
                   {"lib": None, "nolib": None},
                   {"lib": False, "nolib": False}),
+    # Encode only (encoders/dish_network.py).
+    "Dish_Network": (24, 2, 35, 57600,
+                     {"lib": None, "nolib": None},
+                     {"lib": False, "nolib": False}),
 }
 
 #: Protocols whose S defaults to 255-D when the row gives -1.
@@ -167,7 +171,7 @@ S_DEFAULTS = {"NEC", "NEC1", "NEC2", "NEC1-f16", "NECx1", "NECx2", "Pioneer"}
 NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "Sharp", "Denon", "JVC",
         "Mitsubishi", "RECS80", "G.I.Cable"}
 #: Protocols whose S has no default: -1 is refused.
-S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa"}
+S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa", "Dish_Network"}
 
 
 def _built(name: str, d: int, s: int, f: int):
