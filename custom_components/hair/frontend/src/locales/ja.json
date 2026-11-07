@@ -437,6 +437,7 @@
     "listen.hearing": "常時受信中",
     "listen.hold_button": "ボタンを押し続けて",
     "listen.hearing_title": "{name} は常に受信しています。既知のコードは発火します。クリックすると新しいリモコン用のウィンドウを開きます。",
+    "listen.status_title": "{name} は常に受信しています。受信したコードはすべて HAIR に届きます。",
     "listen.sweep_title": "{name} は搬送波を探しています。見つかるまでリモコンのボタンを押し続けてください。クリックで停止。",
     "listen.sweep": "スイープ",
     "listen.band": "{band} MHz",

@@ -599,13 +599,22 @@ def _entity_name(hass: HomeAssistant, entity_id: str) -> str:
 
 
 def capture_receivers(
-    hass: HomeAssistant, store: CaptureReceiverStore | None = None
+    hass: HomeAssistant,
+    store: CaptureReceiverStore | None = None,
+    *,
+    include_always_on: bool = False,
 ) -> list[dict[str, Any]]:
     """One row per capture device, for the panel.
 
     The receivers HA has loaded, plus any remembered capture device
     whose integration has not loaded, so its card stays RX-CAPTURE.
     Empty when no receiver is a capture device.
+
+    ``include_always_on`` (the Sniffer's receiver row, RF hear fix round
+    1) adds one status row per always-on infrared receiver: nothing to
+    open, heard all the time. Always-on radio receivers are here either
+    way, as software-window rows. Sorted by device name, infrared before
+    radio on one device, so a device's pills sit together.
     """
     store = store if store is not None else _store(hass)
     candidates: list[str] = []
@@ -683,7 +692,52 @@ def capture_receivers(
             "window_mode": None,
         })
     rows.extend(_software_rows(hass, store))
-    rows.sort(key=lambda row: row["name"].casefold())
+    if include_always_on:
+        listed = {row["receiver_entity_id"] for row in rows}
+        rows.extend(
+            _always_on_rows(hass, [c for c in candidates if c not in listed])
+        )
+    rows.sort(key=lambda row: (row["name"].casefold(), row["medium"] != "ir"))
+    return rows
+
+
+def _always_on_rows(hass: HomeAssistant, receivers: list[str]) -> list[dict[str, Any]]:
+    """One status row per always-on infrared receiver: heard all the
+    time, with no window, no switch and no settings. HAIR's own observer
+    is not a receiver anyone points a remote at, and is left out."""
+    from .const import TWEEZER_OBSERVER_ATTR
+
+    registry = er.async_get(hass)
+    rows: list[dict[str, Any]] = []
+    for receiver in receivers:
+        if not receiver.startswith("infrared."):
+            continue
+        state = hass.states.get(receiver)
+        if state is not None and state.attributes.get(TWEEZER_OBSERVER_ATTR) is True:
+            continue
+        entry = registry.async_get(receiver)
+        device_id = entry.device_id if entry is not None else None
+        rows.append({
+            "receiver_entity_id": receiver,
+            "name": _name(hass, device_id, receiver),
+            "ha_device_id": device_id,
+            "available": is_available(state),
+            "switch_entity_id": None,
+            "source": None,
+            "device_switches": [],
+            "medium": "ir",
+            "capture_phase": None,
+            "frequency_hz": None,
+            "capture_device": False,
+            "software_window": False,
+            "always_on": True,
+            "capturing": False,
+            "window_ends_at": None,
+            "capture_mode": None,
+            **_settings_row({}),
+            "window_seconds": None,
+            "window_mode": None,
+        })
     return rows
 
 

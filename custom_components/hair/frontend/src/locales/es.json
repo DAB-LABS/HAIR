@@ -437,6 +437,7 @@
     "listen.hearing": "escuchando",
     "listen.hold_button": "mantén pulsado el botón",
     "listen.hearing_title": "{name} escucha siempre: los códigos conocidos se disparan. Haz clic para abrir una ventana para mandos nuevos.",
+    "listen.status_title": "{name} escucha todo el tiempo: cada código que oye llega a HAIR.",
     "listen.sweep_title": "{name} busca la portadora. Mantén pulsado el botón del mando hasta que la encuentre. Haz clic para parar.",
     "listen.sweep": "Barrido",
     "listen.band": "{band} MHz",

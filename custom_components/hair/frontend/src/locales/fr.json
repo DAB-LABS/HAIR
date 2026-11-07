@@ -437,6 +437,7 @@
     "listen.hearing": "à l'écoute",
     "listen.hold_button": "maintenez le bouton",
     "listen.hearing_title": "{name} écoute en permanence : les codes connus se déclenchent. Cliquez pour ouvrir une fenêtre pour de nouvelles télécommandes.",
+    "listen.status_title": "{name} écoute en permanence : chaque code qu'il entend parvient à HAIR.",
     "listen.sweep_title": "{name} cherche la porteuse. Maintenez le bouton de la télécommande jusqu'à ce qu'elle soit trouvée. Cliquez pour arrêter.",
     "listen.sweep": "Balayage",
     "listen.band": "{band} MHz",

@@ -78,6 +78,19 @@ export class IrPillPicker extends LitElement {
         );
     }
 
+    /** The menu goes to the browser's top layer (owner bench, 19:27):
+     *  the pill is its own stacking context (its drain sits behind its
+     *  text), so a menu inside it painted under the pills and rows that
+     *  follow. A browser without popovers keeps the fixed menu. */
+    protected updated(): void {
+        const menu = this.renderRoot.querySelector<HTMLElement & { showPopover?: () => void }>(
+            ".menu",
+        );
+        if (menu && typeof menu.showPopover === "function" && !menu.matches(":popover-open")) {
+            menu.showPopover();
+        }
+    }
+
     private _pick(value: string): void {
         this._close();
         if (value === this.value) return;
@@ -113,14 +126,13 @@ export class IrPillPicker extends LitElement {
                 @click=${() => (this._menu ? this._close() : this._open())}
             >
                 <span class="val">${this.label}</span>
-                ${interactive
-                    ? html`<svg class="caret" viewBox="0 0 24 24" aria-hidden="true">${CARET}</svg>`
-                    : nothing}
+                <svg class="caret ${interactive ? "" : "held"}" viewBox="0 0 24 24" aria-hidden="true">${CARET}</svg>
             </button>
             ${this._menu
                 ? html`<div
                       class="menu"
                       role="menu"
+                      popover="manual"
                       style="top:${this._menu.top}px;left:${this._menu.left}px"
                   >
                       ${this.choices.map(
@@ -170,17 +182,17 @@ export class IrPillPicker extends LitElement {
         }
         .box:disabled {
             cursor: default;
-            padding-right: 5px;
         }
-        /* Inactive while the window is open: the value stays in normal
-           text, no caret, no menu. Greyed while the receiver is down. */
+        /* Inactive while the window is open or the receiver is down:
+           greyed, no menu, and the same size (fix round 1, item 1): the
+           caret keeps its room, unseen, so the pill does not shrink. */
         :host([inactive]) .box {
             background: transparent;
             border-color: color-mix(in srgb, var(--primary-text-color) 14%, transparent);
             color: var(--secondary-text-color);
         }
-        :host([inactive][locked]) .box {
-            color: var(--primary-text-color);
+        .caret.held {
+            visibility: hidden;
         }
         .box.open,
         .box:focus-visible {
@@ -196,6 +208,12 @@ export class IrPillPicker extends LitElement {
         .menu {
             position: fixed;
             z-index: 20;
+            /* The popover's own defaults (centred, inset 0) undone: it
+               sits where the box put it. */
+            inset: auto;
+            margin: 0;
+            color: var(--primary-text-color);
+            overflow: visible;
             min-width: 140px;
             max-width: min(260px, calc(100vw - 16px));
             background: var(--card-background-color);

@@ -571,7 +571,9 @@ class TestTheListenChip:
         text = _flat("ir-listen-chip.ts")
         assert "const online = pillOnline(this.hass?.states, row);" in text
         assert 'const tone = look === "offline" ? EMBER_VAR.cssText' in text
-        assert 'const pressable = look !== "offline" && look !== "waiting" && !this._busy;' in text
+        assert "const pressable = pillPressable(look) && !this._busy;" in text
+        state = _flat("ir-listen-state.ts")
+        assert 'return look !== "offline" && look !== "waiting" && look !== "status";' in state
         assert "?disabled=${!pressable}" in text
         assert 'if (look === "offline") return t("listen.offline_title", { name });' in text
 
@@ -633,7 +635,11 @@ class TestTheHardwareCards:
     def test_each_row_badge_follows_its_own_entity_and_says_its_health(self):
         text = _flat("ir-device-list.ts")
         row = text.split("private _renderCapabilityRow(", 1)[1].split("private ", 1)[0]
-        assert 'class="badge cap-badge ${row.available ? "" : "offline"}"' in row
+        # Radio rows wear the light badge (owner, 2026-11-06 18:34).
+        assert (
+            'class="badge cap-badge ${row.medium === "rf" ? "rf" : ""} '
+            '${row.available ? "" : "offline"}"'
+        ) in row
         assert 'role="img" aria-label=${title} title=${title}' in row
         title = text.split("private _badgeTitle(", 1)[1].split("private ", 1)[0]
         assert 't(row.available ? "common.online" : "common.offline")' in title

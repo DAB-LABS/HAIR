@@ -471,6 +471,7 @@
     "listen.hearing": "nasłuchuje",
     "listen.hold_button": "przytrzymaj przycisk",
     "listen.hearing_title": "{name} nasłuchuje stale: znane kody działają. Kliknij, aby otworzyć okno dla nowych pilotów.",
+    "listen.status_title": "{name} słucha cały czas: każdy usłyszany kod trafia do HAIR.",
     "listen.sweep_title": "{name} szuka częstotliwości nośnej. Przytrzymaj przycisk pilota, aż zostanie znaleziona. Kliknij, aby zatrzymać.",
     "listen.sweep": "Skanowanie",
     "listen.band": "{band} MHz",

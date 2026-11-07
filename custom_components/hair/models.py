@@ -11,7 +11,6 @@ from .const import (
     DEFAULT_REPEAT_COUNT,
     MEDIUM_IR,
     MEDIUM_RF,
-    RF_BAND_STEP_HZ,
     RF_FREQUENCY_SOURCE_RECEIVER,
     RF_FREQUENCY_SOURCE_SIGNAL,
     RF_FREQUENCY_SOURCE_WINDOW,
@@ -22,6 +21,7 @@ from .const import (
     CommandSource,
     DeviceType,
 )
+from .rf_band import band_key
 
 
 def _new_id() -> str:
@@ -196,14 +196,13 @@ def is_rf(row: Any) -> bool:
 def band_mhz(frequency_hz: int | None) -> str | None:
     """The band a carrier reads as, in MHz to one decimal ("433.9").
 
-    Rounded to ``RF_BAND_STEP_HZ``: a receiver's spread on one handset
-    reads as one band while two genuinely different carriers 500 kHz
-    apart stay two.
+    ``rf_band.band_key``, the same rule a radio wig row's identity uses
+    (fix round 1, item 8): one handset's spread across receivers reads
+    as one band, and Somfy's 433.42 MHz stays apart from 433.92.
     """
     if not frequency_hz:
         return None
-    rounded = round(frequency_hz / RF_BAND_STEP_HZ) * RF_BAND_STEP_HZ
-    return f"{rounded / 1_000_000:.1f}"
+    return band_key(frequency_hz)
 
 
 def _rf_out(row: Any) -> dict[str, Any]:

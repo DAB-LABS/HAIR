@@ -8,7 +8,7 @@
  * Emits ``device-selected`` and ``add-device`` events for HAIR devices.
  * Emitter/receiver/proxy cards link to their HA integration page.
  */
-import { LitElement, html, css, nothing, type PropertyValues } from "lit";
+import { LitElement, html, css, nothing, unsafeCSS, type PropertyValues } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp, tv } from "./localize.js";
@@ -52,7 +52,7 @@ import { landedManyNotice, pinFillNotice } from "./api.js";
 import type { PinResult } from "./api.js";
 import { BROADSNIFF_URL } from "./types.js";
 import type { CaptureReceiverRow, HardwareFacts, Medium } from "./types.js";
-import { protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
+import { PROTO_SIGNAL, PROTO_SOURCE, protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
 import { captureSignature } from "./ir-listen-state.js";
 import {
     agoParts,
@@ -398,6 +398,9 @@ export class IrDeviceList extends LitElement {
     }
 
     protected willUpdate(changed: PropertyValues): void {
+        // The radio badge's letters are toned per theme (below), as the
+        // Sniffer tones its last-heard wash.
+        this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));
         // When the parent hands us a fresh device list, adopt it as the
         // source of truth and drop any optimistic local ordering.
         if (changed.has("devices")) {
@@ -2037,9 +2040,20 @@ export class IrDeviceList extends LitElement {
         >`;
     }
 
-    /** The protocol glyphs on a HAIR Device or Remote card's pill row,
-     *  right-aligned across from the counts (glyph spec): one per
-     *  medium its commands or triggers use, infrared first. */
+    /** A HAIR Device or Remote card's meta line: its words, then the
+     *  protocol glyphs, one per medium its commands or triggers use,
+     *  infrared first, in the meta text's grey (fix round 1, item 4:
+     *  off the corner and out of blue, so they do not pull the eye).
+     *  The glyphs stand alone on the line when the card has no words;
+     *  nothing at all when it has neither. */
+    private _renderMeta(words: string) {
+        return words ? html`<div class="card-meta">${words}</div>` : nothing;
+    }
+
+    /** The protocol glyphs, right of the card's count pills (owner,
+     *  2026-11-06 19:06: the meta line cut long types off): one per
+     *  medium its commands or triggers use, infrared first, grey at
+     *  rest and in their colours when the card is hovered. */
     private _renderProtoGlyphs(media: readonly Medium[] | undefined) {
         if (!media || media.length === 0) return nothing;
         return html`<span class="proto-glyphs">${media.map((m) => renderProtoGlyph(m, 16))}</span>`;
@@ -2110,7 +2124,7 @@ export class IrDeviceList extends LitElement {
             class="cap-row ${row.available ? "" : "is-down"} ${ruleAbove ? "rule-above" : ""}"
             data-entity=${row.entity_id}
         >
-            <span class="badge cap-badge ${row.available ? "" : "offline"}" role="img" aria-label=${title} title=${title}
+            <span class="badge cap-badge ${row.medium === "rf" ? "rf" : ""} ${row.available ? "" : "offline"}" role="img" aria-label=${title} title=${title}
                 >${badgeLabel(row)}</span
             >
             <span class="cap-name" title=${full}>${name}</span>
@@ -2303,18 +2317,14 @@ export class IrDeviceList extends LitElement {
                                               ${device.name}
                                           </div>
                                       </div>
-                                      <div class="card-meta">
-                                          ${[
+                                      ${this._renderMeta(
+                                          [
                                               device.manufacturer,
-                                              t(
-                                                  DEVICE_TYPE_LABEL_KEYS[
-                                                      device.device_type
-                                                  ],
-                                              ),
+                                              t(DEVICE_TYPE_LABEL_KEYS[device.device_type]),
                                           ]
                                               .filter(Boolean)
-                                              .join(" • ")}
-                                      </div>
+                                              .join(" • "),
+                                      )}
                                       <div class="card-footer">
                                           <span class="badge cmd-badge">
                                               ${t("devlist.cmd_badge", { count: device.command_count })}
@@ -2572,11 +2582,9 @@ export class IrDeviceList extends LitElement {
                                 <ha-svg-icon class="trigger-icon" .path=${ICON_TRIGGER}></ha-svg-icon>
                                 <div class="card-name">${remote.name}</div>
                             </div>
-                            ${remote.device_type
-                                ? html`<div class="card-meta">
-                                      ${t(DEVICE_TYPE_LABEL_KEYS[remote.device_type])}
-                                  </div>`
-                                : nothing}
+                            ${this._renderMeta(
+                                remote.device_type ? t(DEVICE_TYPE_LABEL_KEYS[remote.device_type]) : "",
+                            )}
                             <div class="card-footer">
                                 <span class="badge cmd-badge"
                                     >${t("devlist.on_badge", {
@@ -3246,12 +3254,22 @@ export class IrDeviceList extends LitElement {
         .broadsniff-hint:focus-visible {
             color: var(--primary-color);
         }
-        /* The protocol glyphs, right of the pill row (glyph spec). */
-        .proto-glyphs {
-            margin-left: auto;
+        /* The protocol glyphs, right after the count pills: grey at
+           rest, dot and lines both, and in their own colours (grey dot,
+           blue lines) while the card is hovered (owner 19:06). */
+        .card-footer .proto-glyphs {
             display: inline-flex;
             align-items: center;
             gap: 4px;
+        }
+        .card-footer .hair-proto {
+            --hair-proto-source: var(--secondary-text-color);
+            --hair-proto-signal: var(--secondary-text-color);
+        }
+        .card:hover .card-footer .hair-proto,
+        .card:focus-visible .card-footer .hair-proto {
+            --hair-proto-source: ${unsafeCSS(PROTO_SOURCE)};
+            --hair-proto-signal: ${unsafeCSS(PROTO_SIGNAL)};
         }
         .badge {
             border-radius: 4px;
@@ -3460,6 +3478,24 @@ export class IrDeviceList extends LitElement {
         .badge.cap-badge.offline {
             color: ${EMBER_VAR};
             background: color-mix(in srgb, ${EMBER_VAR} 13%, transparent);
+        }
+        /* IR and RF told apart by weight, no stroke (owner 18:34), the
+           Sniffer pills' pairing: infrared solid, light green letters
+           (not white, owner 18:39) on the full colour; radio light, the colour's letters on a pale wash
+           of it (the look every badge here had before). */
+        .badge.cap-badge:not(.rf) {
+            background: #2e7d32;
+            color: color-mix(in srgb, #fff 70%, #2e7d32);
+        }
+        .badge.cap-badge.offline:not(.rf) {
+            background: ${EMBER_VAR};
+            color: color-mix(in srgb, #fff 70%, ${EMBER_VAR});
+        }
+        /* On a dark card the radio badge's letters and wash go lighter,
+           so the pale badge stays readable. */
+        :host([dark]) .badge.cap-badge.rf:not(.offline) {
+            color: #81c784;
+            background: rgba(129, 199, 132, 0.14);
         }
         .hw-card.is-offline {
             border-color: color-mix(in srgb, ${EMBER_VAR} 40%, transparent);

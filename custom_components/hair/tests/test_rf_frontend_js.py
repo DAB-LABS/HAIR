@@ -30,6 +30,9 @@ TOOLCHAIN_MISSING = not TSC.exists() or shutil.which("node") is None
 NOW = "2026-11-06T20:00:00.000Z"
 
 DRIVER = Path(__file__).parent / "fixtures" / "rf_frontend_driver.mjs"
+BAND_CASES = json.loads(
+    (Path(__file__).parent / "fixtures" / "rf" / "band_cases.json").read_text(encoding="utf-8")
+)
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +50,12 @@ def run(tmp_path_factory):
         ],
         cwd=FRONTEND, check=True, capture_output=True, timeout=180,
     )
-    driver = DRIVER.read_text(encoding="utf-8").replace("__NOW__", NOW)
+    band_hz = [c["hz"] for c in BAND_CASES["cases"]]
+    driver = (
+        DRIVER.read_text(encoding="utf-8")
+        .replace("__NOW__", NOW)
+        .replace("__BAND_HZ__", json.dumps(band_hz))
+    )
     (out / "driver.mjs").write_text(driver, encoding="utf-8")
     result = subprocess.run(
         ["node", str(out / "driver.mjs")],
@@ -143,7 +151,16 @@ class TestTheListenPill:
         assert run["pill"]["software_ignores_hass"] == "hearing"
 
     def test_the_badge(self, run):
-        assert (run["pill"]["ir_badge"], run["pill"]["rf_badge"]) == ("IR-RX", "RF-RX")
+        # Every pill is a receiver: the badge is the medium alone (fix
+        # round 1, item 7). The homepage rows keep IR-TX / RF-RX.
+        assert (run["pill"]["ir_badge"], run["pill"]["rf_badge"]) == ("IR", "RF")
+
+    def test_an_always_on_infrared_receiver_is_a_status_pill(self, run):
+        assert run["pill"]["status"] == "status"
+        assert run["pressable"] == {
+            "idle": True, "hearing": True, "status": False, "open": True,
+            "sweep": True, "offline": False, "waiting": False,
+        }
 
     def test_the_pickers_are_inactive_while_open_or_down(self, run):
         assert run["active"] == {
@@ -187,17 +204,27 @@ class TestThePickers:
 
 
 class TestTheShowChips:
-    def test_each_chip(self, run):
-        # Remotes: infrared, radio, a hidden infrared one, one with no medium.
+    def test_each_glyph_is_its_own_toggle(self, run):
+        # Remotes: infrared, radio, a hidden infrared one, one with no
+        # medium. Hidden adds the hidden remotes of the lit media; the
+        # list can be reordered only with the defaults.
         assert run["shows"] == {
-            "all": [True, True, False, True],
-            "ir": [True, False, False, True],
-            "rf": [False, True, False, False],
-            "hidden": [False, False, True, False],
+            "default": {"rows": [True, True, False, True], "everything": True},
+            "ir_only": {"rows": [True, False, False, True], "everything": False},
+            "rf_only": {"rows": [False, True, False, False], "everything": False},
+            "with_hidden": {"rows": [True, True, True, True], "everything": False},
+            "rf_and_hidden": {"rows": [False, True, False, False], "everything": False},
+            "none": {"rows": [False, False, False, False], "everything": False},
         }
 
     def test_the_carrier_column(self, run):
-        assert run["carriers"] == [{"band": "433.92"}, None, {"khz": 38}, None]
+        assert run["carriers"] == [
+            {"band": "433.92"}, None, {"khz": 38}, None, {"band": "433.92"},
+        ]
+
+    def test_the_band_rule_is_the_backends(self, run):
+        """Item 8: the panel's bands are rf_band.py's, case for case."""
+        assert run["band_cases"] == BAND_CASES["cases"]
 
 
 class TestTheSources:
@@ -206,13 +233,15 @@ class TestTheSources:
     def test_the_hidden_chip_replaces_the_bottom_button(self):
         monitor = _src("ir-signal-monitor.ts")
         assert "_toggleDismissed" not in monitor and "_showDismissed" not in monitor
-        assert 'include_dismissed: this._filter === "hidden",' in monitor
-        assert '${c.id === "hidden" && this._hiddenDot' in monitor
-        assert "show-chip ${this._filter === c.id" in monitor
+        assert "include_dismissed: this._show.hidden," in monitor
+        assert '${g.kind === "hidden" && this._hiddenDot' in monitor
+        assert 'class="show-glyph ${this._show[g.kind] ? "on" : ""}' in monitor
 
     def test_reordering_only_with_every_remote_shown(self):
         monitor = _src("ir-signal-monitor.ts")
-        assert 'this._remotesSortable?.option("disabled", this._filter !== "all");' in monitor
+        assert (
+            'this._remotesSortable?.option("disabled", !snifferShowsEverything(this._show));'
+        ) in monitor
         assert 'handle: ".remote-handle",' in monitor
 
     def test_the_handle_is_a_button_with_the_glyph_then_the_grip(self):

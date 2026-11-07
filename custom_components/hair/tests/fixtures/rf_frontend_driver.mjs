@@ -6,9 +6,10 @@ import {
 } from "./ir-hardware-rows.js";
 import {
     bandNumber, currentFrequency, currentLength, currentMode, frequencyChoices,
-    lengthChoices, modeChoices, pickersActive, pillBadge, pillLive, pillLook,
+    lengthChoices, modeChoices, pickersActive, pillBadge, pillLive, pillLook, pillPressable,
 } from "./ir-listen-state.js";
-import { carrierParts, snifferShows } from "./sniffer-filter.js";
+import { carrierParts, snifferShows, snifferShowsEverything } from "./sniffer-filter.js";
+import { bandHz, bandKey, bandLabel } from "./rf-band.js";
 
 const NOW = Date.parse("__NOW__");
 const ago = (s) => new Date(NOW - s * 1000).toISOString();
@@ -121,7 +122,15 @@ const pill = {
     waiting: look(hwRow({ switch_entity_id: null, source: null }), rx({ capturing: false })),
     ir_badge: pillBadge(hwRow({ medium: "ir" })),
     rf_badge: pillBadge(hwRow()),
+    // An always-on infrared receiver: a status pill (fix round 1, item 6).
+    status: look(hwRow({
+        receiver_entity_id: "infrared.athom_ir_receiver", medium: "ir", switch_entity_id: null,
+        source: null, capture_device: false, always_on: true, frequency_select: null,
+        window_length: null, capture_mode_select: null, frequency_options: [],
+    }), { "infrared.athom_ir_receiver": on({}) }),
 };
+const pressable = {};
+for (const l of ["idle", "hearing", "status", "open", "sweep", "offline", "waiting"]) pressable[l] = pillPressable(l);
 const active = {};
 for (const l of ["idle", "hearing", "open", "sweep", "offline", "waiting"]) active[l] = pickersActive(l);
 
@@ -182,18 +191,32 @@ const out = {
     capture_flag: rm4.rows.filter((r) => r.capture_device).map((r) => r.entity_id),
     ago: [5, 59, 60, 3599, 3600, 86399, 86400 * 3].map((s) => agoParts(ago(s), NOW)),
     ago_bad: agoParts("not a time", NOW),
-    pill, active, pickers,
-    shows: {
-        all: ["ir", "rf", "hidden_ir", "none"].map((k) => snifferShows("all", R[k])),
-        ir: ["ir", "rf", "hidden_ir", "none"].map((k) => snifferShows("ir", R[k])),
-        rf: ["ir", "rf", "hidden_ir", "none"].map((k) => snifferShows("rf", R[k])),
-        hidden: ["ir", "rf", "hidden_ir", "none"].map((k) => snifferShows("hidden", R[k])),
-    },
+    pill, active, pickers, pressable,
+    // The three filter glyphs, each its own toggle (fix round 1, item 3).
+    shows: Object.fromEntries(
+        [
+            ["default", { ir: true, rf: true, hidden: false }],
+            ["ir_only", { ir: true, rf: false, hidden: false }],
+            ["rf_only", { ir: false, rf: true, hidden: false }],
+            ["with_hidden", { ir: true, rf: true, hidden: true }],
+            ["rf_and_hidden", { ir: false, rf: true, hidden: true }],
+            ["none", { ir: false, rf: false, hidden: false }],
+        ].map(([name, show]) => [name, {
+            rows: ["ir", "rf", "hidden_ir", "none"].map((k) => snifferShows(show, R[k])),
+            everything: snifferShowsEverything(show),
+        }]),
+    ),
     carriers: [
         carrierParts({ medium: "rf", rf_frequency_hz: 433920000, frequency: 38000 }),
         carrierParts({ medium: "rf", rf_frequency_hz: null, frequency: 38000 }),
         carrierParts({ frequency: 38029 }),
         carrierParts({}),
+        // The bench's second report of the same keyfob (item 8).
+        carrierParts({ medium: "rf", rf_frequency_hz: 433840000 }),
     ],
+    // __BAND_HZ__ is the carriers of tests/fixtures/rf/band_cases.json.
+    band_cases: __BAND_HZ__.map((hz) => ({
+        hz, band_hz: bandHz(hz), key: bandKey(hz), label: bandLabel(hz),
+    })),
 };
 console.log(JSON.stringify(out));
