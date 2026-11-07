@@ -664,6 +664,13 @@ Key components:
   true ditto, so JVC rows get the ditto count beside NEC and Apple. Two
   shapes read as JVC by design: a 16-bit frame on NEC timing, and an NEC
   capture cut off right after its sixteenth bit.
+  A Proton decoder followed (v1.2.0), local only and identity-only: NEC
+  Display, Proton and Audiovox remotes, an 8 ms leader, D and F of eight
+  bits LSB first split by a 4 ms gap, on a 500 us unit. GE-AC is the same
+  layout on a 562.5 us unit, so the library's GE-AC and Proton decoders
+  each read the other's frames; HAIR measures a frame's unit from its
+  whole length and reads Proton up to 525 us and GE-AC from 535 us, with
+  neither in between.
   Recovery passes (v0.6.1): registry specs can carry optional seek and
   salvage hooks, wired for NEC today. Seek trims junk ahead of the main
   leader (stray repeat markers, partial bursts) before the strict decode;

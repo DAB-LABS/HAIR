@@ -41,13 +41,11 @@ def ge_ac_decoder_available() -> bool:
     ``from_raw_timings``, in 6.1.0, so on 5.x and on the bare leg the spec
     is absent and on 6.1.0 and later it is registered.
 
-    It matters to one fixture. The Futarque LIRC remote sends Proton
-    frames (8000/4000 leader, 500us unit, a 500/4000 stop and gap
-    between its two bytes), and GE-AC's frame is the same shape on a
-    562.5us unit, about 1.125 times longer. GE-AC's 40% tolerance covers
-    that, so where the decoder exists it reads every Futarque code, with
-    its bits in GE-AC's order. HAIR registers no Proton decoder, and GE-AC
-    is identity-only, so a row read this way still sends its stored code.
+    A test asserting that a GE-AC frame reads as GE-AC asks this first:
+    on a leg without the decoder the same frame is correctly unclaimed.
+    (Until 1.2 the Futarque LIRC remote's Proton frames read as GE-AC
+    here too; HAIR's own Proton decoder and the unit check on GE-AC's
+    decode now keep the two apart on every leg, ``decoders/proton.py``.)
     """
     return get_spec("GEAC") is not None
 

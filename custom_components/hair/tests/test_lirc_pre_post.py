@@ -14,10 +14,13 @@ from pathlib import Path
 
 from custom_components.hair.ir_command import ProntoCommand
 from custom_components.hair.protocol_decode import try_decode_identity
-from custom_components.hair.tests.leg import ge_ac_decoder_available
 from custom_components.hair.wig_adapters import _LircSpaceEnc, convert
 
 FIXTURES = Path(__file__).parent / "fixtures" / "adapters"
+
+
+def _reversed(byte: int) -> int:
+    return int(f"{byte:08b}"[::-1], 2)
 
 
 def _params(**extra: str) -> dict[str, list[str]]:
@@ -115,25 +118,21 @@ class TestTheFixture:
         block = text.split("begin codes", 1)[1].split("end codes", 1)[0]
         return [int(m, 16) for m in re.findall(r"\b0x([0-9A-Fa-f]+)\b", block)]
 
-    def test_the_codes_read_as_ge_ac_only_where_its_decoder_exists(self):
-        """The remote sends Proton frames, and only GE-AC reads them.
+    def test_the_codes_read_as_proton_on_every_leg(self):
+        """The remote sends Proton frames, and they read as Proton.
 
-        Proton is GE-AC's frame shape on a 500us unit instead of 562.5us,
-        inside GE-AC's 40% tolerance, and HAIR registers no Proton
-        decoder. So where the library's GE-AC decoder exists (6.1.0 and
-        later) every code reads as GE-AC, with the pre_data as the
-        address and the button code as the command, both in the order
-        the file writes them. Everywhere else nothing reads them.
+        Proton numbers its bits LSB first and LIRC writes them MSB first,
+        so the address is the pre_data 0x54 reversed (0x2A) and the
+        command each button code reversed. Every leg agrees, including
+        those whose library has a GE-AC decoder: the unit check on its
+        decode keeps it off Proton frames (``decoders/proton.py``).
         """
         signals = self._signals()
         codes = self._codes()
         assert len(codes) == len(signals)
         for sig, code in zip(signals, codes, strict=True):
             identity = try_decode_identity(ProntoCommand(sig.pronto).get_raw_timings())
-            if not ge_ac_decoder_available():
-                assert identity is None, sig.alias
-                continue
             assert identity is not None, sig.alias
             assert (identity.protocol, identity.address, identity.command) == (
-                "GEAC", 0x54, code,
+                "PROTON", _reversed(0x54), _reversed(code),
             ), sig.alias

@@ -109,6 +109,11 @@ class ProtocolSpec:
     # capture untouched.
     seek: Any = None  # Callable[[list[int]], list[int]] | None
     salvage: Any = None  # Callable[[list[int]], tuple[int, int] | None] | None
+    # ``accept``: a HAIR-side check on a decode the class has already
+    # returned, for a class whose decoder accepts more than its protocol
+    # (GE-AC today, which reads Proton frames). Returning False hands the
+    # capture to the next spec as if the class had refused it.
+    accept: Any = None  # Callable[[list[int], Any], bool] | None
     # What the installed library offered for this protocol: one of
     # UPSTREAM_ADOPTED, UPSTREAM_NOT_ADOPTED or UPSTREAM_NONE.
     upstream_decoder: str = "none"
@@ -440,6 +445,39 @@ def _construct_geac(cls: type, label: str, address: int, command: int,
     return None
 
 
+def _geac_unit_is_geac(timings: list[int], cmd: Any) -> bool:
+    """Is a frame the library's GE-AC decoder accepted on GE-AC's unit?
+
+    GE-AC and Proton are one layout on units of 562.5us and 500us, and
+    the library's GE-AC decoder accepts both, reading the first 37
+    timings of the capture. This measures the unit of those same 37 and
+    passes the decode only from ``GEAC_UNIT_MIN_US`` up, so a Proton
+    frame goes on to the Proton decoder and a frame between the two
+    windows is read by neither (``decoders/proton.py`` has the numbers).
+    """
+    from .decoders.proton import GEAC_UNIT_MIN_US, frame_unit_us
+
+    ones = bin(int(cmd.address) & 0xFF).count("1") + bin(
+        int(cmd.command) & 0xFF
+    ).count("1")
+    return frame_unit_us(timings, ones) >= GEAC_UNIT_MIN_US
+
+
+def _extract_proton(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    # Frozen: D is the address and F the command, read LSB first as the
+    # IRP numbers them, so a stored row reads PROTON:0x00dd:0xff.
+    return ("PROTON", int(cmd.address), int(cmd.command), None)
+
+
+def _construct_proton(cls: type, label: str, address: int, command: int,
+                      extras: Any) -> Any:
+    # Identity-only for transmit: a Proton row sends its stored code. The
+    # round trip through this class is exact, but the only Proton remote
+    # in hand runs about 12% short of the IRP's spaces, and nothing has
+    # shown a Proton device taking the textbook frame (1.2.0 report).
+    return None
+
+
 def _extract_tdc38(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
     # D and S pack into one address (D high), F is the command. Frozen:
     # stored rows carry this packing in their fingerprint, so changing it
@@ -589,6 +627,16 @@ _REGISTRATIONS: tuple[tuple, ...] = (
      _extract_nec42ext, _construct_nec42ext, ("NEC42EXT",)),
     ("geac", "infrared_protocols.commands.general_electric", "GEACCommand",
      None, False, _extract_geac, _construct_geac, ("GEAC",)),
+    # PROTON is GE-AC's layout on a 500us unit, and the two decoders are
+    # kept apart by that unit (decoders/proton.py): this one reads only
+    # frames on Proton's, and GE-AC's decode passes only on GE-AC's (its
+    # ``accept`` check). So the order between them does not matter.
+    # LOCAL ONLY: the library's ProtonCommand (9.1.0+) decodes, but it
+    # accepts GE-AC frames too, so it would fail the parity check that
+    # ADOPTED_UPSTREAM_DECODERS asks for. Identity-only, like GE-AC.
+    ("proton", None, "ProtonCommand",
+     "custom_components.hair.decoders.proton", False,
+     _extract_proton, _construct_proton, ("PROTON",)),
     # JVC has no checksum, so it probes in the checksum-free tail. It
     # goes ahead of TDC-38, Dyson and Symphony because its frame is the
     # most constrained of the four: an 8.4ms leader on at least one frame
@@ -642,7 +690,9 @@ def _build_registry() -> list[ProtocolSpec]:
         if resolved is None:
             continue
         cls, source, upstream = resolved
-        seek = salvage = None
+        seek = salvage = accept = None
+        if key == "geac":
+            accept = _geac_unit_is_geac
         if key == "nec":
             # v0.6.1 recovery hooks: leader-seek admits repeat-prefix
             # captures to the strict decoder; checksum salvage rescues
@@ -662,6 +712,7 @@ def _build_registry() -> list[ProtocolSpec]:
                 labels=labels,
                 seek=seek,
                 salvage=salvage,
+                accept=accept,
                 upstream_decoder=upstream,
             )
         )
@@ -979,6 +1030,16 @@ def _identify(
             cmd = spec.command_cls.from_raw_timings(attempt)
         except Exception:  # never break capture on a malformed-input error
             cmd = None
+        # getattr, not the attribute: a spec-shaped object built before
+        # the hook existed (the store-health tests make one) has none.
+        accept = getattr(spec, "accept", None)
+        if cmd is not None and accept is not None:
+            try:
+                accepted = bool(accept(attempt, cmd))
+            except Exception:  # a check that cannot answer refuses
+                accepted = False
+            if not accepted:
+                continue
         if cmd is None:
             if spec.salvage is not None:
                 try:
@@ -1117,7 +1178,13 @@ def identity_from_command(command: Any) -> DecodedIdentity | None:
 #: SONY12/15/20: until 1.1 the Sony decoder checked its spaces only
 #: against a sanity range, and read RC-6 frames holding 12, 15 or 20
 #: marks as Sony (``decoders/sony.py``).
-REJUDGED_LABELS: frozenset[str] = frozenset({"SONY12", "SONY15", "SONY20"})
+#:
+#: GEAC: until 1.2 the library's GE-AC decoder (6.1.0+) read Proton
+#: frames, the Futarque remote's among them, because the two are one
+#: layout on units 12.5% apart (``decoders/proton.py``).
+REJUDGED_LABELS: frozenset[str] = frozenset(
+    {"SONY12", "SONY15", "SONY20", "GEAC"}
+)
 
 
 def stored_identity_is_stale(
@@ -1130,6 +1197,12 @@ def stored_identity_is_stale(
     and a fresh decode of the row's own timings gives another identity
     or none at all. A row with no timings to decode is never stale:
     there is nothing to judge it by, and it keeps what it has.
+
+    "None at all" counts only where this environment can decode the
+    stored label. GE-AC exists only with a library that ships its
+    decoder, so on one without it a genuine GE-AC row decodes to nothing
+    and that says nothing about the row; it keeps its identity. A fresh
+    decode that names another protocol is an answer on any library.
     """
     if not stored_fingerprint or not raw_timings:
         return False
@@ -1137,7 +1210,9 @@ def stored_identity_is_stale(
     if label not in REJUDGED_LABELS:
         return False
     identity = try_decode_identity(raw_timings)
-    return identity is None or identity.fingerprint != stored_fingerprint
+    if identity is None:
+        return get_spec(label) is not None
+    return identity.fingerprint != stored_fingerprint
 
 
 def decode_coverage(raw_timings: list[int] | None) -> bool | None:

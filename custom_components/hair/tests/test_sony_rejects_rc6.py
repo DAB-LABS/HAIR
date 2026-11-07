@@ -251,8 +251,9 @@ def _trigger(trigger_id: str, timings: list[int], decoded: str | None) -> dict:
     }
 
 
-def test_the_rejudged_labels_are_sony_only():
-    assert {"SONY12", "SONY15", "SONY20"} == REJUDGED_LABELS
+def test_the_sony_labels_are_rejudged():
+    # GEAC joined in 1.2 (test_proton_decoder); no other label may.
+    assert {"SONY12", "SONY15", "SONY20", "GEAC"} == REJUDGED_LABELS
 
 
 def test_the_old_reading_is_stale_and_a_true_sony_one_is_not():

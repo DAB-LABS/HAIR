@@ -60,10 +60,7 @@ from custom_components.hair.tests.census_corpus import (
     sources,
     vanished_rows,
 )
-from custom_components.hair.tests.leg import (
-    BASELINE_SUFFIX,
-    ge_ac_decoder_available,
-)
+from custom_components.hair.tests.leg import BASELINE_SUFFIX
 
 #: The baseline for the leg this run is on. See ``tests/leg.py``: the
 #: strict NEC decoder has no local polyfill, so the two legs decode
@@ -101,22 +98,15 @@ EXPECTED_CLAIMS: dict[str, set[str]] = {
     # 888us leader space fails, so RC-6 reads them. Delete this entry
     # with the JVC one when a regenerated baseline carries both moves.
     "adapters:lirc_rc6_mode0_address0.lircd.conf": {"RC6"},
+    # The Futarque remote sends Proton frames (8000/4000 leader, 500us
+    # unit, a 500/4000 stop and gap between its two bytes), and HAIR's
+    # Proton decoder reads all 41 on every leg. The baseline has them
+    # raw: before the LIRC reader wrote this block's `pre` pulse they had
+    # no gap between their bytes. (On a library with GE-AC's decoder,
+    # 6.1.0 and later, they read as GE-AC until 1.2; the unit check on
+    # GE-AC's decode now refuses them, decoders/proton.py.)
+    "adapters:lirc_space_enc_pre_data_futarque.lircd.conf": {"PROTON"},
 }
-
-# Leg-dependent, so added only where it applies: an entry on a leg where
-# nothing changes would fail `test_every_allowlisted_fixture_actually_changed`.
-#
-# The Futarque remote sends Proton frames, and the library's GE-AC
-# decoder (6.1.0 and later) reads them: same layout, a unit 1.125 times
-# longer, inside its 40% tolerance. Before the LIRC reader wrote this
-# block's `pre` pulse, the codes had no gap between their bytes and
-# nothing could read them. `leg.ge_ac_decoder_available` has the detail.
-# This is a known limit of the library's decoder, pinned rather than
-# hidden: HAIR registers no Proton decoder to read them as what they are.
-if ge_ac_decoder_available():
-    EXPECTED_CLAIMS["adapters:lirc_space_enc_pre_data_futarque.lircd.conf"] = {
-        "GEAC"
-    }
 
 #: Baseline keys that are allowed to be absent from the walk, each with
 #: the reason. A fixture deleted or renamed on purpose goes here by its
