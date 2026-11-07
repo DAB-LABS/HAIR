@@ -466,7 +466,7 @@
     "listen.failed": "{name} nie może rozpocząć nasłuchu. Kliknij, aby spróbować ponownie.",
     "listen.offline_title": "{name} jest offline. Nasłuchiwanie będzie znów możliwe, gdy Home Assistant się z nim połączy.",
     "listen.arm_failed": "{name} nie może rozpocząć nasłuchu.",
-    "listen.no_switch_error": "Nie wybrano jeszcze niczego, co otwiera okno przechwytywania {name}. Wybierz przełącznik na jego karcie w Urządzeniach.",
+    "listen.no_switch_error": "Nic jeszcze nie otwiera okna przechwytywania {name}. Wybierz jego przełącznik strzałką na jego pigułce u góry zakładki Sniffer.",
     "listen.no_switch_title": "Najpierw wybierz przełącznik, który otwiera jego okno.",
     "listen.hearing": "nasłuchuje",
     "listen.hold_button": "przytrzymaj przycisk",

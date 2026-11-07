@@ -432,7 +432,7 @@
     "listen.failed": "{name} n'a pas pu se mettre à l'écoute. Cliquez pour réessayer.",
     "listen.offline_title": "{name} est hors ligne. L'écoute reprendra quand Home Assistant pourra le joindre.",
     "listen.arm_failed": "{name} n'a pas pu se mettre à l'écoute.",
-    "listen.no_switch_error": "Rien n'est encore choisi pour ouvrir la fenêtre de capture de {name}. Choisissez un interrupteur sur sa carte dans Appareils.",
+    "listen.no_switch_error": "Rien n'ouvre encore la fenêtre de capture de {name}. Choisissez son interrupteur avec la flèche de sa pastille, en haut du Sniffer.",
     "listen.no_switch_title": "Choisissez d'abord l'interrupteur qui ouvre sa fenêtre.",
     "listen.hearing": "à l'écoute",
     "listen.hold_button": "maintenez le bouton",
