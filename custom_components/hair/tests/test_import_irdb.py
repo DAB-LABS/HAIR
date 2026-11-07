@@ -146,12 +146,18 @@ TABLE: dict[str, tuple] = {
     "JVC": (67, -1, 3, 38000,
             {leg: ("JVC", 67, 3, None) for leg in ("lib", "nolib")},
             {"lib": False, "nolib": False}),
+    # Encode only (encoders/mitsubishi.py): nothing decodes it, so it is
+    # stored as built. The frame itself is checked in test_irdb_encoders.
+    "Mitsubishi": (71, -1, 23, 32600,
+                   {"lib": None, "nolib": None},
+                   {"lib": False, "nolib": False}),
 }
 
 #: Protocols whose S defaults to 255-D when the row gives -1.
 S_DEFAULTS = {"NEC", "NEC1", "NEC2", "NEC1-f16", "NECx1", "NECx2", "Pioneer"}
 #: Protocols with no S at all: the row must give -1.
-NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "Sharp", "Denon", "JVC"}
+NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "Sharp", "Denon", "JVC",
+        "Mitsubishi"}
 #: Protocols whose S has no default: -1 is refused.
 S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa"}
 
@@ -246,8 +252,8 @@ class TestMinusOne:
 
 class TestRefusals:
     def test_a_protocol_outside_the_table_is_named(self):
-        with pytest.raises(IrdbError, match=r"^Mitsubishi cannot be built yet$"):
-            irdb_csv.build("Mitsubishi", 71, -1, 10)
+        with pytest.raises(IrdbError, match=r"^Velleman cannot be built yet$"):
+            irdb_csv.build("Velleman", 0, -1, 10)
 
     def test_jvc_refuses_a_subdevice_and_a_wide_device(self):
         with pytest.raises(IrdbError, match="JVC has no subdevice, but the row gives 1"):
@@ -498,7 +504,7 @@ class TestReader:
         assert result.wigs == []
         assert result.error == (
             "nothing in this irdb file can be built "
-            "(3 rows not read: Mitsubishi, which HAIR cannot build yet)"
+            "(3 rows not read: Velleman, which HAIR cannot build yet)"
         )
 
 
