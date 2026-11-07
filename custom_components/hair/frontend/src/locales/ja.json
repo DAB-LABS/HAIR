@@ -432,7 +432,7 @@
     "listen.failed": "{name} で受信を開始できませんでした。クリックで再試行。",
     "listen.offline_title": "{name} はオフラインです。Home Assistant が接続できるようになると、再び受信待機できます。",
     "listen.arm_failed": "{name} で受信を開始できませんでした。",
-    "listen.no_switch_error": "{name} のキャプチャウィンドウを開くものがまだ選ばれていません。デバイスのカードでスイッチを選んでください。",
+    "listen.no_switch_error": "{name} のキャプチャウィンドウを開くものがまだありません。Sniffer 上部のピルにある矢印から、そのスイッチを選んでください。",
     "listen.no_switch_title": "先にウィンドウを開くスイッチを選んでください。",
     "listen.hearing": "常時受信中",
     "listen.hold_button": "ボタンを押し続けて",

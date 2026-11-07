@@ -432,7 +432,7 @@
     "listen.failed": "{name} kon niet beginnen met luisteren. Klik om het opnieuw te proberen.",
     "listen.offline_title": "{name} is offline. Luisteren kan weer zodra Home Assistant het apparaat bereikt.",
     "listen.arm_failed": "{name} kon niet beginnen met luisteren.",
-    "listen.no_switch_error": "Er is nog niets gekozen om het opnamevenster van {name} te openen. Kies een schakelaar op de kaart onder Apparaten.",
+    "listen.no_switch_error": "Nog niets opent het opnamevenster van {name}. Kies de schakelaar met het pijltje op de pil bovenaan de Sniffer.",
     "listen.no_switch_title": "Kies eerst de schakelaar die het venster opent.",
     "listen.hearing": "luistert",
     "listen.hold_button": "houd de knop ingedrukt",

@@ -156,6 +156,8 @@ export class IrSignalMonitor extends LitElement {
     @state() private _devices: UnknownDeviceSummary[] = [];
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _loading = true;
+    /** Which _load owns the list; an older one's answer is dropped. */
+    private _loadSeq = 0;
     @state() private _deleteRemote: UnknownDeviceSummary | null = null;
     @state() private _linkedPopoverId: string | null = null;
     // USE fork pin-prompt trigger (Track 3 item 5): the opposite-kind
@@ -487,6 +489,7 @@ export class IrSignalMonitor extends LitElement {
 
     private async _load(): Promise<void> {
         this._loading = true;
+        const seq = ++this._loadSeq;
         try {
             const [unknowns, hairDevs, triggers, status] = await Promise.all([
                 this.api.getUnknownDevices({
@@ -497,7 +500,12 @@ export class IrSignalMonitor extends LitElement {
                 this.api.listTriggers(),
                 this.api.getSnifferStatus(),
             ]);
-            this._devices = unknowns;
+            // A later load owns the list: an earlier answer, say from a
+            // hidden toggle flipped back, never overwrites it.
+            if (seq !== this._loadSeq) return;
+            this._devices = this._show.hidden
+                ? unknowns
+                : unknowns.filter((d) => !d.dismissed);
             this._hairDevices = hairDevs;
             this._triggers = triggers;
             this._hasReceivers = status.has_receivers;
@@ -516,7 +524,7 @@ export class IrSignalMonitor extends LitElement {
         } catch (err) {
             this._error = `Failed to load: ${(err as Error).message}`;
         } finally {
-            this._loading = false;
+            if (seq === this._loadSeq) this._loading = false;
         }
     }
 
@@ -1418,9 +1426,15 @@ export class IrSignalMonitor extends LitElement {
      *  further events can re-light it. The glow runs out on its own. */
     private _toggleShow(kind: keyof SnifferShow): void {
         this._show = { ...this._show, [kind]: !this._show[kind] };
-        if (kind === "hidden") {
-            if (this._show.hidden) this._hiddenDot = false;
+        if (kind !== "hidden") return;
+        // Item 10: a filter, never a reload. Turning hidden off drops
+        // the hidden remotes where they are; turning it on fetches them
+        // while the rows on screen stay until the new set lands.
+        if (this._show.hidden) {
+            this._hiddenDot = false;
             void this._load();
+        } else {
+            this._devices = this._devices.filter((d) => !d.dismissed);
         }
     }
 
@@ -1467,7 +1481,7 @@ export class IrSignalMonitor extends LitElement {
                     <span class="toolbar-title">
                         <ha-svg-icon .path=${ICON_SIGNAL}></ha-svg-icon>
                         ${t("sniffer.title")}
-                        ${!this._loading
+                        ${!this._loading || this._devices.length > 0
                             ? html`<span class="toolbar-count"
                                   >(${tp("sniffer.remotes", this._devices.length)})</span
                               ><span class="toolbar-tagline"
@@ -1495,7 +1509,7 @@ export class IrSignalMonitor extends LitElement {
                 ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                 : ""}
 
-            ${this._loading
+            ${this._loading && this._devices.length === 0
                 ? html`<div class="loading">${t("sniffer.scanning")}</div>`
                 : this._devices.length === 0
                   ? this._hasReceivers

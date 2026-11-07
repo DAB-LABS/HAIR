@@ -432,7 +432,7 @@
     "listen.failed": "{name} não conseguiu começar a escutar. Clique para tentar de novo.",
     "listen.offline_title": "{name} está offline. Poderá escutar de novo quando o Home Assistant o alcançar.",
     "listen.arm_failed": "{name} não conseguiu começar a escutar.",
-    "listen.no_switch_error": "Ainda não foi escolhido nada para abrir a janela de captura de {name}. Escolha um interruptor no cartão dele em Dispositivos.",
+    "listen.no_switch_error": "Ainda nada abre a janela de captura de {name}. Escolha o interruptor com a seta na pílula dele, no topo do Sniffer.",
     "listen.no_switch_title": "Escolha primeiro o interruptor que abre a janela.",
     "listen.hearing": "escutando",
     "listen.hold_button": "segure o botão",

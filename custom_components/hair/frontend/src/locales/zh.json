@@ -432,7 +432,7 @@
     "listen.failed": "{name} 无法开始监听。点击重试。",
     "listen.offline_title": "{name} 已离线。Home Assistant 重新连接后即可再次监听。",
     "listen.arm_failed": "{name} 无法开始监听。",
-    "listen.no_switch_error": "尚未选择用于打开 {name} 捕获窗口的开关。请在“设备”中它的卡片上选择一个开关。",
+    "listen.no_switch_error": "还没有任何东西能打开 {name} 的捕获窗口。请用 Sniffer 顶部其胶囊上的箭头选择它的开关。",
     "listen.no_switch_title": "请先选择打开其窗口的开关。",
     "listen.hearing": "持续接收",
     "listen.hold_button": "按住按钮",
