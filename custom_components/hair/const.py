@@ -11,7 +11,11 @@ STORAGE_VERSION = 1
 # function and counter have to be recomputed. The remap is a bijection
 # and is NOT idempotent, so it runs from the store's migration hook,
 # exactly once, rather than from the load-time backfill chain.
-STORAGE_VERSION_MINOR = 2
+# Bumped to 3 by RF send: radio commands assigned before HAIR could send
+# radio kept the default send_count of 1; they are seeded once from the
+# frames their press carried (``rf_send.seed_stored_send_counts``). Run
+# from the migration hook so a count of 1 a person sets later stays 1.
+STORAGE_VERSION_MINOR = 3
 
 CONF_EMITTER_ENTITY_ID = "emitter_entity_id"
 CONF_DEVICE_TYPE = "device_type"

@@ -783,3 +783,240 @@ class TestEcho:
 
     def test_the_receiver_heard_event_name_is_the_doors(self):
         assert EVENT_RECEIVER_HEARD == "hair_receiver_heard"
+
+
+# ---------------------------------------------------------------------------
+# The send-round review's fix round (F1, F2, N7, N8, N13, test gaps)
+# ---------------------------------------------------------------------------
+
+
+class TestTheTestDoor:
+    """F1 and gap 3: the door answers what went on the air."""
+
+    async def _door(self, result):
+        from custom_components.hair.tests.test_rf_send_devices import (
+            _conn,
+            _data,
+            _Hass,
+            _Remote,
+        )
+        from custom_components.hair.websocket_api import ws_test_signal
+
+        hass = _Hass()
+        row = types.SimpleNamespace(id="s1", medium=MEDIUM_RF)
+        monitor = MagicMock()
+        monitor._signal_store.get_all_devices.return_value = [_Remote([row])]
+        monitor.test_signal = AsyncMock(return_value=result)
+        data = _data(hass, signal_monitor=monitor)
+        data["store"].get_all_devices.return_value = []
+        conn = _conn()
+        await ws_test_signal(
+            hass, conn, {"id": 1, "signal_id": "s1", "emitter_entity_id": ATHOM_TX}
+        )
+        return conn
+
+    @pytest.mark.asyncio
+    async def test_a_substituted_send_says_its_carrier(self):
+        conn = await self._door({
+            "success": True, "sent": True,
+            "frequency_hz": 433_920_000, "substituted": True,
+        })
+        assert conn.send_result.call_args.args[1] == {
+            "sent": True, "frequency_hz": 433_920_000, "substituted": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_an_infrared_answer_is_unchanged(self):
+        conn = await self._door({"success": True})
+        assert conn.send_result.call_args.args[1] == {"sent": True}
+
+
+class TestTheTestCount:
+    """F2 and gap 4: Test sends what one press carried."""
+
+    @pytest.mark.asyncio
+    async def test_a_minted_row_tests_with_its_observed_repeats(
+        self, fake_hass, radio, keyfob
+    ):
+        monitor, store = _monitor(fake_hass)
+        store.add_device(UnknownDevice(
+            id="d", fingerprint=keyfob.device_key, source="sniffed",
+            medium=MEDIUM_RF, signals=[_rf_signal(keyfob, rf_repeats_observed=8)],
+        ))
+        row = store.get_all_devices()[0].signals[0]
+        assert (row.send_count or 1) == 1  # what a mint leaves
+        result = await monitor.test_signal("rf1", ATHOM_TX)
+        assert result["success"] is True
+        (_, command), = radio.sent
+        assert command.repeat_count == 7  # eight frames, not one
+        assert (row.send_count or 1) == 1  # the row itself is not changed
+
+    @pytest.mark.asyncio
+    async def test_a_count_somebody_set_is_kept(self, fake_hass, radio, keyfob):
+        monitor, store = _monitor(fake_hass)
+        store.add_device(UnknownDevice(
+            id="d", fingerprint=keyfob.device_key, source="sniffed",
+            medium=MEDIUM_RF,
+            signals=[_rf_signal(keyfob, rf_repeats_observed=8, send_count=3)],
+        ))
+        await monitor.test_signal("rf1", ATHOM_TX)
+        (_, command), = radio.sent
+        assert command.repeat_count == 2
+
+
+class TestTheReasons:
+    """N7: the refusal names the reason the user can act on."""
+
+    def test_a_down_transmitter_is_named(self, radio, fake_hass, keyfob):
+        radio.states[RM4_TX] = _tx_state(RM4_TX, state="unavailable")
+        row = _row(keyfob.frame, rf_frequency_hz=315_000_000)
+        with pytest.raises(rf_send.SendRefusedError) as caught:
+            rf_send.plan_radio_send(fake_hass, row, [RM4_TX, ATHOM_TX], "Plug")
+        assert caught.value.code == "rf_frequency_unsupported"
+        assert RM4_TX in str(caught.value) and "unavailable" in str(caught.value)
+
+    def test_a_transmitter_that_declares_nothing_says_so(self, radio, fake_hass, keyfob):
+        with pytest.raises(rf_send.SendRefusedError) as caught:
+            rf_send.plan_radio_send(fake_hass, _row(keyfob.frame), [BARE_TX], "Plug")
+        assert "frequency:" in str(caught.value) and "YAML" in str(caught.value)
+
+    def test_only_down_transmitters_is_todays_unavailable(self, radio, fake_hass, keyfob):
+        radio.states[ATHOM_TX] = _tx_state(ATHOM_TX, state="unavailable")
+        plan = rf_send.plan_radio_send(fake_hass, _row(keyfob.frame), [ATHOM_TX], "Plug")
+        assert plan.attempted == [] and plan.skipped == {ATHOM_TX: "unavailable"}
+
+
+class TestStoredCounts:
+    """N13: radio commands stored before HAIR sent radio, seeded once."""
+
+    def test_the_seed(self):
+        data = {"devices": [{"commands": [
+            {"medium": "rf", "send_count": 1, "rf_repeats_observed": 8},
+            {"medium": "rf", "send_count": 1, "rf_repeats_observed": None},
+            {"medium": "rf", "send_count": 5, "rf_repeats_observed": 8},
+            {"send_count": 1, "code": "0000 006D"},  # infrared
+        ]}]}
+        assert rf_send.seed_stored_send_counts(data) == 2
+        counts = [c["send_count"] for c in data["devices"][0]["commands"]]
+        assert counts == [8, RF_DEFAULT_SEND_COUNT, 5, 1]
+
+    @pytest.mark.asyncio
+    async def test_it_runs_from_the_v1_3_migration_only(self, fake_hass):
+        from custom_components.hair.const import STORAGE_VERSION_MINOR
+        from custom_components.hair.storage import _HAIRDeviceStore
+
+        assert STORAGE_VERSION_MINOR == 3
+        store = _HAIRDeviceStore.__new__(_HAIRDeviceStore)
+        old = {"devices": [{"commands": [
+            {"medium": "rf", "send_count": 1, "rf_repeats_observed": 6},
+        ]}]}
+        out = await store._async_migrate_func(1, 2, old)
+        assert out["devices"][0]["commands"][0]["send_count"] == 6
+        # A store already at v1.3: a 1 somebody set is left alone.
+        kept = {"devices": [{"commands": [
+            {"medium": "rf", "send_count": 1, "rf_repeats_observed": 6},
+        ]}]}
+        out = await store._async_migrate_func(1, 3, kept)
+        assert out["devices"][0]["commands"][0]["send_count"] == 1
+
+
+class TestEchoGaps:
+    """Gaps 1, 2, 5 and 7, and N8."""
+
+    @pytest.mark.asyncio
+    async def test_the_device_path_arms_the_ticket_before_transmitting(
+        self, manager, radio, keyfob, fake_hass, monkeypatch
+    ):
+        monitor, _ = _monitor(fake_hass)
+        fake_hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close())
+        manager._signal_monitor = MagicMock(return_value=monitor)
+        seen_tickets: list[int] = []
+        platform = sys.modules["homeassistant.components.radio_frequency"]
+        send = platform.async_send_command
+
+        async def recording(hass, entity_id, command, context=None):
+            seen_tickets.append(len(monitor._echo_expectations))
+            await send(hass, entity_id, command, context)
+
+        monkeypatch.setattr(platform, "async_send_command", recording)
+        manager._store.get_device = MagicMock(
+            return_value=_device([ATHOM_TX], _radio_command(keyfob.frame))
+        )
+        await manager.async_send_command("dev1", "c1")
+        assert seen_tickets == [1]
+        assert monitor._echo_expectations[0]["medium"] == MEDIUM_RF
+
+    def test_a_long_burst_gets_a_claim_per_burst(self, fake_hass, keyfob):
+        monitor, _ = _monitor(fake_hass)
+        fake_hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close())
+        frame = [10_000, -10_000] * 15  # 300 ms a frame
+        row = _row(frame, send_count=10, rf_frame_gap_us=10_000)
+        plan = _plan(row, ATHOM_TX)
+        assert plan.count == 10 and plan.air_s == pytest.approx(3.0)
+        with patch.object(rf_frames, "analyze", return_value=rf_frames.analyze(
+            list(rf_send.wire_frame(_radio_command(keyfob.frame))) * 3
+        )):
+            monitor.record_send_rf(row, plan, "Plug / Long")
+        assert monitor._echo_expectations[-1]["claim_budget"] == 2  # ceil(3.0 / 1.5)
+
+    def test_a_radio_receivers_state_write_is_not_a_beacon(self, fake_hass):
+        monitor, _ = _monitor(fake_hass)
+        old = _tx_state(ATHOM_RX, device_class="receiver")
+        new = _tx_state(ATHOM_RX, state="2026-11-07T08:00:01.000+00:00",
+                        device_class="receiver")
+        monitor._on_emitter_beacon(types.SimpleNamespace(
+            data={"entity_id": ATHOM_RX, "old_state": old, "new_state": new},
+            context=None,
+        ))
+        assert monitor._foreign_pending == {}
+
+    @pytest.mark.asyncio
+    async def test_the_ticket_lives_for_the_bursts_air_time_too(
+        self, fake_hass, keyfob, captures, monkeypatch
+    ):
+        from custom_components.hair import signal_monitor as sm
+        from custom_components.hair.const import MIRROR_ECHO_TTL_S
+
+        clock = [1000.0]
+        monkeypatch.setattr(sm, "monotonic", lambda: clock[0])
+        monitor, store = _monitor(fake_hass)
+        fake_hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close())
+        row = _radio_command(keyfob.frame, send_count=8)
+        plan = _plan(row, ATHOM_TX)
+        monitor.record_send_rf(row, plan, "Plug / Button 1 on")
+        ticket = monitor._echo_expectations[-1]
+        monitor._arm_expectation(ticket, clock[0])
+        ticket["guard_until"] = 0.0
+        assert ticket["extra_window_s"] > plan.air_s > 0.3
+        # Just inside the widened window: still HAIR's own send.
+        clock[0] = 1000.0 + MIRROR_ECHO_TTL_S + plan.air_s - 0.01
+        with patch.object(monitor, "_mirror_mark_heard", AsyncMock()) as mark:
+            await TestEcho()._hear(fake_hass, monitor, [_signed(captures[0]["pulses"])])
+        mark.assert_awaited()
+        assert store.get_all_devices() == []
+
+    @pytest.mark.asyncio
+    async def test_a_foreign_radio_send_heard_back_shows_its_carrier(
+        self, fake_hass, radio, captures
+    ):
+        """N8: the Mirror's band cell for a send nobody in HAIR made."""
+        from custom_components.hair.models import CaptureResult
+        from custom_components.hair.signal_monitor import _normalize_rf
+
+        monitor, store = _monitor(fake_hass)
+        fake_hass.bus = MagicMock()
+        analysis = rf_frames.analyze(_signed(captures[0]["pulses"]))
+        parsed = CaptureResult(
+            protocol=RF_PROTOCOL, code=None, raw_timings=list(analysis.frame),
+            medium=MEDIUM_RF,
+        )
+        parsed.rf_frequency_hz = 433_920_000
+        parsed.rf = analysis
+        n = _normalize_rf(parsed)
+        assert n.rf_frequency_hz == 433_920_000
+        await monitor._mirror_upsert(
+            n, decoded_fp=None, echo_source="Unknown send", reset_heard=False
+        )
+        mirror = next(d for d in store.get_all_devices() if d.source == "echo")
+        assert mirror.signals[0].medium == MEDIUM_RF
+        assert mirror.signals[0].rf_frequency_hz == 433_920_000
