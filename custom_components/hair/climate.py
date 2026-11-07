@@ -54,8 +54,11 @@ from .send_signal import (
     DeviceSent,
 )
 from .wig_climate import (
+    ModeCapabilities,
     cell_display_name,
+    combined_temperature_range,
     ha_mode_for,
+    matrix_capabilities,
     resolve_cell,
     state_display_name,
     unit_letter,
@@ -162,6 +165,11 @@ class _ClimateExtraStoredData(ExtraStoredData):
     """
 
     native_target_temperature: float | None
+    # The person's last explicit fan and swing (GH #168): what a mode
+    # switch goes back to once a mode offers them again. Optional, so a
+    # payload written before they existed still reads.
+    wanted_fan: str | None = None
+    wanted_swing: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -172,7 +180,16 @@ class _ClimateExtraStoredData(ExtraStoredData):
             raw = restored["native_target_temperature"]
         except KeyError:
             return None
-        return cls(native_target_temperature=float(raw) if raw is not None else None)
+
+        def _text(key: str) -> str | None:
+            value = restored.get(key)
+            return value if isinstance(value, str) else None
+
+        return cls(
+            native_target_temperature=float(raw) if raw is not None else None,
+            wanted_fan=_text("wanted_fan"),
+            wanted_swing=_text("wanted_swing"),
+        )
 
 
 class HAIRClimateEntity(RestoreEntity, ClimateEntity):
@@ -195,7 +212,22 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         # async_added_to_hass through the manager's cache (blocking
         # file I/O never runs in a constructor called on the loop).
         self._swing_mode: str | None = None
+        # WANTED, BESIDE SHOWN (GH #168). ``_fan_mode``, ``_swing_mode``
+        # and ``_target_temperature`` are what the card shows: the cell
+        # that actually went out. These are the person's last explicit
+        # choices, which every resolve asks for first, so a mode that
+        # lacks a value sends its own and the next mode that has it goes
+        # back to it. None means "nothing chosen": resolve then asks for
+        # the shown value, which is what it always did.
+        self._wanted_fan: str | None = None
+        self._wanted_swing: str | None = None
+        self._wanted_temperature: float | None = None
         self._matrix: ClimateMatrix | None = None
+        # Per-mode capabilities of the loaded matrix, computed once per
+        # load (wig_climate.matrix_capabilities).
+        self._caps_matrix: ClimateMatrix | None = None
+        self._caps: dict[str, ModeCapabilities] = {}
+        self._temp_range: tuple[float, float] | None = None
         self._matrix_changed_unsub = None
         # Display name of the last transmitted cell ("Off"/"On" for
         # the power codes): the device page's current-cell readout
@@ -334,6 +366,20 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         restored_swing = last_state.attributes.get(ATTR_SWING_MODE)
 
         if self._matrix_mode:
+            # The person's last explicit choices, when this entity wrote
+            # them (GH #168); the shown values otherwise, which is all an
+            # entity from before had.
+            wanted_fan, wanted_swing = restored_fan, restored_swing
+            extra = await self.async_get_last_extra_data()
+            stored = (
+                _ClimateExtraStoredData.from_dict(extra.as_dict())
+                if extra is not None else None
+            )
+            if stored is not None:
+                if stored.wanted_fan is not None:
+                    wanted_fan = stored.wanted_fan
+                if stored.wanted_swing is not None:
+                    wanted_swing = stored.wanted_swing
             # 098-final-review.md's required fix: a sanity clamp on
             # top of the native-unit read above, so a value already
             # corrupted by the old bug (or any other bad number that
@@ -343,17 +389,17 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             # resolve_cell below snaps to the nearest real cell
             # regardless, but it validates the COMBINATION, not the
             # raw value that gets written to _target_temperature.
+            # The range is the one the entity offers (GH #168): the
+            # cells', not the frame's.
             if restored_temp is not None and self._matrix is not None:
-                restored_temp = min(
-                    max(restored_temp, self._matrix.min_temp),
-                    self._matrix.max_temp,
-                )
+                low, high = self._matrix_temp_range()
+                restored_temp = min(max(restored_temp, low), high)
             cell = None
             if restored_mode != HVACMode.OFF:
                 file_mode = self._file_mode_for(restored_mode)
                 cell = (
                     resolve_cell(
-                        self._matrix, file_mode, restored_fan, restored_swing,
+                        self._matrix, file_mode, wanted_fan, wanted_swing,
                         restored_temp,
                     )
                     if file_mode is not None and self._matrix is not None
@@ -362,10 +408,24 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 if cell is None:
                     return
             self._hvac_mode = restored_mode
-            self._fan_mode = restored_fan
-            self._swing_mode = restored_swing
-            if restored_temp is not None:
-                self._target_temperature = restored_temp
+            self._wanted_fan = wanted_fan
+            self._wanted_swing = wanted_swing
+            self._wanted_temperature = restored_temp
+            if cell is not None:
+                # SHOWN IS THE CELL (GH #168): what the card shows is the
+                # state the restored combination resolves to, so a value
+                # this mode does not have cannot come back on the card.
+                # The restored setpoint goes first: in a mode with no
+                # real temperature the cell leaves it, rather than the
+                # seed the load wrote, as the value kept for later.
+                if restored_temp is not None:
+                    self._target_temperature = restored_temp
+                self._show_cell(cell)
+            else:
+                self._fan_mode = restored_fan
+                self._swing_mode = restored_swing
+                if restored_temp is not None:
+                    self._target_temperature = restored_temp
             if cell is not None:
                 # matrix_cell, RE-DERIVED rather than read back
                 # (restore completeness, 2026-08-23). It was never
@@ -441,7 +501,16 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
 
     @property
     def extra_restore_state_data(self) -> _ClimateExtraStoredData:
-        return _ClimateExtraStoredData(self._target_temperature)
+        # The temperature restore resolves with is the wanted one where
+        # the person chose one (GH #168), which is the shown one on a
+        # preset device and on any matrix entity nobody has set yet.
+        target = (
+            self._wanted_temperature if self._wanted_temperature is not None
+            else self._target_temperature
+        )
+        return _ClimateExtraStoredData(
+            target, wanted_fan=self._wanted_fan, wanted_swing=self._wanted_swing,
+        )
 
     def _capture_active_mode(self) -> None:
         """Remember the mode about to be left, before flipping to OFF.
@@ -618,11 +687,24 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         mode = self._hvac_for_file_mode(cell.get("mode"))
         if mode is not None:
             self._hvac_mode = mode
+        # A followed send is the state the unit is in, and the handset
+        # press or preset behind it is the latest choice: it moves the
+        # wanted values with the shown ones (GH #168).
         if cell.get("fan") is not None:
             self._fan_mode = cell["fan"]
+            self._wanted_fan = cell["fan"]
         if cell.get("swing") is not None:
             self._swing_mode = cell["swing"]
-        if cell.get("temp") is not None:
+            self._wanted_swing = cell["swing"]
+        # In a mode whose temperature changes no code the setpoint stays
+        # where the person put it, as ``_show_cell`` keeps it for HAIR's
+        # own sends: the dial is hidden there, and the kept value is what
+        # the next mode with a dial goes out at (GH #168).
+        caps = self._capabilities().get(cell.get("mode"))
+        if cell.get("temp") is not None and (
+            caps is None or caps.has_temperature
+        ):
+            self._wanted_temperature = float(cell["temp"])
             # The cell's temp is in the FILE's unit, which is the unit
             # this entity declares in matrix mode, so it is already
             # native and HA converts for the card (_declared_unit's
@@ -718,6 +800,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             candidate[0] is not None and candidate in members
         ) else own
         before_temp = self._target_temperature
+        before_wanted_temp = self._wanted_temperature
         was_off = self._hvac_mode == HVACMode.OFF
         self._apply_coordinates(dict(zip(dims, adopted, strict=True)))
         if (
@@ -726,6 +809,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             and before_temp is not None
         ):
             self._target_temperature = before_temp
+            self._wanted_temperature = before_wanted_temp
         if was_off and self._hvac_mode == HVACMode.OFF:
             for member in ordered:
                 if self._hvac_for_file_mode(member[0]) is not None:
@@ -907,17 +991,76 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
 
     async def _async_load_matrix(self) -> None:
         self._matrix = await self._manager.async_get_matrix(self._device.id)
+        # Rebuilt on the next read (GH #168): a repair may have changed
+        # the cells of the very object the manager hands back.
+        self._caps_matrix = None
         if self._matrix is not None and self._target_temperature is None:
             # Seed the dial for the same reason presets seed (v0.6.1
             # bench find: no draggable target while None). Midpoint of
-            # the file's bounds, snapped to its precision; local state
-            # only, nothing transmits.
+            # the range the cells cover (GH #168), snapped to the file's
+            # precision; local state only, nothing transmits.
             m = self._matrix
+            low, high = self._matrix_temp_range()
             step = m.precision or 1.0
-            mid = (m.min_temp + m.max_temp) / 2
-            self._target_temperature = (
-                m.min_temp + round((mid - m.min_temp) / step) * step
+            mid = (low + high) / 2
+            self._target_temperature = low + round((mid - low) / step) * step
+
+    # -- per-mode capabilities (GH #168) --------------------------------
+
+    def _capabilities(self) -> dict[str, ModeCapabilities]:
+        """Per-mode capabilities of the loaded matrix, built once per
+        load: the properties read them on every state write. Every
+        reload drops them (``_async_load_matrix``), since a cell repair
+        rewrites bytes in place and the reload hands back the same
+        object."""
+        if self._matrix is None:
+            return {}
+        if self._caps_matrix is not self._matrix:
+            self._caps = matrix_capabilities(self._matrix)
+            self._temp_range = combined_temperature_range(
+                self._matrix, self._caps
             )
+            self._caps_matrix = self._matrix
+        return self._caps
+
+    def _matrix_temp_range(self) -> tuple[float, float]:
+        """One temperature range for every mode, from the cells."""
+        self._capabilities()
+        if self._temp_range is None:  # no matrix: the file's bounds are moot
+            return (0.0, 0.0)
+        return self._temp_range
+
+    def _list_mode_capabilities(self) -> ModeCapabilities | None:
+        """The capabilities the card offers now: the current mode's, or
+        while OFF, the mode the entity turns back on into (the last one
+        it was in, else the file's first). None when that mode has no
+        cells, and the frame's lists then answer as they always did."""
+        mode = self._hvac_mode
+        if mode == HVACMode.OFF:
+            mode = self._last_active_hvac_mode or self._first_matrix_hvac_mode()
+        file_mode = self._file_mode_for(mode)
+        if file_mode is None:
+            return None
+        return self._capabilities().get(file_mode)
+
+    def _mode_has_temperature(self) -> bool:
+        caps = self._list_mode_capabilities()
+        return True if caps is None else caps.has_temperature
+
+    def _show_cell(self, cell: ClimateCell) -> None:
+        """Show what went out: the cell's fan and swing, and its
+        temperature where the mode reads one (GH #168). The wanted
+        values stay as they are, for the next mode that offers them.
+
+        In a mode where temperature changes no code the setpoint is
+        left where the person put it: the dial is hidden there, and the
+        kept value is what the next mode with a dial goes out at, the
+        rule the merged-group follow already applies."""
+        self._fan_mode = cell.fan
+        self._swing_mode = cell.swing
+        caps = self._capabilities().get(cell.mode)
+        if cell.temp is not None and (caps is None or caps.has_temperature):
+            self._target_temperature = cell.temp
 
     @callback
     def _handle_matrix_changed(self, owner_id: str) -> None:
@@ -965,7 +1108,19 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         return UnitOfTemperature.FAHRENHEIT
 
     def _get_target_temperature(self) -> float | None:
-        """The setpoint, in ``_declared_unit``."""
+        """The setpoint, in ``_declared_unit``.
+
+        None in a matrix mode where temperature changes no code (GH
+        #168): the frontend hides the dial for a null target, and a
+        static dry mode has nothing to set. The setpoint is kept, and
+        comes back in the next mode that has one.
+        """
+        if (
+            self._matrix_mode
+            and self._matrix is not None
+            and not self._mode_has_temperature()
+        ):
+            return None
         return self._target_temperature
 
     def _get_current_temperature(self) -> float | None:
@@ -1103,8 +1258,13 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
 
     @property
     def min_temp(self) -> float:
+        # ONE RANGE FOR EVERY MODE (GH #168 note, section 1): Home
+        # Assistant checks a set_temperature against the range as it
+        # stands before the call's own hvac_mode applies, so a per-mode
+        # range would refuse "heat to 30" sent while in cool. The range
+        # comes from the cells, so a thinned matrix narrows it.
         if self._matrix_mode and self._matrix is not None:
-            return float(self._matrix.min_temp)
+            return self._matrix_temp_range()[0]
         presets = self._device.entity_config.temperature_presets
         if presets:
             return float(min(presets))
@@ -1113,7 +1273,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
     @property
     def max_temp(self) -> float:
         if self._matrix_mode and self._matrix is not None:
-            return float(self._matrix.max_temp)
+            return self._matrix_temp_range()[1]
         presets = self._device.entity_config.temperature_presets
         if presets:
             return float(max(presets))
@@ -1135,11 +1295,23 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 return None
             # Verbatim file vocabulary, never normalized: these strings
             # are the resolve_cell lookup keys (addendum section 3).
-            return list(self._matrix.fan_modes) or None
+            # The CURRENT MODE's fans (GH #168), so Home Assistant offers
+            # and accepts only what this mode can send; None when the
+            # mode has no fan to choose.
+            caps = self._list_mode_capabilities()
+            if caps is None:
+                return list(self._matrix.fan_modes) or None
+            return list(caps.fans) or None
         return list(self._device.entity_config.fan_modes or []) or None
 
     @property
     def fan_mode(self) -> str | None:
+        # Never a value outside the list (GH #168): a mode with no fan to
+        # choose shows none. The sent fan is still kept for the readout.
+        if self._matrix_mode and self._matrix is not None:
+            caps = self._list_mode_capabilities()
+            if caps is not None and not caps.fans:
+                return None
         return self._fan_mode
 
     @property
@@ -1147,11 +1319,19 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         # Swing exists only in matrix mode (no preset-mode device ever
         # had it); verbatim for the same lookup-key reason as fans.
         if self._matrix_mode and self._matrix is not None:
-            return list(self._matrix.swing_modes) or None
+            caps = self._list_mode_capabilities()
+            if caps is None:
+                return list(self._matrix.swing_modes) or None
+            return list(caps.swings) or None
         return None
 
     @property
     def swing_mode(self) -> str | None:
+        # The same rule as ``fan_mode`` (GH #168).
+        if self._matrix_mode and self._matrix is not None:
+            caps = self._list_mode_capabilities()
+            if caps is not None and not caps.swings:
+                return None
         return self._swing_mode
 
     @property
@@ -1329,11 +1509,12 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             origin=ORIGIN_ENTITY,
         )
         self._matrix_cell = name
-        # Snap the dial to what actually went out: resolve_cell picks
-        # the nearest available temperature, and displaying a target
-        # the unit never received would be a quiet lie.
-        if cell.temp is not None:
-            self._target_temperature = cell.temp
+        # Show what actually went out: resolve_cell picks the nearest
+        # available temperature, and falls back to the mode's own fan
+        # and swing where the wanted ones are missing, and displaying a
+        # state the unit never received would be a quiet lie (GH #168
+        # for fan and swing; the temperature has always snapped).
+        self._show_cell(cell)
 
     async def _async_resolve_and_send(self, hvac_mode: HVACMode) -> bool:
         if self._matrix is None:
@@ -1349,9 +1530,16 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 self._device.name, hvac_mode,
             )
             return False
+        # Ask for the person's last explicit choices first (GH #168):
+        # a mode that lacks one sends its own, and the next mode that
+        # has it goes back to it.
         cell = resolve_cell(
-            self._matrix, file_mode, self._fan_mode, self._swing_mode,
-            self._target_temperature,
+            self._matrix, file_mode,
+            self._wanted_fan if self._wanted_fan is not None else self._fan_mode,
+            self._wanted_swing if self._wanted_swing is not None
+            else self._swing_mode,
+            self._wanted_temperature if self._wanted_temperature is not None
+            else self._target_temperature,
         )
         if cell is None:
             _LOGGER.warning(
@@ -1440,15 +1628,18 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self._preset_mode = None
         if self._matrix_mode:
             self._target_temperature = float(raw_target)
+            self._wanted_temperature = float(raw_target)
             if hvac_mode is not None:
                 # One send: the mode path resolves the cell for the new
                 # mode at the temperature just stored, or turns the unit
                 # off and keeps the temperature for the next mode.
                 await self.async_set_hvac_mode(hvac_mode)
                 return
-            if self._hvac_mode != HVACMode.OFF:
+            if self._hvac_mode != HVACMode.OFF and self._mode_has_temperature():
                 # _async_send_cell snaps the dial to the transmitted
-                # cell's temperature.
+                # cell's temperature. In a mode where temperature changes
+                # no code the value is kept for the next mode and nothing
+                # is sent (GH #168).
                 await self._async_resolve_and_send(self._hvac_mode)
             self.async_write_ha_state()
             return
@@ -1481,6 +1672,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self._preset_mode = None
         if self._matrix_mode:
             self._fan_mode = fan_mode
+            self._wanted_fan = fan_mode
             if self._hvac_mode != HVACMode.OFF:
                 await self._async_resolve_and_send(self._hvac_mode)
             self.async_write_ha_state()
@@ -1497,6 +1689,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             return
         self._preset_mode = None
         self._swing_mode = swing_mode
+        self._wanted_swing = swing_mode
         if self._hvac_mode != HVACMode.OFF:
             await self._async_resolve_and_send(self._hvac_mode)
         self.async_write_ha_state()

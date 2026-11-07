@@ -330,7 +330,10 @@ async def test_a_dry_press_keeps_the_dial_and_the_next_cool_goes_out_there(
     entity = pair.entity
     assert entity.hvac_mode == HVACMode.DRY
     assert entity.fan_mode == "auto"
-    assert entity.target_temperature == 24.0
+    # Dry here stores one code at every temperature, so it shows no
+    # dial (GH #168); the setpoint is kept for the next mode with one.
+    assert entity.target_temperature is None
+    assert entity._target_temperature == 24.0
     assert entity.extra_state_attributes["matrix_cell"] == sent.name
 
     await entity.async_set_hvac_mode(HVACMode.COOL)
@@ -359,7 +362,10 @@ async def test_a_dial_below_the_dry_range_stays_put_after_a_restart_too(
     assert sent.cell["temp_free"] is True
     assert sent.name == "dry / fan: auto / swing: off / 18-30"
     assert pair.entity.hvac_mode == HVACMode.DRY
-    assert pair.entity.target_temperature == 16.0
+    # Dry here stores one code at every temperature, so it shows no
+    # dial (GH #168); the setpoint is kept for the next mode with one.
+    assert pair.entity.target_temperature is None
+    assert pair.entity._target_temperature == 16.0
     await pair.entity.async_set_hvac_mode(HVACMode.COOL)
     assert pair.manager.sends[-1].name == "cool / fan: auto / swing: off / 16"
 
@@ -419,7 +425,10 @@ async def test_a_group_only_the_device_has_does_not_move_the_dial():
     assert sent.pronto == pressed.pronto
     assert sent.cell["spanned"] == {"temp": [float(t) for t in range(18, 31)]}
     assert pair.entity.hvac_mode == HVACMode.DRY
-    assert pair.entity.target_temperature == 24.0
+    # The device's dry is one code at every temperature, so it shows no
+    # dial (GH #168); the setpoint is kept for the next mode with one.
+    assert pair.entity.target_temperature is None
+    assert pair.entity._target_temperature == 24.0
 
 
 @pytest.mark.asyncio
@@ -523,7 +532,12 @@ async def test_a_code_stored_under_two_modes(
     assert pair.entity.hvac_mode == ends
     assert pair.entity.fan_mode == "medium"
     assert pair.entity.swing_mode == swing
-    assert pair.entity.target_temperature == 25.0
+    # The file stores heat_cool at 25 only, so heat_cool shows no dial
+    # (GH #168); whichever mode the card ends in, the setpoint is 25.
+    assert pair.entity.target_temperature == (
+        None if ends == HVACMode.HEAT_COOL else 25.0
+    )
+    assert pair.entity._target_temperature == 25.0
     if start == HVACMode.COOL and same_text:
         assert sent.name == f"cool / fan: medium / swing: {swing} / 25"
     elif start == HVACMode.COOL:
@@ -606,7 +620,9 @@ async def test_a_coalesced_send_reads_the_state_at_send_time():
     await pair.listener.async_send_pinned_cell("dev-1", key)
 
     assert pair.manager.sends[-1].name == "dry / fan: auto / swing: off / 21"
-    assert pair.entity.target_temperature == 21.0
+    # Dry shows no dial here (GH #168); the kept setpoint is the 21.
+    assert pair.entity.target_temperature is None
+    assert pair.entity._target_temperature == 21.0
 
 
 @pytest.mark.asyncio
@@ -652,8 +668,10 @@ async def test_a_send_that_cannot_name_its_setting_is_named_as_the_range(
     assert readout == sent.name
     # No tile on the device card is named that, so none rings current.
     assert readout not in _every_name(matrix)
-    # And the dial is where the user left it: dry ignores temperature.
-    assert pair.entity.target_temperature == card[3]
+    # And the setpoint is where the user left it: dry ignores
+    # temperature, so it shows no dial (GH #168) and keeps the value.
+    assert pair.entity.target_temperature is None
+    assert pair.entity._target_temperature == card[3]
 
 
 # ---------------------------------------------------------------------------
@@ -768,8 +786,13 @@ async def test_a_pack_outside_the_read_bytes_list(pack, card, press, expected):
         representative.pronto, representative.send_count,
     )
     assert pair.entity.hvac_mode == HVACMode.DRY
+    # Dry's fan and temperature change no code in these packs, so the
+    # card offers neither there (GH #168): no fan, no dial. What the
+    # entity keeps is the sent fan and the user's setpoint.
     assert (pair.entity.fan_mode, pair.entity.swing_mode,
-            pair.entity.target_temperature) == expected
+            pair.entity.target_temperature) == (None, expected[1], None)
+    assert (pair.entity._fan_mode, pair.entity._swing_mode,
+            pair.entity._target_temperature) == expected
     assert sent.name == cell_display_name(
         _cell(matrix, "dry", *expected)
     )
@@ -879,6 +902,9 @@ async def test_a_member_rewritten_in_place_is_not_where_the_card_lands():
     device = copy.deepcopy(remote)
     pair = await _pair(remote, device, device_index=build_cell_index(device))
     _cell(device, "dry", "auto", "off", 24).pronto = shapes.distinct_code(990)
+    # The repair's SIGNAL_MATRIX_CHANGED reloads the entity's lattice;
+    # it is the listener's index that lags here.
+    await pair.entity._async_load_matrix()
     pair.card(HVACMode.COOL, "auto", "off", 24.0)
 
     sent = await pair.press(shapes.daikin_dry_press("auto"))
@@ -906,13 +932,20 @@ async def test_a_removed_member_is_not_where_the_dial_stays():
         c for c in device.cells
         if not (c.mode == "dry" and c.fan == "auto" and c.temp in (18, 19, 20))
     ]
+    # The delete's SIGNAL_MATRIX_CHANGED reloads the entity's lattice;
+    # it is the listener's index that lags here.
+    await pair.entity._async_load_matrix()
     pair.card(HVACMode.COOL, "auto", "off", 19.0)
 
     sent = await pair.press(shapes.daikin_dry_press("auto"))
 
     assert sent.pronto == _cell(device, "dry", "auto", "off", 30).pronto
     assert sent.cell["temp_free"] is False
-    assert pair.entity.target_temperature == 30.0
+    # What is left of dry is still one code at every temperature, so dry
+    # shows no dial (GH #168) and the setpoint is not moved to the
+    # representative's 30: it stays the user's, for the next cool.
+    assert pair.entity.target_temperature is None
+    assert pair.entity._target_temperature == 19.0
     assert sent.name == "dry / fan: auto / swing: off / 21-30"
 
 

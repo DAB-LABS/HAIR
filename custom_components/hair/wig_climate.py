@@ -26,6 +26,7 @@ vocabulary without touching the stored cell.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from .wig_format import (
     ClimateCell,
@@ -722,3 +723,135 @@ def resolve_cell(
         else min(temps, key=lambda t: abs(t - temp))
     )
     return branches.cell(mode, use_fan, use_swing, target)
+
+
+# ---------------------------------------------------------------------------
+# Per-mode capabilities (GH #168)
+# ---------------------------------------------------------------------------
+#
+# What the climate entity offers in each mode, read from the mode's own
+# cells: the fans and swings it carries, and whether temperature means
+# anything there. An axis is OFFERED only when choosing a different value
+# of it can change the code: a mode with one fan, or whose fans all send
+# the same code, has no fan to choose, and the same goes for swing and
+# temperature. Static-temperature dry modes are real and common (10 of
+# the 20 matrices on the test box store one dry code at every
+# temperature), and a dial that changes nothing is a dial that lies.
+#
+# NO COVERAGE EXCEPTION. A mode that is missing cells it should have
+# cannot be told apart from one that has a single value by design. The
+# comb's one completeness check (``missing-cell``) finds a hole inside a
+# temperature run of three or more, and that never turns a varying axis
+# into one that looks static: an axis is hidden only when every value
+# the mode does carry gives the same code. A SmartIR null is "a state the
+# device does not have" and leaves no trace in the matrix. So the rule
+# applies as stated, with no exception.
+#
+# Main lattice only. Extras lattices never drive the entity's lists.
+
+
+@dataclass(frozen=True)
+class ModeCapabilities:
+    """What one mode offers: values in display order, () when hidden."""
+
+    fans: tuple[str, ...]
+    swings: tuple[str, ...]
+    temps: tuple[float, ...]
+    has_temperature: bool
+
+
+def _axis_changes_code(cells: list[ClimateCell], axis: str) -> bool:
+    """Can choosing a different value of ``axis`` change the code?
+
+    Cells are grouped by every OTHER coordinate. Within a group holding
+    two or more values of the axis, more than one code means the axis
+    matters. An axis with fewer than two values never does. When no
+    group holds two values at all, the axis cannot be compared and is
+    kept (the conservative answer: a setting is shown rather than
+    hidden on no evidence).
+    """
+    others = [d for d in ("fan", "swing", "temp") if d != axis]
+    values = {getattr(c, axis) for c in cells if getattr(c, axis) is not None}
+    if len(values) < 2:
+        return False
+    groups: dict[tuple, dict[Any, set[str | None]]] = {}
+    for cell in cells:
+        value = getattr(cell, axis)
+        if value is None:
+            continue
+        key = tuple(getattr(cell, d) for d in others)
+        groups.setdefault(key, {}).setdefault(value, set()).add(
+            pronto_text_key(cell.pronto)
+        )
+    compared = False
+    for by_value in groups.values():
+        if len(by_value) < 2:
+            continue
+        compared = True
+        codes: set[str | None] = set()
+        for found in by_value.values():
+            codes |= found
+        if len(codes) > 1:
+            return True
+    return not compared
+
+
+def _ordered(declared: list[str], observed: list[str]) -> tuple[str, ...]:
+    ordered = [v for v in declared if v in observed]
+    ordered += [v for v in observed if v not in ordered]
+    return tuple(ordered)
+
+
+def mode_capabilities(matrix: ClimateMatrix, mode: str) -> ModeCapabilities | None:
+    """The mode's offered fans, swings and temperatures, or None when the
+    matrix has no cell in that mode."""
+    cells = [c for c in matrix.cells if c.mode == mode]
+    if not cells:
+        return None
+    fans: list[str] = []
+    swings: list[str] = []
+    for cell in cells:
+        if cell.fan is not None and cell.fan not in fans:
+            fans.append(cell.fan)
+        if cell.swing is not None and cell.swing not in swings:
+            swings.append(cell.swing)
+    temps = tuple(sorted({c.temp for c in cells if c.temp is not None}))
+    return ModeCapabilities(
+        fans=_ordered(matrix.fan_modes, fans)
+        if _axis_changes_code(cells, "fan") else (),
+        swings=_ordered(matrix.swing_modes, swings)
+        if _axis_changes_code(cells, "swing") else (),
+        temps=temps,
+        has_temperature=_axis_changes_code(cells, "temp"),
+    )
+
+
+def matrix_capabilities(matrix: ClimateMatrix) -> dict[str, ModeCapabilities]:
+    """``mode_capabilities`` for every mode the main lattice carries."""
+    out: dict[str, ModeCapabilities] = {}
+    for mode in dict.fromkeys(c.mode for c in matrix.cells):
+        caps = mode_capabilities(matrix, mode)
+        if caps is not None:
+            out[mode] = caps
+    return out
+
+
+def combined_temperature_range(
+    matrix: ClimateMatrix,
+    capabilities: dict[str, ModeCapabilities] | None = None,
+) -> tuple[float, float]:
+    """One range for every mode, from the cells that remain.
+
+    Taken from the modes where temperature changes the code, so a static
+    dry mode stored at every temperature cannot widen the dial. Falls
+    back to every temperature-bearing cell, then to the file's bounds,
+    so a matrix always answers. The frame's bounds survive a thinning
+    unchanged; the cells are what the unit really has.
+    """
+    caps = capabilities if capabilities is not None else matrix_capabilities(matrix)
+    temps = [t for c in caps.values() if c.has_temperature for t in c.temps]
+    if not temps:
+        temps = [t for c in caps.values() for t in c.temps]
+    if not temps:
+        return float(matrix.min_temp), float(matrix.max_temp)
+    return float(min(temps)), float(max(temps))
