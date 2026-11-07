@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- An air conditioner made from a climate wig now offers, in each mode, only the fan speeds, swing settings and temperatures that mode really has. A setting that never changes the code the unit is sent is not shown, so a dry mode stored with one code at every temperature shows no temperature, and a fan-only mode shows none either. The temperature range comes from the codes the wig still holds, so a thinned wig no longer offers temperatures it has dropped. After a mode change the card shows the fan and swing that actually went out, and goes back to the ones last chosen when the unit returns to a mode that has them. Requested by @marcos-mvs (GH #168).
+- A fan speed or swing setting that the current mode does not offer is now refused by Home Assistant, rather than sent as a different setting.
+
 ## [1.1.1] - 2026-11-07 -- Flat Ironed
 
 ### Changed

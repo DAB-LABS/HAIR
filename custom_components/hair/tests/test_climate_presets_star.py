@@ -113,12 +113,17 @@ def _matrix() -> ClimateMatrix:
         max_temp=30.0,
         precision=1.0,
         modes=["cool"],
-        fan_modes=["auto"],
+        fan_modes=["auto", "low"],
         swing_modes=[],
         off=P_OFF,
         on=P_ON,
         cells=[
             ClimateCell(mode="cool", fan="auto", temp=22.0, pronto="P-C-A-22"),
+            # A second temperature and a second fan (GH #168): a mode
+            # shows only a temperature or fan that changes its code, and
+            # these tests read the dial and the fan.
+            ClimateCell(mode="cool", fan="auto", temp=30.0, pronto="P-C-A-30"),
+            ClimateCell(mode="cool", fan="low", temp=22.0, pronto="P-C-L-22"),
         ],
     )
 

@@ -49,6 +49,7 @@ P_C_A_22 = "0000 006D 0002 0000 0020 0040 0020 0040"
 P_C_A_23 = "0000 006D 0002 0000 0040 0020 0040 0020"
 P_H_L_20 = "0000 006D 0002 0000 0060 0080 0060 0080"
 P_STRANGER = "0000 006D 0002 0000 0080 0060 0080 0060"
+P_C_L_22 = "0000 006D 0002 0000 0060 0060 0080 0080"
 STATE_ROW = "cool / fan: auto / 22"
 CELL_22 = {"mode": "cool", "fan": "auto", "swing": None, "temp": 22.0}
 
@@ -77,6 +78,9 @@ def _matrix() -> ClimateMatrix:
         cells=[
             ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=P_C_A_22),
             ClimateCell(mode="cool", fan="auto", temp=23.0, pronto=P_C_A_23),
+            # A second cool fan (GH #168): a mode lists only a fan that
+            # changes its code, and these tests read the fan.
+            ClimateCell(mode="cool", fan="low", temp=22.0, pronto=P_C_L_22),
             ClimateCell(mode="heat", fan="low", temp=20.0, pronto=P_H_L_20),
         ],
     )

@@ -209,8 +209,11 @@ class TestAFrozenModeIsHeardAsItsGroup:
         )
         entity = pair.entity
         assert entity.hvac_mode == HVACMode.DRY
+        # Dry's temperature changes no code in this pack, so dry shows no
+        # dial (GH #168); the setpoint is kept for the next cool.
         assert (entity.fan_mode, entity.swing_mode,
-                entity.target_temperature) == ("auto", "auto", 24.0)
+                entity.target_temperature) == ("auto", "auto", None)
+        assert entity._target_temperature == 24.0
 
         await entity.async_set_hvac_mode(HVACMode.COOL)
         own = pair.manager.sends[-1]
@@ -233,7 +236,10 @@ class TestAFrozenModeIsHeardAsItsGroup:
         assert sent.cell["temp_free"] is True
         assert sent.name == "dry / fan: auto / swing: auto / 16|20|24|28|31"
         assert pair.entity.hvac_mode == HVACMode.DRY
-        assert pair.entity.target_temperature == 22.0
+        # No dial in a dry whose temperature changes no code (GH #168);
+        # the setpoint is kept.
+        assert pair.entity.target_temperature is None
+        assert pair.entity._target_temperature == 22.0
 
     @pytest.mark.asyncio
     async def test_a_fan_only_press_keeps_the_dial(self):
@@ -248,7 +254,10 @@ class TestAFrozenModeIsHeardAsItsGroup:
         assert sent.cell["temp_free"] is True
         entity = pair.entity
         assert entity.hvac_mode == HVACMode.FAN_ONLY
-        assert (entity.fan_mode, entity.target_temperature) == ("low", 26.0)
+        # Fan only ignores temperature here, so it shows no dial (GH
+        # #168); the setpoint is kept for the next cool.
+        assert (entity.fan_mode, entity.target_temperature) == ("low", None)
+        assert entity._target_temperature == 26.0
         await entity.async_set_hvac_mode(HVACMode.COOL)
         assert pair.manager.sends[-1].pronto == (
             _cell(matrix, "cool", "low", "auto", 26).pronto
@@ -685,8 +694,11 @@ async def test_the_dial_stays_on_a_cell_of_the_same_bytes():
     assert sent.pronto == _cell(matrix, "dry", "auto", "auto", 17).pronto
     assert sent.name == "dry / fan: auto / swing: auto / 16-17"
     entity = pair.entity
-    assert (entity.hvac_mode, entity.fan_mode, entity.swing_mode,
+    # What the entity keeps. This dry has one fan, so the card offers
+    # no fan there (GH #168); the dial stays on 16.
+    assert (entity.hvac_mode, entity._fan_mode, entity._swing_mode,
             entity.target_temperature) == (HVACMode.DRY, "auto", "auto", 16.0)
+    assert entity.fan_mode is None
     assert pair.remote.last_heard["cell_key"] == "dry/auto/auto/17"
 
 

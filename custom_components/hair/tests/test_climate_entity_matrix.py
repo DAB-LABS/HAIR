@@ -64,7 +64,19 @@ def _matrix(on: str | None = P_ON, swing: bool = False) -> ClimateMatrix:
             ClimateCell(mode="dry", fan="auto", pronto="P-D-A"),
             ClimateCell(mode="heat", fan="auto", temp=22.0,
                         pronto="P-H-A-22", send_count=2),
-        ],
+            # A second heat temperature (GH #168): a mode with a single
+            # temperature shows no dial, and heat here is a mode with one.
+            ClimateCell(mode="heat", fan="auto", temp=26.0,
+                        pronto="P-H-A-26", send_count=2),
+            # And a second heat fan, for the same reason.
+            ClimateCell(mode="heat", fan="low", temp=22.0,
+                        pronto="P-H-L-22", send_count=2),
+        ] + (
+            # The second swing value has to be a real cell for the mode
+            # to offer swing at all (GH #168: lists follow the mode).
+            [ClimateCell(mode="cool", fan="auto", temp=22.0, swing="fixed",
+                         pronto="P-C-A-22-FIXED")] if swing else []
+        ),
     )
 
 
@@ -571,7 +583,7 @@ class TestAMergedGroupSend:
               _group_cell("dry", "auto", "off", 24.0, _DRY, temp_free=True))
 
         assert entity.hvac_mode == HVACMode.DRY
-        assert entity.target_temperature == 24.0
+        assert entity._target_temperature == 24.0
 
     @pytest.mark.asyncio
     async def test_a_dial_outside_the_group_stays_where_the_unit_ignores_it(
@@ -588,7 +600,7 @@ class TestAMergedGroupSend:
               _group_cell("dry", "auto", "off", 30.0, _DRY, temp_free=True))
 
         assert entity.hvac_mode == HVACMode.DRY
-        assert entity.target_temperature == 16.0
+        assert entity._target_temperature == 16.0
         assert entity.extra_state_attributes["matrix_cell"] == (
             "dry / fan: auto / swing: off / 18-30"
         )
@@ -609,7 +621,7 @@ class TestAMergedGroupSend:
 
         _send(entity, "dry / fan: auto / swing: off / 24", cell)
 
-        assert entity.target_temperature == 24.0
+        assert entity._target_temperature == 24.0
 
     @pytest.mark.asyncio
     async def test_a_group_that_covers_part_of_its_branch_moves_the_dial(self):
@@ -624,7 +636,7 @@ class TestAMergedGroupSend:
               _group_cell("heat", "high", None, 19.0, members,
                           temp_free=False))
 
-        assert entity.target_temperature == 19.0
+        assert entity._target_temperature == 19.0
 
     @pytest.mark.asyncio
     async def test_a_non_product_group_lands_on_a_member_2740(self):
@@ -645,7 +657,9 @@ class TestAMergedGroupSend:
               _group_cell("dry", "level4", None, 30.0, members,
                           temp_free=True))
 
-        landed = ("dry", entity.fan_mode, None, entity.target_temperature)
+        # The fixture's own dry has one fan, so the card offers none
+        # there (GH #168); the adopted fan is what the entity keeps.
+        landed = ("dry", entity._fan_mode, None, entity._target_temperature)
         assert landed == ("dry", "level4", None, 17.0)
         assert landed in members
 
@@ -665,7 +679,7 @@ class TestAMergedGroupSend:
                           temp_free=False))
 
         landed = ("cool", entity.fan_mode, entity.swing_mode,
-                  entity.target_temperature)
+                  entity._target_temperature)
         assert landed == ("cool", "quiet", "off", 18.0)
 
     @pytest.mark.asyncio
@@ -683,8 +697,10 @@ class TestAMergedGroupSend:
                           temp_free=False))
 
         assert entity.hvac_mode == HVACMode.DRY
-        assert entity.fan_mode == "low"
-        assert entity.target_temperature == 24.0
+        # The fixture's dry has one fan, so the card offers none there
+        # (GH #168); the adopted fan is what the entity keeps.
+        assert entity._fan_mode == "low"
+        assert entity._target_temperature == 24.0
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("members", [
@@ -708,7 +724,10 @@ class TestAMergedGroupSend:
         _send(entity, "dry / fan: auto / swing: off / 18-30", cell)
 
         assert entity.hvac_mode == HVACMode.DRY
-        assert entity.target_temperature == 30.0
+        # The cell's own coordinates apply, but this dry is one code at
+        # every temperature, so its 30 does not move the kept setpoint
+        # (GH #168).
+        assert entity._target_temperature == 24.0
 
     @pytest.mark.asyncio
     async def test_well_formed_members_beside_malformed_ones_still_count(self):
@@ -720,7 +739,7 @@ class TestAMergedGroupSend:
 
         _send(entity, "dry / fan: auto / swing: off / 24", cell)
 
-        assert entity.target_temperature == 24.0
+        assert entity._target_temperature == 24.0
 
     @pytest.mark.asyncio
     async def test_an_extras_send_with_a_group_moves_the_readout_only(self):
@@ -732,7 +751,7 @@ class TestAMergedGroupSend:
 
         _send(entity, "(eco) dry / fan: auto / swing: off / 18-30", cell)
 
-        assert (entity.hvac_mode, entity.target_temperature) == (
+        assert (entity.hvac_mode, entity._target_temperature) == (
             HVACMode.COOL, 24.0,
         )
         assert entity.extra_state_attributes["matrix_cell"] == (
@@ -879,7 +898,10 @@ async def test_a_restart_after_a_spanned_press_keeps_the_dial_and_names_a_cell()
     entity = await _added(manager, last, extra)
 
     assert entity.hvac_mode == HVACMode.DRY
-    assert entity.target_temperature == 16.0
+    # Dry stores one code at every temperature, so it shows no dial
+    # (GH #168); the kept setpoint is still the user's 16.
+    assert entity.target_temperature is None
+    assert entity._target_temperature == 16.0
     assert entity.extra_state_attributes["matrix_cell"] == (
         "dry / fan: auto / swing: off / 18"
     )

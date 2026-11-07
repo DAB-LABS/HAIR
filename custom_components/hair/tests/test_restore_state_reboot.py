@@ -262,6 +262,17 @@ def _matrix() -> ClimateMatrix:
         cells=[
             ClimateCell(mode="cool", fan="auto", temp=22.0, swing="swing",
                         pronto="P-C-A-22-S"),
+            # A real choice on every axis (GH #168): a mode shows only a
+            # fan, swing or temperature that changes its code, and the
+            # range comes from the cells, so 16 and 30 are cells too.
+            ClimateCell(mode="cool", fan="auto", temp=16.0, swing="swing",
+                        pronto="P-C-A-16-S"),
+            ClimateCell(mode="cool", fan="auto", temp=30.0, swing="swing",
+                        pronto="P-C-A-30-S"),
+            ClimateCell(mode="cool", fan="low", temp=22.0, swing="swing",
+                        pronto="P-C-L-22-S"),
+            ClimateCell(mode="cool", fan="auto", temp=22.0, swing="fixed",
+                        pronto="P-C-A-22-F"),
         ],
     )
 

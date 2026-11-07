@@ -261,7 +261,14 @@ def _matrix(unit: str) -> ClimateMatrix:
         swing_modes=[],
         off="P-OFF",
         on="P-ON",
-        cells=[ClimateCell(mode="cool", fan=None, temp=mid, pronto="P-C")],
+        # Low and high cells beside the setpoint's (GH #168): the range
+        # now comes from the cells, and a mode with one temperature
+        # shows no dial.
+        cells=[
+            ClimateCell(mode="cool", fan=None, temp=low, pronto="P-C-LOW"),
+            ClimateCell(mode="cool", fan=None, temp=mid, pronto="P-C"),
+            ClimateCell(mode="cool", fan=None, temp=high, pronto="P-C-HIGH"),
+        ],
     )
 
 
