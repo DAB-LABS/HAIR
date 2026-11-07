@@ -1020,3 +1020,60 @@ class TestEchoGaps:
         mirror = next(d for d in store.get_all_devices() if d.source == "echo")
         assert mirror.signals[0].medium == MEDIUM_RF
         assert mirror.signals[0].rf_frequency_hz == 433_920_000
+
+
+class TestAssignCount:
+    """F5: the assign and make-device doors treat a radio count of 1 as
+    unset, the same rule as the Sniffer's Test (F2)."""
+
+    def _monitor(self, fake_hass, keyfob, **row):
+        from custom_components.hair.signal_monitor import SignalMonitor
+        from custom_components.hair.tests.test_decoded_tx_consistency import (
+            _make_hair_store,
+            _make_signal_store,
+        )
+
+        store = _make_signal_store(fake_hass)
+        hair_store = _make_hair_store()
+        monitor = SignalMonitor(fake_hass, store, hair_store)
+        store.add_device(UnknownDevice(
+            id="ud1", fingerprint=keyfob.device_key, source="sniffed",
+            medium=MEDIUM_RF,
+            signals=[_rf_signal(keyfob, rf_repeats_observed=8, **row)],
+        ))
+        device = IRDevice(id="hd1", name="Plug")
+        hair_store.get_device.return_value = device
+        return monitor, device
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("passed", "expected"), [(None, 8), (1, 8), (3, 3)])
+    async def test_assign(self, fake_hass, keyfob, passed, expected):
+        monitor, device = self._monitor(fake_hass, keyfob)
+        result = await monitor.assign_signal(
+            "ud1", "rf1", "hd1", "Button 1 on", "custom", send_count=passed
+        )
+        assert result["success"] is True
+        command = device.commands[0]
+        assert command.medium == MEDIUM_RF
+        assert command.send_count == expected
+
+    @pytest.mark.asyncio
+    async def test_a_count_raised_on_the_row_wins_over_the_panels_1(
+        self, fake_hass, keyfob
+    ):
+        monitor, device = self._monitor(fake_hass, keyfob, send_count=5)
+        await monitor.assign_signal(
+            "ud1", "rf1", "hd1", "Button 1 on", "custom", send_count=1
+        )
+        assert device.commands[0].send_count == 5
+
+    @pytest.mark.asyncio
+    async def test_make_a_device(self, fake_hass, keyfob):
+        monitor, _ = self._monitor(fake_hass, keyfob)
+        result = await monitor.assign_to_new_device(
+            device_id="ud1", signal_id="rf1", device_name="Plug",
+            device_type="switch", emitter_entity_ids=[ATHOM_TX],
+            command_name="Button 1 on", command_category="custom", send_count=1,
+        )
+        assert result["success"] is True
+        assert result["device"].commands[0].send_count == 8
