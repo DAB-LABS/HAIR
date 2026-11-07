@@ -3020,7 +3020,13 @@ async def ws_clip_create_remote(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/clip/create-signal",
     vol.Required("device_id"): str,
-    vol.Required("pronto"): str,
+    # One code: an infrared Pronto (or a code the paste box turns into
+    # one), or a radio code with its frequency (RF send, T6).
+    vol.Exclusive("pronto", "code"): str,
+    vol.Exclusive("rf_code", "code"): vol.All(str, vol.Length(max=200_000)),
+    vol.Optional("rf_frequency_hz"): vol.All(
+        int, vol.Range(min=1_000_000, max=10_000_000_000)
+    ),
     vol.Optional("alias", default=""): str,
     vol.Optional("repeat_count"): vol.All(
         int, vol.Range(min=0, max=MAX_DITTO_COUNT)
@@ -3040,7 +3046,19 @@ async def ws_clip_create_signal(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Validate and add a pasted Pronto signal to a clipped remote."""
+    """Validate and add a pasted signal to a clipped remote.
+
+    A radio code (``rf_code``) is read as the radio editor reads one and
+    takes no infrared knobs; a Pronto takes the infrared path as before.
+    """
+    if "rf_code" in msg:
+        await _clip_create_rf_signal(hass, connection, msg)
+        return
+    if "pronto" not in msg:
+        connection.send_error(
+            msg["id"], "invalid_format", "Provide pronto or rf_code"
+        )
+        return
     if not _coerce_paste(connection, msg):
         return
     data = _get_first_entry_data(hass)
@@ -3072,6 +3090,33 @@ async def ws_clip_create_signal(
         send_spacing_ms=spacing,
         send_spacing_block_us=msg.get("send_spacing_block_us"),
         set_send_spacing_block="send_spacing_block_us" in msg,
+    )
+    if not result["success"]:
+        connection.send_error(
+            msg["id"],
+            result.get("code", "create_failed"),
+            result.get("error", "Failed to create signal"),
+        )
+        return
+    connection.send_result(msg["id"], {"signal": result["signal"]})
+
+
+async def _clip_create_rf_signal(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The radio half of ``hair/clip/create-signal`` (RF send, T6)."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    result = await monitor.create_manual_rf_signal(
+        msg["device_id"], msg["rf_code"],
+        rf_frequency_hz=msg.get("rf_frequency_hz"),
+        alias=msg.get("alias", ""),
+        send_count=msg.get("send_count"),
     )
     if not result["success"]:
         connection.send_error(

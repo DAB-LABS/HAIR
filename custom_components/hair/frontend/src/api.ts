@@ -361,6 +361,21 @@ export class HairApi {
         });
     }
 
+    /** A pasted radio code onto a clipped remote (RF send, T6): the
+     *  radio half of ``hair/clip/create-signal``. */
+    createRfSignal(payload: {
+        device_id: string;
+        rf_code: string;
+        rf_frequency_hz?: number;
+        alias?: string;
+        send_count?: number;
+    }): Promise<{ signal: UnknownSignal }> {
+        return this.hass.connection.sendMessagePromise<{ signal: UnknownSignal }>({
+            type: "hair/clip/create-signal",
+            ...payload,
+        });
+    }
+
     /** Every radio transmitter, and with a frequency, whether each can
      *  send it by the send path's own rule (``hair/rf/transmitters``). */
     rfTransmitters(frequencyHz?: number | null): Promise<RfTransmitter[]> {

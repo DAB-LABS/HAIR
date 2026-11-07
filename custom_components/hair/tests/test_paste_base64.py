@@ -264,7 +264,7 @@ class TestNoFalseConversions:
         assert got.source is None
         assert got.error is not None
         assert "Broadlink RF code" in got.error and band in got.error
-        assert "infrared only" in got.error
+        assert "Add it as a radio code instead" in got.error
 
 
 class TestOneCode:
