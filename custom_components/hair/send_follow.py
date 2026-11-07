@@ -105,6 +105,68 @@ def power_after(keys: frozenset[str], is_on: bool) -> bool | None:
     return None
 
 
+def _mapped_name(mapping: dict[str, Any], key: str) -> str | None:
+    value = mapping.get(key)
+    return str(value).casefold() if value else None
+
+
+def is_toggle(mapping: dict[str, Any], key: str, command_name: str) -> bool:
+    """Is sending ``command_name`` (found through ``key``) a power toggle?
+
+    The same reading ``power_after`` makes of a send: ``power_toggle``
+    says the code is relative, and so does one command mapped to both
+    ``turn_on`` and ``turn_off``. A discrete on or off code is not.
+    """
+    if key == POWER_TOGGLE:
+        return True
+    name = command_name.casefold()
+    if _mapped_name(mapping, POWER_TOGGLE) == name:
+        return True
+    return (
+        _mapped_name(mapping, TURN_ON) == name
+        and _mapped_name(mapping, TURN_OFF) == name
+    )
+
+
+def toggle_already_there(
+    device: Any,
+    mapping: dict[str, Any],
+    keys: tuple[str, ...],
+    is_on: bool,
+    want_on: bool,
+) -> bool:
+    """Would sending for ``keys`` toggle a device already where it is wanted?
+
+    TOGGLE POWER, PIECE 1 (GH #229 point 1). An entity's on and off
+    setters send the first of ``keys`` that is mapped to a command the
+    device has, falling back from ``turn_off`` to ``power_toggle``. When
+    that command is a toggle and HAIR already believes the device is in
+    the wanted state, sending it would flip the device the wrong way,
+    so the setter sends nothing. A discrete code always sends, as it
+    always has: resending a real off is harmless and corrects a belief
+    that drifted.
+
+    ``is_on`` is the entity's believed state, which a configured power
+    sensor or on/off entity keeps right. ``device`` is None for a typed
+    Remote's entity, which never sends, and the answer is then False.
+
+    Mirrors the entity ``_send`` lookup exactly (mapping value, then the
+    device's command by that name), so this answers about the command
+    ``_send`` would really pick.
+    """
+    if device is None or is_on != want_on:
+        return False
+    for key in keys:
+        command_name = mapping.get(key)
+        if command_name is None:
+            continue
+        command = device.get_command_by_name(command_name)
+        if command is None:
+            continue
+        return is_toggle(mapping, key, command.name)
+    return False
+
+
 def one_of(keys: frozenset[str], *choices: str) -> str | None:
     """The single key of ``choices`` the send carries, or None when it
     carries none of them or more than one (a contradiction)."""

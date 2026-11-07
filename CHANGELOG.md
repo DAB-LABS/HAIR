@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Dyson fan no longer ignores a press from HAIR after a different button. The fan's rolling counter belongs to the remote, not to each button, and has three values, so HAIR now keeps one counter per device, steps it in the order the handset uses, and picks up from a handset press that a receiver hears. Thanks to @channafam for the captures that settled it (GH #33).
 - A climate set-temperature call that also names a mode now switches to that mode, so "heat to 26" sent while the unit is in cool or off goes out as heat at 26. Setting a temperature with the mode off turns the unit off and keeps the temperature for next time.
 - After a long send of repeated frames, the last frames HAIR's own receivers hear are no longer mistaken for a press of the remote. The window that recognises HAIR's own sends stays open for as long as the send itself.
+- A fan, TV, light, switch or air conditioner whose only power code is a toggle no longer turns on when asked to turn off while HAIR already shows it off, or off when asked to turn on while it shows on; HAIR now sends nothing in that case, and separate on and off codes are still always sent. A power sensor or on/off entity set on the device keeps the state HAIR shows right, so the toggle goes out when it is really needed. Reported by @channafam (GH #229).
 
 ## [1.1.0] - 2026-11-04 -- Volumizer
 

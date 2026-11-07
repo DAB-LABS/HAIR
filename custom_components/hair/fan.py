@@ -28,7 +28,14 @@ from .const import DOMAIN, DeviceType
 from .models import SPEED_CYCLE_TURN_ON_SPEED_1, EntityConfig, IRDevice, TriggerRemote
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
 from .remote_state import RemoteStateMixin, register_remote_platform
-from .send_follow import SPEED_CYCLE, cycle_step, mapped_keys, one_of, power_after
+from .send_follow import (
+    SPEED_CYCLE,
+    cycle_step,
+    mapped_keys,
+    one_of,
+    power_after,
+    toggle_already_there,
+)
 from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 
 _LOGGER = logging.getLogger(__name__)
@@ -438,7 +445,10 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
         if speeds is not None:
             await self._cycle_turn_on(percentage, speeds)
             return
-        await self._send("turn_on", "power_toggle")
+        # A toggle sent to a fan already believed on would turn it off
+        # (GH #229 point 1); a discrete turn_on always sends.
+        if not self._toggle_already_there(_POWER_ON_KEYS, True):
+            await self._send("turn_on", "power_toggle")
         self._is_on = True
         if percentage is not None:
             self._percentage = percentage
@@ -448,9 +458,17 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
         if self._cycle_speeds() is not None:
             await self._cycle_turn_off()
             return
-        await self._send("turn_off", "power_toggle")
+        if not self._toggle_already_there(_POWER_OFF_KEYS, False):
+            await self._send("turn_off", "power_toggle")
         self._is_on = False
         self.async_write_ha_state()
+
+    def _toggle_already_there(self, keys: tuple[str, ...], want_on: bool) -> bool:
+        """Would the power press for ``keys`` toggle the fan the wrong way?"""
+        return toggle_already_there(
+            self._device, self._entity_config.command_mapping, keys,
+            self._is_on, want_on,
+        )
 
     async def async_set_percentage(self, percentage: int) -> None:
         speeds = self._cycle_speeds()
@@ -530,6 +548,12 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
     async def _cycle_turn_off(self) -> None:
         if not self._has_mapped(_POWER_OFF_KEYS) and self._cycle_has_off():
             await self._cycle_run(0, wake=False)
+            return
+        if self._toggle_already_there(_POWER_OFF_KEYS, False):
+            # Believed off, and the off press is the toggle: pressing it
+            # would turn the fan on (GH #229 point 1). The on path has
+            # always had the same guard.
+            self.async_write_ha_state()
             return
         # Stops a running burst at its next press.
         self._cycle_target = None
