@@ -281,10 +281,23 @@ export class HairApi {
 
     /** The capture devices: receivers that hear only while a capture
      *  window is open, from any integration. Empty when there are none. */
-    captureReceivers(): Promise<CaptureReceiverRow[]> {
+    captureReceivers(includeAlwaysOn = false): Promise<CaptureReceiverRow[]> {
         return this.hass.connection.sendMessagePromise<CaptureReceiverRow[]>({
             type: "hair/receivers/capture",
+            ...(includeAlwaysOn ? { include_always_on: true } : {}),
         });
+    }
+
+    /** HAIR took a code from a receiver: a row minted or bumped, or a
+     *  trigger matched (``hair_receiver_heard``, throttled per
+     *  receiver). Never fired for a code HAIR drops. */
+    async subscribeReceiverHeard(
+        onEvent: (event: { receiver_entity_id: string }) => void,
+    ): Promise<() => Promise<void>> {
+        return this.hass.connection.subscribeEvents<{ receiver_entity_id: string }>(
+            (ev) => onEvent(ev.data),
+            "hair_receiver_heard",
+        );
     }
 
     /** Open or close a capture device's window. Takes the receiver; the

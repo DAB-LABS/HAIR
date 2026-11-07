@@ -1,15 +1,15 @@
 /**
  * Codes arriving at HAIR, per receiver (windowed receivers, round 3).
  *
- * A capture device's chip blooms when a code from that receiver reaches
- * HAIR: HAIR's own arrival, not the receiver's code count, so the glow
- * means HAIR heard it. The Sniffer's live feed (``hair_signal_detected``)
- * names the receiver on every press, and this module shares one
- * subscription to it among every chip on the page, the Sniffer's row and
- * the Devices cards alike, however many there are.
+ * A receiver's chip or pill blooms when HAIR takes a code from that
+ * receiver: a row minted or bumped, or a trigger matched
+ * (``hair_receiver_heard``, RF hear fix round 1). Never on a code HAIR
+ * drops, so an always-on radio receiver hearing noise three times a
+ * second does not flicker. This module shares one subscription among
+ * every chip on the page, the Sniffer's row and the Devices cards alike,
+ * however many there are.
  */
 import type { HairApi } from "./api.js";
-import type { UnknownSignalEvent } from "./types.js";
 
 type Listener = () => void;
 
@@ -29,7 +29,7 @@ function hubFor(api: HairApi): Hub {
     return hub;
 }
 
-function deliver(hub: Hub, event: UnknownSignalEvent): void {
+function deliver(hub: Hub, event: { receiver_entity_id?: string | null }): void {
     const receiver = event.receiver_entity_id;
     if (!receiver) return;
     for (const listener of hub.listeners.get(receiver) ?? []) listener();
@@ -47,7 +47,7 @@ export function onArrival(api: HairApi, receiver: string, listener: Listener): (
     }
     set.add(listener);
     if (hub.unsubscribe === null) {
-        hub.unsubscribe = api.subscribeUnknownSignals((event) => deliver(hub, event));
+        hub.unsubscribe = api.subscribeReceiverHeard((event) => deliver(hub, event));
         // A failed subscription leaves the chips without blooms, nothing
         // worse; the next listener tries again.
         hub.unsubscribe.catch(() => {

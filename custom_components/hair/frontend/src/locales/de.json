@@ -437,6 +437,7 @@
     "listen.hearing": "lauscht",
     "listen.hold_button": "Taste gedrückt halten",
     "listen.hearing_title": "{name} lauscht ständig: bekannte Codes lösen aus. Klicken, um ein Fenster für neue Fernbedienungen zu öffnen.",
+    "listen.status_title": "{name} hört ständig: jeder Code, den es hört, erreicht HAIR.",
     "listen.sweep_title": "{name} sucht die Trägerfrequenz. Halten Sie die Taste der Fernbedienung, bis sie gefunden ist. Zum Beenden klicken.",
     "listen.sweep": "Suchlauf",
     "listen.band": "{band} MHz",

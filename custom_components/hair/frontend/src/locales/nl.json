@@ -437,6 +437,7 @@
     "listen.hearing": "luistert",
     "listen.hold_button": "houd de knop ingedrukt",
     "listen.hearing_title": "{name} luistert altijd: bekende codes gaan af. Klik om een venster voor nieuwe afstandsbedieningen te openen.",
+    "listen.status_title": "{name} luistert altijd: elke code die het hoort, bereikt HAIR.",
     "listen.sweep_title": "{name} zoekt de draaggolf. Houd de knop van de afstandsbediening ingedrukt tot hij gevonden is. Klik om te stoppen.",
     "listen.sweep": "Zoeken",
     "listen.band": "{band} MHz",

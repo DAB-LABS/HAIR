@@ -129,6 +129,13 @@ WS_PREFIX = "hair"
 
 EVENT_SIGNAL_DETECTED = f"{DOMAIN}_signal_detected"
 EVENT_SIGNAL_REMOVED = f"{DOMAIN}_signal_removed"
+# Fired when HAIR takes a code from a receiver: a Sniffer row minted or
+# bumped, or a trigger matched (RF hear fix round 1). Carries
+# {receiver_entity_id}; the Sniffer's receiver pills bloom on it. Never
+# fired for a code HAIR drops (noise, a new radio code with the window
+# closed), and throttled per receiver.
+EVENT_RECEIVER_HEARD = f"{DOMAIN}_receiver_heard"
+RECEIVER_HEARD_MIN_GAP_S = 0.3
 # Fired when a signal's assignment set changes (assign, or a device command
 # referencing it is added/removed). Carries {signal_fingerprint}. Lets other
 # browser tabs refresh the green Assign badge and yellow trigger dot live.
@@ -488,9 +495,6 @@ RF_ASSUMED_FRAME_GAP_US = 30_000
 # 20 address bits and exactly PT2262's 8 address trits, never a data bit.
 RF_ADDRESS_FIRST_BODY_EDGES = 49
 RF_ADDRESS_HEAD_EDGES = 32
-# The band shown beside an RF row: the carrier rounded to this step, so
-# 433.92 and 433.84 MHz read alike while 433.42 MHz stays apart.
-RF_BAND_STEP_HZ = 100_000
 # Where an RF row's carrier came from (plan 5.7, the ladder).
 RF_FREQUENCY_SOURCE_SIGNAL = "signal"
 RF_FREQUENCY_SOURCE_WINDOW = "window"

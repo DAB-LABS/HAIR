@@ -354,10 +354,14 @@ export function pillLive(
  *    locks (``capture_phase`` turns ``listening``);
  *  - ``offline``: ember, no press;
  *  - ``waiting``: no switch to open the window with yet (dimmed). */
-export type PillLook = "idle" | "hearing" | "open" | "sweep" | "offline" | "waiting";
+export type PillLook = "idle" | "hearing" | "status" | "open" | "sweep" | "offline" | "waiting";
 
+/** ``status``: an always-on infrared receiver (fix round 1, item 6):
+ *  steady green, nothing to press and nothing to pick; it blooms when
+ *  HAIR takes a code from it. */
 export function pillLook(row: CaptureReceiverRow, online: boolean, live: PillLive): PillLook {
     if (!online) return "offline";
+    if (row.always_on) return "status";
     if (!row.software_window && !row.switch_entity_id) return "waiting";
     if (live.on && live.phase === "sweeping") return "sweep";
     if (live.on) return "open";
@@ -370,9 +374,27 @@ export function pillOnline(states: States | undefined, row: CaptureReceiverRow):
     return listenOnline(states, row);
 }
 
-/** The badge a pill wears: the medium, receiving. */
-export function pillBadge(row: CaptureReceiverRow): "IR-RX" | "RF-RX" {
-    return row.medium === "rf" ? "RF-RX" : "IR-RX";
+/** The badge a pill wears: the medium (fix round 1, item 7). Every pill
+ *  is a receiver, so the direction carries nothing; the homepage rows
+ *  keep IR-TX / RF-RX, where it does. */
+export function pillBadge(row: CaptureReceiverRow): "IR" | "RF" {
+    return row.medium === "rf" ? "RF" : "IR";
+}
+
+/** Whether a pill's badge is solid (owner, 2026-11-06 19:06): solid
+ *  means the receiver is capturing new codes right now, so the row reads
+ *  at a glance (every solid green badge is live). An always-on infrared
+ *  receiver always is; any other only while its window is open. The
+ *  light badge is a receiver that is off (gold) or hearing known codes
+ *  only (green, an always-on radio receiver with its window closed). */
+export function badgeSolid(look: PillLook): boolean {
+    return look === "status" || look === "open" || look === "sweep";
+}
+
+/** Whether a pill is pressed at all: not a status pill, not while the
+ *  receiver is down, not while a capture device has no switch yet. */
+export function pillPressable(look: PillLook): boolean {
+    return look !== "offline" && look !== "waiting" && look !== "status";
 }
 
 // --- The pickers ----------------------------------------------------------

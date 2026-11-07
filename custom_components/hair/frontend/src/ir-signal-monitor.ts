@@ -39,7 +39,13 @@ import "./ir-tx-knobs.js";
 import "./ir-listen-row.js";
 import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { protoGlyphStyles, protoLabel, renderProtoGlyph } from "./ir-proto-glyph.js";
-import { carrierParts, snifferShows, type SnifferFilter } from "./sniffer-filter.js";
+import {
+    SNIFFER_SHOW_DEFAULT,
+    carrierParts,
+    snifferShows,
+    snifferShowsEverything,
+    type SnifferShow,
+} from "./sniffer-filter.js";
 import { arrivalBloomKey, captureSignature, lastHeardTarget } from "./ir-listen-state.js";
 import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
@@ -174,7 +180,7 @@ export class IrSignalMonitor extends LitElement {
     /** The SHOW chips (RF hear round 1): every remote, infrared only,
      *  radio only, or the hidden ones. Hidden is the one way to see a
      *  hidden remote; the bottom bar's button is gone. */
-    @state() private _filter: SnifferFilter = "all";
+    @state() private _show: SnifferShow = { ...SNIFFER_SHOW_DEFAULT };
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
     /** Rows blooming right now: ``dev:<remote id>`` for a collapsed
@@ -370,7 +376,7 @@ export class IrSignalMonitor extends LitElement {
         const remotes = this.renderRoot.querySelector(".device-list") as HTMLElement | null;
         // Reordering moves remotes in the whole list, so it runs only
         // while every remote is shown.
-        this._remotesSortable?.option("disabled", this._filter !== "all");
+        this._remotesSortable?.option("disabled", !snifferShowsEverything(this._show));
         if (remotes && !this._remotesSortable) {
             this._attachRemotesSortable(remotes);
         } else if (!remotes && this._remotesSortable) {
@@ -393,7 +399,7 @@ export class IrSignalMonitor extends LitElement {
     private _attachRemotesSortable(container: HTMLElement): void {
         this._remotesSortable = Sortable.create(container, {
             handle: ".remote-handle",
-            disabled: this._filter !== "all",
+            disabled: !snifferShowsEverything(this._show),
             animation: 150,
             ghostClass: "sortable-ghost",
             onEnd: (e) => {
@@ -484,7 +490,7 @@ export class IrSignalMonitor extends LitElement {
         try {
             const [unknowns, hairDevs, triggers, status] = await Promise.all([
                 this.api.getUnknownDevices({
-                    include_dismissed: this._filter === "hidden",
+                    include_dismissed: this._show.hidden,
                     source: "sniffed",
                 }),
                 this.api.listDevices(),
@@ -518,7 +524,8 @@ export class IrSignalMonitor extends LitElement {
      *  must never break the Sniffer. */
     private async _loadListenRows(): Promise<void> {
         try {
-            this._listenRows = await this.api.captureReceivers();
+            // Every receiver, always-on infrared ones as status pills.
+            this._listenRows = await this.api.captureReceivers(true);
         } catch {
             this._listenRows = [];
         }
@@ -623,14 +630,25 @@ export class IrSignalMonitor extends LitElement {
      */
     private _onHiddenActivity(): void {
         this._hiddenDot = true;
-        this._hiddenGlow = true;
         if (this._hiddenGlowTimer !== null) {
             clearTimeout(this._hiddenGlowTimer);
-        }
-        this._hiddenGlowTimer = setTimeout(() => {
-            this._hiddenGlow = false;
             this._hiddenGlowTimer = null;
-        }, IrSignalMonitor.HIDDEN_GLOW_HOLD_MS);
+        }
+        // Every press glows again (owner bench, 19:35): the class comes
+        // off and goes back on two frames later, so the browser sees a
+        // real remove-then-add and restarts the animation, the way the
+        // card blooms do (BloomTracker). Left on, a second press while it
+        // was still glowing did nothing.
+        this._hiddenGlow = false;
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                this._hiddenGlow = true;
+                this._hiddenGlowTimer = setTimeout(() => {
+                    this._hiddenGlow = false;
+                    this._hiddenGlowTimer = null;
+                }, IrSignalMonitor.HIDDEN_GLOW_HOLD_MS);
+            });
+        });
     }
 
     // --- Inline rename ---
@@ -1394,47 +1412,51 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
-    /** A SHOW chip. Hidden reloads with the hidden remotes; leaving it
-     *  reloads without them. Pressing Hidden clears its dot: the user
-     *  has acknowledged the hidden-activity surface; further events can
-     *  re-light it. The glow runs out on its own timer. */
-    private _setFilter(filter: SnifferFilter): void {
-        if (filter === this._filter) return;
-        const reload = filter === "hidden" || this._filter === "hidden";
-        this._filter = filter;
-        if (filter === "hidden") this._hiddenDot = false;
-        if (reload) void this._load();
+    /** A filter glyph (fix round 1, item 3). The hidden glyph reloads
+     *  with or without the hidden remotes, and lighting it clears its
+     *  dot: the user has acknowledged the hidden-activity surface;
+     *  further events can re-light it. The glow runs out on its own. */
+    private _toggleShow(kind: keyof SnifferShow): void {
+        this._show = { ...this._show, [kind]: !this._show[kind] };
+        if (kind === "hidden") {
+            if (this._show.hidden) this._hiddenDot = false;
+            void this._load();
+        }
     }
 
-    /** The remotes the current chip shows. */
+    /** The remotes the lit glyphs show. */
     private _visibleDevices(): UnknownDeviceSummary[] {
-        return this._devices.filter((d) => snifferShows(this._filter, d));
+        return this._devices.filter((d) => snifferShows(this._show, d));
     }
 
-    private _renderShowRow() {
-        const chips: { id: SnifferFilter; label: string }[] = [
-            { id: "all", label: t("sniffer.filter.all") },
-            { id: "ir", label: t("sniffer.filter.infrared") },
-            { id: "rf", label: t("sniffer.filter.radio") },
-            { id: "hidden", label: t("sniffer.filter.hidden") },
+    /** The three filter glyphs, right-justified at the end of the
+     *  receiver row: IR, RF and hidden, lit in the Sniffer's blue when
+     *  that kind is shown, grey when it is filtered out. */
+    private _renderShowGlyphs() {
+        const glyphs: { kind: keyof SnifferShow; label: string; icon: unknown }[] = [
+            { kind: "ir", label: t("sniffer.filter.infrared"), icon: renderProtoGlyph("ir", 18) },
+            { kind: "rf", label: t("sniffer.filter.radio"), icon: renderProtoGlyph("rf", 18) },
+            {
+                kind: "hidden",
+                label: t("sniffer.filter.hidden_title"),
+                icon: html`<ha-svg-icon .path=${ICON_HIDE}></ha-svg-icon>`,
+            },
         ];
-        return html`<div class="hdr-row show-row" role="group" aria-label=${t("sniffer.filter.label")}>
-            <span class="hdr-row-label">${t("sniffer.filter.label")}</span>
-            <div class="hdr-row-pills">
-                ${chips.map(
-                    (c) => html`<button
-                        class="show-chip ${this._filter === c.id ? "on" : ""} ${c.id === "hidden" && this._hiddenGlow ? "hidden-glow" : ""}"
-                        aria-pressed=${this._filter === c.id ? "true" : "false"}
-                        title=${c.id === "hidden" ? t("sniffer.filter.hidden_title") : c.label}
-                        @click=${() => this._setFilter(c.id)}
-                    >
-                        ${c.label}
-                        ${c.id === "hidden" && this._hiddenDot
-                            ? html`<span class="hidden-dot" aria-hidden="true"></span>`
-                            : nothing}
-                    </button>`,
-                )}
-            </div>
+        return html`<div class="show-glyphs" role="group" aria-label=${t("sniffer.filter.label")}>
+            ${glyphs.map(
+                (g) => html`<button
+                    class="show-glyph ${this._show[g.kind] ? "on" : ""} ${g.kind === "hidden" && this._hiddenGlow ? "hidden-glow" : ""}"
+                    aria-pressed=${this._show[g.kind] ? "true" : "false"}
+                    aria-label=${g.label}
+                    title=${g.label}
+                    @click=${() => this._toggleShow(g.kind)}
+                >
+                    ${g.icon}
+                    ${g.kind === "hidden" && this._hiddenDot
+                        ? html`<span class="hidden-dot" aria-hidden="true"></span>`
+                        : nothing}
+                </button>`,
+            )}
         </div>`;
     }
 
@@ -1466,7 +1488,7 @@ export class IrSignalMonitor extends LitElement {
                           @capture-switch-changed=${() => void this._loadListenRows()}
                       ></ir-listen-row>`
                     : nothing}
-                ${this._renderShowRow()}
+                ${this._renderShowGlyphs()}
             </div>
 
             ${this._error
@@ -1509,7 +1531,7 @@ export class IrSignalMonitor extends LitElement {
                     `}
 
             <div class="bottom-bar">
-                ${this._devices.length > 0 || this._filter === "hidden"
+                ${this._devices.length > 0 || this._show.hidden
                     ? html`<button
                           class="action-btn delete-btn"
                           title=${t("sniffer.clear_all_title")}
@@ -2214,10 +2236,6 @@ export class IrSignalMonitor extends LitElement {
             font-style: italic;
         }
 
-        .listen-row {
-            margin: 0 0 12px;
-        }
-
         .device-list {
             display: flex;
             flex-direction: column;
@@ -2398,6 +2416,12 @@ export class IrSignalMonitor extends LitElement {
             outline: 2px solid var(--primary-color);
             outline-offset: 1px;
         }
+        /* Grey, dot and lines both (fix round 1, item 4): the glyph
+           labels the row; it does not call for the eye. */
+        .remote-handle .handle-glyph .hair-proto {
+            --hair-proto-source: var(--secondary-text-color);
+            --hair-proto-signal: var(--secondary-text-color);
+        }
         .remote-handle .handle-glyph,
         .remote-handle .remote-grip {
             position: absolute;
@@ -2412,12 +2436,15 @@ export class IrSignalMonitor extends LitElement {
             color: var(--primary-color);
             opacity: 0;
         }
+        /* Grab only on the glyph (fix round 1, item 9): the grip shows
+           while the pointer is over the handle itself, never for the
+           whole row, whose own click targets keep the default cursor. */
         @media (hover: hover) {
-            .device-row:hover .remote-handle .handle-glyph,
+            .remote-handle:hover .handle-glyph,
             .remote-handle:focus-visible .handle-glyph {
                 opacity: 0;
             }
-            .device-row:hover .remote-handle .remote-grip,
+            .remote-handle:hover .remote-grip,
             .remote-handle:focus-visible .remote-grip {
                 opacity: 1;
             }
@@ -2936,36 +2963,81 @@ export class IrSignalMonitor extends LitElement {
             flex-shrink: 0;
         }
 
-        /* The Listen and SHOW rows under the title (RF hear round 1):
-           the shared header-chip rows, their labels in one column. */
+        /* The receiver row under the title (fix round 1): the pills,
+           then the three filter glyphs right-justified on the same
+           line. On a phone the glyphs take their own line, still
+           right-justified, under the pills. */
+        /* The glyphs sit on the bottom line, right above the remotes
+           they filter (owner 18:20), however many lines the pills take. */
         .sniffer-head {
             display: flex;
-            flex-direction: column;
-            gap: 6px;
+            align-items: flex-end;
+            gap: 8px;
             margin: 4px 0 12px;
         }
-        .show-chip {
+        .sniffer-head .listen-row {
+            flex: 1 1 auto;
+            min-width: 0;
+            margin: 0;
+        }
+        .show-glyphs {
+            flex: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            margin-left: auto;
+            /* Down into the head's bottom margin, so the glyphs sit just
+               above the remotes they filter (owner, 20:46 PT). */
+            margin-bottom: -9px;
+        }
+        @media (max-width: 600px) {
+            .sniffer-head {
+                flex-wrap: wrap;
+            }
+            .sniffer-head .listen-row {
+                flex-basis: 100%;
+            }
+            .show-glyphs {
+                width: 100%;
+                justify-content: flex-end;
+            }
+        }
+        /* Lit when that kind is shown, grey when it is filtered out:
+           both parts of a glyph, dot and lines. Lit is the remote cards'
+           stroke blue, the theme blue at 30% (owner, 20:54 PT). */
+        .show-glyph {
             position: relative;
             display: inline-flex;
             align-items: center;
-            padding: 3px 10px;
-            border: 1px solid var(--divider-color);
-            border-radius: 14px;
+            justify-content: center;
+            width: 28px;
+            height: 24px;
+            padding: 0;
+            border: none;
+            border-radius: 12px;
             background: none;
-            font: inherit;
-            font-size: 11.5px;
-            color: var(--secondary-text-color);
+            /* Greyed by colour, not opacity, so the hidden dot inside
+               stays full blue on an unlit glyph. */
+            color: color-mix(in srgb, var(--secondary-text-color) 60%, transparent);
             cursor: pointer;
+            --hair-proto-source: currentColor;
+            --hair-proto-signal: currentColor;
         }
-        .show-chip:hover {
-            border-color: var(--primary-color);
+        .show-glyph .hair-proto {
+            --hair-proto-source: currentColor;
+            --hair-proto-signal: currentColor;
         }
-        .show-chip.on {
-            border-color: var(--primary-color);
-            color: var(--primary-color);
+        .show-glyph ha-svg-icon {
+            --mdc-icon-size: 18px;
+        }
+        .show-glyph.on {
+            color: rgba(33, 150, 243, 0.3);
+            color: color-mix(in srgb, var(--primary-color) 30%, transparent);
+        }
+        .show-glyph:hover {
             background: color-mix(in srgb, var(--primary-color) 10%, transparent);
         }
-        .show-chip:focus-visible {
+        .show-glyph:focus-visible {
             outline: 2px solid var(--primary-color);
             outline-offset: 1px;
         }
@@ -2981,14 +3053,32 @@ export class IrSignalMonitor extends LitElement {
            users associate with "a signal just arrived", held ~3.8s so it
            sits about 1.3s longer than the hit-flash and stays
            discoverable. */
-        .show-chip.hidden-glow {
+        /* A press from a hidden remote: the ring around the button and
+           the eye itself lit in the Sniffer's blue with a halo, every
+           press (owner bench, 19:35). */
+        .show-glyph.hidden-glow {
             animation: hidden-pulse 3.8s ease-out;
-            border-color: var(--primary-color);
+        }
+        .show-glyph.hidden-glow ha-svg-icon {
+            animation: hidden-eye 3.8s ease-out;
+        }
+        @keyframes hidden-eye {
+            0% { color: var(--primary-color); filter: drop-shadow(0 0 0 rgba(33, 150, 243, 0)); }
+            12% { color: var(--primary-color); filter: drop-shadow(0 0 6px rgba(33, 150, 243, 0.95)) drop-shadow(0 0 2px rgba(33, 150, 243, 0.9)); }
+            60% { color: var(--primary-color); filter: drop-shadow(0 0 4px rgba(33, 150, 243, 0.6)); }
+            100% { filter: drop-shadow(0 0 0 rgba(33, 150, 243, 0)); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .show-glyph.hidden-glow,
+            .show-glyph.hidden-glow ha-svg-icon {
+                animation: none;
+                color: var(--primary-color);
+            }
         }
         @keyframes hidden-pulse {
             0% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.0); }
-            12% { box-shadow: 0 0 10px 3px rgba(33, 150, 243, 0.55); }
-            70% { box-shadow: 0 0 6px 2px rgba(33, 150, 243, 0.3); }
+            12% { box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.85), 0 0 12px 4px rgba(33, 150, 243, 0.55); }
+            70% { box-shadow: 0 0 0 1px rgba(33, 150, 243, 0.4), 0 0 6px 2px rgba(33, 150, 243, 0.3); }
             100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.0); }
         }
 
@@ -2996,10 +3086,12 @@ export class IrSignalMonitor extends LitElement {
            first hidden-activity event after panel mount until the user
            presses the chip (the click-through that owns restoring hidden
            remotes). */
+        /* On the eye's upper right, not off in the button's corner
+           (owner bench, 19:35). */
         .hidden-dot {
             position: absolute;
-            top: -3px;
-            right: -3px;
+            top: 2px;
+            right: 4px;
             width: 8px;
             height: 8px;
             border-radius: 50%;

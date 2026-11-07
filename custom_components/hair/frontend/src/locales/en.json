@@ -437,6 +437,7 @@
     "listen.hearing": "hearing",
     "listen.hold_button": "hold the button",
     "listen.hearing_title": "{name} hears all the time: known codes fire. Click to open a window for new remotes.",
+    "listen.status_title": "{name} hears all the time: every code it hears reaches HAIR.",
     "listen.sweep_title": "{name} is looking for the carrier. Hold the remote's button until it locks. Click to stop.",
     "listen.sweep": "Sweep",
     "listen.band": "{band} MHz",

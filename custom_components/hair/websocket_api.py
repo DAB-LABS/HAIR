@@ -1384,6 +1384,9 @@ async def ws_get_receivers(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/receivers/capture",
+    # The Sniffer's receiver row: every receiver, always-on infrared
+    # ones as status rows (RF hear fix round 1).
+    vol.Optional("include_always_on", default=False): bool,
 })
 @callback
 def ws_capture_receivers(
@@ -1399,7 +1402,12 @@ def ws_capture_receivers(
     toggles to open its window (or null) and where that came from, and
     the switches on its device for the card's picker.
     """
-    connection.send_result(msg["id"], capture_receivers(hass))
+    connection.send_result(
+        msg["id"],
+        capture_receivers(
+            hass, include_always_on=msg.get("include_always_on", False)
+        ),
+    )
 
 
 @websocket_api.require_admin

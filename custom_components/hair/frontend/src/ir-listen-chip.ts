@@ -11,18 +11,26 @@
  * radio remote is minted only while it is open). Always-on infrared
  * receivers have no pill: they mint freely.
  *
- * THE PILL, at the shipped header-chip metrics: a solid badge (IR-RX or
- * RF-RX, white on the tone), the receiver's device name, a word when
- * there is one, the pickers, then the exit glyph at the right end
- * (2026-11-06: it moved from after the name), which opens the device
+ * THE PILL, at the shipped header-chip metrics: a badge (``IR`` or
+ * ``RF``; solid, the tone's fill with white letters, while the receiver
+ * captures new codes, light, the tone's border and letters on a pale
+ * wash of it, otherwise: owner, 2026-11-06 19:06), the receiver's
+ * device name, "hold the button" while a sweep looks for the carrier
+ * (information, not a state word: the colours carry the state), the
+ * pickers, then the exit glyph at the right end, which opens the device
  * page. The whole pill is the press except the pickers and the glyph.
  *
  * ITS LOOKS (ir-listen-state.ts pillLook): gold while a capture device
- * waits; steady green with "hearing" for an always-on radio receiver;
- * green with the drain while a window is open; green with no fill and
- * "hold the button" while a sweep looks for the carrier; ember, pickers
- * greyed and no press while the receiver is down; dimmed while a
- * capture device has no switch to open its window with yet.
+ * waits; steady green for an always-on radio receiver with its window
+ * closed; steady green with nothing to press or pick for an always-on
+ * infrared receiver (a status pill, item 6); green with the drain while
+ * a window is open; green with no fill while a sweep looks for the
+ * carrier; ember, pickers greyed and no press while the receiver is
+ * down; dimmed while a capture device has no switch yet.
+ *
+ * THE SHAPE HOLDS (item 1): opening a window changes colour and fill
+ * only. The pickers stay where they are, greyed, the frequency showing
+ * the band as plain text (the band found, after a sweep).
  *
  * THE WINDOW is read live: a capture device's from its receiver's own
  * state in ``hass`` (``capturing``, ``window_ends_at``, and for radio
@@ -72,10 +80,12 @@ import {
     listenBlooms,
     modeChoices,
     pickersActive,
+    badgeSolid,
     pillBadge,
     pillLive,
     pillLook,
     pillOnline,
+    pillPressable,
     planFill,
     type FillPlan,
     type PillLive,
@@ -151,6 +161,9 @@ export class IrListenChip extends LitElement {
     protected willUpdate(changed: PropertyValues): void {
         if (changed.has("row") || changed.has("api")) this._listenForArrivals();
         if (!this.row) return;
+        // A status pill has no pickers to wrap onto a second line, so on
+        // a phone it stays inline and the row wraps around it.
+        this.toggleAttribute("status", !!this.row.always_on);
         if (changed.has("row")) {
             const previous = changed.get("row") as CaptureReceiverRow | undefined;
             if (previous && previous.receiver_entity_id !== this.row.receiver_entity_id) {
@@ -193,7 +206,7 @@ export class IrListenChip extends LitElement {
     }
 
     private async _press(look: PillLook, on: boolean): Promise<void> {
-        if (this._busy || look === "offline" || look === "waiting") return;
+        if (this._busy || !pillPressable(look)) return;
         this._busy = true;
         this._failed = false;
         try {
@@ -243,6 +256,8 @@ export class IrListenChip extends LitElement {
     private _stop = (e: Event) => e.stopPropagation();
 
     private _renderPickers(row: CaptureReceiverRow, live: PillLive, look: PillLook) {
+        // A status pill has nothing to set.
+        if (look === "status") return [];
         const states = this.hass?.states;
         const active = pickersActive(look) && !this._busy;
         const locked = look === "open" || look === "sweep";
@@ -327,6 +342,7 @@ export class IrListenChip extends LitElement {
         const name = row.name;
         if (look === "offline") return t("listen.offline_title", { name });
         if (look === "waiting") return t("listen.no_switch_title");
+        if (look === "status") return t("listen.status_title", { name });
         if (this._failed) return t("listen.failed", { name });
         if (look === "sweep") return t("listen.sweep_title", { name });
         if (on) return t("listen.on_title", { name });
@@ -350,9 +366,10 @@ export class IrListenChip extends LitElement {
                     ? LISTEN_GOLD
                     : LISTEN_GREEN;
         const title = this._title(row, look, live.on);
-        const word =
-            look === "hearing" ? t("listen.hearing") : look === "sweep" ? t("listen.hold_button") : "";
-        const pressable = look !== "offline" && look !== "waiting" && !this._busy;
+        // No state words (item 2): the colours carry the state. A sweep's
+        // instruction stays, because it tells the user what to do.
+        const word = look === "sweep" ? t("listen.hold_button") : "";
+        const pressable = pillPressable(look) && !this._busy;
         return html`
             <span
                 class="pill look-${look} ${this._failed && online ? "failed" : ""} ${this._bloomed && online ? "bloom" : ""}"
@@ -380,7 +397,9 @@ export class IrListenChip extends LitElement {
                     title=${title}
                     ?disabled=${!pressable}
                 >
-                    <span class="rx-badge">${pillBadge(row)}</span>
+                    <span class="rx-badge ${badgeSolid(look) ? "solid" : "hollow"}"
+                        >${pillBadge(row)}</span
+                    >
                     <span class="pill-name">${row.name}</span>
                     ${word ? html`<span class="word">${word}</span>` : nothing}
                 </button>
@@ -427,9 +446,18 @@ export class IrListenChip extends LitElement {
             .pill.look-idle {
                 background: color-mix(in srgb, var(--tone) 10%, transparent);
             }
+            /* Steady green, full: an always-on receiver hearing all the
+               time, the colour a window's fill starts from. */
             .pill.look-hearing,
+            .pill.look-status {
+                background: color-mix(in srgb, var(--tone) 24%, transparent);
+            }
             .pill.look-sweep {
                 background: color-mix(in srgb, var(--tone) 8%, transparent);
+            }
+            /* Status only: no press, no hover change. */
+            .pill.look-status {
+                cursor: default;
             }
             .pill.look-offline {
                 background: color-mix(in srgb, var(--tone) 8%, transparent);
@@ -463,17 +491,28 @@ export class IrListenChip extends LitElement {
             .press:disabled {
                 cursor: inherit;
             }
-            /* The solid badge: white text on the tone. */
+            /* Solid while capturing new codes: white letters on the tone.
+               Light otherwise: the tone's border and letters over a pale
+               wash of it (owner 18:20: not stark white). Same box either
+               way, so a window opening changes colour and nothing else. */
             .rx-badge {
                 flex: none;
-                padding: 2px 6px;
+                box-sizing: border-box;
+                padding: 1px 5px;
+                border: 1px solid var(--tone);
                 border-radius: 10px;
-                background: var(--tone);
-                color: #fff;
                 font-weight: 600;
                 font-size: 10.5px;
                 line-height: 1.2;
                 letter-spacing: 0.02em;
+            }
+            .rx-badge.solid {
+                background: var(--tone);
+                color: #fff;
+            }
+            .rx-badge.hollow {
+                background: color-mix(in srgb, var(--tone) 16%, var(--card-background-color, #fff));
+                color: var(--tone);
             }
             .pill-name {
                 white-space: nowrap;
@@ -532,17 +571,37 @@ export class IrListenChip extends LitElement {
                     animation: none;
                 }
             }
+            /* A code HAIR took from this receiver: the Sniffer's hit ring
+               (the Assign button's mint rim and halo), held at its peak
+               and fading over the shared bloom time, so it reads on a
+               pill that is already green (owner bench 19:06). */
             .pill.bloom {
-                --bloom-rgb: 67, 160, 71;
-                --bloom-peak: #43a047;
-                --bloom-edge: #66bb6a;
+                animation: pill-hit 2.4s ease-out;
+            }
+            @keyframes pill-hit {
+                0% { box-shadow: 0 0 0 0 rgba(105, 240, 174, 0.9); }
+                10% { box-shadow: 0 0 0 2px #69f0ae, 0 0 14px 5px rgba(105, 240, 174, 0.6); }
+                45% { box-shadow: 0 0 0 2px #69f0ae, 0 0 12px 4px rgba(105, 240, 174, 0.45); }
+                100% { box-shadow: 0 0 0 0 rgba(105, 240, 174, 0); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .pill.bloom {
+                    animation: none;
+                    box-shadow: 0 0 0 2px #69f0ae;
+                }
             }
             /* Phone: the pill takes the full row; badge, name and glyph
                on the first line, the pickers on a second line inside. */
             @media (max-width: 600px) {
-                :host {
+                :host(:not([status])) {
                     display: flex;
                     width: 100%;
+                }
+                :host([status]) .pill {
+                    display: inline-flex;
+                    width: auto;
+                    border-radius: 14px;
+                    padding: 2px 6px 2px 3px;
                 }
                 .pill {
                     display: grid;
