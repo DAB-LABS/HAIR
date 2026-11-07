@@ -935,6 +935,14 @@ class DeviceManager:
             command.matrix_cell is not None
             or command.source == CommandSource.MATRIX
         )
+        from .dyson_counter import counter_for_send, is_dyson
+
+        # The Dyson rolling counter is the DEVICE's, not the row's
+        # (GH #33): every Dyson command on this device reads the same
+        # one, in the handset's three-value order. Worked out here and
+        # recorded only once the send lands, below.
+        dyson_counter: int | None = None
+        send_extras = command.decoded_extras
         if (
             command.decoded_fingerprint
             and not command.tx_force_raw
@@ -944,12 +952,23 @@ class DeviceManager:
                 command.decoded_protocol, command.frequency
             )
         ):
+            if (
+                is_dyson(command.decoded_protocol)
+                and command.decoded_address is not None
+            ):
+                dyson_counter = counter_for_send(
+                    device, command.decoded_address, command.decoded_extras
+                )
+                send_extras = {
+                    **(command.decoded_extras or {}),
+                    "counter": dyson_counter,
+                }
             ir_cmd = build_decoded_command(
                 command.decoded_protocol,
                 command.decoded_address,
                 command.decoded_command,
                 repeat_count=command.repeat_count or 0,
-                decoded_extras=command.decoded_extras,
+                decoded_extras=send_extras,
             )
         decoded_tx = ir_cmd is not None
         if ir_cmd is None:
@@ -1001,21 +1020,25 @@ class DeviceManager:
         # decoded fingerprint excludes both fields, so the reverse
         # index is unaffected and a bare save is safe.
         # - RC-5-family toggle: flips 0/1 per press.
-        # - Dyson rolling counter: increments mod 4 per press. The fan
-        #   rejects a frame reusing its last-seen counter (GH #33), so
-        #   advancing AFTER each send guarantees consecutive HAIR
-        #   presses always differ.
-        if decoded_tx and command.decoded_extras:
+        # - Dyson rolling counter: one per device and address, in the
+        #   handset's order 0, 2, 1 (GH #33; ``dyson_counter``). The fan
+        #   rejects a frame reusing the last counter it accepted, from
+        #   any button, so the device records what it just sent and
+        #   every Dyson command on it sends the next one.
+        if decoded_tx and (command.decoded_extras or dyson_counter is not None):
             advanced = False
-            if "toggle" in command.decoded_extras:
+            if command.decoded_extras and "toggle" in command.decoded_extras:
                 command.decoded_extras["toggle"] = (
                     int(command.decoded_extras["toggle"]) ^ 1
                 )
                 advanced = True
-            if "counter" in command.decoded_extras:
-                command.decoded_extras["counter"] = (
-                    int(command.decoded_extras["counter"]) + 1
-                ) & 0x3
+            if dyson_counter is not None:
+                from .dyson_counter import record_sent
+
+                record_sent(
+                    device, command.decoded_address, dyson_counter,
+                    command.decoded_extras,
+                )
                 advanced = True
             if advanced:
                 self._store.update_device(device)

@@ -61,7 +61,7 @@ def manager(fake_hass):
 
 
 def _dyson_device(emitters: list[str]) -> IRDevice:
-    """A device whose command carries the Dyson mod-4 counter."""
+    """A device whose command carries the Dyson rolling counter."""
     cmd = IRCommand(
         id="c1",
         name="Power",
@@ -144,7 +144,10 @@ class TestPartialFailure:
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
                 patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")
-        assert dev.commands[0].decoded_extras["counter"] == 3
+        # Sent 2 (the row's counter: the device had none yet), recorded
+        # once on the device; the row now holds the value after it.
+        assert dev.press_counters == {"DYSON:9": 2}
+        assert dev.commands[0].decoded_extras["counter"] == 1
 
     @pytest.mark.asyncio
     async def test_flaky_emitter_dropped_from_later_frames(self, manager):
