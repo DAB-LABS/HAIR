@@ -265,22 +265,27 @@ def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
         "humidity_sensor_entity_id": device.humidity_sensor_entity_id,
         "command_count": len(device.commands),
         # The protocol glyphs on the Devices tab's card (RF hear round 1).
-        "media": _media(device.commands),
+        "media": _media(device.commands, matrix=device.climate_matrix),
         "created_at": device.created_at,
         "updated_at": device.updated_at,
         "ha_device_id": _ha_device_id(hass, device),
     }
 
 
-def _media(rows: Any) -> list[str]:
+def _media(rows: Any, *, matrix: bool = False) -> list[str]:
     """Which media a device's commands or a remote's triggers use.
 
-    Infrared first, the order the card draws the glyphs in. Empty when
-    there are none: the card then draws no glyph.
+    Infrared first, the order the card draws the glyphs in. A climate
+    matrix counts as infrared: its codes live in the matrix, not in the
+    flat rows, and a matrix only ever holds infrared codes (fix round 1,
+    item 13: matrix ACs made from wigs drew no glyph). Empty when there
+    is nothing to go on: the card then draws no glyph.
     """
     from .const import MEDIUM_IR, MEDIUM_RF
 
     present = {getattr(row, "medium", MEDIUM_IR) or MEDIUM_IR for row in rows}
+    if matrix:
+        present.add(MEDIUM_IR)
     return [m for m in (MEDIUM_IR, MEDIUM_RF) if m in present]
 
 
@@ -4373,7 +4378,7 @@ async def ws_list_trigger_remotes(
             **remote.to_dict(),
             "ha_device_id": _trigger_remote_ha_device_id(hass, remote.id),
             "trigger_count": len(triggers),
-            "media": _media(triggers),
+            "media": _media(triggers, matrix=remote.climate_matrix),
             "enabled_count": enabled_count,
             "disabled_count": len(triggers) - enabled_count,
             "pin_map": pin_map,
