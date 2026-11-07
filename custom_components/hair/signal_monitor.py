@@ -80,6 +80,7 @@ from .identity import (
 from .ir_command import carrier_or_default, raw_to_pronto
 from .learned_code_stores import SHAPE_CODE_LIST, SHAPE_PACKET_MAP
 from .models import CaptureResult, UnknownDevice, UnknownSignal
+from .press_cues import PressCue, PressCueTracker
 from .pronto_validator import validate_pronto
 from .protocol_decode import carrier_allows_rebuild, try_decode_identity
 from .signal_store import SignalStore
@@ -560,6 +561,10 @@ class SignalMonitor:
         # both stored, while a boundary protocol's fingerprint flip does
         # not defeat suppression (v0.5.8 unified identity).
         self._last_seen_times: dict[tuple[tuple[int, str], str], float] = {}
+        # Press cues (GH #237): where the frame itself proves a new press,
+        # the repeat windows let it through. Per receiver and button; see
+        # press_cues.py.
+        self._press_cues = PressCueTracker()
 
         # Per-device-fingerprint rate limit for the dismiss-activity bus
         # event push. Separate from ``_rate_buckets`` so the dismiss-activity
@@ -937,6 +942,7 @@ class SignalMonitor:
         self._last_ditto_monotonic.pop(entity_id, None)
         for key in [k for k in self._last_seen_times if k[1] == entity_id]:
             del self._last_seen_times[key]
+        self._press_cues.forget_receiver(entity_id)
         _LOGGER.debug("Released receiver subscription for %s", entity_id)
 
     def _start_legacy_event_bus(self) -> None:
@@ -1955,6 +1961,25 @@ class SignalMonitor:
         # the triggers, so a send a trigger starts already sees it.
         await self._observe_dyson_press(n)
 
+        # Step 2d: press cue (GH #237). Asked once per capture, after the
+        # echo check so HAIR's own sends never count, and only for a
+        # decode that covers the capture. A cue says "new press" or
+        # nothing; nothing leaves the repeat windows below as they were.
+        press_cue: PressCue | None = None
+        if decoded_fingerprint and n.decode_covers is not False:
+            press_cue = self._press_cues.observe(
+                rid_key, decoded_protocol, decoded_fingerprint, decoded_extras
+            )
+        if press_cue is not None:
+            _LOGGER.debug(
+                "Press cue: %s on %s is a new press (rule %s, %.0f ms after "
+                "the last frame)",
+                decoded_fingerprint,
+                receiver_entity_id or "<no receiver>",
+                press_cue.rule,
+                press_cue.gap_s * 1000,
+            )
+
         # Step 3: Check triggers. Threads the capturing receiver so scoped
         # triggers can match and the payload carries receiver + area
         # (v0.5.7).
@@ -1966,6 +1991,7 @@ class SignalMonitor:
                 # A decode explaining only part of this capture is not
                 # its identity (owner ruling 2026-09-29).
                 n.decode_covers,
+                press_cue=press_cue,
             )
 
         # Step 3b: the lattice (signpost 4, Track M). A matrix Remote
@@ -2055,7 +2081,8 @@ class SignalMonitor:
         # Step 6: Repeat suppression (per receiver, so cross-receiver captures
         # of the same press are not dropped as storage-path repeats).
         if not self._check_repeat(
-            sig_fp, receiver_entity_id, byte_hash, decoded_fingerprint
+            sig_fp, receiver_entity_id, byte_hash, decoded_fingerprint,
+            press_cue=press_cue,
         ):
             self._ditto_anchor.pop(rid_key, None)  # invalidate this receiver's sentinel
             return
@@ -2364,6 +2391,8 @@ class SignalMonitor:
         receiver_entity_id: str | None = None,
         byte_hash: str | None = None,
         decoded_fingerprint: str | None = None,
+        *,
+        press_cue: PressCue | None = None,
     ) -> bool:
         """Return True if the event is NOT a repeat (passes suppression).
 
@@ -2381,6 +2410,10 @@ class SignalMonitor:
         key at different tiers and suppression misses between them -- the
         tiered store dedup still merges the rows, so the cost is live-feed
         noise only.
+
+        A ``press_cue`` (GH #237) is the frame itself proving a new press:
+        it passes inside the window and re-anchors it, so a quick double
+        press counts twice. Without one, nothing here changes.
         """
         from .identity import SignalIdentity
 
@@ -2390,7 +2423,7 @@ class SignalMonitor:
         last = self._last_seen_times.get(key)
         suppress_s = SIGNAL_REPEAT_SUPPRESS_MS / 1000.0
 
-        if last is not None and (now - last) < suppress_s:
+        if last is not None and (now - last) < suppress_s and press_cue is None:
             return False
 
         self._last_seen_times[key] = now

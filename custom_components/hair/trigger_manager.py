@@ -49,6 +49,7 @@ from .pin_retransmit import (
     RetransmitDispatcher,
     Target,
 )
+from .press_cues import PressCue
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -189,6 +190,8 @@ class TriggerManager:
         decoded_fingerprint: str | None = None,
         norm_fp: str | None = None,
         decode_covers: bool | None = None,
+        *,
+        press_cue: PressCue | None = None,
     ) -> list[str]:
         """Process an incoming signal against all enabled triggers.
 
@@ -209,6 +212,13 @@ class TriggerManager:
         ``norm_fp`` is the capture's receiver-tolerant fingerprint, the
         lowest tier, which reaches only triggers whose bytes never came
         through a receiver (2026-08-18).
+
+        ``press_cue`` (GH #237) is the capture's frame proving a new press
+        (press_cues.py). It lets the capture through the fire window,
+        unless this trigger let a capture through less than
+        ``MULTI_RECEIVER_DEDUP_WINDOW_S`` ago: that is the same press
+        reaching a second receiver. It does not open the wider window of
+        a file-sourced multi-frame row. Without a cue nothing changes.
 
         Returns the list of trigger IDs that fired (for caller awareness).
         """
@@ -301,11 +311,39 @@ class TriggerManager:
             #
             # The wider window always wins where it applies.
             window = TRIGGER_FIRE_DEDUP_WINDOW_S
-            if self._is_multi_frame_file_row(trigger):
+            multi_frame_row = self._is_multi_frame_file_row(trigger)
+            if multi_frame_row:
                 window = max(window, MATRIX_STATE_DEDUP_WINDOW_S)
             last = self._recent_fires.get(key, 0.0)
             gap = now - last
-            if gap < window:
+            # A NEW PRESS THE FRAME PROVES (GH #237). A quick double press
+            # lands inside the window and used to read as a repeat. When
+            # the frame itself says a new press began (press_cues.py), it
+            # goes through, so the second press fires too. Two limits keep
+            # it to that: a cue within the multi-receiver window of the
+            # last capture let through is the same press heard by a
+            # second receiver, and the wider window of a file-sourced
+            # multi-frame row is left alone (an AC code's two frames are
+            # one press whatever they decode as).
+            cue_opens = (
+                press_cue is not None
+                and not multi_frame_row
+                and gap >= MULTI_RECEIVER_DEDUP_WINDOW_S
+            )
+            inside_window = gap < window
+            if inside_window and cue_opens:
+                _LOGGER.debug(
+                    "Capture allowed for trigger %s (%s) from %s: %.0f ms "
+                    "since the last fire, inside the %.0f ms window, a new "
+                    "press by rule %s",
+                    trigger.name,
+                    trigger.id,
+                    receiver_entity_id or "<no receiver>",
+                    gap * 1000,
+                    window * 1000,
+                    press_cue.rule,
+                )
+            elif inside_window:
                 # Anchored: a suppressed capture does NOT refresh the
                 # stamp, so the window expires a fixed time after the
                 # fire it belongs to.
@@ -346,7 +384,9 @@ class TriggerManager:
             # as a number. With no prior fire ``last`` is 0.0 and the gap
             # is time since the process started, which would read as a
             # plausible but meaningless interval.
-            if last:
+            if inside_window:
+                pass  # logged above, as a new press by its cue
+            elif last:
                 _LOGGER.debug(
                     "Capture allowed for trigger %s (%s) from %s: %.0f ms "
                     "since the last fire, outside the %.0f ms window",

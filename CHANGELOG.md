@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A quick double press of a remote button now counts as two presses in the Sniffer, in triggers and through pinned Devices, for remotes whose frames mark a new press (NEC and JVC remotes and RC5/RC6 remotes, among others). An automation on such a button runs twice for a quick double press, as it already did for two slower presses. A held button still steps about three times a second, as before. Reported by @pbo10 (GH #237).
+- A trigger with min hits above 1 counts a quick double press on such a remote as two hits, so a trigger set to 2 now fires on one quick double press.
+
 ## [1.1.1] - 2026-11-07 -- Flat Ironed
 
 ### Changed
