@@ -609,6 +609,9 @@ class DeviceManager:
             remote.pinned_device_ids = [
                 d for d in remote.pinned_device_ids if d != device_id
             ]
+            remote.follow_only_device_ids = [
+                d for d in remote.follow_only_device_ids if d != device_id
+            ]
             remote.bindings.pop(device_id, None)
             remote.updated_at = datetime.now(UTC).isoformat()
             self._store.update_trigger_remote(remote)
@@ -1115,6 +1118,40 @@ class DeviceManager:
             if advanced:
                 self._store.update_device(device)
                 await self._store.async_save()
+
+    def async_follow_heard(self, sent: Any) -> None:
+        """Move a pinned device's entity for a press it was not sent.
+
+        TOGGLE POWER, PIECE 2 (GH #183). A pin that follows a toggle
+        lands here instead of on the send path: the device heard its own
+        handset, so nothing goes out, and the entity flips its power as
+        the send would have made it. Same signal as a landed send, with
+        ``heard=True`` so nothing reads it as bytes on the air.
+        """
+        from dataclasses import replace
+
+        from .send_signal import SIGNAL_DEVICE_SENT
+
+        async_dispatcher_send(
+            self._hass, SIGNAL_DEVICE_SENT, replace(sent, heard=True)
+        )
+
+    async def async_follow_command(
+        self, device_id: str, command_id: str
+    ) -> None:
+        """``async_follow_heard`` for a flat device's command: the
+        description ``async_send_command`` would have dispatched."""
+        device = self._store.get_device(device_id)
+        if device is None:
+            raise KeyError(f"Unknown device {device_id}")
+        command = device.get_command(command_id)
+        if command is None:
+            raise KeyError(f"Unknown command {command_id} on device {device_id}")
+        from .send_signal import ORIGIN_MANAGER
+
+        self.async_follow_heard(
+            self._sent_for_command(device, command, ORIGIN_MANAGER)
+        )
 
     async def _async_broadcast(
         self,

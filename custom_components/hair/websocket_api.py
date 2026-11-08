@@ -225,6 +225,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_duplicate_trigger_remote)
     websocket_api.async_register_command(hass, ws_pin_trigger_remote_device)
     websocket_api.async_register_command(hass, ws_unpin_trigger_remote_device)
+    websocket_api.async_register_command(hass, ws_set_pin_relay)
     websocket_api.async_register_command(hass, ws_set_trigger_remote_receiver_scope)
     # Typed Remotes (heard state, round 2a).
     websocket_api.async_register_command(hass, ws_set_trigger_remote_type)
@@ -309,6 +310,13 @@ async def _device_full(
     # default stays a default); the panel always gets the key, null
     # meaning the default, the same as the list summary sends.
     full["power_settle_s"] = device.power_settle_s
+    # Toggle power (GH #183): the stored setting, always present for the
+    # panel, and whether the device's power goes round on one button at
+    # all, setting or mapping, which is what decides how its pins behave.
+    from .send_follow import device_toggles_power
+
+    full["power_toggles"] = device.power_toggles
+    full["power_is_toggle"] = device_toggles_power(device)
     full["command_count"] = len(device.commands)
     full["ha_device_id"] = _ha_device_id(hass, device)
     # The matrix summary rides the full payload (owner ruling
@@ -774,6 +782,8 @@ async def ws_create_device(
     vol.Optional("fan_speed_steps"): vol.Any(int, None),
     vol.Optional("speed_cycle_includes_off"): bool,
     vol.Optional("speed_cycle_turn_on"): str,
+    # Toggle power (GH #183): a matrix device's power code toggles.
+    vol.Optional("power_toggles"): bool,
 })
 @websocket_api.async_response
 async def ws_update_device(
@@ -830,8 +840,20 @@ async def ws_update_device(
         )
         return
 
+    if msg.get("power_toggles") and not device.climate_matrix:
+        # The setting is the matrix's: a flat device says which code
+        # toggles through its mapping (power_toggle), already.
+        connection.send_error(
+            msg["id"],
+            "invalid_format",
+            "power_toggles is for a device with a state matrix",
+        )
+        return
+
     if "name" in msg:
         device.name = msg["name"]
+    if "power_toggles" in msg:
+        device.power_toggles = msg["power_toggles"]
     if "manufacturer" in msg:
         device.manufacturer = msg["manufacturer"]
     if "model" in msg:
@@ -4615,6 +4637,9 @@ async def ws_list_trigger_remotes(
             "enabled_count": enabled_count,
             "disabled_count": len(triggers) - enabled_count,
             "pin_map": pin_map,
+            # Always present for the panel, empty meaning every pin
+            # relays (GH #183); the store omits it while empty.
+            "follow_only_device_ids": list(remote.follow_only_device_ids),
             "matrix": matrix_summary_block,
             **_remote_state_payload(hass, remote),
         })
@@ -5117,6 +5142,21 @@ async def ws_pin_trigger_remote_device(
         from datetime import UTC, datetime
 
         remote.pinned_device_ids.append(device_id)
+        # A NEW pin on a toggle-power device follows its toggle rather
+        # than relaying it (owner ruling, GH #183): the usual reason to
+        # pin an air conditioner's own handset is that the unit hears it
+        # too, and relaying a toggle then turns the unit back. A pin made
+        # before this, or onto a device that toggles only later, relays
+        # as it always did; ``trigger-remote/pin-relay`` changes either.
+        from .send_follow import device_toggles_power
+
+        pinned_device = store.get_device(device_id)
+        if (
+            pinned_device is not None
+            and device_toggles_power(pinned_device)
+            and device_id not in remote.follow_only_device_ids
+        ):
+            remote.follow_only_device_ids.append(device_id)
         remote.updated_at = datetime.now(UTC).isoformat()
         # Signpost 4, Track 1: a pin with no derived button map drives
         # nothing, so derivation is part of pinning rather than a
@@ -5159,6 +5199,7 @@ async def ws_pin_trigger_remote_device(
         listener.warm_index(device_id)
     connection.send_result(msg["id"], {
         "pinned_device_ids": list(remote.pinned_device_ids),
+        "follow_only_device_ids": list(remote.follow_only_device_ids),
         # What the pin filled, as set-type reports it.
         "fill_source": fill.source if fill is not None else None,
         "fill_count": fill.count if fill is not None else 0,
@@ -5196,6 +5237,10 @@ async def ws_unpin_trigger_remote_device(
         from datetime import UTC, datetime
 
         remote.pinned_device_ids.remove(device_id)
+        # How the pin behaved goes with the pin (GH #183).
+        remote.follow_only_device_ids = [
+            d for d in remote.follow_only_device_ids if d != device_id
+        ]
         remote.updated_at = datetime.now(UTC).isoformat()
         # The unpinned device's map goes with it: derive_bindings walks
         # pinned devices only, so re-deriving here drops the stale entry
@@ -5208,6 +5253,57 @@ async def ws_unpin_trigger_remote_device(
         await store.async_save()
     connection.send_result(msg["id"], {
         "pinned_device_ids": list(remote.pinned_device_ids),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/pin-relay",
+    vol.Required("remote_id"): str,
+    vol.Required("device_id"): str,
+    vol.Required("relay"): bool,
+})
+@websocket_api.async_response
+async def ws_set_pin_relay(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Choose whether a pin relays the handset's power toggle (GH #183).
+
+    ``relay`` True: the pinned device is sent the toggle the remote
+    heard, for a device out of the handset's sight. False: the device
+    heard the handset itself, so its card follows the press and nothing
+    is sent. Only the power toggle; every other press relays either way.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+    device_id = msg["device_id"]
+    if device_id not in remote.pinned_device_ids:
+        connection.send_error(
+            msg["id"], "not_found", "That device is not pinned to this remote"
+        )
+        return
+    follows = device_id in remote.follow_only_device_ids
+    if follows == msg["relay"]:
+        from datetime import UTC, datetime
+
+        if msg["relay"]:
+            remote.follow_only_device_ids.remove(device_id)
+        else:
+            remote.follow_only_device_ids.append(device_id)
+        remote.updated_at = datetime.now(UTC).isoformat()
+        store.update_trigger_remote(remote)
+        await store.async_save()
+    connection.send_result(msg["id"], {
+        "follow_only_device_ids": list(remote.follow_only_device_ids),
     })
 
 

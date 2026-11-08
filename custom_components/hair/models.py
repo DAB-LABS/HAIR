@@ -774,7 +774,7 @@ _KNOWN_DEVICE = frozenset({
     "humidity_sensor_entity_id", "commands", "entity_config", "database_id",
     "climate_matrix", "source_wig_id", "source_file", "source_remote_id",
     "origin", "created_at", "updated_at", "tangle_attestations",
-    "press_counters",
+    "press_counters", "power_toggles",
     # RETIRED, consumed so they are dropped: the Learn dialog's capture
     # hardware fields (windowed receivers round 3, owner ruling
     # 2026-10-18). Listed here rather than deleted so a stored device
@@ -856,6 +856,16 @@ class IRDevice:
     # devices JSON, which storage.py rewrites wholesale on every
     # update (census worst case 7.9 MB; addendum 2.3).
     climate_matrix: bool = False
+    # THE POWER BUTTON TOGGLES (toggle power piece 2, GH #183). A
+    # matrix device whose file's power code is the handset's one Power
+    # button: it turns the unit on when off and off when on, and the
+    # frame carries a full state besides. HAIR then sends it only to
+    # change the power it believes the unit has, and turns the unit on
+    # with that code followed by the wanted cell. Install knowledge set
+    # in Device Settings, like the power sensor, not wig content: no
+    # file says it today. False (the default, and every device stored
+    # before this field) is the absolute off code HAIR has always sent.
+    power_toggles: bool = False
     # WHERE THIS DEVICE CAME FROM (v0.9.5 Fitting Room). Set at adopt
     # and never by hand.
     #
@@ -1035,6 +1045,9 @@ class IRDevice:
             # duplicate path (device_manager/WS) via copy_matrix,
             # since a dataclass copy cannot touch disk.
             climate_matrix=self.climate_matrix,
+            # What the power button does is a fact about the unit, so
+            # it rides with the lattice.
+            power_toggles=self.power_toggles,
             # The rolling counters ride with the emitters: until the
             # clone is re-pointed it sends to the same fan, which still
             # remembers the last counter it accepted.
@@ -1109,6 +1122,10 @@ class IRDevice:
         # rather than being frozen into every record at the next save.
         if self.power_settle_s is not None:
             data["power_settle_s"] = self.power_settle_s
+        # Written only when set, for the same reason: an older build
+        # keeps it through its own saves (0.10.1 item 2).
+        if self.power_toggles:
+            data["power_toggles"] = True
         # Written only once a press has set one, for the same reason.
         if self.press_counters:
             data["press_counters"] = dict(self.press_counters)
@@ -1162,6 +1179,9 @@ class IRDevice:
             database_id=data.get("database_id"),
             # Absent (pre-0.8.8 record) resolves to False = preset mode.
             climate_matrix=bool(data.get("climate_matrix", False)),
+            # Absent on every device made before toggle power piece 2:
+            # the absolute off code, as before.
+            power_toggles=data.get("power_toggles") is True,
             # Absent on every device made before v0.9.5, which reads
             # correctly as "built from scratch here".
             source_wig_id=data.get("source_wig_id") or None,
@@ -1477,6 +1497,8 @@ _KNOWN_REMOTE = frozenset({
     "last_heard", "created_at", "updated_at",
     # Typed Remote (heard state, round 2a).
     "device_type", "entity_config",
+    # Toggle power piece 2 (GH #183).
+    "follow_only_device_ids",
 })
 
 
@@ -1542,6 +1564,18 @@ class TriggerRemote:
     # content maps to an empty dict, which is how a detail page tells
     # "pinned, nothing matched" apart from "not pinned at all".
     bindings: dict[str, dict[str, str]] = field(default_factory=dict)
+    # PINS THAT FOLLOW A TOGGLE RATHER THAN RELAY IT (toggle power piece
+    # 2, GH #183). A pinned device in this list is not sent the handset's
+    # power TOGGLE when the remote hears it: the device heard its own
+    # handset, so a second press would toggle it straight back. Its
+    # entity follows the press instead, flipping its power. Every other
+    # press is relayed as before. A pin absent from the list RELAYS,
+    # which is what every pin did before this field, so existing pins
+    # keep working for a device out of the handset's sight; a new pin on
+    # a toggle-power device starts in it (``ws_pin_trigger_remote_
+    # device``). A subset of ``pinned_device_ids``: unpin and delete
+    # drop an id from both.
+    follow_only_device_ids: list[str] = field(default_factory=list)
     # THE HEAR-SIDE LATTICE (signpost 4, Track M). The exact mirror of
     # IRDevice.climate_matrix, and a boolean for the same reason: the
     # matrix itself lives in its own file at
@@ -1587,6 +1621,10 @@ class TriggerRemote:
 
     def to_dict(self) -> dict[str, Any]:
         out = self._base_dict()
+        # Omitted while empty, so a remote with no follow-only pin
+        # stores exactly what it stored before.
+        if self.follow_only_device_ids:
+            out["follow_only_device_ids"] = list(self.follow_only_device_ids)
         # Omitted while unset, so an untyped Remote stores exactly what
         # it stored before round 2a.
         if self.device_type is not None:
@@ -1627,6 +1665,12 @@ class TriggerRemote:
             # resolves correctly as "not minted from a device".
             source_device_id=data.get("source_device_id"),
             pinned_device_ids=list(data.get("pinned_device_ids") or []),
+            # Absent on every remote written before toggle power piece
+            # 2: every pin relays, as it always did.
+            follow_only_device_ids=[
+                str(d) for d in (data.get("follow_only_device_ids") or [])
+                if isinstance(d, str)
+            ],
             # Absent on every remote written before signpost 4, and on
             # any remote pinned during signpost 3's dark period --
             # both resolve to {} and are filled by the load-time

@@ -45,11 +45,13 @@ from .const import (
 from .models import IRTrigger
 from .pin_retransmit import (
     CELL_TARGET_PREFIX,
+    FOLLOW_TARGET_PREFIX,
     Label,
     RetransmitDispatcher,
     Target,
 )
 from .press_cues import PressCue
+from .send_follow import command_toggles_power
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -669,11 +671,21 @@ class TriggerManager:
         for device_id, command_id in bound_targets(
             self._store, remote_id, trigger.id
         ):
+            device = self._store.get_device(device_id)
+            # A pin that follows a toggle (GH #183): the device heard its
+            # own handset's power toggle, so it is not sent it again.
+            # Only the toggle; every other button relays as before.
+            if (
+                remote is not None
+                and device is not None
+                and device_id in remote.follow_only_device_ids
+                and command_toggles_power(device, command_id)
+            ):
+                command_id = FOLLOW_TARGET_PREFIX + command_id
             target: Target = (remote_id, device_id, command_id)
             # Names ride along purely so the loop breaker's WARNING can
             # tell a user which pairing it cut, in the words they gave
             # those objects, rather than three opaque ids.
-            device = self._store.get_device(device_id)
             label = (
                 remote.name if remote is not None else remote_id,
                 device.name if device is not None else device_id,
@@ -696,6 +708,8 @@ class TriggerManager:
         device_id: str,
         cell_key: str,
         label: Label | None = None,
+        *,
+        follow: bool = False,
     ) -> bool:
         """Queue a heard state onto a pinned device (signpost 4, Track 4).
 
@@ -707,8 +721,12 @@ class TriggerManager:
         """
         if self._retransmit is None:
             return False
+        # ``follow``: the device follows the heard toggle and is sent
+        # nothing (GH #183, ``FOLLOW_TARGET_PREFIX``).
         target: Target = (
-            remote_id, device_id, CELL_TARGET_PREFIX + cell_key
+            remote_id, device_id,
+            (FOLLOW_TARGET_PREFIX if follow else "")
+            + CELL_TARGET_PREFIX + cell_key,
         )
         return self._retransmit.dispatch(target, label)
 
@@ -731,12 +749,24 @@ class TriggerManager:
         same broadcast path -- one dispatcher, one coalescer, one loop
         breaker for both kinds of retransmit.
         """
+        follow = command_id.startswith(FOLLOW_TARGET_PREFIX)
+        if follow:
+            # Followed, not sent (GH #183): the press is announced to
+            # the device's entity and nothing goes to the air.
+            command_id = command_id[len(FOLLOW_TARGET_PREFIX):]
         if command_id.startswith(CELL_TARGET_PREFIX):
             listener = getattr(self, "_matrix_listener", None)
             if listener is None:
                 return
-            await listener.async_send_pinned_cell(
-                device_id, command_id[len(CELL_TARGET_PREFIX):]
+            cell_key = command_id[len(CELL_TARGET_PREFIX):]
+            if follow:
+                await listener.async_follow_pinned_cell(device_id, cell_key)
+            else:
+                await listener.async_send_pinned_cell(device_id, cell_key)
+            return
+        if follow:
+            await self._device_manager.async_follow_command(
+                device_id, command_id
             )
             return
         await self._device_manager.async_send_command(

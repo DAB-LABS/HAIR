@@ -1988,6 +1988,7 @@ export class IrDeviceDetail extends LitElement {
                           .api=${this.api}
                           .hass=${this.hass}
                           .device=${this.device}
+                          .triggerRemotes=${this.triggerRemotes}
                           @device-changed=${() => {
                               this._settingsOpen = false;
                               this.dispatchEvent(

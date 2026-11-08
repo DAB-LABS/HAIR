@@ -14,6 +14,7 @@ Two operating modes since Cold Cuts (v0.8.8), selected by
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from dataclasses import asdict, dataclass
@@ -43,11 +44,11 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from .const import DOMAIN, CommandSource, DeviceType
+from .const import DOMAIN, TOGGLE_POWER_ON_GAP_S, CommandSource, DeviceType
 from .matrix_store import SIGNAL_MATRIX_CHANGED
 from .models import IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
-from .send_follow import toggle_already_there
+from .send_follow import mapped_keys, toggle_already_there, toggles_power
 from .send_signal import (
     ORIGIN_ENTITY,
     SIGNAL_DEVICE_SENT,
@@ -638,6 +639,12 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         }
 
     def _apply_sent_matrix(self, sent: DeviceSent) -> None:
+        if sent.power in ("off", "on") and self._toggle_power:
+            # A TOGGLE FLIPS, NEVER SETS (GH #183). The unit's power code
+            # turns it the other way whichever of the file's power codes
+            # was named, so the card goes the other way too.
+            self._flip_power()
+            return
         if sent.power == "off":
             self._capture_active_mode()
             self._hvac_mode = HVACMode.OFF
@@ -674,10 +681,17 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             # which is also true.
             self._matrix_cell = sent.command_name
             return
+        # A cell reaching a toggle unit believed OFF sets its settings and
+        # leaves it off (GH #183): the cell's power bit is clear, so the
+        # unit stays off, and the card keeps the mode for the next on.
+        stays_off = self._toggle_power and self._hvac_mode == HVACMode.OFF
         if cell.get("spanned"):
             self._apply_merged_group(cell)
         else:
             self._apply_coordinates(cell)
+        if stays_off and self._hvac_mode != HVACMode.OFF:
+            self._last_active_hvac_mode = self._hvac_mode
+            self._hvac_mode = HVACMode.OFF
         # The readout says what went out, in the same display grammar
         # the Mirror row carries, which is exactly the send's name.
         self._matrix_cell = sent.command_name
@@ -828,15 +842,18 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             # ("Sleep", "Turbo") and matches #105's skip-if-no-matrix-
             # correspondence line.
             return
+        if toggles_power(mapped_keys(self._device, sent)):
+            # A TOGGLE FLIPS (GH #183, one rule with every other
+            # platform's send_follow.power_after). Until 1.2 this was an
+            # on-transition only, which was wrong every second press of
+            # a real toggle; the power sensor corrects either.
+            self._flip_power()
+            return
         if feature == "turn_off":
             self._capture_active_mode()
             self._hvac_mode = HVACMode.OFF
             return
-        if feature in ("turn_on", "power_toggle"):
-            # Only ever an on-transition. A power_toggle sent while the
-            # entity already reads on is genuinely ambiguous -- it could
-            # be the unit going off -- and guessing would be worse than
-            # holding, since the plug corrects a real off anyway.
+        if feature == "turn_on":
             if self._hvac_mode == HVACMode.OFF:
                 self._hvac_mode = HVACMode.AUTO
             return
@@ -851,6 +868,32 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         if feature.startswith("temp_"):
             with contextlib.suppress(ValueError):
                 self._target_temperature = float(feature[len("temp_"):])
+
+    def _flip_power(self) -> None:
+        """Follow a power toggle: the other state from the one believed.
+
+        Off goes to the last mode the unit was in (the file's first, or
+        AUTO for a preset device, when it has never been on), exactly as
+        an "on" power verdict restores it.
+        """
+        if self._hvac_mode == HVACMode.OFF:
+            fallback = (
+                self._first_matrix_hvac_mode()
+                if self._matrix_mode else HVACMode.AUTO
+            )
+            self._hvac_mode = self._last_active_hvac_mode or fallback
+            if self._matrix_mode:
+                self._matrix_cell = state_display_name("on")
+        else:
+            self._capture_active_mode()
+            self._hvac_mode = HVACMode.OFF
+            if self._matrix_mode:
+                self._matrix_cell = state_display_name("off")
+
+    @property
+    def _toggle_power(self) -> bool:
+        """A matrix device whose power code toggles (GH #183)."""
+        return self._matrix_mode and self._device.power_toggles is True
 
     @callback
     def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:
@@ -1550,7 +1593,50 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         await self._async_send_cell(cell)
         return True
 
+    async def _async_send_power_code(self, power: str) -> bool:
+        """Send a toggle unit's one power code (GH #183): ``on`` when the
+        file has one, else ``off``. ``power`` is the state it is sent to
+        reach, which the entity knows and says, so the power monitor
+        expects it."""
+        m = self._matrix
+        if m is None:
+            _LOGGER.warning(
+                "Climate matrix for %s is not loaded; nothing sent",
+                self._device.name,
+            )
+            return False
+        name = state_display_name(power)
+        await self._manager.async_send_matrix_cell(
+            self._device.id, name, m.on or m.off,
+            power=power, origin=ORIGIN_ENTITY,
+        )
+        self._matrix_cell = name
+        return True
+
+    async def _async_toggle_on(self, hvac_mode: HVACMode) -> None:
+        """Turn a toggle unit on into ``hvac_mode`` (GH #183).
+
+        The power code first, then the wanted cell. The power code is a
+        full state frame with its own settings, so the cell has to come
+        second for the unit to end in the state asked for; the gap is
+        ``TOGGLE_POWER_ON_GAP_S``. A single frame carrying both is what
+        the handset sends, and needs the protocol's field map.
+        """
+        if not await self._async_send_power_code("on"):
+            return
+        await asyncio.sleep(TOGGLE_POWER_ON_GAP_S)
+        await self._async_resolve_and_send(hvac_mode)
+
     async def _async_matrix_off(self) -> None:
+        if self._toggle_power:
+            # Only when the unit is believed on: off while off would turn
+            # it on (GH #183).
+            if self._hvac_mode != HVACMode.OFF:
+                await self._async_send_power_code("off")
+            self._capture_active_mode()
+            self._hvac_mode = HVACMode.OFF
+            self.async_write_ha_state()
+            return
         if self._matrix is None:
             _LOGGER.warning(
                 "Climate matrix for %s is not loaded; nothing sent",
@@ -1582,7 +1668,11 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             if hvac_mode == HVACMode.OFF:
                 await self._async_matrix_off()
                 return
-            await self._async_resolve_and_send(hvac_mode)
+            if self._toggle_power and self._hvac_mode == HVACMode.OFF:
+                # A mode from off is a turn on (GH #183).
+                await self._async_toggle_on(hvac_mode)
+            else:
+                await self._async_resolve_and_send(hvac_mode)
             # Assumed-state entity: the mode records the user's intent
             # even on a sparse miss (the attr shows what really went
             # out last).
@@ -1761,6 +1851,22 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
 
     async def async_turn_on(self) -> None:
         self._preset_mode = None
+        if self._toggle_power:
+            # GH #183: on from off is the power code then the cell; on
+            # while on is the cell alone, never the power code, which
+            # would turn the unit off.
+            if self._hvac_mode == HVACMode.OFF:
+                target = (
+                    self._last_active_hvac_mode
+                    or self._first_matrix_hvac_mode()
+                )
+                await self._async_toggle_on(target)
+            else:
+                target = self._hvac_mode
+                await self._async_resolve_and_send(target)
+            self._hvac_mode = target
+            self.async_write_ha_state()
+            return
         if self._matrix_mode:
             m = self._matrix
             if m is not None and m.on is not None:

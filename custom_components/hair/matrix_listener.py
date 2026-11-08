@@ -1814,12 +1814,30 @@ class MatrixListener:
             # The target's third element is the HEARD key, so a handset
             # held on one state coalesces into one pending send per
             # device exactly as a held button does per command.
+            #
+            # A POWER TOGGLE ON A FOLLOWING PIN (GH #183): the unit heard
+            # its own handset, and a second power code would turn it
+            # back, so the device's card follows the press and nothing
+            # is sent. Settings presses are absolute and still go out.
+            follow = (
+                hit.power is not None
+                and device.power_toggles is True
+                and device_id in remote.follow_only_device_ids
+            )
             self._trigger_manager.dispatch_cell_retransmit(
                 remote.id,
                 device_id,
                 hit.cell_key,
                 (remote.name, device.name, hit.cell_name),
+                # Passed only when set, so a relayed press is the same
+                # call it has always been.
+                **({"follow": True} if follow else {}),
             )
+
+    def _heard_frame(self, cell_key: str) -> tuple[CellHit, _Identity] | None:
+        """The frame a pinned send or follow resolves from: memory only,
+        and read in this one place."""
+        return self._heard_frames.get(cell_key)
 
     async def async_send_pinned_cell(
         self, device_id: str, cell_key: str
@@ -1833,7 +1851,7 @@ class MatrixListener:
         be sent a moment after it was dispatched, and the lattice on
         disk is the only thing entitled to say what bytes a state is.
         """
-        frame = self._heard_frames.get(cell_key)
+        frame = self._heard_frame(cell_key)
         if frame is None or self._device_manager is None:
             return
         hit, identity = frame
@@ -1858,6 +1876,35 @@ class MatrixListener:
             cell=None if power else dict(state),
             power=power,
         )
+
+    async def async_follow_pinned_cell(
+        self, device_id: str, cell_key: str
+    ) -> None:
+        """Follow a heard power toggle on one pinned device (GH #183).
+
+        The dispatcher's door for a following pin: resolved exactly as
+        ``async_send_pinned_cell`` resolves, and announced to the
+        device's entity rather than sent.
+        """
+        frame = self._heard_frame(cell_key)
+        if frame is None or self._device_manager is None:
+            return
+        hit, identity = frame
+        resolved = await self._async_resolve_device_cell(
+            device_id, hit, identity
+        )
+        if resolved is None:
+            return
+        name, _pronto, _count, state = resolved
+        from .send_signal import DeviceSent
+
+        power = state.get("power")
+        self._device_manager.async_follow_heard(DeviceSent(
+            device_id=device_id,
+            command_name=name,
+            matrix_cell=None if power else dict(state),
+            power=power,
+        ))
 
     async def _async_resolve_device_cell(
         self,
@@ -1895,6 +1942,12 @@ class MatrixListener:
         # climate vocabulary looks like.
         if hit.power is not None:
             pronto = matrix.off if hit.power == "off" else matrix.on
+            device = self._store.get_device(device_id)
+            if device is not None and device.power_toggles is True:
+                # One power code that toggles (GH #183): whichever of
+                # the remote's power codes was heard, the device's is
+                # the one it has, ``on`` when the file has one.
+                pronto = matrix.on or matrix.off
             if not pronto:
                 return None
             return (

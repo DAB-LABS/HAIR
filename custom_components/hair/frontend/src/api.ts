@@ -170,6 +170,9 @@ export class HairApi {
             fan_speed_steps: number | null;
             speed_cycle_includes_off: boolean;
             speed_cycle_turn_on: SpeedCycleTurnOn;
+            // Toggle power (GH #183): a matrix device's power code
+            // toggles. Refused on a device without a matrix.
+            power_toggles: boolean;
         }>,
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({
@@ -1623,6 +1626,22 @@ export class HairApi {
             type: "hair/trigger-remote/pin",
             remote_id: remoteId,
             device_id: deviceId,
+        });
+    }
+
+    /** Toggle power (GH #183): whether a pin relays the handset's power
+     *  toggle to the device (true) or the device follows it without a
+     *  send (false). Only the power toggle; every other press relays. */
+    setPinRelay(
+        remoteId: string,
+        deviceId: string,
+        relay: boolean,
+    ): Promise<{ follow_only_device_ids: string[] }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/trigger-remote/pin-relay",
+            remote_id: remoteId,
+            device_id: deviceId,
+            relay,
         });
     }
 

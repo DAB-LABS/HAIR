@@ -459,6 +459,19 @@ PINNED_ECHO_GUARD_S = 1.0
 PINNED_LOOP_WINDOW_S = 20.0
 PINNED_LOOP_MAX_SENDS = 20
 PINNED_LOOP_COOLDOWN_S = 60.0
+# TOGGLE POWER ON (GH #183). A matrix device whose power code toggles is
+# turned on with two sends: the power code, then the wanted cell. The
+# power code is a full state frame of its own (orthobots' DAIKIN64 file
+# stores it as cool / auto / 16 with the power bit set), so it goes
+# first and the cell second, and the unit ends in the cell's state.
+# The gap lets the unit finish acting on the first frame (on a split
+# unit, the beep, the louvre and the board waking) before the second
+# arrives. NO UNIT HAS BEEN MEASURED: 800 ms is the design note's
+# proposal, kept by the owner, and a bench may move it. It is twice
+# MATRIX_STATE_DEDUP_WINDOW_S, so a receiver hearing both frames is past
+# the window a handset press is counted in, and short enough for the two
+# sends to feel like one action.
+TOGGLE_POWER_ON_GAP_S = 0.8
 # Synthetic per-emitter fingerprint prefix for foreign sends that no
 # receiver heard (identity unknown, send still audited).
 MIRROR_UNKNOWN_SEND_FP_PREFIX = "mirror-unknown::"
