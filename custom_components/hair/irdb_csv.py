@@ -479,6 +479,35 @@ def _dish_network(d: int, s: int, f: int) -> Any:
     return DishNetworkCommand(device=d, subdevice=s, function=f)
 
 
+def _tivo(unit: int) -> Callable[[int, int, int], Any]:
+    """Tivo: the NEC1 frame with D 133, S 48, F, then U:4 and ~F:4:4.
+
+    The protocol reference fixes D at 133 and S at 48, so -1 gives those
+    and anything else is refused. The fourth byte is the unit U in its
+    low four bits and the complement of F's high four bits above them.
+    irdb names the unit in the protocol name (``Tivo unit=3``), the way
+    DecodeIR reports a Tivo decode, so each unit is its own table row.
+    Built with the verbatim NEC class, as NEC1-f16 is.
+    """
+    protocol = f"Tivo unit={unit}"
+
+    def build(d: int, s: int, f: int) -> Any:
+        from .decoders.nec_variant import NECNoComplementCommand
+
+        d = 133 if d == -1 else d
+        s = 48 if s == -1 else s
+        if d != 133:
+            raise IrdbError(f"{protocol} device is always 133, but the row gives {d}")
+        if s != 48:
+            raise IrdbError(f"{protocol} subdevice is always 48, but the row gives {s}")
+        _field("function", f, 0xFF, protocol)
+        fourth = unit | (((~f >> 4) & 0x0F) << 4)
+        return NECNoComplementCommand(
+            address=d | (s << 8), command=f | (fourth << 8)
+        )
+    return build
+
+
 #: irdb protocol name (lower case) -> (its spelling, the builder).
 IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
     name.lower(): (name, build)
@@ -509,6 +538,7 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("RECS80", _recs80),
         ("G.I.Cable", _gi_cable),
         ("Dish_Network", _dish_network),
+        *((f"Tivo unit={unit}", _tivo(unit)) for unit in range(10)),
     )
 }
 
