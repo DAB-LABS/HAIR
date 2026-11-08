@@ -72,7 +72,12 @@ import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { DeviceTypeId, IRDevice, SpeedCycleTurnOn } from "./types.js";
+import type {
+    DeviceTypeId,
+    IRDevice,
+    SpeedCycleTurnOn,
+    TriggerRemoteInfo,
+} from "./types.js";
 import {
     MAX_SPEED_STEPS,
     MIN_SPEED_STEPS,
@@ -173,6 +178,10 @@ export class IrDeviceSettingsDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
     @property({ attribute: false }) public hass: any;
     @property({ attribute: false }) public device!: IRDevice;
+    /** Every Remote, for the pins section (GH #183): the ones whose
+     * pinned_device_ids hold this device are listed there. */
+    @property({ attribute: false }) public triggerRemotes: TriggerRemoteInfo[] =
+        [];
 
     /** "" = no source, otherwise a power sensor or an on/off entity id
      *  from the picker. */
@@ -199,10 +208,21 @@ export class IrDeviceSettingsDialog extends LitElement {
     @state() private _speedSteps = "";
     @state() private _cycleIncludesOff = false;
     @state() private _cycleTurnOn: SpeedCycleTurnOn = "resume";
+    // Toggle power (GH #183): the matrix setting, and per pinning Remote
+    // whether the pin relays the power toggle (true) or follows it.
+    @state() private _powerToggles = false;
+    @state() private _relay: Record<string, boolean> = {};
     @state() private _busy = false;
     @state() private _error: string | null = null;
 
     firstUpdated(): void {
+        this._powerToggles = this.device.power_toggles === true;
+        this._relay = Object.fromEntries(
+            this._pinningRemotes().map((r) => [
+                r.id,
+                !(r.follow_only_device_ids ?? []).includes(this.device.id),
+            ]),
+        );
         this._sensorChoice = this.device.power_sensor_entity_id ?? "";
         this._offBelow =
             this.device.power_off_below_w?.toString() ??
@@ -488,6 +508,25 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._humidityChoice = (e.target as HTMLSelectElement).value;
     }
 
+    /** The Remotes this device is pinned to (GH #183). */
+    private _pinningRemotes(): TriggerRemoteInfo[] {
+        return this.triggerRemotes.filter((r) =>
+            (r.pinned_device_ids ?? []).includes(this.device.id),
+        );
+    }
+
+    /** Whether the pins section shows: the device's power goes round on
+     * one button (the matrix setting as ticked now, or a flat device's
+     * toggle mapping) and some Remote pins it. Outside the
+     * settingsSections() list on purpose: it reads Remotes, and the
+     * gear no longer depends on sections. */
+    private _showsRelay(): boolean {
+        const toggles = this.device.matrix
+            ? this._powerToggles
+            : this.device.power_is_toggle === true;
+        return toggles && this._pinningRemotes().length > 0;
+    }
+
     /** What the settle field saves as. A device still on the default
      * that nobody changed stays on the default (null), so it keeps
      * following it; an empty field also means the default. Anything
@@ -531,6 +570,9 @@ export class IrDeviceSettingsDialog extends LitElement {
                 ),
             );
         }
+        if (this.device.matrix) {
+            patch.power_toggles = this._powerToggles;
+        }
         if (sections.includes("climate")) {
             patch.temperature_sensor_entity_id = this._temperatureChoice || null;
             patch.humidity_sensor_entity_id = this._humidityChoice || null;
@@ -542,6 +584,15 @@ export class IrDeviceSettingsDialog extends LitElement {
         }
         try {
             await this.api.updateDevice(this.device.id, patch);
+            const relayChanged = await this._saveRelays();
+            if (relayChanged) {
+                this.dispatchEvent(
+                    new CustomEvent("remote-pins-changed", {
+                        bubbles: true,
+                        composed: true,
+                    }),
+                );
+            }
             // Bare event, no detail -- matches the house convention
             // (ir-device-list.ts _onExpandedDeviceChanged): the
             // ancestor always does a full refetch on device-changed
@@ -559,6 +610,22 @@ export class IrDeviceSettingsDialog extends LitElement {
         } finally {
             this._busy = false;
         }
+    }
+
+    /** Write each pin whose relay choice changed; true when any did. */
+    private async _saveRelays(): Promise<boolean> {
+        let changed = false;
+        for (const remote of this._pinningRemotes()) {
+            const relay = this._relay[remote.id];
+            if (relay === undefined) continue;
+            const before = !(remote.follow_only_device_ids ?? []).includes(
+                this.device.id,
+            );
+            if (relay === before) continue;
+            await this.api.setPinRelay(remote.id, this.device.id, relay);
+            changed = true;
+        }
+        return changed;
     }
 
     render() {
@@ -591,6 +658,9 @@ export class IrDeviceSettingsDialog extends LitElement {
             </div>
             <div class="section-slot" ?hidden=${!sections.includes("climate")}>
                 ${this._renderClimateSection()}
+            </div>
+            <div class="section-slot" ?hidden=${!this._showsRelay()}>
+                ${this._renderRelaySection()}
             </div>
             <div class="section-slot">
                 ${this._renderConvertSection()}
@@ -678,6 +748,26 @@ export class IrDeviceSettingsDialog extends LitElement {
                     ${t("devsettings.power_intro")}
                 </p>
 
+                ${this.device.matrix
+                    ? html`
+                          <label class="check-row">
+                              <input
+                                  type="checkbox"
+                                  .checked=${this._powerToggles}
+                                  @change=${(e: Event) =>
+                                      (this._powerToggles = (
+                                          e.target as HTMLInputElement
+                                      ).checked)}
+                                  ?disabled=${this._busy}
+                              />
+                              <span>${t("devsettings.power_toggles_label")}</span>
+                          </label>
+                          <p class="section-explainer">
+                              ${t("devsettings.power_toggles_help")}
+                          </p>
+                      `
+                    : ""}
+
                 <div class="field">
                     <label id="source-label"
                         >${t("devsettings.sensor_label")}</label
@@ -760,6 +850,48 @@ export class IrDeviceSettingsDialog extends LitElement {
                           </div>
                       `
                     : ""}
+            </section>
+        `;
+    }
+
+    /** Pins and the power toggle (GH #183): per Remote pinning this
+     * device, whether a heard power press is sent on (relay) or only
+     * followed. Following is right when the device hears its own
+     * handset; relaying is for a device out of the handset's sight. */
+    private _renderRelaySection() {
+        return html`
+            <section class="settings-section section-relay">
+                <h3 class="section-label">
+                    ${t("devsettings.relay_section_label")}
+                </h3>
+
+                <p class="section-explainer">
+                    ${t("devsettings.relay_intro")}
+                </p>
+
+                ${this._pinningRemotes().map(
+                    (remote) => html`
+                        <label class="check-row">
+                            <input
+                                type="checkbox"
+                                .checked=${this._relay[remote.id] ?? true}
+                                @change=${(e: Event) =>
+                                    (this._relay = {
+                                        ...this._relay,
+                                        [remote.id]: (
+                                            e.target as HTMLInputElement
+                                        ).checked,
+                                    })}
+                                ?disabled=${this._busy}
+                            />
+                            <span
+                                >${t("devsettings.relay_label", {
+                                    remote: remote.name,
+                                })}</span
+                            >
+                        </label>
+                    `,
+                )}
             </section>
         `;
     }

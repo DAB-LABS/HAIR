@@ -812,6 +812,9 @@ export interface TriggerRemoteInfo {
     // pinned device just to read command names. A trigger with no
     // mapping is absent from pin_map entirely.
     pinned_device_ids: string[];
+    // Toggle power (GH #183): pinned devices that follow a heard power
+    // toggle instead of being sent it. Absent from the list = relays.
+    follow_only_device_ids?: string[];
     pin_map: Record<string, PinMapEntry[]>;
     // Where this remote came from. Both are backend fields the payload
     // has always carried; they are declared here as of signpost 4,
@@ -988,6 +991,13 @@ export interface IRDevice {
     // are independent (either can be set or cleared on its own).
     temperature_sensor_entity_id: string | null;
     humidity_sensor_entity_id: string | null;
+    // Toggle power (GH #183). power_toggles is the stored setting, for a
+    // matrix device whose power code toggles; power_is_toggle is whether
+    // the device's power goes round on one button at all (that setting,
+    // or a flat device's power_toggle mapping), which decides how its
+    // pins treat a heard power press. Both on full payloads only.
+    power_toggles?: boolean;
+    power_is_toggle?: boolean;
     // Exit-to-entity (exit-to-entity-link.md): the HA device-registry
     // id this IR device resolves to, null when it has no registry
     // entry (no entities yet). The detail header's go-to-HA glyph

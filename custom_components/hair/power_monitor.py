@@ -79,7 +79,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
 from .models import IRDevice, is_on_off_entity, power_settle_seconds
-from .send_signal import SIGNAL_DEVICE_SENT, DeviceSent
+from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -176,6 +176,11 @@ def expected_power_state(
     when it is the one mapped to turn on or turn off.
     """
     if sent.power in ("on", "off"):
+        if device.power_toggles is True and sent.origin != ORIGIN_ENTITY:
+            # A toggle's power code says only "the other state" (GH
+            # #183). The entity's own setters send it knowing which way
+            # it goes and say so; any other door does not know.
+            return None
         return sent.power  # type: ignore[return-value]
     if sent.matrix_cell:
         return "on"

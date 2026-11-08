@@ -76,6 +76,14 @@ _LOGGER = logging.getLogger(__name__)
 # breaker on the cell means a held handset collapses per state exactly
 # as a held button collapses per command.
 CELL_TARGET_PREFIX = "cell:"
+# A press a pinned device FOLLOWS rather than is sent (toggle power piece
+# 2, GH #183): this prefix in front of the command id, or in front of
+# the cell target above. The device heard its own handset's power
+# toggle, so sending it again would toggle it back; its entity flips
+# instead. Keyed apart from the send of the same command, so a pin's
+# relay and follow never coalesce into each other, and still through
+# this dispatcher, so the loop breaker counts it like a send.
+FOLLOW_TARGET_PREFIX = "follow:"
 Target = tuple[str, str, str]
 # (remote_name, device_name, trigger_name), for the WARNING only.
 Label = tuple[str, str, str]

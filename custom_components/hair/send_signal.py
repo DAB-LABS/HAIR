@@ -21,6 +21,14 @@ Remote hearing its handset does not move a Device unless it is PINNED,
 and then it is the pinned SEND that does, through this same door.
 Nothing here is wired to the hear path, deliberately.
 
+ONE EXCEPTION, AND ITS FLAG (toggle power piece 2, GH #183). A pinned
+device whose pin follows a TOGGLE is not sent the toggle the remote
+heard: the device heard its own handset, and a second press would turn
+it straight back. The pinned door then announces the press it did not
+send, here, with ``heard=True``, so the entity flips once, as it would
+have for the send. It leaves through the retransmit dispatcher like a
+send, so the coalescer and the loop breaker still stand in front of it.
+
 Exactly the ``SIGNAL_POWER_VERDICT`` pattern that already exists between
 ``power_monitor`` and ``climate``, and it layers UNDER it: a send moves
 mode, fan, swing, temp and power as BELIEF, and the plug remains the last
@@ -75,3 +83,7 @@ class DeviceSent:
     # The send was a starred command, so it IS an HA preset selection.
     starred: bool = False
     origin: str = ORIGIN_MANAGER
+    # Nothing went out: a pinned device followed a power toggle its
+    # remote heard (GH #183, the module docstring). Read it before
+    # treating this as bytes on the air.
+    heard: bool = False

@@ -167,6 +167,43 @@ def toggle_already_there(
     return False
 
 
+def toggles_power(keys: frozenset[str]) -> bool:
+    """Does a send carrying ``keys`` flip power? The rule ``power_after``
+    applies, as a yes or no."""
+    return POWER_TOGGLE in keys or (TURN_ON in keys and TURN_OFF in keys)
+
+
+def command_toggles_power(device: Any, command_id: str) -> bool:
+    """Is this command of the device's its power toggle (GH #183)?
+
+    A matrix device answers no: its toggle is its power code, which is
+    not a command row (``device_toggles_power``).
+    """
+    return toggles_power(
+        mapped_keys(device, DeviceSent(device_id=device.id, command_id=command_id))
+    )
+
+
+def device_toggles_power(device: Any) -> bool:
+    """Does the device's power go round on one button (GH #183)?
+
+    A matrix device says so in its settings (``IRDevice.power_toggles``).
+    A flat device says so through its mapping: ``power_toggle`` is
+    mapped, or ``turn_on`` and ``turn_off`` name one command. What a new
+    pin defaults to reads this; what a press does reads the press's own
+    command (``command_toggles_power``).
+    """
+    if getattr(device, "climate_matrix", False) is True:
+        return getattr(device, "power_toggles", False) is True
+    mapping = getattr(getattr(device, "entity_config", None), "command_mapping", None)
+    if not isinstance(mapping, dict):
+        return False
+    if _mapped_name(mapping, POWER_TOGGLE):
+        return True
+    on = _mapped_name(mapping, TURN_ON)
+    return on is not None and on == _mapped_name(mapping, TURN_OFF)
+
+
 def one_of(keys: frozenset[str], *choices: str) -> str | None:
     """The single key of ``choices`` the send carries, or None when it
     carries none of them or more than one (a contradiction)."""
