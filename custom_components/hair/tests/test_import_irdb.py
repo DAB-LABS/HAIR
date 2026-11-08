@@ -146,6 +146,18 @@ TABLE: dict[str, tuple] = {
     "JVC": (67, -1, 3, 38000,
             {leg: ("JVC", 67, 3, None) for leg in ("lib", "nolib")},
             {"lib": False, "nolib": False}),
+    # Tivo: the NEC1 frame D 133, S 48, F, then U:4 ~F:4:4, one row per
+    # unit; the bytes are read back by hand in
+    # test_tivo_fourth_byte_is_the_unit_then_not_f_high. Where U equals
+    # ~F's low four bits the fourth byte IS ~F and the frame is an NEC1
+    # frame bit for bit, so NEC decodes it (here unit 8 with F 7) and
+    # rebuilds the same bytes. Otherwise nothing decodes it and it is
+    # stored as built.
+    **{f"Tivo unit={unit}": (133, 48, 7, 38000,
+                              {"lib": _nec(133, 48, 7) if unit == (~7 & 0xF) else None,
+                               "nolib": None},
+                              {"lib": False, "nolib": False})
+       for unit in range(10)},
     # The RCA frame at 38.7 kHz. The decode rebuilds at RCA's default
     # carrier, so the bypass keeps the code as built.
     "RCA-38": (15, -1, 84, 38700,
@@ -182,6 +194,9 @@ NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "RCA-38", "Sharp", "Denon",
         "Mitsubishi", "RECS80", "G.I.Cable"}
 #: Protocols whose S has no default: -1 is refused.
 S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa", "Dish_Network"}
+#: Protocols whose D and S are fixed by the protocol: -1 gives them, and
+#: any other value is refused.
+FIXED_DS = {f"Tivo unit={unit}" for unit in range(10)}
 
 
 def _built(name: str, d: int, s: int, f: int):
@@ -211,7 +226,7 @@ class TestTheTable:
         assert all(irdb_csv.known_name(name) for name in TABLE)
 
     def test_the_default_groups_cover_the_table_once(self):
-        groups = (S_DEFAULTS, NO_S, S_REQUIRED)
+        groups = (S_DEFAULTS, NO_S, S_REQUIRED, FIXED_DS)
         assert set().union(*groups) == set(TABLE)
         assert sum(len(g) for g in groups) == len(TABLE)
 
@@ -263,7 +278,7 @@ class TestMinusOne:
         with pytest.raises(IrdbError, match="needs a subdevice"):
             irdb_csv.build(name, d, -1, f)
 
-    @pytest.mark.parametrize("name", sorted(TABLE))
+    @pytest.mark.parametrize("name", sorted(set(TABLE) - FIXED_DS))
     def test_d_and_f_have_no_default(self, name):
         d, s, f, *_ = TABLE[name]
         with pytest.raises(IrdbError, match="needs a device"):
@@ -284,6 +299,32 @@ class TestRefusals:
             irdb_csv.build("JVC", 256, -1, 3)
         with pytest.raises(IrdbError, match="JVC function 256 is outside 0 to 255"):
             irdb_csv.build("JVC", 67, -1, 256)
+
+    @pytest.mark.parametrize("name", sorted(FIXED_DS))
+    def test_tivo_fixes_d_and_s_and_f_has_no_default(self, name):
+        _, defaulted, _ = _built(name, -1, -1, 7)
+        _, explicit, _ = _built(name, 133, 48, 7)
+        assert defaulted == explicit
+        with pytest.raises(IrdbError, match="device is always 133, but the row gives 134"):
+            irdb_csv.build(name, 134, 48, 7)
+        with pytest.raises(IrdbError, match="subdevice is always 48, but the row gives 0"):
+            irdb_csv.build(name, 133, 0, 7)
+        with pytest.raises(IrdbError, match="needs a function"):
+            irdb_csv.build(name, 133, 48, -1)
+
+    def test_tivo_fourth_byte_is_the_unit_then_not_f_high(self):
+        """From the IRP: D:8 S:8 F:8 U:4 ~F:4:4, every field LSB first.
+
+        Read back from the train by hand rather than through a decoder:
+        each bit's space is 1687 for 1, 562 for 0 (the NEC timing).
+        """
+        _, t, _ = _built("Tivo unit=3", 133, 48, 0x2A)
+        bits = [1 if space < -1000 else 0 for space in t[3:67:2]]
+        value = sum(b << i for i, b in enumerate(bits))
+        assert value.to_bytes(4, "little") == bytes([133, 48, 0x2A, 0xD3])
+        _, t0, _ = _built("Tivo unit=0", 133, 48, 0x2A)
+        bits0 = [1 if space < -1000 else 0 for space in t0[3:67:2]]
+        assert sum(b << i for i, b in enumerate(bits0)).to_bytes(4, "little")[3] == 0xD0
 
     def test_rca_38_is_the_rca_frame_at_38_7_khz(self):
         _, t38, hz38 = _built("RCA-38", 15, -1, 84)
