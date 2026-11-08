@@ -235,6 +235,26 @@ class TestTheSnifferEdit:
         assert result["code"] == "wrong_medium_code"
 
     @pytest.mark.asyncio
+    async def test_a_new_code_is_filed_under_its_new_identity(self, fake_hass):
+        """Send review N9: the sticky-filing index follows the edit, so
+        the next press of the new code files on this row."""
+        from custom_components.hair.signal_store import _identity_keys
+
+        monitor = self._monitor(fake_hass, [_rf_row("s1", BUTTON_A)])
+        store = monitor._signal_store
+        store.rebuild_signal_index()
+        row = store.get_device("r1").signals[0]
+        old_keys = set(_identity_keys(row.decoded_fingerprint, row.byte_hash, row.fingerprint))
+        assert old_keys and old_keys <= set(store._sig_index)
+        text = " ".join(map(str, _frame(BUTTON_B) * 3))
+        await monitor.edit_signal_rf("r1", "s1", rf_code=text)
+        new_keys = set(_identity_keys(row.decoded_fingerprint, row.byte_hash, row.fingerprint))
+        assert new_keys and not new_keys & old_keys
+        assert not old_keys & set(store._sig_index)
+        for key in new_keys:
+            assert [held.id for _dev, held in store._sig_index[key]] == ["s1"]
+
+    @pytest.mark.asyncio
     async def test_a_bad_paste_says_why(self, fake_hass):
         monitor = self._monitor(fake_hass, [_rf_row("s1", BUTTON_A)])
         result = await monitor.edit_signal_rf("r1", "s1", rf_code="350 -1050")

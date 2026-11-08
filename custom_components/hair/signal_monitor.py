@@ -4278,7 +4278,13 @@ class SignalMonitor:
                     }
                 old_fp = signal.fingerprint
                 old_byte_hash = signal.byte_hash
+                # Out of the sticky-filing index under the old identity,
+                # back in under the new one, so the next press of the new
+                # code files here (send review N9; create_manual_rf_signal
+                # indexes the same way).
+                self._signal_store.forget_signal(signal)
                 rf_paste.apply_code(signal, result)
+                self._signal_store.index_signal(device, signal)
                 if self._trigger_manager is not None and (
                     signal.fingerprint != old_fp or signal.byte_hash != old_byte_hash
                 ):
