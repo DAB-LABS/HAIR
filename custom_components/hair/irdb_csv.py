@@ -479,6 +479,19 @@ def _dish_network(d: int, s: int, f: int) -> Any:
     return DishNetworkCommand(device=d, subdevice=s, function=f)
 
 
+def _panasonic_old(d: int, s: int, f: int) -> Any:
+    """Panasonic_Old: D 5 bits, F 6 bits, both again inverted, at 57.6 kHz.
+
+    Encode only.
+    """
+    from .encoders.panasonic_old import PanasonicOldCommand
+
+    _field("device", d, 31, "Panasonic_Old")
+    _none("subdevice", s, "Panasonic_Old")
+    _field("function", f, 63, "Panasonic_Old")
+    return PanasonicOldCommand(device=d, function=f)
+
+
 def _tivo(unit: int) -> Callable[[int, int, int], Any]:
     """Tivo: the NEC1 frame with D 133, S 48, F, then U:4 and ~F:4:4.
 
@@ -539,6 +552,7 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("G.I.Cable", _gi_cable),
         ("Dish_Network", _dish_network),
         *((f"Tivo unit={unit}", _tivo(unit)) for unit in range(10)),
+        ("Panasonic_Old", _panasonic_old),
     )
 }
 
