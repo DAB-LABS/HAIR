@@ -11,6 +11,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tv } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import { assignSendCount } from "./rf-send-count.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-alias.js";
 import type { HairApi } from "./api.js";
@@ -86,7 +87,10 @@ export class IrAssignSignalDialog extends LitElement {
         // the knobs (v0.5.5); the send-count seed was missed, so the
         // dialog's explicit default of 1 overrode a signal's stored send
         // count at assign time (v0.6.6 bench find, via a Mirror row).
-        this._sendCount = this.signal?.send_count ?? 1;
+        // A radio row's 1 is the minted default, not a choice: seed it
+        // from what the press carried (send review F5), shown in the
+        // field below so it can be changed.
+        this._sendCount = assignSendCount(this.signal);
         this._dittoCount = this.signal?.repeat_count ?? 1;
         void this._loadDevices();
         // Templates loaded after _loadDevices resolves (for existing mode)
