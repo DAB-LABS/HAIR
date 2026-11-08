@@ -175,7 +175,15 @@ class TestTheHiddenGlyph:
         assert "@keyframes hidden-eye" in flat and "drop-shadow(0 0 6px" in flat
         dot = flat.split(".hidden-dot {", 1)[1].split("}", 1)[0]
         assert "top: 2px;" in dot and "right: 4px;" in dot
-        glyph = flat.split(".show-glyph {", 1)[1].split("}", 1)[0]
+        # The glyph's own look moved to filter-glyph-styles.ts (item 14).
+        from pathlib import Path
+
+        shared = " ".join(
+            (Path(__file__).parent.parent / "frontend" / "src" / "filter-glyph-styles.ts")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        glyph = shared.split(".show-glyph {", 1)[1].split("}", 1)[0]
         assert "opacity:" not in glyph
 
 
@@ -217,7 +225,12 @@ class TestTheFilterGlyphs:
         flat = " ".join(src.split())
         glyphs = flat.split(".show-glyphs {", 1)[1].split("}", 1)[0]
         assert "margin-bottom: -9px;" in glyphs
-        lit = flat.split(".show-glyph.on {", 1)[1].split("}", 1)[0]
+        shared = " ".join(
+            (Path(__file__).parent.parent / "frontend" / "src" / "filter-glyph-styles.ts")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        lit = shared.split(".show-glyph.on {", 1)[1].split("}", 1)[0]
         stroke = "color-mix(in srgb, var(--primary-color) 30%, transparent);"
         assert stroke in lit
         assert f"border-color: {stroke}" in flat

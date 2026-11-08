@@ -11,6 +11,10 @@
  * infrared receiver, as a status pill with nothing to press. No label:
  * the Sniffer puts its filter glyphs at the right end of the same line.
  *
+ * The Sniffer's IR and RF filter glyphs filter the pills too (item
+ * 15): a pill whose medium is off leaves the row, unless its window is
+ * open, so a running window is never hidden.
+ *
  * The row holds the one radio subscription (``hair/receivers/rf/
  * subscribe``) its software-window pills read their window from, and
  * hands each pill its receiver's latest item.
@@ -27,12 +31,15 @@ import "./ir-listen-chip.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { CaptureReceiverRow, RfReceiverItem } from "./types.js";
+import { pillLive, pillShown } from "./ir-listen-state.js";
 
 @customElement("ir-listen-row")
 export class IrListenRow extends LitElement {
     @property({ attribute: false }) public hass?: any;
     @property({ attribute: false }) public api!: HairApi;
     @property({ attribute: false }) public rows: CaptureReceiverRow[] = [];
+    /** The Sniffer's IR and RF glyphs; both lit shows every pill. */
+    @property({ attribute: false }) public show: { ir: boolean; rf: boolean } = { ir: true, rf: true };
 
     /** Each software window's latest item, by receiver. */
     @state() private _items: Record<string, RfReceiverItem> = {};
@@ -68,13 +75,17 @@ export class IrListenRow extends LitElement {
     }
 
     render() {
-        if (this.rows.length === 0) return nothing;
+        const states = this.hass?.states;
+        const rows = this.rows.filter((row) =>
+            pillShown(this.show, row, pillLive(states, row, this._items[row.receiver_entity_id] ?? null)),
+        );
+        if (rows.length === 0) return nothing;
         // No "Listen" label (fix round 1, item 6): the row is the
         // receivers, live; the group keeps the word for screen readers.
         return html`
             <div class="hdr-row" role="group" aria-label=${t("listen.label")}>
                 <div class="hdr-row-pills">
-                    ${this.rows.map(
+                    ${rows.map(
                         (row) => html`<ir-listen-chip
                             .hass=${this.hass}
                             .api=${this.api}

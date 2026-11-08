@@ -42,6 +42,7 @@ import "./ir-tx-knobs.js";
 import "./ir-listen-row.js";
 import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { protoGlyphStyles, protoLabel, renderProtoGlyph } from "./ir-proto-glyph.js";
+import { filterGlyphStyles } from "./filter-glyph-styles.js";
 import {
     SNIFFER_SHOW_DEFAULT,
     carrierParts,
@@ -1533,6 +1534,7 @@ export class IrSignalMonitor extends LitElement {
                           .hass=${this.hass}
                           .api=${this.api}
                           .rows=${this._listenRows}
+                          .show=${this._show}
                           @capture-switch-changed=${() => void this._loadListenRows()}
                       ></ir-listen-row>`
                     : nothing}
@@ -2194,7 +2196,7 @@ export class IrSignalMonitor extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bloomStyles, headerChipStyles, protoGlyphStyles, bottomToastStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bloomStyles, headerChipStyles, protoGlyphStyles, bottomToastStyles, filterGlyphStyles, css`
         /* Edit + trash sit as one unit, hover boxes butted with zero
            gap -- same pairing ir-command-row.ts's device-detail rows
            use (edit-and-actions bench passes, 2026-08-11), rolled out
@@ -3074,45 +3076,8 @@ export class IrSignalMonitor extends LitElement {
                 justify-content: flex-end;
             }
         }
-        /* Lit when that kind is shown, grey when it is filtered out:
-           both parts of a glyph, dot and lines. Lit is the remote cards'
-           stroke blue, the theme blue at 30% (owner, 20:54 PT). */
-        .show-glyph {
-            position: relative;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 28px;
-            height: 24px;
-            padding: 0;
-            border: none;
-            border-radius: 12px;
-            background: none;
-            /* Greyed by colour, not opacity, so the hidden dot inside
-               stays full blue on an unlit glyph. */
-            color: color-mix(in srgb, var(--secondary-text-color) 60%, transparent);
-            cursor: pointer;
-            --hair-proto-source: currentColor;
-            --hair-proto-signal: currentColor;
-        }
-        .show-glyph .hair-proto {
-            --hair-proto-source: currentColor;
-            --hair-proto-signal: currentColor;
-        }
-        .show-glyph ha-svg-icon {
-            --mdc-icon-size: 18px;
-        }
-        .show-glyph.on {
-            color: rgba(33, 150, 243, 0.3);
-            color: color-mix(in srgb, var(--primary-color) 30%, transparent);
-        }
-        .show-glyph:hover {
-            background: color-mix(in srgb, var(--primary-color) 10%, transparent);
-        }
-        .show-glyph:focus-visible {
-            outline: 2px solid var(--primary-color);
-            outline-offset: 1px;
-        }
+        /* The glyphs themselves: filterGlyphStyles, shared with the
+           homepage's Devices and Remotes headers (item 14). */
         .filter-empty {
             padding: 24px;
             text-align: center;

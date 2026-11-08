@@ -585,9 +585,10 @@ class TestTheChipWiring:
         # round 1, item 6).
         assert "this._listenRows = await this.api.captureReceivers(true);" in monitor
         assert re.search(r"catch \{\s*this\._listenRows = \[\];", monitor)
-        assert "if (this.rows.length === 0) return nothing;" in _src("ir-listen-row.ts")
+        # The pills the Sniffer's glyphs show (item 15); none, no row.
+        assert "if (rows.length === 0) return nothing;" in _src("ir-listen-row.ts")
         assert re.search(
-            r"this\.rows\.map\(\s*\(row\) => html`<ir-listen-chip", _src("ir-listen-row.ts")
+            r"\brows\.map\(\s*\(row\) => html`<ir-listen-chip", _src("ir-listen-row.ts")
         )
 
     def test_the_rows_are_reread_on_registry_change_signature_or_a_switch_choice(self):
