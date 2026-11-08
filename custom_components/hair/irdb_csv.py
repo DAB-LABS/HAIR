@@ -497,6 +497,19 @@ def _fujitsu(d: int, s: int, f: int) -> Any:
     )
 
 
+def _proton(d: int, s: int, f: int) -> Any:
+    """Proton: D 8 bits, F 8 bits, no subdevice, at the class's 38.5 kHz.
+
+    Built with the registered Proton class. Proton is identity-only for
+    transmit (its registration's ``tx_rebuild`` is False), so a row is
+    stored as built and sent as stored, never rebuilt from its decode.
+    """
+    _field("device", d, 0xFF, "Proton")
+    _none("subdevice", s, "Proton")
+    _field("function", f, 0xFF, "Proton")
+    return _registered("PROTON")(address=d, command=f)
+
+
 def _panasonic_old(d: int, s: int, f: int) -> Any:
     """Panasonic_Old: D 5 bits, F 6 bits, both again inverted, at 57.6 kHz.
 
@@ -572,6 +585,7 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         *((f"Tivo unit={unit}", _tivo(unit)) for unit in range(10)),
         ("Panasonic_Old", _panasonic_old),
         ("Fujitsu", _fujitsu),
+        ("Proton", _proton),
     )
 }
 
