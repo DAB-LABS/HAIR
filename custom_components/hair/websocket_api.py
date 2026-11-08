@@ -1545,7 +1545,7 @@ def ws_receiver_window_prefs(
     """Keep the length and mode of a radio receiver's next software window.
 
     Set from the Sniffer's pickers on an always-on radio receiver's
-    Listen pill; applies to the next window, never the open one. Kept
+    pill; applies to the next window, never the open one. Kept
     on the receiver's CaptureReceiverStore record (registry entry id),
     so a rename keeps it and every browser shows the same. A capture
     device's settings are its own entities, which the panel sets

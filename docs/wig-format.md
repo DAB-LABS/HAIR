@@ -274,7 +274,7 @@ A **radio row** (hair-wig/5) has its own layout:
 sha256("rf|" + band + "|" + modulation + "|" + frame + "|d0|b0")   truncated to 16 hex characters
 ```
 
-`band` is the carrier written in MHz with one decimal, after two steps. A carrier within 150 kHz of one of the bands radio remotes use (303.875, 310, 315, 318, 350, 390, 418, 433.42, 433.92, 868.35 and 915 MHz) is first moved to that band; any carrier is then rounded to the nearest 100 kHz. So `433920000` and `433840000` both give `433.9`, `433420000` gives `433.4`, and `315000000` gives `315.0`. `frame` is the frame's values as decimal integers joined by commas, with no spaces. The band is in and the exact frequency is out: correcting a carrier from an assumed 433.92 MHz to a measured 433.84 MHz keeps every claim on the row, while moving it from 315 MHz to 433.92 MHz does not. The frame gap is out, as `send_spacing_ms` is: it is how the code is delivered, not what it is.
+`band` is the carrier written in MHz with one decimal, after two steps. A carrier within 150 kHz of one of the bands radio remotes use (303.875, 310, 315, 318, 350, 390, 418, 433.42, 433.92, 868.35 and 915 MHz) is first moved to that band; any carrier is then rounded to the nearest 100 kHz, halves up (so `400050000` gives `400.1`). So `433920000` and `433840000` both give `433.9`, `433420000` gives `433.4`, and `315000000` gives `315.0`. `frame` is the frame's values as decimal integers joined by commas, with no spaces. The band is in and the exact frequency is out: correcting a carrier from an assumed 433.92 MHz to a measured 433.84 MHz keeps every claim on the row, while moving it from 315 MHz to 433.92 MHz does not. The frame gap is out, as `send_spacing_ms` is: it is how the code is delivered, not what it is.
 
 ## Claims
 
