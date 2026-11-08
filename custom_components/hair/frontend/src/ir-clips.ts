@@ -59,7 +59,9 @@ import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import { singleOppositeLink } from "./ir-pin-link-match.js";
 import "./ir-rf-editor.js";
 import { carrierParts } from "./sniffer-filter.js";
-import { sendRefusal, substitutedHz } from "./rf-errors.js";
+import { substitutedHz, testRefusal } from "./rf-errors.js";
+import { BOTTOM_TOAST_MS, bottomToastStyles } from "./bottom-toast-styles.js";
+import { bandLabel } from "./rf-band.js";
 import { bandNumber } from "./ir-listen-state.js";
 
 /** The USE fork's two possible sources on this surface (signpost 3,
@@ -213,6 +215,9 @@ export class IrClips extends LitElement {
     @state() private _testEmitters: string[] = [];
     @state() private _testingSignalId: string | null = null;
     @state() private _testResult: string | null = null;
+    /** A refused Test, said at the bottom of the panel (send review N14). */
+    @state() private _refusalToast: string | null = null;
+    private _refusalTimer: number | undefined;
 
     // Drag-to-reorder (remotes + signals-within-a-remote).
     @state() private _remotesVersion = 0;
@@ -973,6 +978,18 @@ export class IrClips extends LitElement {
         this._testDialog = { signal };
     }
 
+    /** The name a transmitter goes by in Home Assistant. */
+    private _emitterName(entityId: string): string {
+        const name = this.hass?.states?.[entityId]?.attributes?.friendly_name;
+        return typeof name === "string" && name ? name : entityId;
+    }
+
+    private _showRefusal(text: string): void {
+        this._refusalToast = text;
+        window.clearTimeout(this._refusalTimer);
+        this._refusalTimer = window.setTimeout(() => (this._refusalToast = null), BOTTOM_TOAST_MS);
+    }
+
     private async _sendTest(e: CustomEvent): Promise<void> {
         if (!this._testDialog) return;
         const { signal } = this._testDialog;
@@ -989,12 +1006,24 @@ export class IrClips extends LitElement {
                 (r) => r.status === "fulfilled" && r.value.sent,
             ).length;
             const total = emitters.length;
+            // A refusal is said at the bottom of the panel, naming the
+            // transmitter the user picked; the row keeps its Test button
+            // (send review N14).
+            const band = signal.medium === "rf" && signal.rf_frequency_hz
+                ? bandLabel(signal.rf_frequency_hz)
+                : null;
             const refused = results
-                .map((r) => (r.status === "rejected" ? sendRefusal(r.reason) : null))
+                .map((r, i) =>
+                    r.status === "rejected"
+                        ? testRefusal(r.reason, this._emitterName(emitters[i]), band)
+                        : null,
+                )
                 .find((m) => m !== null);
             const at = substitutedHz(results);
             if (refused) {
-                this._testResult = refused;
+                this._showRefusal(refused);
+                this._testingSignalId = null;
+                return;
             } else if (at !== null && sent > 0) {
                 // A fixed-frequency transmitter sent at its own band.
                 this._testResult = t("mirror.sent_at", { band: bandNumber(at) });
@@ -1264,6 +1293,9 @@ export class IrClips extends LitElement {
                 : ""}
 
             ${this._renderDialogs()}
+            ${this._refusalToast
+                ? html`<div class="bottom-toast" role="status">${this._refusalToast}</div>`
+                : ""}
         `;
     }
 
@@ -1783,7 +1815,7 @@ export class IrClips extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bottomToastStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;

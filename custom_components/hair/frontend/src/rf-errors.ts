@@ -21,6 +21,9 @@ export const RF_FREQUENCY_UNSUPPORTED = "rf_frequency_unsupported";
 export const RF_PLATFORM_NOT_LOADED = "rf_platform_not_loaded";
 export const EMITTER_WRONG_MEDIUM = "emitter_wrong_medium";
 export const INVALID_EMITTER = "invalid_emitter";
+/** An infrared code sent to the radio editor, or the reverse (send
+ *  review N10): only a stale panel or a crafted request reaches it. */
+export const WRONG_MEDIUM_CODE = "wrong_medium_code";
 
 const SENTENCES: Record<string, string> = {
     [RF_SEND_UNSUPPORTED]: "errors.rf_send_unsupported",
@@ -31,6 +34,7 @@ const SENTENCES: Record<string, string> = {
     [RF_PLATFORM_NOT_LOADED]: "errors.rf_platform_not_loaded",
     [EMITTER_WRONG_MEDIUM]: "errors.emitter_wrong_medium",
     [INVALID_EMITTER]: "errors.invalid_emitter",
+    [WRONG_MEDIUM_CODE]: "errors.wrong_medium_code",
 };
 
 /** The locale key for a refusal code, or null for any other error.
@@ -44,6 +48,31 @@ export function refusalKey(err: unknown): string | null {
 export function sendRefusal(err: unknown): string | null {
     const key = refusalKey(err);
     return key ? t(key) : null;
+}
+
+/** A Test from the Sniffer or the Clipper refused (send review N14):
+ *  the locale key and its values. A frequency the picked transmitter
+ *  cannot send names that transmitter and the band, since a Sniffer or
+ *  Clipper row has no device; anything else is the send refusal's own
+ *  sentence. Null for an error that is not a refusal. Pure, for the
+ *  node tests. */
+export function testRefusalKey(
+    err: unknown,
+    transmitterName: string,
+    band: string | null,
+): { key: string; params?: Record<string, string> } | null {
+    const code = (err as { code?: unknown } | null)?.code;
+    if (code === RF_FREQUENCY_UNSUPPORTED && band) {
+        return { key: "errors.test_rf_frequency_unsupported", params: { name: transmitterName, band } };
+    }
+    const key = refusalKey(err);
+    return key ? { key } : null;
+}
+
+/** The sentence for a refused Test, or null. */
+export function testRefusal(err: unknown, transmitterName: string, band: string | null): string | null {
+    const found = testRefusalKey(err, transmitterName, band);
+    return found ? t(found.key, found.params) : null;
 }
 
 /** The first radio send in a Test fan-out that went out at the

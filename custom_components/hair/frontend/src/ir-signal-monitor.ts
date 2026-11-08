@@ -10,7 +10,9 @@ import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
-import { rfRefusal, substitutedHz } from "./rf-errors.js";
+import { substitutedHz, testRefusal } from "./rf-errors.js";
+import { BOTTOM_TOAST_MS, bottomToastStyles } from "./bottom-toast-styles.js";
+import { bandLabel } from "./rf-band.js";
 import {
     ICON_TRASH,
     TRASH_VIEWBOX,
@@ -269,6 +271,9 @@ export class IrSignalMonitor extends LitElement {
     @state() private _editSignal: { deviceId: string; signal: UnknownSignal } | null = null;
     @state() private _testingSignalId: string | null = null;
     @state() private _testResult: string | null = null;
+    /** A refused Test, said at the bottom of the panel (send review N14). */
+    @state() private _refusalToast: string | null = null;
+    private _refusalTimer: number | undefined;
     // Dialog state for the Test emitter picker. ``_testEmitters`` persists
     // across opens (session-level memory) so users testing five signals
     // in a row don't have to re-pick the same emitter each time.
@@ -1010,6 +1015,18 @@ export class IrSignalMonitor extends LitElement {
         this._testDialog = null;
     }
 
+    /** The name a transmitter goes by in Home Assistant. */
+    private _emitterName(entityId: string): string {
+        const name = this.hass?.states?.[entityId]?.attributes?.friendly_name;
+        return typeof name === "string" && name ? name : entityId;
+    }
+
+    private _showRefusal(text: string): void {
+        this._refusalToast = text;
+        window.clearTimeout(this._refusalTimer);
+        this._refusalTimer = window.setTimeout(() => (this._refusalToast = null), BOTTOM_TOAST_MS);
+    }
+
     private async _sendTest(e: CustomEvent): Promise<void> {
         if (!this._testDialog) return;
         const { signal } = this._testDialog;
@@ -1032,12 +1049,24 @@ export class IrSignalMonitor extends LitElement {
                 (r) => r.status === "fulfilled" && r.value.sent,
             ).length;
             const total = emitters.length;
+            // A refusal is said at the bottom of the panel, naming the
+            // transmitter the user picked; the row keeps its Test button
+            // (send review N14).
+            const band = signal.medium === "rf" && signal.rf_frequency_hz
+                ? bandLabel(signal.rf_frequency_hz)
+                : null;
             const refused = results
-                .map((r) => (r.status === "rejected" ? rfRefusal(r.reason) : null))
+                .map((r, i) =>
+                    r.status === "rejected"
+                        ? testRefusal(r.reason, this._emitterName(emitters[i]), band)
+                        : null,
+                )
                 .find((m) => m !== null);
             const at = substitutedHz(results);
             if (refused) {
-                this._testResult = refused;
+                this._showRefusal(refused);
+                this._testingSignalId = null;
+                return;
             } else if (at !== null && sent > 0) {
                 // A fixed-frequency transmitter sent at its own band.
                 this._testResult = t("mirror.sent_at", { band: bandNumber(at) });
@@ -1784,6 +1813,9 @@ export class IrSignalMonitor extends LitElement {
                       ></ir-confirm-dialog>
                   `
                 : ""}
+            ${this._refusalToast
+                ? html`<div class="bottom-toast" role="status">${this._refusalToast}</div>`
+                : nothing}
         `;
     }
 
@@ -2157,7 +2189,7 @@ export class IrSignalMonitor extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bloomStyles, headerChipStyles, protoGlyphStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bloomStyles, headerChipStyles, protoGlyphStyles, bottomToastStyles, css`
         /* Edit + trash sit as one unit, hover boxes butted with zero
            gap -- same pairing ir-command-row.ts's device-detail rows
            use (edit-and-actions bench passes, 2026-08-11), rolled out
