@@ -21,7 +21,7 @@ Set these as extra state attributes on the receiver entity itself, the
 |---|---|---|---|
 | `capturing` | boolean | Yes | `true` while the window is open, `false` while it is closed. Its presence is what makes the receiver a capture device. |
 | `capture_switch` | entity ID | Recommended | The entity HAIR turns on to open the window and off to close it. |
-| `window_ends_at` | ISO 8601 timestamp | Optional | When the open window will close. The receiver's pill drains toward it, and snap back to full when it moves. |
+| `window_ends_at` | ISO 8601 timestamp | Optional | When the open window will close. HAIR's receiver pills drain toward it, and snap back to full when it moves. |
 | `capture_mode` | `single`, `sliding` or `multiple` | Optional | Only `single` changes what HAIR does (below). |
 | `capture_phase` | `sweeping`, `listening` or `null` | Optional | What an open window is doing (below). `sweeping`: the device is still searching for the carrier and hears no codes yet. `listening`: the device is hearing codes. `null` while the window is closed. Without it, an open window is taken to be listening. |
 | `frequency_hz` | integer | Optional | The carrier, in Hz, the open window is listening on. HAIR uses it as the frequency of a code heard in that window when the signal itself carries none. `null` while sweeping or closed. |
@@ -141,7 +141,7 @@ HAIR resolves the entity that opens the window in this order:
    applies again if the declaration is removed.
 3. **The device's only switch.** When the receiver's device has exactly one
    enabled `switch` entity, HAIR uses it, already checked in the menu.
-4. **None.** The receiver's pill stays grey and cannot be pressed until the user
+4. **None.** The receiver's pill stays gray and cannot be pressed until the user
    chooses from its menu. HAIR does not guess between several
    switches by name: a wrong guess would toggle something the user never
    chose, such as a power switch.
