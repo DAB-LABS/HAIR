@@ -368,6 +368,18 @@ export function pillLook(row: CaptureReceiverRow, online: boolean, live: PillLiv
     return row.software_window ? "hearing" : "idle";
 }
 
+/** Whether a pill shows under the Sniffer's filter glyphs (item 15):
+ *  its medium's glyph is lit, or its window is open, so a running
+ *  window is never hidden. */
+export function pillShown(
+    show: { ir: boolean; rf: boolean },
+    row: CaptureReceiverRow,
+    live: { on: boolean },
+): boolean {
+    if (live.on) return true;
+    return row.medium === "rf" ? show.rf : show.ir;
+}
+
 /** Whether a pill's receiver answers. A software window has no switch,
  *  so only the receiver counts. */
 export function pillOnline(states: States | undefined, row: CaptureReceiverRow): boolean {

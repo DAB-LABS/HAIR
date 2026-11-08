@@ -54,6 +54,15 @@ import { BROADSNIFF_URL } from "./types.js";
 import type { CaptureReceiverRow, HardwareFacts, Medium } from "./types.js";
 import { PROTO_SIGNAL, PROTO_SOURCE, protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
 import { captureSignature } from "./ir-listen-state.js";
+import { filterGlyphStyles } from "./filter-glyph-styles.js";
+import {
+    loadMediaShow,
+    mediaShows,
+    mediaShowsEverything,
+    saveMediaShow,
+    type MediaSection,
+    type MediaShow,
+} from "./media-filter.js";
 import {
     agoParts,
     badgeLabel,
@@ -189,6 +198,16 @@ const FACTS_REFRESH_MS = 30_000;
  * ir-device-detail.ts. Re-measure before adding a longer label here.
  */
 const REMOTE_HDR_LABEL_W = 80;
+
+/** This browser's storage for the homepage filter glyphs, or nothing
+ *  where a page has none (tests). */
+function browserStorage(): Storage | undefined {
+    try {
+        return typeof window !== "undefined" ? window.localStorage : undefined;
+    } catch {
+        return undefined;
+    }
+}
 
 @customElement("ir-device-list")
 export class IrDeviceList extends LitElement {
@@ -354,6 +373,13 @@ export class IrDeviceList extends LitElement {
     // fresh ``devices`` property (which is then the source of truth).
     @state() private _devicesVersion = 0;
     @state() private _localDevices: DeviceSummary[] | null = null;
+    /** The IR and RF glyphs on the Devices and Remotes headers (item
+     *  14), a pair per section: remembered in this browser, independent
+     *  of each other and of the Sniffer's. */
+    @state() private _mediaShow: Record<MediaSection, MediaShow> = {
+        devices: loadMediaShow(browserStorage(), "devices"),
+        remotes: loadMediaShow(browserStorage(), "remotes"),
+    };
     private _devicesSortable: Sortable | null = null;
     private _pendingDevicesSave: number | null = null;
 
@@ -444,6 +470,9 @@ export class IrDeviceList extends LitElement {
         }
         this._syncDevicesSortable();
         this._syncTriggerSortable();
+        if (changed.has("_mediaShow")) {
+            this._devicesSortable?.option("disabled", !mediaShowsEverything(this._mediaShow.devices));
+        }
     }
 
     /** Attach / detach the device-grid SortableJS instance. */
@@ -459,6 +488,9 @@ export class IrDeviceList extends LitElement {
 
     private _attachDevicesSortable(grid: HTMLElement): void {
         this._devicesSortable = Sortable.create(grid, {
+            // A filtered grid is not the whole order; dragging waits
+            // until both glyphs are lit again (item 14).
+            disabled: !mediaShowsEverything(this._mediaShow.devices),
             // Whole card drags (no grip). ``delay`` keeps a quick click as
             // expand/collapse and a press-and-hold as a drag. The corner
             // duplicate/delete buttons are excluded as drag origins.
@@ -2054,6 +2086,35 @@ export class IrDeviceList extends LitElement {
      *  2026-11-06 19:06: the meta line cut long types off): one per
      *  medium its commands or triggers use, infrared first, grey at
      *  rest and in their colours when the card is hovered. */
+    private _toggleMedia(section: MediaSection, kind: keyof MediaShow): void {
+        const show = { ...this._mediaShow[section], [kind]: !this._mediaShow[section][kind] };
+        this._mediaShow = { ...this._mediaShow, [section]: show };
+        saveMediaShow(browserStorage(), section, show);
+    }
+
+    /** The IR and RF filter glyphs at the right of a section header
+     *  (item 14): the Sniffer's own glyphs and looks, without hidden. */
+    private _renderMediaGlyphs(section: MediaSection) {
+        const show = this._mediaShow[section];
+        const glyphs: { kind: keyof MediaShow; label: string; medium: Medium }[] = [
+            { kind: "ir", label: t("sniffer.filter.infrared"), medium: "ir" },
+            { kind: "rf", label: t("sniffer.filter.radio"), medium: "rf" },
+        ];
+        return html`<div class="show-glyphs" role="group" aria-label=${t("sniffer.filter.label")}>
+            ${glyphs.map(
+                (g) => html`<button
+                    class="show-glyph ${show[g.kind] ? "on" : ""}"
+                    aria-pressed=${show[g.kind] ? "true" : "false"}
+                    aria-label=${g.label}
+                    title=${g.label}
+                    @click=${() => this._toggleMedia(section, g.kind)}
+                >
+                    ${renderProtoGlyph(g.medium, 18)}
+                </button>`,
+            )}
+        </div>`;
+    }
+
     private _renderProtoGlyphs(media: readonly Medium[] | undefined) {
         if (!media || media.length === 0) return nothing;
         return html`<span class="proto-glyphs">${media.map((m) => renderProtoGlyph(m, 16))}</span>`;
@@ -2266,6 +2327,7 @@ export class IrDeviceList extends LitElement {
                         <span class="toolbar-tagline"><span class="toolbar-dash">- </span>${t("devlist.tagline")}</span>
                     </span>
                 </div>
+                ${this._renderMediaGlyphs("devices")}
             </div>
             ${hasDevices
                 ? html`
@@ -2273,7 +2335,7 @@ export class IrDeviceList extends LitElement {
                           ${keyed(
                               this._devicesVersion,
                               repeat(
-                                  devices,
+                                  devices.filter((d) => mediaShows(this._mediaShow.devices, d.media)),
                                   (device) => device.id,
                                   (device) => html`
                                   <div
@@ -2409,6 +2471,7 @@ export class IrDeviceList extends LitElement {
                         <span class="toolbar-tagline"><span class="toolbar-dash">- </span>${t("devlist.trigger_remotes_tagline")}</span>
                     </span>
                 </div>
+                ${this._renderMediaGlyphs("remotes")}
             </div>
             <div class="grid">
                 <div
@@ -2546,7 +2609,7 @@ export class IrDeviceList extends LitElement {
                       `
                     : nothing}
                 ${repeat(
-                    this.triggerRemotes,
+                    this.triggerRemotes.filter((r) => mediaShows(this._mediaShow.remotes, r.media)),
                     (remote) => remote.id,
                     (remote) => html`
                         <div
@@ -3041,6 +3104,7 @@ export class IrDeviceList extends LitElement {
         settingsButtonStyles,
         bloomStyles,
         protoGlyphStyles,
+        filterGlyphStyles,
         css`
         /* Punch list item 17. A .trh-header .settings-btn rule setting
            margin-right 2px used to live here, from the header this one
@@ -3078,6 +3142,15 @@ export class IrDeviceList extends LitElement {
         }
         .toolbar-title-group {
             display: flex;
+        }
+        /* The filter glyphs, hard right on the header line (item 14).
+           The toolbar wraps on a narrow screen; the glyphs then drop
+           under the title, still right-justified. */
+        .toolbar .show-glyphs {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            margin-left: auto;
         }
         /* Remotes Rename Label Pass (owner request, 2026-08-14): a
            one-line description of each section header -- "Devices"
