@@ -65,6 +65,7 @@ def _nec(d: int, s: int, f: int) -> tuple:
 
 _P_D, _P_S, _P_F = 128, 0, 61
 _K_D, _K_S, _K_F = 4, 1, 123
+_F_D, _F_S, _F_F = 140, 129, 27
 _K_CHECK = ((_K_D << 4) ^ _K_S ^ (_K_F << 4) ^ ((_K_F >> 4) & 0xFF)) & 0xFF
 
 TABLE: dict[str, tuple] = {
@@ -158,6 +159,12 @@ TABLE: dict[str, tuple] = {
                                "nolib": None},
                               {"lib": False, "nolib": False})
        for unit in range(10)},
+    # Kaseikyo vendor 20, 99 (0x6314); data 0:4 E:4 (E = 0), D, S, F; no
+    # check byte; 37 kHz. Bypass as for Panasonic and Denon-K.
+    "Fujitsu": (_F_D, _F_S, _F_F, 37000,
+                {leg: ("KASEIKYO48", 0x6314, _kaseikyo([0, _F_D, _F_S, _F_F]), None)
+                 for leg in ("lib", "nolib")},
+                {"lib": True, "nolib": True}),
     # Encode only (encoders/panasonic_old.py).
     "Panasonic_Old": (9, -1, 44, 57600,
                       {"lib": None, "nolib": None},
@@ -198,6 +205,8 @@ NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "RCA-38", "Sharp", "Denon",
         "Mitsubishi", "RECS80", "G.I.Cable", "Panasonic_Old"}
 #: Protocols whose S has no default: -1 is refused.
 S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa", "Dish_Network"}
+#: Protocols whose S defaults to D when the row gives -1.
+S_IS_D = {"Fujitsu"}
 #: Protocols whose D and S are fixed by the protocol: -1 gives them, and
 #: any other value is refused.
 FIXED_DS = {f"Tivo unit={unit}" for unit in range(10)}
@@ -230,7 +239,7 @@ class TestTheTable:
         assert all(irdb_csv.known_name(name) for name in TABLE)
 
     def test_the_default_groups_cover_the_table_once(self):
-        groups = (S_DEFAULTS, NO_S, S_REQUIRED, FIXED_DS)
+        groups = (S_DEFAULTS, NO_S, S_REQUIRED, FIXED_DS, S_IS_D)
         assert set().union(*groups) == set(TABLE)
         assert sum(len(g) for g in groups) == len(TABLE)
 
@@ -267,6 +276,13 @@ class TestMinusOne:
         d, _, f, *_ = TABLE[name]
         _, defaulted, _ = _built(name, d, -1, f)
         _, explicit, _ = _built(name, d, 255 - d, f)
+        assert defaulted == explicit
+
+    @pytest.mark.parametrize("name", sorted(S_IS_D))
+    def test_s_minus_one_is_d(self, name):
+        d, _, f, *_ = TABLE[name]
+        _, defaulted, _ = _built(name, d, -1, f)
+        _, explicit, _ = _built(name, d, d, f)
         assert defaulted == explicit
 
     @pytest.mark.parametrize("name", sorted(NO_S))
@@ -315,6 +331,17 @@ class TestRefusals:
             irdb_csv.build(name, 133, 0, 7)
         with pytest.raises(IrdbError, match="needs a function"):
             irdb_csv.build(name, 133, 48, -1)
+
+    def test_fujitsu_bytes_read_back_by_hand(self):
+        """From the IRP: 8,-4 then 20:8 99:8 0:4 E:4 D:8 S:8 F:8, LSB first,
+        on a 432 us unit: a 1296 us space is 1. Read from the train, not
+        through a decoder."""
+        _, t, hz = _built("Fujitsu", _F_D, _F_S, _F_F)
+        assert hz == 37000
+        assert len(t) == 2 + 48 * 2 + 1
+        bits = [1 if space < -864 else 0 for space in t[3:99:2]]
+        value = sum(b << i for i, b in enumerate(bits))
+        assert value.to_bytes(6, "little") == bytes([20, 99, 0, _F_D, _F_S, _F_F])
 
     def test_tivo_fourth_byte_is_the_unit_then_not_f_high(self):
         """From the IRP: D:8 S:8 F:8 U:4 ~F:4:4, every field LSB first.
