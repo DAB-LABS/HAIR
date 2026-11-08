@@ -1215,6 +1215,9 @@ export interface UnknownSignal {
     rf_frequency_source?: string | null;
     rf_frame_gap_us?: number | null;
     rf_frame_gap_source?: string | null;
+    /** How many agreeing frames one press carried (RF hear round 1);
+     *  seeds a radio row's send count (send review F5). */
+    rf_repeats_observed?: number | null;
     hit_count: number;
     first_seen: string;
     last_seen: string;

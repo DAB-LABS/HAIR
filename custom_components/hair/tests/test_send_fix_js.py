@@ -1,8 +1,12 @@
-"""Send review fix round, frontend: N14.
+"""Send review fix round, frontend: N14 and Kobe's half of F5.
 
 N14: a Sniffer or Clipper Test refused for its frequency names the
 transmitter the user picked and the band, in the bottom toast, and the
 row keeps its Test button.
+
+F5: the Assign dialog treats a radio row's stored count of 1 as unset
+and prefills what one press carried (``rf_send.seed_send_count``),
+clamped 2 to 10, 4 when the press was not measured.
 
 The rules run under node with the repo's TypeScript (skipped without the
 toolchain), with ``localize.js`` replaced by a stand-in that echoes the
@@ -11,6 +15,7 @@ key and its values; the source pins run everywhere.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -32,8 +37,16 @@ export function t(key, params) {
 
 DRIVER = r"""
 import { testRefusal, testRefusalKey } from "./rf-errors.js";
+import {
+    MAX_SEND_COUNT, RF_DEFAULT_SEND_COUNT, RF_MIN_SEND_COUNT,
+    assignSendCount, seedSendCount,
+} from "./rf-send-count.js";
 
 const err = (code) => ({ code });
+const rf = (send_count, repeats) => ({
+    medium: "rf", send_count, rf_repeats_observed: repeats,
+});
+
 console.log(JSON.stringify({
     keys: [
         testRefusalKey(err("rf_frequency_unsupported"), "Athom RF", "315"),
@@ -44,6 +57,18 @@ console.log(JSON.stringify({
         testRefusalKey(null, "Athom RF", "315"),
     ],
     sentence: testRefusal(err("rf_frequency_unsupported"), "Athom RF", "433.92"),
+    constants: [MAX_SEND_COUNT, RF_MIN_SEND_COUNT, RF_DEFAULT_SEND_COUNT],
+    seed: [null, undefined, 0, 1, 2, 3, 8, 10, 11, 40, 7.6].map(seedSendCount),
+    assign: {
+        mintedEight: assignSendCount(rf(1, 8)),
+        mintedOne: assignSendCount(rf(1, 1)),
+        mintedUnmeasured: assignSendCount(rf(1, null)),
+        mintedNoCount: assignSendCount(rf(undefined, 12)),
+        chosen: assignSendCount(rf(3, 8)),
+        infrared: assignSendCount({ medium: "ir", send_count: 1, rf_repeats_observed: 8 }),
+        noMedium: assignSendCount({ send_count: 2 }),
+        none: assignSendCount(null),
+    },
 }));
 """
 
@@ -55,7 +80,7 @@ def run(tmp_path_factory):
     out = tmp_path_factory.mktemp("sendfixjs")
     subprocess.run(
         [
-            str(TSC), "src/rf-errors.ts",
+            str(TSC), "src/rf-errors.ts", "src/rf-send-count.ts",
             "--module", "esnext", "--target", "es2022",
             "--moduleResolution", "bundler", "--resolveJsonModule",
             "--skipLibCheck", "--outDir", str(out),
@@ -119,3 +144,37 @@ class TestTheTestRefusal:
         assert '<div class="bottom-toast" role="status">${this._refusalToast}</div>' in flat
         assert "bottomToastStyles," in flat
 
+
+class TestTheAssignCount:
+    def test_the_numbers_are_the_servers(self, run):
+        from custom_components.hair.const import (
+            MAX_SEND_COUNT,
+            RF_DEFAULT_SEND_COUNT,
+            RF_MIN_SEND_COUNT,
+        )
+
+        assert run["constants"] == [MAX_SEND_COUNT, RF_MIN_SEND_COUNT, RF_DEFAULT_SEND_COUNT]
+
+    def test_the_seed_is_the_servers_rule(self, run):
+        from custom_components.hair.rf_send import seed_send_count
+
+        observed = [None, None, 0, 1, 2, 3, 8, 10, 11, 40]
+        assert run["seed"][:10] == [seed_send_count(n) for n in observed]
+        assert run["seed"] == [4, 4, 4, 2, 2, 3, 8, 10, 10, 10, 7]
+
+    def test_a_minted_radio_row_prefills_what_the_press_carried(self, run):
+        a = run["assign"]
+        assert (a["mintedEight"], a["mintedOne"], a["mintedUnmeasured"], a["mintedNoCount"]) == (
+            8, 2, 4, 10,
+        )
+
+    def test_a_chosen_count_and_infrared_keep_theirs(self, run):
+        a = run["assign"]
+        assert (a["chosen"], a["infrared"], a["noMedium"], a["none"]) == (3, 1, 2, 1)
+
+    def test_the_dialog_starts_from_it_and_shows_it(self):
+        flat = _flat("ir-assign-signal-dialog.ts")
+        assert "this._sendCount = assignSendCount(this.signal);" in flat
+        assert "this.signal?.send_count ?? 1" not in flat
+        assert ".value=${String(this._sendCount)}" in flat
+        assert re.search(r"send_count: this\._sendCount,", flat)
