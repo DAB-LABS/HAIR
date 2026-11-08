@@ -185,8 +185,8 @@ Key components:
   protocol, device, subdevice, function; irdb_csv.py builds each row
   through one table, IRDB_PROTOCOLS, with a class HAIR already registers
   or, for a protocol HAIR does not decode, an encode-only class in
-  encoders/ (Mitsubishi, RECS80, G.I. Cable, Dish Network), stored to
-  send as built; -1 means the protocol's default where it has one and
+  encoders/ (Mitsubishi, RECS80, G.I. Cable, Dish Network,
+  Panasonic_Old), stored to send as built; -1 means the protocol's default where it has one and
   is refused where it has none; the carrier is the protocol's own;
   every row goes through the import round-trip check; rows in a protocol
   outside the table are receipted grouped by protocol; a headerless file

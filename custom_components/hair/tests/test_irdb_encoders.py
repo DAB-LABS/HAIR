@@ -20,6 +20,7 @@ from custom_components.hair import irdb_csv
 from custom_components.hair.encoders.dish_network import DishNetworkCommand
 from custom_components.hair.encoders.gi_cable import GICableCommand
 from custom_components.hair.encoders.mitsubishi import MitsubishiCommand
+from custom_components.hair.encoders.panasonic_old import PanasonicOldCommand
 from custom_components.hair.encoders.recs80 import RECS80Command
 from custom_components.hair.ir_command import raw_to_pronto
 from custom_components.hair.irdb_csv import IrdbError
@@ -300,4 +301,62 @@ class TestDishNetwork:
 
     def test_stored_as_built(self):
         timings = DishNetworkCommand(device=24, subdevice=2, function=35).get_raw_timings()
+        assert _triple_reproduces(raw_to_pronto(timings, frequency=57600), timings)
+
+
+# --- Panasonic_Old -----------------------------------------------------------
+#
+# {57.6k,833}<1,-1|1,-3>(4,-4,D:5,F:6,~D:5,~F:6,1,-44m)*
+# [D:0..31,F:0..63], LSB first.
+
+
+class TestPanasonicOld:
+    def test_the_frame_written_out(self):
+        # D = 9 -> 10010, F = 44 -> 001101, then ~D = 22 -> 01101 and
+        # ~F = 19 -> 110010, each low bit first.
+        bits = _train("10010" + "001101" + "01101" + "110010", 833, 833, 2499)
+        expected = [3332, -3332, *bits, 833, -44000]
+        assert PanasonicOldCommand(device=9, function=44).get_raw_timings() == expected
+
+    def test_the_second_half_inverts_the_first(self):
+        for d in range(32):
+            for f in range(64):
+                t = PanasonicOldCommand(device=d, function=f).get_raw_timings()
+                bits = [1 if space == -2499 else 0 for space in t[3:47:2]]
+                assert bits[11:] == [1 - b for b in bits[:11]], (d, f)
+
+    def test_carrier(self):
+        assert PanasonicOldCommand(device=0, function=0).modulation == 57600
+
+    def test_a_repeat_is_the_whole_frame_again(self):
+        once = PanasonicOldCommand(device=3, function=5).get_raw_timings()
+        twice = PanasonicOldCommand(
+            device=3, function=5, repeat_count=1
+        ).get_raw_timings()
+        assert twice == once + once
+
+    @pytest.mark.parametrize(("d", "f"), [(32, 0), (0, 64), (-1, 0)])
+    def test_out_of_range_is_refused(self, d, f):
+        with pytest.raises(ValueError):
+            PanasonicOldCommand(device=d, function=f)
+
+    def test_the_row_builds_it(self):
+        assert irdb_csv.build("Panasonic_Old", 9, -1, 44).get_raw_timings() == (
+            PanasonicOldCommand(device=9, function=44).get_raw_timings()
+        )
+
+    def test_the_row_refuses_what_the_protocol_does_not_define(self):
+        with pytest.raises(IrdbError, match="Panasonic_Old function 64 is outside 0 to 63"):
+            irdb_csv.build("Panasonic_Old", 9, -1, 64)
+        with pytest.raises(IrdbError, match="Panasonic_Old has no subdevice"):
+            irdb_csv.build("Panasonic_Old", 9, 0, 44)
+
+    def test_no_decoder_claims_it(self):
+        for d in range(32):
+            for f in range(64):
+                timings = PanasonicOldCommand(device=d, function=f).get_raw_timings()
+                assert _nothing_decodes(timings), (d, f)
+
+    def test_stored_as_built(self):
+        timings = PanasonicOldCommand(device=9, function=44).get_raw_timings()
         assert _triple_reproduces(raw_to_pronto(timings, frequency=57600), timings)

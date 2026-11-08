@@ -158,6 +158,10 @@ TABLE: dict[str, tuple] = {
                                "nolib": None},
                               {"lib": False, "nolib": False})
        for unit in range(10)},
+    # Encode only (encoders/panasonic_old.py).
+    "Panasonic_Old": (9, -1, 44, 57600,
+                      {"lib": None, "nolib": None},
+                      {"lib": False, "nolib": False}),
     # The RCA frame at 38.7 kHz. The decode rebuilds at RCA's default
     # carrier, so the bypass keeps the code as built.
     "RCA-38": (15, -1, 84, 38700,
@@ -191,7 +195,7 @@ S_DEFAULTS = {"NEC", "NEC1", "NEC2", "NEC1-f16", "NECx1", "NECx2", "Pioneer"}
 #: Protocols with no S at all: the row must give -1.
 NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "RCA-38", "Sharp", "Denon",
         "JVC", "JVC{2}",
-        "Mitsubishi", "RECS80", "G.I.Cable"}
+        "Mitsubishi", "RECS80", "G.I.Cable", "Panasonic_Old"}
 #: Protocols whose S has no default: -1 is refused.
 S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa", "Dish_Network"}
 #: Protocols whose D and S are fixed by the protocol: -1 gives them, and
