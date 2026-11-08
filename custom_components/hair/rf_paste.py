@@ -55,8 +55,22 @@ SOURCE_USER = "user"
 # reach a fingerprint.
 _BROADLINK_TICK_US = 1_000_000 / 32_768
 _RM4_CAPTURE = 0xB1
+# Core's own Broadlink transmitter writes a 315 MHz send as 0xB4
+# (homeassistant/components/broadlink/radio_frequency.py,
+# _RF_315_TYPE_BYTE), so a packet HA sent at 315 MHz reads back as one.
+_RF_315_SEND = 0xB4
 _BAND_433_HZ = 433_920_000
 _BAND_315_HZ = 315_000_000
+
+# A carrier a paste states is believed only inside the range the doors
+# accept (1 MHz to 10 GHz); outside it the paste has no carrier and the
+# editor asks.
+_FREQUENCY_MIN_HZ = 1_000_000
+_FREQUENCY_MAX_HZ = 10_000_000_000
+
+# No mark or space of a remote's code lasts a second; a paste holding
+# one is not a remote's code (a row that could never be sent).
+_TIMING_MAX_US = 1_000_000
 
 # A space this long or longer is an inter-frame gap when realigning a
 # capture that started mid-pulse (about 3 ms, the library's rule:
@@ -102,11 +116,31 @@ def read_paste(text: str) -> PasteRead:
     if not text:
         raise PasteError(PASTE_EMPTY, "Nothing was pasted")
     if "RAW_Data:" in text or text.startswith("Filetype:"):
-        return _read_sub(text)
+        return _checked(_read_sub(text))
     if _INT_LIST.match(text) and re.search(r"\d", text):
         values = [int(v) for v in re.findall(r"[+-]?\d+", text)]
-        return PasteRead(FORMAT_TIMINGS, normalise(values), None, None)
-    return _read_broadlink(text)
+        return _checked(PasteRead(FORMAT_TIMINGS, normalise(values), None, None))
+    return _checked(_read_broadlink(text))
+
+
+def _checked(read: PasteRead) -> PasteRead:
+    """A paste whose timings a remote could have sent.
+
+    A mark or space of a second or more is refused as unreadable: no
+    remote's code holds one, and the row could never be sent.
+    """
+    if any(abs(v) >= _TIMING_MAX_US for v in read.timings):
+        raise PasteError(
+            PASTE_UNREADABLE, "A mark or space lasts a second or more; not a remote's code"
+        )
+    return read
+
+
+def _believable(frequency_hz: int | None) -> int | None:
+    """A stated carrier inside the range the doors accept, else None."""
+    if frequency_hz is None:
+        return None
+    return frequency_hz if _FREQUENCY_MIN_HZ <= frequency_hz <= _FREQUENCY_MAX_HZ else None
 
 
 def _read_sub(text: str) -> PasteRead:
@@ -119,7 +153,7 @@ def _read_sub(text: str) -> PasteRead:
         value = value.strip()
         if key == "Frequency":
             try:
-                frequency = int(value) or None
+                frequency = _believable(int(value) or None)
             except ValueError:
                 raise PasteError(
                     PASTE_UNREADABLE, f"Frequency is not a number: {value!r}"
@@ -177,7 +211,10 @@ def broadlink_rf_packet(packet: bytes) -> PasteRead | None:
     ``0xB1``, an RM4 Pro capture, records the carrier it was learned on
     in kHz at offsets 4 to 7, and its timings start at offset 8. Every
     other radio type starts at offset 4 and carries no carrier: its band
-    is assumed from the type (``0xB_`` 433.92 MHz, ``0xD_`` 315 MHz).
+    is assumed from the type: ``0xB4`` is 315 MHz (core's own Broadlink
+    transmitter writes a 315 MHz send so), any other ``0xB_`` 433.92 MHz,
+    ``0xD_`` 315 MHz. A recorded carrier outside 1 MHz to 10 GHz is not
+    believed, and the type decides.
     Durations are ticks, read by ``wig_adapters``' one tick reader.
     """
     if len(packet) < 4:
@@ -191,10 +228,12 @@ def broadlink_rf_packet(packet: bytes) -> PasteRead | None:
     if packet[0] == _RM4_CAPTURE and len(packet) >= 8:
         khz = int.from_bytes(packet[4:8], "little")
         offset = 8
-        if khz:
+        if _believable(khz * 1000):
             frequency, source = khz * 1000, SOURCE_SIGNAL
     if frequency is None:
-        frequency = _BAND_433_HZ if kind == 0xB0 else _BAND_315_HZ
+        frequency = (
+            _BAND_433_HZ if kind == 0xB0 and packet[0] != _RF_315_SEND else _BAND_315_HZ
+        )
         source = SOURCE_ASSUMED
     from .wig_adapters import broadlink_payload_ticks
 
@@ -261,7 +300,30 @@ def validate(text: str, frequency_hz: int | None = None) -> dict[str, Any]:
 
     pieces = rf_frames.split_frames(read.timings)
     whole = rf_frames.whole_frames(pieces)
+    found = len(whole)
     capture = rf_frames.analyze(read.timings)
+    if capture is None:
+        # A short paste with a scrap of noise ahead of it (send review
+        # F3): the noise sticks to the first frame, and the paste's last
+        # frame has lost its gap (a capture's final value is the
+        # receiver's idle, so the split drops it). With two or three
+        # frames the noisy first piece then ties the real ones on length
+        # and wins the whole-frame pick, and the row would carry the
+        # noise's identity. A paste that ends on a long space ended on a
+        # gap: read it again with that gap kept, so the last frame counts.
+        if read.timings and read.timings[-1] <= -_REALIGN_GAP_US:
+            capture = rf_frames.analyze([*read.timings, 1])
+            if capture is not None:
+                found = len(rf_frames.whole_frames(rf_frames.split_frames([*read.timings, 1])))
+        # Still no vote with more than one bodied piece: the pieces do
+        # not agree, and the longest one is not to be trusted as the
+        # remote's code.
+        if capture is None and len(rf_frames.bodied_pieces(pieces)) > 1:
+            return {
+                "ok": False, "code": PASTE_FRAMES_DISAGREE,
+                "error": "The frames in this paste do not agree; paste more of the press",
+                "frames_found": len(rf_frames.bodied_pieces(pieces)),
+            }
     if capture is None:
         if len(whole) > 1:
             return {
@@ -295,7 +357,7 @@ def validate(text: str, frequency_hz: int | None = None) -> dict[str, Any]:
     return {
         "ok": True,
         "format": read.format,
-        "frames_found": max(len(whole), 1),
+        "frames_found": max(found, 1),
         "frames_agreeing": capture.votes,
         "frame": frame,
         "frequency_hz": frequency,

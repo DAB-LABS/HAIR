@@ -298,3 +298,75 @@ class TestTheValidateDoor:
         assert (answer["ok"], answer["frequency_hz"], answer["frequency_source"]) == (
             True, 433_840_000, "user",
         )
+
+
+class TestSendReviewPasteEdges:
+    """Send review F3 to F6 and test gap 6 (2026-11-07): the paste edge
+    cases the receive path already handles, or that no remote sends."""
+
+    NOISE = ([50, -200], [120, -900, 80, -700])
+
+    @pytest.mark.parametrize("frames", [3, 4])
+    @pytest.mark.parametrize("noise", NOISE)
+    def test_leading_noise_keeps_the_remotes_identity(self, frames, noise):
+        """Noise sticks to the first frame; the rest still vote, with the
+        paste's last frame counted by the gap it ended on."""
+        clean = rf_paste.validate(" ".join(map(str, _frame(BUTTON_A) * frames)))
+        noisy = rf_paste.validate(" ".join(map(str, noise + _frame(BUTTON_A) * frames)))
+        assert clean["ok"] and noisy["ok"], noisy
+        assert noisy["fingerprint"] == clean["fingerprint"]
+        assert noisy["frame_hash"] == clean["frame_hash"]
+        assert noisy["frames_agreeing"] >= 2
+
+    @pytest.mark.parametrize("noise", NOISE)
+    def test_one_clean_frame_behind_noise_is_refused_not_misread(self, noise):
+        """Two frames, the first carrying the noise: one clean frame is
+        too few to vote, and the longest piece is the noisy one."""
+        noisy = rf_paste.validate(" ".join(map(str, noise + _frame(BUTTON_A) * 2)))
+        assert (noisy["ok"], noisy["code"]) == (False, rf_paste.PASTE_FRAMES_DISAGREE)
+
+    def test_clean_short_pastes_are_unchanged(self):
+        for frames in (1, 2, 3):
+            result = rf_paste.validate(" ".join(map(str, _frame(BUTTON_A) * frames)))
+            assert result["ok"], (frames, result)
+
+    def test_core_s_315_mhz_send_byte_reads_as_315(self):
+        packet = _broadlink(0xB4, _frame(BUTTON_A) * 3)
+        read = rf_paste.broadlink_rf_packet(packet)
+        assert read.frequency_hz == 315_000_000
+        assert read.frequency_source == rf_paste.SOURCE_ASSUMED
+        other = rf_paste.broadlink_rf_packet(_broadlink(0xB2, _frame(BUTTON_A) * 3))
+        assert other.frequency_hz == 433_920_000
+        d7 = rf_paste.broadlink_rf_packet(_broadlink(0xD7, _frame(BUTTON_A) * 3))
+        assert d7.frequency_hz == 315_000_000
+
+    @pytest.mark.parametrize("value", ["-5", "0", "999999", "10000000001"])
+    def test_a_sub_frequency_outside_1_mhz_to_10_ghz_is_no_frequency(self, value):
+        raw = " ".join(map(str, _frame(BUTTON_A) * 3))
+        sub = (
+            "Filetype: Flipper SubGhz RAW File\nVersion: 1\n"
+            f"Frequency: {value}\nProtocol: RAW\nRAW_Data: {raw}\n"
+        )
+        result = rf_paste.validate(sub)
+        assert result["ok"]
+        assert (result["frequency_hz"], result["frequency_source"]) == (None, None)
+
+    def test_a_recorded_carrier_outside_the_range_falls_to_the_type(self):
+        body = _broadlink(0xB1, _frame(BUTTON_A) * 3)
+        # 0xB1 records its carrier in kHz at offsets 4 to 7, timings after.
+        packet = body[:4] + (99_999_999).to_bytes(4, "little") + body[4:]
+        packet = packet[:2] + (len(packet) - 4).to_bytes(2, "little") + packet[4:]
+        read = rf_paste.broadlink_rf_packet(packet)
+        assert read.frequency_hz == 433_920_000
+        assert read.frequency_source == rf_paste.SOURCE_ASSUMED
+
+    @pytest.mark.parametrize("value", ["100000000000000000000", "1000000"])
+    def test_a_second_long_mark_or_space_is_refused(self, value):
+        frame = " ".join(map(str, _frame(BUTTON_A) * 2))
+        result = rf_paste.validate(f"{frame} 350 -{value}")
+        assert (result["ok"], result["code"]) == (False, rf_paste.PASTE_UNREADABLE)
+
+    def test_a_long_gap_under_a_second_is_kept(self):
+        frame = _frame(BUTTON_A)[:-1]
+        result = rf_paste.validate(" ".join(map(str, [*frame, -999_000, *frame, -999_000])))
+        assert result["ok"], result
