@@ -271,8 +271,10 @@ class TestTheSources:
         errors = _src("rf-errors.ts")
         assert 'RF_SEND_UNSUPPORTED = "rf_send_unsupported"' in errors
         assert 'RF_EDIT_UNSUPPORTED = "rf_edit_unsupported"' in errors
-        for name in ("ir-signal-editor.ts", "ir-device-detail.ts", "ir-signal-monitor.ts"):
+        for name in ("ir-signal-editor.ts", "ir-device-detail.ts"):
             assert "rfRefusal(" in _src(name), name
+        # The Sniffer's Test names the picked transmitter (send review N14).
+        assert "testRefusal(" in _src("ir-signal-monitor.ts")
 
     def test_the_server_codes_match(self):
         from custom_components.hair.const import RF_EDIT_UNSUPPORTED, RF_SEND_UNSUPPORTED
