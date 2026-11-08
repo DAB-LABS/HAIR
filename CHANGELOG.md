@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - HAIR recognizes Proton remotes, the format of NEC Display projectors and televisions and of Proton and Audiovox equipment, and sends their codes as captured.
-- The Closet builds irdb CSV rows in four more protocols, Mitsubishi, RECS80, G.I. Cable and Dish Network, and reads rows named JVC{2} as JVC and RCA-38 as RCA at its 38.7 kHz carrier. About 90% of irdb's rows now import, up from about 84%.
+- The Closet builds irdb CSV rows in eight more protocols, Mitsubishi, RECS80, G.I. Cable, Dish Network, TiVo, Panasonic Old, Fujitsu and Proton, and reads rows named JVC{2} as JVC and RCA-38 as RCA at its 38.7 kHz carrier. About 93% of irdb's rows now import, up from about 84%.
 
 ### Changed
 

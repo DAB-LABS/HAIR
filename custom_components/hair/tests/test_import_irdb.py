@@ -165,6 +165,12 @@ TABLE: dict[str, tuple] = {
                 {leg: ("KASEIKYO48", 0x6314, _kaseikyo([0, _F_D, _F_S, _F_F]), None)
                  for leg in ("lib", "nolib")},
                 {"lib": True, "nolib": True}),
+    # D:8 F:8 with HAIR's Proton class at 38.5 kHz. It decodes as PROTON
+    # on every leg; Proton is identity-only for transmit, so there is
+    # nothing to rebuild from and the code is stored as built.
+    "Proton": (2, -1, 10, 38500,
+               {leg: ("PROTON", 2, 10, None) for leg in ("lib", "nolib")},
+               {"lib": False, "nolib": False}),
     # Encode only (encoders/panasonic_old.py).
     "Panasonic_Old": (9, -1, 44, 57600,
                       {"lib": None, "nolib": None},
@@ -202,7 +208,7 @@ S_DEFAULTS = {"NEC", "NEC1", "NEC2", "NEC1-f16", "NECx1", "NECx2", "Pioneer"}
 #: Protocols with no S at all: the row must give -1.
 NO_S = {"RC5", "Sony12", "Sony15", "RC6", "RCA", "RCA-38", "Sharp", "Denon",
         "JVC", "JVC{2}",
-        "Mitsubishi", "RECS80", "G.I.Cable", "Panasonic_Old"}
+        "Mitsubishi", "RECS80", "G.I.Cable", "Panasonic_Old", "Proton"}
 #: Protocols whose S has no default: -1 is refused.
 S_REQUIRED = {"Sony20", "MCE", "Panasonic", "Denon-K", "Aiwa", "Dish_Network"}
 #: Protocols whose S defaults to D when the row gives -1.
@@ -342,6 +348,26 @@ class TestRefusals:
         bits = [1 if space < -864 else 0 for space in t[3:99:2]]
         value = sum(b << i for i, b in enumerate(bits))
         assert value.to_bytes(6, "little") == bytes([20, 99, 0, _F_D, _F_S, _F_F])
+
+    def test_proton_bytes_read_back_by_hand(self):
+        """From the IRP: 16,-8, D:8, 1,-8, F:8, 1 on a 500 us unit, LSB
+        first, a 1500 us space is 1. Read from the train by hand."""
+        _, t, _ = _built("Proton", 0xA5, -1, 0x3C)
+        assert t[:2] == [8000, -4000]
+        d_bits = [1 if space < -1000 else 0 for space in t[3:19:2]]
+        assert t[18:20] == [500, -4000]
+        f_bits = [1 if space < -1000 else 0 for space in t[21:37:2]]
+        assert sum(b << i for i, b in enumerate(d_bits)) == 0xA5
+        assert sum(b << i for i, b in enumerate(f_bits)) == 0x3C
+        assert t[-1] == 500
+
+    def test_proton_is_never_geac(self):
+        """GE-AC shares the layout on a 562.5 us unit; HAIR keeps it off
+        Proton frames, and these builds are on Proton's own unit."""
+        for d in (2, 0x55, 240):
+            for f in range(0, 256, 17):
+                _, t, _ = _built("Proton", d, -1, f)
+                assert _identity(t) == ("PROTON", d, f, None)
 
     def test_tivo_fourth_byte_is_the_unit_then_not_f_high(self):
         """From the IRP: D:8 S:8 F:8 U:4 ~F:4:4, every field LSB first.
