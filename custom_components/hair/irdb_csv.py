@@ -479,6 +479,24 @@ def _dish_network(d: int, s: int, f: int) -> Any:
     return DishNetworkCommand(device=d, subdevice=s, function=f)
 
 
+def _fujitsu(d: int, s: int, f: int) -> Any:
+    """Fujitsu: Kaseikyo with vendor bytes 20, 99, then 0:4, E:4, D, S, F.
+
+    No check byte. S defaults to D. E has a default of 0 in the IRP and
+    an irdb row cannot carry it, so the byte after the vendor is 0. The
+    Kaseikyo class derives that byte's low four bits from the vendor's
+    parity, which for 20 and 99 is the 0 the protocol writes there.
+    37 kHz, the protocol's own carrier.
+    """
+    _field("device", d, 0xFF, "Fujitsu")
+    s = d if s == -1 else s
+    _field("subdevice", s, 0xFF, "Fujitsu")
+    _field("function", f, 0xFF, "Fujitsu")
+    return _registered("KASEIKYO")(
+        address=20 | (99 << 8), data=bytes([0, d, s, f]), modulation=37000
+    )
+
+
 def _panasonic_old(d: int, s: int, f: int) -> Any:
     """Panasonic_Old: D 5 bits, F 6 bits, both again inverted, at 57.6 kHz.
 
@@ -553,6 +571,7 @@ IRDB_PROTOCOLS: dict[str, tuple[str, Callable[[int, int, int], Any]]] = {
         ("Dish_Network", _dish_network),
         *((f"Tivo unit={unit}", _tivo(unit)) for unit in range(10)),
         ("Panasonic_Old", _panasonic_old),
+        ("Fujitsu", _fujitsu),
     )
 }
 
