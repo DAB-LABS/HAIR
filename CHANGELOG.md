@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Clipper and the code editor take radio codes as a Flipper `.sub`, a list of timings or a Broadlink radio code, and wigs carry them as `hair-wig/5`.
 - The top of the Sniffer shows every receiver as a pill. A solid `IR` or `RF` badge means the receiver is taking new codes now, and a pill glows when HAIR takes a code from it. A capture device's window opens from its pill, which carries pickers for the next window's carrier, length and type when the integration names them.
 - The Sniffer filters infrared, radio and hidden remotes from three glyphs at the right of the receiver row.
+- The homepage's Devices and Remotes headers each carry an IR and an RF glyph that filter the cards below them, and the Sniffer's IR and RF glyphs filter the receiver pills too, except a pill whose window is open. Both pairs are remembered in this browser.
 
 ### Changed
 
