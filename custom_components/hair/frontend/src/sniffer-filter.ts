@@ -46,3 +46,10 @@ export function carrierParts(row: {
     }
     return typeof row.frequency === "number" ? { khz: Math.round(row.frequency / 1000) } : null;
 }
+
+/** A radio command's band ("433.92"), as the Sniffer row says it (N16),
+ *  or null for infrared and for a radio command with no carrier. */
+export function radioBandOf(row: { medium?: string; rf_frequency_hz?: number | null }): string | null {
+    const parts = row.medium === "rf" ? carrierParts(row) : null;
+    return parts && "band" in parts ? parts.band : null;
+}

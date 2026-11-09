@@ -112,6 +112,7 @@ import {
     renderStarBtn,
 } from "./ir-icons.js";
 import "./ir-protocol-chip.js";
+import { radioBandOf } from "./sniffer-filter.js";
 import { mapActionStyles } from "./ir-map-action-styles.js";
 
 // The comb, from images/comb.svg -- the same mark the closet uses for
@@ -435,6 +436,11 @@ export class IrCommandRow extends LitElement {
                         </div>
                     </div>
                     <div class="actions">
+                        ${learned && radioBandOf(this.command!)
+                            ? html`<span class="band"
+                                  >${t("listen.band", { band: radioBandOf(this.command!)! })}</span
+                              >`
+                            : ""}
                         ${learned
                             ? html`
                                   <div class="chip-col">
@@ -779,6 +785,15 @@ export class IrCommandRow extends LitElement {
            label the chip can render (SYMPHONY12, 83.5px). A command that
            decoded nothing holds the cell EMPTY rather than absent, so the
            buttons after it stay on one vertical line. */
+        /* A radio command's band (N16), sized and toned as the Sniffer
+           row's band column, "433.92 MHz" being the widest. */
+        .band {
+            flex: 0 0 66px;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--secondary-text-color);
+            white-space: nowrap;
+        }
         .chip-col {
             flex: 0 0 88px;
             display: flex;
