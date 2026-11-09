@@ -1376,6 +1376,11 @@ export class IrMirror extends LitElement {
                           .initialAlias=${this._editSignal.alias ?? ""}
                           .initialSendCount=${this._editSignal.send_count ?? 1}
                           @signal-edited=${this._onSignalEdited}
+                          @delete-requested=${() => {
+                              const sig = this._editSignal;
+                              this._editSignal = null;
+                              this._deleteSignal = sig;
+                          }}
                           @closed=${() => (this._editSignal = null)}
                       ></ir-rf-editor>`
                     : html`<ir-signal-editor

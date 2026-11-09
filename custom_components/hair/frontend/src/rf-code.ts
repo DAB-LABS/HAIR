@@ -70,8 +70,9 @@ export function sourceKey(source: string | null | undefined): string | null {
     switch (source) {
         case "signal":
             return "rfedit.source_signal";
-        case "receiver":
         case "window":
+            return "rfedit.source_window";
+        case "receiver":
             return "rfedit.source_receiver";
         case "user":
             return "rfedit.source_user";

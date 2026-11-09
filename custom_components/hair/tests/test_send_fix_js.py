@@ -14,6 +14,13 @@ frequency buttons, so a .sub says the band the buttons say.
 N16: a radio command's row on its device shows its band, as the
 Sniffer row does.
 
+N17: the radio editor is the infrared editor with radio details (plan
+6.3). Its Code box has the infrared code window's corner copy icon, the
+"Copy .sub" button is gone, and its slot holds Delete, which hands the
+row to the host's own delete confirmation. The frequency's source says
+"Set by you", "From the signal", "From the window" or "From the
+receiver".
+
 The rules run under node with the repo's TypeScript (skipped without the
 toolchain), with ``localize.js`` replaced by a stand-in that echoes the
 key and its values; the source pins run everywhere.
@@ -243,3 +250,57 @@ class TestTheCommandRowSaysItsBand:
         shown = flat.split("${learned && radioBandOf(this.command!)", 1)[1]
         assert shown.split('<div class="chip-col">', 1)[0].count(band) == 1
         assert '<span class="band"' in shown.split('<div class="chip-col">', 1)[0]
+
+
+class TestTheRadioEditorMatchesTheInfraredOne:
+    def test_the_corner_copy_icon_and_no_copy_button(self):
+        flat = _flat("ir-rf-editor.ts")
+        wrap = flat.split('<div class="code-wrap">', 1)[1].split("${this._renderFeedback()}", 1)[0]
+        assert '<textarea id="rf-code"' in wrap
+        assert 'class="copy-icon"' in wrap and "@click=${() => void this._copy()}" in wrap
+        assert "<ha-svg-icon .path=${ICON_COPY}></ha-svg-icon>" in wrap
+        assert '<span class="copy-flash">${this._copyHint}</span>' in wrap
+        infrared = _flat("ir-signal-editor.ts")
+        icon = infrared.split("const ICON_COPY =", 1)[1].split(";", 1)[0]
+        assert f"const ICON_COPY ={icon};" in flat
+        assert "copy_sub" not in flat and "_copied" not in flat
+        copy = flat.split("private async _copy(): Promise<void> {", 1)[1]
+        copy = copy.split("private _requestDelete", 1)[0]
+        assert "this._validation.sub_text" in copy and "ta.select();" in copy
+        assert 't("editor.copied") : t("editor.press_copy")' in copy
+
+    def test_delete_takes_the_slot_and_asks_the_host(self):
+        flat = _flat("ir-rf-editor.ts")
+        actions = flat.split('<div class="dialog-actions">', 1)[1]
+        first = actions.split('<span class="actions-spacer"></span>', 1)[0]
+        assert "${this._creating ? nothing" in first
+        assert 'class="action-btn delete-btn" @click=${this._requestDelete}' in first
+        assert '${t("common.delete")}' in first
+        assert 'this.dispatchEvent(new CustomEvent("delete-requested"));' in flat
+
+    @pytest.mark.parametrize(
+        ("name", "opens"),
+        [
+            ("ir-signal-monitor.ts", "this._openDelete(deviceId, signal);"),
+            ("ir-clips.ts", "this._openDelete(deviceId, signal);"),
+            ("ir-mirror.ts", "this._deleteSignal = sig;"),
+            ("ir-device-detail.ts", "this._commandToDelete = command;"),
+        ],
+    )
+    def test_each_host_opens_its_own_confirmation(self, name, opens):
+        flat = _flat(name)
+        editor = flat.split("<ir-rf-editor", 2)[-1].split("></ir-rf-editor>", 1)[0]
+        handler = editor.split("@delete-requested=${() => {", 1)[1].split("}}", 1)[0]
+        assert opens in handler
+        assert "= null;" in handler
+
+    def test_the_source_words(self):
+        for path in (SRC / "locales").glob("*.json"):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for key in ("signal", "window", "receiver", "user"):
+                assert data.get(f"rfedit.source_{key}"), (path.name, key)
+            assert "rfedit.copy_sub" not in data and "rfedit.copied" not in data, path.name
+        en = json.loads((SRC / "locales" / "en.json").read_text(encoding="utf-8"))
+        assert [en[f"rfedit.source_{k}"] for k in ("user", "signal", "window", "receiver")] == [
+            "Set by you.", "From the signal.", "From the window.", "From the receiver.",
+        ]

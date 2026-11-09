@@ -3,7 +3,7 @@
  *
  * A radio row is edited the way an infrared one is, with radio details
  * where the infrared editor has Pronto ones. It opens on the row's code
- * as a Flipper `.sub` (the same text Copy hands out), and takes a paste
+ * as a Flipper `.sub` (the text its corner copy icon hands out), and takes a paste
  * in any of the three shapes the server reads: a `.sub`, a list of
  * signed timings, or a Broadlink RF base64 code. The paste is read live
  * (`hair/rf/validate`): how many frames were found and how many agree,
@@ -32,6 +32,7 @@ import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { renderProtoGlyph, protoGlyphStyles } from "./ir-proto-glyph.js";
 import { sendRefusal } from "./rf-errors.js";
+import { EMBER_VAR } from "./ir-header-chip-styles.js";
 import {
     RF_PRESETS_HZ,
     hzToMhz,
@@ -46,6 +47,10 @@ import type { HairApi } from "./api.js";
 import type { RfValidation } from "./types.js";
 
 const VALIDATE_DELAY_MS = 300;
+
+// mdi:content-copy, the infrared code window's corner copy icon (N17).
+const ICON_COPY =
+    "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
 const MAX_SEND_COUNT = 10;
 
 @customElement("ir-rf-editor")
@@ -75,7 +80,7 @@ export class IrRfEditor extends LitElement {
     @state() private _validating = false;
     @state() private _busy = false;
     @state() private _error: string | null = null;
-    @state() private _copied = false;
+    @state() private _copyHint: string | null = null;
 
     private _initialCode = "";
     private _timer: ReturnType<typeof setTimeout> | null = null;
@@ -195,17 +200,36 @@ export class IrRfEditor extends LitElement {
         return true;
     }
 
+    /** The corner copy icon, as the infrared code window has it (N17):
+     *  selects the code and copies the .sub, Frequency line and all.
+     *  Without a clipboard (an insecure origin) the selection stands and
+     *  the hint says to press copy. */
     private async _copy(): Promise<void> {
         const text = this._codeChanged && this._validation?.ok && this._validation.sub_text
             ? this._validation.sub_text
             : this._code;
-        try {
-            await navigator.clipboard.writeText(text);
-            this._copied = true;
-            setTimeout(() => (this._copied = false), 1500);
-        } catch {
-            // No clipboard (an insecure origin): the text is selectable.
+        const ta = this.shadowRoot?.querySelector("textarea");
+        if (ta) {
+            ta.focus();
+            ta.select();
         }
+        let copied = false;
+        try {
+            if (window.isSecureContext && navigator.clipboard) {
+                await navigator.clipboard.writeText(text);
+                copied = true;
+            }
+        } catch {
+            copied = false;
+        }
+        this._copyHint = copied ? t("editor.copied") : t("editor.press_copy");
+        setTimeout(() => (this._copyHint = null), 2000);
+    }
+
+    /** Delete, where Copy .sub was (N17): the host closes the editor and
+     *  opens the confirmation the row's own trash glyph opens. */
+    private _requestDelete(): void {
+        this.dispatchEvent(new CustomEvent("delete-requested"));
     }
 
     private async _save(): Promise<void> {
@@ -338,14 +362,29 @@ export class IrRfEditor extends LitElement {
 
             <div class="field">
                 <label for="rf-code">${t("rfedit.code")}</label>
-                <textarea
-                    id="rf-code"
-                    rows="6"
-                    spellcheck="false"
-                    placeholder=${t("rfedit.code_placeholder")}
-                    .value=${this._code}
-                    @input=${this._onCode}
-                ></textarea>
+                <div class="code-wrap">
+                    <textarea
+                        id="rf-code"
+                        rows="6"
+                        spellcheck="false"
+                        placeholder=${t("rfedit.code_placeholder")}
+                        .value=${this._code}
+                        @input=${this._onCode}
+                    ></textarea>
+                    ${this._code.trim()
+                        ? html`${this._copyHint
+                                  ? html`<span class="copy-flash">${this._copyHint}</span>`
+                                  : nothing}
+                              <button
+                                  class="copy-icon"
+                                  title=${t("editor.select_all")}
+                                  aria-label=${t("editor.select_all")}
+                                  @click=${() => void this._copy()}
+                              >
+                                  <ha-svg-icon .path=${ICON_COPY}></ha-svg-icon>
+                              </button>`
+                        : nothing}
+                </div>
                 ${this._renderFeedback()}
             </div>
 
@@ -383,13 +422,15 @@ export class IrRfEditor extends LitElement {
                 : nothing}
 
             <div class="dialog-actions">
-                <button
-                    class="action-btn cancel-btn"
-                    @click=${() => void this._copy()}
-                    ?disabled=${this._busy || !this._code.trim()}
-                >
-                    ${this._copied ? t("rfedit.copied") : t("rfedit.copy_sub")}
-                </button>
+                ${this._creating
+                    ? nothing
+                    : html`<button
+                          class="action-btn delete-btn"
+                          @click=${this._requestDelete}
+                          ?disabled=${this._busy}
+                      >
+                          ${t("common.delete")}
+                      </button>`}
                 <span class="actions-spacer"></span>
                 <button class="action-btn cancel-btn" @click=${this._close} ?disabled=${this._busy}>
                     ${t("common.cancel")}
@@ -430,6 +471,58 @@ export class IrRfEditor extends LitElement {
             textarea:focus {
                 outline: none;
                 border-color: var(--primary-color);
+            }
+            /* The infrared code window's corner copy icon and its hint
+               (ir-signal-editor), so the two editors read as one. */
+            .code-wrap {
+                position: relative;
+            }
+            .code-wrap textarea {
+                padding-top: 24px;
+            }
+            .copy-icon {
+                position: absolute;
+                top: 6px;
+                right: 8px;
+                z-index: 2;
+                display: inline-flex;
+                align-items: center;
+                padding: 2px;
+                border: none;
+                background: none;
+                color: var(--secondary-text-color);
+                cursor: pointer;
+                opacity: 0.55;
+                transition: opacity 150ms ease;
+            }
+            .copy-icon:hover {
+                opacity: 0.9;
+            }
+            .copy-icon ha-svg-icon {
+                --mdc-icon-size: 12px;
+            }
+            .copy-flash {
+                position: absolute;
+                top: 7px;
+                right: 34px;
+                z-index: 2;
+                font-size: 0.72rem;
+                white-space: nowrap;
+                color: var(--secondary-text-color);
+                background: var(--card-background-color);
+                border: 1px solid var(--divider-color);
+                border-radius: 4px;
+                padding: 1px 6px;
+                pointer-events: none;
+            }
+            /* Delete: outlined ember, as the other dialogs' Delete. */
+            .delete-btn {
+                background: none;
+                border-color: ${EMBER_VAR};
+                color: ${EMBER_VAR};
+            }
+            .delete-btn:hover:not(:disabled) {
+                background: color-mix(in srgb, ${EMBER_VAR} 14%, transparent);
             }
             .feedback {
                 font-size: 0.8rem;

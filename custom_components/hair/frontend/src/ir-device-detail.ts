@@ -1896,6 +1896,11 @@ export class IrDeviceDetail extends LitElement {
                                 .initialSendCount=${this._editCommand.send_count ?? 1}
                                 .hasTrigger=${this._commandHasTrigger(this._editCommand)}
                                 @command-edited=${this._onCommandEdited}
+                                @delete-requested=${() => {
+                                    const command = this._editCommand;
+                                    this._editCommand = null;
+                                    this._commandToDelete = command;
+                                }}
                                 @closed=${() => (this._editCommand = null)}
                             ></ir-rf-editor>`
                           : html`<ir-signal-editor
