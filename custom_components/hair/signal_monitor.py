@@ -1204,6 +1204,7 @@ class SignalMonitor:
             )
         )
         extra_window_s = max(0.0, float(plan.air_s)) + MIRROR_ECHO_MARGIN_S
+        expires = now + MIRROR_ECHO_TTL_S + extra_window_s
         expectation: dict[str, Any] = {
             "medium": MEDIUM_RF,
             "decoded_fp": None,
@@ -1211,10 +1212,13 @@ class SignalMonitor:
             "norm_fp": None,
             "row_key": n.sig_fp,
             "extra_window_s": extra_window_s,
-            "expires": now + MIRROR_ECHO_TTL_S + extra_window_s,
-            # No garble swallow for radio (plan 5.10).
+            "expires": expires,
+            # No garble swallow for radio (plan 5.10): ``sl`` is None, so
+            # the garble branch never runs. ``garble_expires`` is still
+            # set, equal to ``expires``, because the cleanup below (and
+            # any reader of the ticket) takes it as one of its windows.
             "sl": None,
-            "garble_expires": 0.0,
+            "garble_expires": expires,
             "burst": None,
             "burst_sl": None,
             "burst_sig_fp": None,
@@ -1235,8 +1239,17 @@ class SignalMonitor:
             if expectation in self._echo_expectations:
                 self._echo_expectations.remove(expectation)
 
+        # The same rule as the infrared ticket's cleanup in record_send:
+        # the later of the fixed time and the ticket's own windows, read
+        # from the ticket, so a burst widened by its air time keeps its
+        # window to the end.
         expectation["cancel"] = self._hass.loop.call_later(
-            max(MIRROR_ECHO_TTL_S, MIRROR_OWN_BEACON_WINDOW_S) + extra_window_s,
+            max(
+                MIRROR_ECHO_TTL_S,
+                MIRROR_OWN_BEACON_WINDOW_S,
+                expectation["expires"] - now,
+                expectation["garble_expires"] - now,
+            ),
             _expire,
         )
 

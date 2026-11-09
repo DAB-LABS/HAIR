@@ -995,6 +995,62 @@ class TestEchoGaps:
         mark.assert_awaited()
         assert store.get_all_devices() == []
 
+    def _ticket_on_a_clock(self, fake_hass, keyfob, monkeypatch, send_count):
+        """A radio ticket on a fake clock whose loop fires its timers."""
+        from custom_components.hair import signal_monitor as sm
+
+        from .test_echo_ticket_lifetime import _Clock, _Loop
+
+        clock = _Clock()
+        monkeypatch.setattr(sm, "monotonic", clock)
+        fake_hass.loop = _Loop(clock)
+        monitor, store = _monitor(fake_hass)
+        fake_hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close())
+        row = _radio_command(keyfob.frame, send_count=send_count)
+        plan = _plan(row, ATHOM_TX)
+        monitor.record_send_rf(row, plan, "Plug / Button 1 on")
+        ticket = monitor._echo_expectations[-1]
+        monitor._arm_expectation(ticket, clock.t)
+        return monitor, store, clock, fake_hass.loop, ticket, plan
+
+    @pytest.mark.asyncio
+    async def test_a_long_burst_keeps_its_ticket_to_the_end_of_its_window(
+        self, fake_hass, keyfob, captures, monkeypatch
+    ):
+        """Main's rule (GH #246): cleanup at the later of TTL and windows."""
+        from custom_components.hair.const import MIRROR_OWN_BEACON_WINDOW_S
+
+        monitor, store, clock, loop, ticket, _ = self._ticket_on_a_clock(
+            fake_hass, keyfob, monkeypatch, send_count=10
+        )
+        start = clock.t
+        assert ticket["garble_expires"] == ticket["expires"]
+        assert ticket["expires"] - start > MIRROR_OWN_BEACON_WINDOW_S
+        # Past the fixed cleanup time, inside the window: still there,
+        # and the echo is still HAIR's own send.
+        loop.advance(start + MIRROR_OWN_BEACON_WINDOW_S + 0.05)
+        assert ticket in monitor._echo_expectations
+        ticket["guard_until"] = 0.0
+        with patch.object(monitor, "_mirror_mark_heard", AsyncMock()) as mark:
+            await TestEcho()._hear(fake_hass, monitor, [_signed(captures[0]["pulses"])])
+        mark.assert_awaited()
+        assert store.get_all_devices() == []
+        # Never deleted before its window closes.
+        loop.advance(ticket["expires"] - 0.01)
+        assert ticket in monitor._echo_expectations
+
+    @pytest.mark.asyncio
+    async def test_the_ticket_is_gone_once_its_windows_close(
+        self, fake_hass, keyfob, monkeypatch
+    ):
+        monitor, _, _, loop, ticket, _ = self._ticket_on_a_clock(
+            fake_hass, keyfob, monkeypatch, send_count=10
+        )
+        # Gone as soon as both windows have closed, not the fixed time
+        # plus the air time again (the rule before GH #246's).
+        loop.advance(max(ticket["expires"], ticket["garble_expires"]) + 0.01)
+        assert ticket not in monitor._echo_expectations
+
     @pytest.mark.asyncio
     async def test_a_foreign_radio_send_heard_back_shows_its_carrier(
         self, fake_hass, radio, captures
