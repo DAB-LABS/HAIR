@@ -157,7 +157,7 @@ class TestTheRadioEditorRules:
     def test_every_source_and_refusal_has_a_sentence(self, run):
         locale = json.loads((SRC / "locales" / "en.json").read_text(encoding="utf-8"))
         assert run["t3"]["source"] == [
-            "rfedit.source_signal", "rfedit.source_receiver", "rfedit.source_receiver",
+            "rfedit.source_signal", "rfedit.source_receiver", "rfedit.source_window",
             "rfedit.source_user", "rfedit.source_assumed", None, None,
         ]
         refusals = run["t3"]["refusal"]

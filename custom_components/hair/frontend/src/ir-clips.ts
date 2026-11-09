@@ -1599,6 +1599,11 @@ export class IrClips extends LitElement {
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
                       .hasTrigger=${this._hasTrigger(this._editSignal.signal)}
                       @signal-edited=${this._onSignalEdited}
+                      @delete-requested=${() => {
+                          const { deviceId, signal } = this._editSignal!;
+                          this._editSignal = null;
+                          this._openDelete(deviceId, signal);
+                      }}
                       @closed=${() => (this._editSignal = null)}
                   ></ir-rf-editor>`
                 : this._editSignal
