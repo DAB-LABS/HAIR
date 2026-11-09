@@ -7,7 +7,8 @@ This page covers what HAIR hears, which receivers work, and what to expect from 
 ## What you need
 
 - **A Broadlink RM pro or RM4 pro** with [BroadSniff](https://github.com/DAB-LABS/broadsniff) 0.3.0 or later installed beside it, on Home Assistant 2026.11 or later. BroadSniff gives the Broadlink a radio receiver that is a capture device: it hears while a capture window is open.
-- **An ESPHome radio receiver**, such as the Athom RF IR Remote in [`esphome/`](../esphome/), on Home Assistant 2026.12 and the matching ESPHome release. It is an always-on receiver: it hears all the time.
+- **An ESPHome radio receiver**, such as the Athom RF IR Remote in [`esphome/`](../esphome/), on Home Assistant 2026.12; ESPHome 2026.5 or later has the receiver side. It is an always-on receiver: it hears all the time.
+- **To send, a radio transmitter:** a Broadlink RM pro or RM4 pro through Home Assistant's Broadlink integration, or an ESPHome radio transmitter such as the same Athom puck, on Home Assistant 2026.11 or later.
 
 On older Home Assistant releases, HAIR runs as before, with no radio. HAIR picks up a new receiver on its own; there is nothing to turn on.
 
@@ -52,6 +53,24 @@ Receiver noise is kept out in three ways:
 - a code needs two matching frames;
 - a frame with too few edges to be a remote's code is counted as noise;
 - an always-on receiver files new codes only inside a capture window.
+
+## Sending radio codes
+
+A radio row sends the way an infrared one does: assign it to a device and press its button, test it from the Sniffer or the Clipper, or call it from an automation. HAIR sends through the transmitters on the `radio_frequency` platform.
+
+- **Choosing a transmitter.** The emitter picker lists infrared emitters and radio transmitters in their own groups, and a device's radio codes go only to its radio transmitters. A transmitter that cannot send a code's band is shown but cannot be chosen for it, with the reason beside it. A transmitter that sends only at its own fixed carrier, such as 433.92 MHz for a code heard at 433.84 MHz, says so and sends there.
+- **A transmitter that declares no frequency** cannot be matched to a band, so the picker asks for one. On an ESPHome transmitter, set `frequency:` in its YAML.
+- **A refused Test** says so at the bottom of the panel, naming the transmitter and the band, and the row keeps its Test button.
+- **How many times a press is sent.** A remote repeats its code several times for each press, and a receiver often needs more than one of them. A new radio command starts from the number of repeats HAIR heard in one press, from 2 to 10, or 4 when the press was not measured. Send times in the code's editor changes it.
+- **The Mirror** shows each radio send with the band it went out on.
+
+A send is bounded: HAIR never holds the air for more than 3 seconds, and never repeats a send on its own. Transmit power and the band rules where you live are the hardware's and yours.
+
+## Pasting and sharing radio codes
+
+The Clipper and the code editor take a radio code in three shapes: a Flipper `.sub` saved as RAW, a list of signed timings, or a Broadlink radio code. HAIR reads a paste the way it reads a press, frame by frame, and says how many frames agree. A paste that carries its own frequency brings it; otherwise set the band in the editor. The editor's copy icon hands the code back out as a `.sub`.
+
+Radio codes travel in wigs too. A wig that holds one is written as `hair-wig/5`; [The wig format](wig-format.md#radio-signals-hair-wig5) has the details.
 
 ## What to expect
 

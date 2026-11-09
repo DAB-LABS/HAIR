@@ -54,7 +54,7 @@ Or find it by hand:
 
 - Home Assistant **2026.6** or later.
 - **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity` or, for radio remotes, a receiver on the `radio_frequency` platform (Home Assistant 2026.11 and later). ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; a Broadlink listens with [BroadSniff](https://github.com/DAB-LABS/broadsniff) installed beside it (see [The receiver row](#the-receiver-row)); any other adopter works automatically.
-- **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, SMLIGHT, or MQTT.
+- **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, SMLIGHT, or MQTT, or, for radio remotes, a transmitter on the `radio_frequency` platform, such as a Broadlink RM pro or RM4 pro or an ESPHome radio transmitter.
 
 These integrations have adopted the `infrared` platform:
 
@@ -66,7 +66,7 @@ These integrations have adopted the `infrared` platform:
 | [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Yes | Yes | No | TX 2026.5, native RX (Ultima) 2026.7 |
 | [MQTT](https://www.home-assistant.io/integrations/mqtt/) | Yes | Yes | No | 2026.8 |
 
-Home Assistant 2026.11 adds a `radio_frequency` platform for 433 MHz and other radio remotes, and HAIR hears every receiver on it. On 2026.11 that is a Broadlink RM pro or RM4 pro with BroadSniff 0.3.0. ESPHome radio receivers follow with Home Assistant 2026.12 and the matching ESPHome release. See [Radio remotes](docs/rf.md).
+Home Assistant 2026.11 adds a `radio_frequency` platform for 433 MHz and other radio remotes, and HAIR hears every receiver on it and sends through every transmitter on it. On 2026.11 the receiver is a Broadlink RM pro or RM4 pro with BroadSniff 0.3.0, and the transmitter a Broadlink RM pro or RM4 pro or an ESPHome radio transmitter. ESPHome radio receivers follow with Home Assistant 2026.12; ESPHome 2026.5 or later has the receiver side. See [Radio remotes](docs/rf.md).
 
 Pluck reads codes an integration has already stored in Home Assistant. For Broadlink that means codes learned with `remote.learn_command`: a blaster you have only ever transmitted through has nothing to pluck yet, and codes learned in the Broadlink phone app stay in Broadlink's cloud and never reach Home Assistant. This applies to every RM model Home Assistant supports, not only the newer ones.
 
@@ -111,7 +111,7 @@ The worked example is a Broadlink RM. Home Assistant's Broadlink integration onl
 
 ## Radio remotes
 
-From Home Assistant 2026.11, HAIR hears radio remotes too: keyfobs, ceiling fan remotes, plug handsets and doorbells, on 433 MHz and the other common bands. Radio codes appear in the Sniffer beside infrared ones, with a radio glyph and their band, and they assign, alias and trigger the same way. On 2026.11 the receiver is a Broadlink RM pro or RM4 pro with BroadSniff; ESPHome radio receivers follow with 2026.12. An always-on radio receiver files new codes only while its pill's capture window is open, so a neighbor's doorbell does not fill the Sniffer, and it hears codes HAIR already knows all the time. Rolling-code remotes such as car keys send a different code on every press, so HAIR cannot recognize their buttons. [Radio remotes](docs/rf.md) has the details.
+From Home Assistant 2026.11, HAIR hears radio remotes too: keyfobs, ceiling fan remotes, plug handsets and doorbells, on 433 MHz and the other common bands. Radio codes appear in the Sniffer beside infrared ones, with a radio glyph and their band, and they assign, alias and trigger the same way. On 2026.11 the receiver is a Broadlink RM pro or RM4 pro with BroadSniff. ESPHome radio receivers follow with Home Assistant 2026.12; ESPHome 2026.5 or later has the receiver side. An always-on radio receiver files new codes only while its pill's capture window is open, so a neighbor's doorbell does not fill the Sniffer, and it hears codes HAIR already knows all the time. Rolling-code remotes such as car keys send a different code on every press, so HAIR cannot recognize their buttons. HAIR sends radio codes too, through a Broadlink RM pro or RM4 pro or an ESPHome radio transmitter, from a device's buttons, the Sniffer's Test and automations, and a radio code pasted into the Clipper or carried in a wig works like one heard. [Radio remotes](docs/rf.md) has the details.
 
 ## Turn signals into a device
 

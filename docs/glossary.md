@@ -104,10 +104,11 @@ brand.
 ready and green means it is listening; a click starts or stops it. The chip
 drains over the window and glows each time a code is heard.
 
-**Mirror.** A log of every infrared command Home Assistant sends, whether
-anything heard it or not. Useful for working out whether a send actually went
-out and through which emitter. It is also a way to get codes into HAIR: press
-a button in a vendor app, and if a receiver hears it, the code lands here.
+**Mirror.** A log of every infrared and radio command Home Assistant sends,
+whether anything heard it or not. Useful for working out whether a send
+actually went out and through which emitter or transmitter. It is also a way
+to get codes into HAIR: press a button in a vendor app, and if a receiver
+hears it, the code lands here.
 
 **Candy Drawer.** The button at the top right of the Mirror. It opens a black
 window of its own (a dialog over the panel where a separate window cannot
@@ -276,6 +277,8 @@ travel with a wig.
 **Rolling code.** A remote that sends a different code on every press, as most car keys and modern garage doors do. HAIR hears each press but cannot recognize the button.
 
 **Capture window.** The time a receiver takes new codes. A capture device hears only inside one. An always-on radio receiver hears known codes all the time and takes new codes only inside one. Opened from the receiver's pill on the Sniffer, or by a Listen in the editor.
+
+**Transmitter.** An entity on the `radio_frequency` platform that can send: the radio word for what infrared calls an emitter. A transmitter declares the frequencies it can send, and HAIR sends a radio code only through one that can send its band.
 
 ## Air conditioners
 
