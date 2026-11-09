@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Proton remotes no longer read as GE-AC air conditioners on Home Assistant releases whose infrared library decodes GE-AC. The two formats are one frame layout on slightly different timing, and HAIR now tells them apart by it. Buttons and triggers saved from such a remote under GE-AC are read again on the first load after the upgrade.
 - A radio trigger can no longer be limited to an infrared receiver, where it never fired. The trigger dialog's receiver list offers only the trigger's own kind of receiver, shows IR or RF beside each one, and lists always-on radio receivers too. A trigger already saved with the wrong kind is fixed by opening it and pressing Save.
+- On an air conditioner's State Matrix card, the temperature tile that Send will use is shown as selected when the card opens, as the mode, fan and swing chips already were. It used to look unselected until a click, though Send always sent the right temperature. Reported, with the fix, by @mode0192 (GH #116).
 
 ## [1.1.1] - 2026-11-07 -- Flat Ironed
 
