@@ -224,6 +224,8 @@ A signal carries `pronto` or `rf`, never both. A radio signal writes `ditto_coun
 
 In the canonical signals form a radio signal carries `alias`, `ditto_count`, `bypass_protocol`, and `rf` as an object of exactly `band`, `frame`, and `modulation` (keys sorted, `band` as in the row digest below). The exact frequency and the gap are out, for the reasons given there.
 
+The band rule is in Row digests below. It is part of the format: two radio signals with the same band, modulation and frame are the same row.
+
 ## Canonical signals form
 
 A canonical form for the `signals` array, so every install computes identical hashes. As of 0.9.5 a flat wig's claims bind per-row digests instead (see Row digests below) and nothing in HAIR writes a wig-level signals hash any more, but the form stays specified: it is what tools built against the superseded majors computed, and dropping the definition would leave those files undecipherable.
@@ -274,7 +276,7 @@ A **radio row** (hair-wig/5) has its own layout:
 sha256("rf|" + band + "|" + modulation + "|" + frame + "|d0|b0")   truncated to 16 hex characters
 ```
 
-`band` is the carrier written in MHz with one decimal, after two steps. A carrier within 150 kHz of one of the bands radio remotes use (303.875, 310, 315, 318, 350, 390, 418, 433.42, 433.92, 868.35 and 915 MHz) is first moved to that band; any carrier is then rounded to the nearest 100 kHz, halves up (so `400050000` gives `400.1`). So `433920000` and `433840000` both give `433.9`, `433420000` gives `433.4`, and `315000000` gives `315.0`. `frame` is the frame's values as decimal integers joined by commas, with no spaces. The band is in and the exact frequency is out: correcting a carrier from an assumed 433.92 MHz to a measured 433.84 MHz keeps every claim on the row, while moving it from 315 MHz to 433.92 MHz does not. The frame gap is out, as `send_spacing_ms` is: it is how the code is delivered, not what it is.
+`band` is the carrier written in MHz with one decimal, after two steps. First, a carrier within 150 kHz (150000 Hz, inclusive) of one of the bands radio remotes use is moved to that band: 303.875, 310, 315, 318, 350, 390, 418, 433.42, 433.92, 868.35 or 915 MHz. No carrier is within 150 kHz of two of them; if the list ever grows, its entries must stay more than 300 kHz apart. Then the result is rounded half up to the nearest 100 kHz, in integer Hz `(hz + 50000) // 100000`, and written as tenths of a MHz. So `433920000` and `433840000` both give `433.9`, `433420000` gives `433.4`, `315000000` gives `315.0`, and `400050000` gives `400.1`. A reader must reproduce this exactly. HAIR's panel shows the band after the first step: `433840000` shows as 433.92 MHz. `frame` is the frame's values as decimal integers joined by commas, with no spaces. The band is in and the exact frequency is out: correcting a carrier from an assumed 433.92 MHz to a measured 433.84 MHz keeps every claim on the row, while moving it from 315 MHz to 433.92 MHz does not. The frame gap is out, as `send_spacing_ms` is: it is how the code is delivered, not what it is.
 
 ## Claims
 

@@ -2,7 +2,7 @@
 
 Commercial ESP32 device with both IR and 433 MHz RF hardware. Compact enclosure with built-in IR LED, IR receiver, RF transmitter, RF receiver, status LED, and button. Sold by [Athom](https://www.athom.tech/).
 
-HAIR hears the RF receiver from Home Assistant 2026.12 and the matching ESPHome release, which register it on the `radio_frequency` platform. On earlier releases HAIR uses the IR side only.
+HAIR sends through the RF transmitter from Home Assistant 2026.11, and hears the RF receiver from Home Assistant 2026.12, which registers it on the `radio_frequency` platform; ESPHome 2026.5 or later has the receiver side. On earlier releases HAIR uses the IR side only.
 
 ## Variants
 
