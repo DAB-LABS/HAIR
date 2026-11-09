@@ -43,6 +43,7 @@ import "./ir-listen-row.js";
 import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { protoGlyphStyles, protoLabel, renderProtoGlyph } from "./ir-proto-glyph.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
+import { browserStorage, loadMediaShow, saveMediaShow } from "./media-filter.js";
 import {
     SNIFFER_SHOW_DEFAULT,
     carrierParts,
@@ -185,8 +186,14 @@ export class IrSignalMonitor extends LitElement {
     @state() private _hasReceivers = true;
     /** The SHOW chips (RF hear round 1): every remote, infrared only,
      *  radio only, or the hidden ones. Hidden is the one way to see a
-     *  hidden remote; the bottom bar's button is gone. */
-    @state() private _show: SnifferShow = { ...SNIFFER_SHOW_DEFAULT };
+     *  hidden remote; the bottom bar's button is gone. IR and RF are
+     *  remembered in this browser like the homepage's glyphs; the hidden
+     *  eye is a peek and always starts off. */
+    @state() private _show: SnifferShow = {
+        ...SNIFFER_SHOW_DEFAULT,
+        ...loadMediaShow(browserStorage(), "sniffer"),
+        hidden: false,
+    };
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
     /** Rows blooming right now: ``dev:<remote id>`` for a collapsed
@@ -1461,7 +1468,10 @@ export class IrSignalMonitor extends LitElement {
      *  further events can re-light it. The glow runs out on its own. */
     private _toggleShow(kind: keyof SnifferShow): void {
         this._show = { ...this._show, [kind]: !this._show[kind] };
-        if (kind !== "hidden") return;
+        if (kind !== "hidden") {
+            saveMediaShow(browserStorage(), "sniffer", this._show);
+            return;
+        }
         // Item 10: a filter, never a reload. Turning hidden off drops
         // the hidden remotes where they are; turning it on fetches them
         // while the rows on screen stay until the new set lands.

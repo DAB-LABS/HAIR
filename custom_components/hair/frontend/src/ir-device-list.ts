@@ -56,11 +56,12 @@ import { PROTO_SIGNAL, PROTO_SOURCE, protoGlyphStyles, renderProtoGlyph } from "
 import { captureSignature } from "./ir-listen-state.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
 import {
+    browserStorage,
     loadMediaShow,
     mediaShows,
     mediaShowsEverything,
     saveMediaShow,
-    type MediaSection,
+    type HomeSection,
     type MediaShow,
 } from "./media-filter.js";
 import {
@@ -198,16 +199,6 @@ const FACTS_REFRESH_MS = 30_000;
  * ir-device-detail.ts. Re-measure before adding a longer label here.
  */
 const REMOTE_HDR_LABEL_W = 80;
-
-/** This browser's storage for the homepage filter glyphs, or nothing
- *  where a page has none (tests). */
-function browserStorage(): Storage | undefined {
-    try {
-        return typeof window !== "undefined" ? window.localStorage : undefined;
-    } catch {
-        return undefined;
-    }
-}
 
 @customElement("ir-device-list")
 export class IrDeviceList extends LitElement {
@@ -376,7 +367,7 @@ export class IrDeviceList extends LitElement {
     /** The IR and RF glyphs on the Devices and Remotes headers (item
      *  14), a pair per section: remembered in this browser, independent
      *  of each other and of the Sniffer's. */
-    @state() private _mediaShow: Record<MediaSection, MediaShow> = {
+    @state() private _mediaShow: Record<HomeSection, MediaShow> = {
         devices: loadMediaShow(browserStorage(), "devices"),
         remotes: loadMediaShow(browserStorage(), "remotes"),
     };
@@ -2086,7 +2077,7 @@ export class IrDeviceList extends LitElement {
      *  2026-11-06 19:06: the meta line cut long types off): one per
      *  medium its commands or triggers use, infrared first, grey at
      *  rest and in their colours when the card is hovered. */
-    private _toggleMedia(section: MediaSection, kind: keyof MediaShow): void {
+    private _toggleMedia(section: HomeSection, kind: keyof MediaShow): void {
         const show = { ...this._mediaShow[section], [kind]: !this._mediaShow[section][kind] };
         this._mediaShow = { ...this._mediaShow, [section]: show };
         saveMediaShow(browserStorage(), section, show);
@@ -2094,7 +2085,7 @@ export class IrDeviceList extends LitElement {
 
     /** The IR and RF filter glyphs at the right of a section header
      *  (item 14): the Sniffer's own glyphs and looks, without hidden. */
-    private _renderMediaGlyphs(section: MediaSection) {
+    private _renderMediaGlyphs(section: HomeSection) {
         const show = this._mediaShow[section];
         const glyphs: { kind: keyof MediaShow; label: string; medium: Medium }[] = [
             { kind: "ir", label: t("sniffer.filter.infrared"), medium: "ir" },

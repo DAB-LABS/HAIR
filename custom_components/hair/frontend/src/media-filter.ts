@@ -15,13 +15,27 @@ export interface MediaShow {
 export const MEDIA_SHOW_DEFAULT: MediaShow = { ir: true, rf: true };
 
 /** The homepage's two sections, each with its own pair of glyphs that
- *  filters the cards below it. */
-export type MediaSection = "devices" | "remotes";
+ *  filters the cards below it, and the Sniffer's remote list, whose IR
+ *  and RF glyphs are remembered the same way (its hidden eye is not). */
+export type HomeSection = "devices" | "remotes";
+export type MediaSection = HomeSection | "sniffer";
 
-/** The key a browser keeps one section's choice under. Separate from
- *  the Sniffer's glyphs, which are their own toggles. */
+/** The key a browser keeps one section's choice under. Each section is
+ *  its own pair of toggles. */
 export function mediaShowKey(section: MediaSection): string {
-    return `hair.homepage.media_show.${section}`;
+    return section === "sniffer"
+        ? "hair.sniffer.media_show"
+        : `hair.homepage.media_show.${section}`;
+}
+
+/** This browser's storage for the filter glyphs, or nothing where a
+ *  page has none (tests) or the browser refuses it. */
+export function browserStorage(): Storage | undefined {
+    try {
+        return typeof window !== "undefined" ? window.localStorage : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /** Whether a Device or Remote card shows: a lit glyph for any medium it

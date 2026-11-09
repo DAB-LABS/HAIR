@@ -12,6 +12,9 @@ look (``filter-glyph-styles.ts``).
 Item 15: the Sniffer's IR and RF glyphs filter the receiver pills too,
 except that a pill with its window open always shows.
 
+The Sniffer's IR and RF glyphs are remembered in this browser too
+(owner, 2026-11-08), under their own key; its hidden eye is not.
+
 The rules run under node with the repo's TypeScript (skipped without
 the toolchain); the source pins below run everywhere.
 """
@@ -61,6 +64,8 @@ const refusing = {
 };
 const mem = new MemoryStorage();
 saveMediaShow(mem, "devices", { ir: false, rf: true });
+const sniff = new MemoryStorage();
+saveMediaShow(sniff, "sniffer", { ir: true, rf: false, hidden: true });
 
 const row = (medium) => ({ medium, receiver_entity_id: "x" });
 const pair = (show, on) => [
@@ -71,6 +76,11 @@ const pair = (show, on) => [
 console.log(JSON.stringify({
     default: MEDIA_SHOW_DEFAULT,
     keys: [mediaShowKey("devices"), mediaShowKey("remotes")],
+    snifferKey: mediaShowKey("sniffer"),
+    snifferStored: sniff.getItem(mediaShowKey("sniffer")),
+    snifferLoaded: loadMediaShow(sniff, "sniffer"),
+    snifferLeavesHome: loadMediaShow(sniff, "devices"),
+    homeLeavesSniffer: loadMediaShow(mem, "sniffer"),
     both: shows(both), irOnly: shows(irOnly), rfOnly: shows(rfOnly), none: shows(none),
     everything: [mediaShowsEverything(both), mediaShowsEverything(irOnly)],
     stored: mem.getItem(mediaShowKey("devices")),
@@ -158,6 +168,28 @@ class TestRememberedInThisBrowser:
         ]
 
 
+class TestTheSnifferRemembers:
+    def test_its_own_key_and_only_ir_and_rf(self, run):
+        assert run["snifferKey"] == "hair.sniffer.media_show"
+        assert json.loads(run["snifferStored"]) == {"ir": True, "rf": False}
+        assert run["snifferLoaded"] == {"ir": True, "rf": False}
+
+    def test_separate_from_the_homepage(self, run):
+        assert run["snifferLeavesHome"] == {"ir": True, "rf": True}
+        assert run["homeLeavesSniffer"] == {"ir": True, "rf": True}
+
+    def test_the_panel_loads_and_saves_it_and_the_eye_starts_off(self):
+        flat = _flat("ir-signal-monitor.ts")
+        start = flat.split("@state() private _show: SnifferShow = {", 1)[1].split("};", 1)[0]
+        assert '...loadMediaShow(browserStorage(), "sniffer"),' in start
+        assert start.strip().endswith("hidden: false,")
+        toggle = flat.split("private _toggleShow(kind: keyof SnifferShow): void {", 1)[1]
+        toggle = toggle.split('if (this._show.hidden) {', 1)[0]
+        save = 'saveMediaShow(browserStorage(), "sniffer", this._show);'
+        assert f'if (kind !== "hidden") {{ {save} return; }}' in toggle
+        assert flat.count("saveMediaShow(") == 1
+
+
 class TestTheReceiverPills:
     def test_a_medium_off_takes_its_pills_off(self, run):
         assert run["pills"]["irOffClosed"] == [False, True]
@@ -187,7 +219,7 @@ class TestTheWiring:
         assert "saveMediaShow(" in flat and "loadMediaShow(" in flat
 
     def test_no_hidden_glyph_on_the_homepage(self):
-        head = "private _renderMediaGlyphs(section: MediaSection) {"
+        head = "private _renderMediaGlyphs(section: HomeSection) {"
         body = _flat("ir-device-list.ts").split(head, 1)[1]
         body = body.split("private _renderProtoGlyphs(", 1)[0]
         assert "hidden" not in body
