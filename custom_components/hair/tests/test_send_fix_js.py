@@ -11,6 +11,9 @@ clamped 2 to 10, 4 when the press was not measured.
 N15 (the Code box half): the radio editor's Code box follows the
 frequency buttons, so a .sub says the band the buttons say.
 
+N16: a radio command's row on its device shows its band, as the
+Sniffer row does.
+
 The rules run under node with the repo's TypeScript (skipped without the
 toolchain), with ``localize.js`` replaced by a stand-in that echoes the
 key and its values; the source pins run everywhere.
@@ -45,6 +48,7 @@ import {
     assignSendCount, seedSendCount,
 } from "./rf-send-count.js";
 import { toSub, withSubFrequency } from "./rf-code.js";
+import { radioBandOf } from "./sniffer-filter.js";
 
 const err = (code) => ({ code });
 const rf = (send_count, repeats) => ({
@@ -69,6 +73,14 @@ console.log(JSON.stringify({
         timings: withSubFrequency("350 -1050 1050 -350", 315000000),
         rounds: withSubFrequency("Frequency: 1\nFrequency: 2", 303874999.6),
     },
+    bands: [
+        radioBandOf({ medium: "rf", rf_frequency_hz: 433920000 }),
+        radioBandOf({ medium: "rf", rf_frequency_hz: 315000000 }),
+        radioBandOf({ medium: "rf", rf_frequency_hz: 400050000 }),
+        radioBandOf({ medium: "rf", rf_frequency_hz: null }),
+        radioBandOf({ medium: "ir", rf_frequency_hz: 433920000 }),
+        radioBandOf({}),
+    ],
     sentence: testRefusal(err("rf_frequency_unsupported"), "Athom RF", "433.92"),
     constants: [MAX_SEND_COUNT, RF_MIN_SEND_COUNT, RF_DEFAULT_SEND_COUNT],
     seed: [null, undefined, 0, 1, 2, 3, 8, 10, 11, 40, 7.6].map(seedSendCount),
@@ -94,6 +106,7 @@ def run(tmp_path_factory):
     subprocess.run(
         [
             str(TSC), "src/rf-errors.ts", "src/rf-send-count.ts", "src/rf-code.ts",
+            "src/sniffer-filter.ts",
             "--module", "esnext", "--target", "es2022",
             "--moduleResolution", "bundler", "--resolveJsonModule",
             "--skipLibCheck", "--outDir", str(out),
@@ -217,3 +230,16 @@ class TestTheCodeBoxFollowsTheBand:
         assert "this._initialCode = withSubFrequency(this._initialCode, hz);" in follows
         validate = "this._timer = setTimeout(() => void this._validate(), VALIDATE_DELAY_MS);"
         assert validate in follows
+
+
+class TestTheCommandRowSaysItsBand:
+    def test_the_band_as_the_sniffer_says_it(self, run):
+        assert run["bands"] == ["433.92", "315", "400.1", None, None, None]
+
+    def test_the_device_row_shows_it_beside_the_chip(self):
+        flat = _flat("ir-command-row.ts")
+        assert 'import { radioBandOf } from "./sniffer-filter.js";' in flat
+        band = 't("listen.band", { band: radioBandOf(this.command!)! })'
+        shown = flat.split("${learned && radioBandOf(this.command!)", 1)[1]
+        assert shown.split('<div class="chip-col">', 1)[0].count(band) == 1
+        assert '<span class="band"' in shown.split('<div class="chip-col">', 1)[0]
