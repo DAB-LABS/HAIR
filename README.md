@@ -53,7 +53,7 @@ Or find it by hand:
 ## Requirements
 
 - Home Assistant **2026.6** or later.
-- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; a Broadlink listens with [BroadSniff](https://github.com/DAB-LABS/broadsniff) installed beside it (see [Capture devices](#capture-devices)); any other adopter works automatically.
+- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity` or, for radio remotes, a receiver on the `radio_frequency` platform (Home Assistant 2026.11 and later). ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; a Broadlink listens with [BroadSniff](https://github.com/DAB-LABS/broadsniff) installed beside it (see [The receiver row](#the-receiver-row)); any other adopter works automatically.
 - **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, SMLIGHT, or MQTT.
 
 These integrations have adopted the `infrared` platform:
@@ -62,9 +62,11 @@ These integrations have adopted the `infrared` platform:
 |---|---|---|---|---|
 | [ESPHome](https://esphome.io/) | Yes | Yes | No | 2026.4 (TX), 2026.6 (native RX) |
 | [Tuya Local](https://github.com/make-all/tuya-local) | Yes | No | Yes | TX 2026.4, Pluck 2026.6.2 |
-| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | As a [capture device](#capture-devices) | Yes | 2026.5 |
+| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | As a [capture device](#the-receiver-row) | Yes | 2026.5 |
 | [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Yes | Yes | No | TX 2026.5, native RX (Ultima) 2026.7 |
 | [MQTT](https://www.home-assistant.io/integrations/mqtt/) | Yes | Yes | No | 2026.8 |
+
+Home Assistant 2026.11 adds a `radio_frequency` platform for 433 MHz and other radio remotes, and HAIR hears every receiver on it. On 2026.11 that is a Broadlink RM pro or RM4 pro with BroadSniff 0.3.0. ESPHome radio receivers follow with Home Assistant 2026.12 and the matching ESPHome release. See [Radio remotes](docs/rf.md).
 
 Pluck reads codes an integration has already stored in Home Assistant. For Broadlink that means codes learned with `remote.learn_command`: a blaster you have only ever transmitted through has nothing to pluck yet, and codes learned in the Broadlink phone app stay in Broadlink's cloud and never reach Home Assistant. This applies to every RM model Home Assistant supports, not only the newer ones.
 
@@ -95,15 +97,21 @@ To capture a remote:
 
 When you assign a signal, pick a name from the device-type template list (Power On, Volume Up, Mode: Cool) or type your own, and set a Send Times count if the device needs a command repeated to register; you can change this later in the editor. For an AC device, naming commands "Temp 22" or "Temp 24" wires them straight into the climate card's thermostat control, stepped to whatever temperatures you name. Assigning copies the signal into the device rather than removing it from the Sniffer, so you can assign the same signal to several devices or commands; an assigned row keeps flashing when you press its button, so you can tell the remote is still alive. Drag the grip handle on a remote, or on a signal row, to reorder them; the order sticks.
 
-A remote that leaks in from outside (a neighbor's clicker, for example) can be hidden with the eye at the bottom-right corner of its row and brought back later with **Show hidden**; a hidden remote wears a small "hidden" badge and the open eye restores it. A dot lights up on the Show hidden button if a hidden remote is still transmitting in the background. The X at the top-right corner of a row deletes the remote, and the trash can on a signal row deletes that one signal; both controls stay faint until you hover the row. Anything a receiver hears again comes right back after a delete, so hiding is the tool for keeping a remote out of the way for good. A remote already used to make a Device or Remote shows a count dot on **USE**; click it to jump to what you made, or use it again for a second room.
+A remote that leaks in from outside (a neighbor's clicker, for example) can be hidden with the eye at the bottom-right corner of its row. Bring it back by turning on the hidden glyph at the right of the receiver row. A hidden remote wears a small "hidden" badge, and the open eye restores it. The hidden glyph glows each time a hidden remote is heard. The X at the top-right corner of a row deletes the remote, and the trash can on a signal row deletes that one signal; both controls stay faint until you hover the row. Anything a receiver hears again comes right back after a delete, so hiding is the tool for keeping a remote out of the way for good. A remote already used to make a Device or Remote shows a count dot on **USE**; click it to jump to what you made, or use it again for a second room.
 
 ![Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts](images/screenshots/sniffer-signals.png)
 
-### Capture devices
+### The receiver row
 
-Some receivers hear codes only while a capture window is open, such as a hub in learn mode. Any integration can say its receiver works this way with a `capturing` attribute on the receiver entity, and HAIR then opens and closes the window for you; the contract for integration authors is in [Windowed receivers](docs/windowed-receivers.md). A capture device gets a **Listen** chip in the Sniffer: gold while the window is closed, green while it is open, draining until the window ends and glowing each time HAIR hears a code from it. Its card on the Devices tab shows the same chip as an **RX-CAPTURE** badge, split in two: the main part starts and stops a capture, and the caret opens a menu of the switch that opens the window. When the integration names the switch, that one is used; otherwise choose a switch on the device, or any switch or toggle helper. Until one is chosen the chip and the card's icon are grey, and a click on the chip opens the menu. The Listen in the code editor and in the Fix window names the receiver it uses beside the button, and on a capture device it opens the window for the listen and closes it after.
+The receiver row at the top of the Sniffer has one pill per receiver, infrared and radio. A pill's `IR` or `RF` badge names the medium. A solid badge means the receiver is taking new codes right now; a light one means it is not. A pill glows each time HAIR takes a code from its receiver. An always-on infrared receiver is always solid, with nothing to press.
 
-The worked example is a Broadlink RM. Home Assistant's Broadlink integration only sends, and [BroadSniff](https://github.com/DAB-LABS/broadsniff) gives the same RM a receiver that is a capture device. Install it from HACS and add it against your Broadlink, and HAIR picks the receiver up on its own, with nothing to configure. BroadSniff's window length and mode are on the Broadlink's device page in Home Assistant, one click from the glyph on the Sniffer's chip.
+Some receivers hear codes only while a capture window is open, such as a hub in learn mode. Any integration can say its receiver works this way with a `capturing` attribute on the receiver entity, and HAIR then opens and closes the window for you; the contract for integration authors is in [Windowed receivers](docs/windowed-receivers.md). Press the pill to open a window. It turns green and drains until the window ends. The pickers on the pill set the next window's length and type and, on a radio receiver, its carrier. The Listen in the code editor and in the Fix window opens the window for the listen and closes it after.
+
+The worked example is a Broadlink RM. Home Assistant's Broadlink integration only sends, and [BroadSniff](https://github.com/DAB-LABS/broadsniff) gives the same RM a receiver that is a capture device: infrared, and on an RM pro or RM4 pro, radio too. Install it from HACS and add it against your Broadlink, and HAIR picks the receivers up on its own, with nothing to configure.
+
+## Radio remotes
+
+From Home Assistant 2026.11, HAIR hears radio remotes too: keyfobs, ceiling fan remotes, plug handsets and doorbells, on 433 MHz and the other common bands. Radio codes appear in the Sniffer beside infrared ones, with a radio glyph and their band, and they assign, alias and trigger the same way. On 2026.11 the receiver is a Broadlink RM pro or RM4 pro with BroadSniff; ESPHome radio receivers follow with 2026.12. An always-on radio receiver files new codes only while its pill's capture window is open, so a neighbor's doorbell does not fill the Sniffer, and it hears codes HAIR already knows all the time. Rolling-code remotes such as car keys send a different code on every press, so HAIR cannot recognize their buttons. [Radio remotes](docs/rf.md) has the details.
 
 ## Turn signals into a device
 

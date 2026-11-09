@@ -265,6 +265,18 @@ named after the command. It works for learned commands and for states saved
 out of the STATE MATRIX card. Presets are local to the device and do not
 travel with a wig.
 
+## Radio
+
+**Medium.** Whether a code travels as infrared light or as radio. Every row, trigger and receiver has one, and the panel shows it as a glyph or an `IR` or `RF` badge.
+
+**Band.** The radio carrier a code is shown and identified by, such as 433.92 MHz. A carrier near a common band is moved to it, so one remote heard by two receivers is one band. [Radio remotes](rf.md#bands) has the rule.
+
+**Frame.** One repeat of a radio code. A press sends several, and HAIR files a code once two frames agree.
+
+**Rolling code.** A remote that sends a different code on every press, as most car keys and modern garage doors do. HAIR hears each press but cannot recognize the button.
+
+**Capture window.** The time a receiver takes new codes. A capture device hears only inside one. An always-on radio receiver hears known codes all the time and takes new codes only inside one. Opened from the receiver's pill on the Sniffer, or by a Listen in the editor.
+
 ## Air conditioners
 
 **State matrix.** An AC remote does not send buttons, it sends whole states:
