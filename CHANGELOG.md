@@ -11,11 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - HAIR recognizes Proton remotes, the format of NEC Display projectors and televisions and of Proton and Audiovox equipment, and sends their codes as captured.
 - The Closet builds irdb CSV rows in eight more protocols, Mitsubishi, RECS80, G.I. Cable, Dish Network, TiVo, Panasonic Old, Fujitsu and Proton, and reads rows named JVC{2} as JVC and RCA-38 as RCA at its 38.7 kHz carrier. About 93% of irdb's rows now import, up from about 84%.
+- HAIR hears radio remotes on Home Assistant 2026.11 and later: keyfobs, ceiling fan remotes, plug handsets and doorbells, from any receiver on the new `radio_frequency` platform. On 2026.11 that is a Broadlink RM pro or RM4 pro with BroadSniff 0.3.0; ESPHome radio receivers follow with Home Assistant 2026.12. Radio codes show in the Sniffer with their band, and alias, assign and trigger like infrared ones. An always-on radio receiver files new codes only inside a capture window opened from its pill. **[send half]** Sending radio codes comes in a later release. See [docs/rf.md](docs/rf.md).
+- The top of the Sniffer shows every receiver as a pill. A solid `IR` or `RF` badge means the receiver is taking new codes now, and a pill glows when HAIR takes a code from it. A capture device's window opens from its pill, which carries pickers for the next window's carrier, length and type when the integration names them.
+- The Sniffer filters infrared, radio and hidden remotes from three glyphs at the right of the receiver row.
 
 ### Changed
 
 - An air conditioner made from a climate wig now offers, in each mode, only the fan speeds, swing settings and temperatures that mode really has. A setting that never changes the code the unit is sent is not shown, so a dry mode stored with one code at every temperature shows no temperature, and a fan-only mode shows none either. The temperature range comes from the codes the wig still holds, so a thinned wig no longer offers temperatures it has dropped. After a mode change the card shows the fan and swing that actually went out, and goes back to the ones last chosen when the unit returns to a mode that has them. Requested by @marcos-mvs (GH #168).
 - A fan speed or swing setting that the current mode does not offer is now refused by Home Assistant, rather than sent as a different setting.
+- The Devices tab's hardware cards list one row per capability, with when each last sent or heard. Capture moved from the cards to the Sniffer.
 
 ### Fixed
 

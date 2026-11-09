@@ -5,7 +5,7 @@ codes only while a capture window is open: a hub that listens in a learn mode,
 or a blaster that has to be told to start listening. If your receiver is on
 Home Assistant's `infrared` or `radio_frequency` platform and says it works
 this way, HAIR treats it as a capture device. It opens and closes the window
-for the user, from the receiver's Listen pill on the Sniffer and whenever a
+for the user, from the receiver's pill at the top of the Sniffer and whenever a
 listen in HAIR needs one, and it hears the codes your receiver reports like
 any other receiver's.
 
@@ -21,7 +21,7 @@ Set these as extra state attributes on the receiver entity itself, the
 |---|---|---|---|
 | `capturing` | boolean | Yes | `true` while the window is open, `false` while it is closed. Its presence is what makes the receiver a capture device. |
 | `capture_switch` | entity ID | Recommended | The entity HAIR turns on to open the window and off to close it. |
-| `window_ends_at` | ISO 8601 timestamp | Optional | When the open window will close. HAIR's Listen pills drain toward it, and snap back to full when it moves. |
+| `window_ends_at` | ISO 8601 timestamp | Optional | When the open window will close. The receiver's pill drains toward it, and snap back to full when it moves. |
 | `capture_mode` | `single`, `sliding` or `multiple` | Optional | Only `single` changes what HAIR does (below). |
 | `capture_phase` | `sweeping`, `listening` or `null` | Optional | What an open window is doing (below). `sweeping`: the device is still searching for the carrier and hears no codes yet. `listening`: the device is hearing codes. `null` while the window is closed. Without it, an open window is taken to be listening. |
 | `frequency_hz` | integer | Optional | The carrier, in Hz, the open window is listening on. HAIR uses it as the frequency of a code heard in that window when the signal itself carries none. `null` while sweeping or closed. |
@@ -86,7 +86,7 @@ received signal's `frequency`; HAIR prefers that over `frequency_hz`.
 A device whose window has settings of its own, such as the carrier to listen
 on, how long to stay open, or the capture mode, can let the user set them from
 HAIR. Declare the entity behind each one, and HAIR puts a small picker for it
-on the receiver's Listen pill. Choosing writes the entity through Home
+on the receiver's pill. Choosing writes the entity through Home
 Assistant's own services (`select.select_option`, `number.set_value`), so the
 setting lives in your integration and applies however the window is opened.
 
@@ -120,26 +120,28 @@ only what the user can change: a receiver on a single fixed carrier needs no
 `frequency_select`. Each declaration follows the safety rule below, and one
 that fails it is ignored on its own, without costing the others.
 
+The pill's badge shows whether the receiver is taking new codes: solid while your window is open, light while it is closed. The pickers are inactive while a window is open, because a change applies to the next one. A receiver without `capturing` is not a capture device; if it is a radio receiver, HAIR keeps its own capture window for it, and none of this contract applies.
+
 ## Which entity HAIR toggles
 
 HAIR resolves the entity that opens the window in this order:
 
 1. **Your declaration**, the receiver's `capture_switch`, when it passes the
-   safety rule below. It cannot be overridden: the Listen pill offers no
+   safety rule below. It cannot be overridden: the receiver's pill offers no
    switch menu, and HAIR refuses to store a choice for the receiver. HAIR
    remembers the declaration while the receiver is unavailable, since Home
    Assistant drops the attribute then. Declare the switch whenever your device
    has more than one, such as an IR and an RF capture switch, so the user
    cannot pick the one that opens the wrong window.
 2. **The user's choice.** For a capture device that declares nothing, a caret
-   on its Listen pill opens a menu of the switches on its device, with the one
+   on its pill opens a menu of the switches on its device, with the one
    in use checked, then "Choose another..." for any switch or
    toggle helper. The choice is stored by the receiver's entity registry entry,
    so a rename keeps it. A choice stored before you declared is kept, and
    applies again if the declaration is removed.
 3. **The device's only switch.** When the receiver's device has exactly one
    enabled `switch` entity, HAIR uses it, already checked in the menu.
-4. **None.** The Listen pill stays grey and cannot be pressed until the user
+4. **None.** The receiver's pill stays grey and cannot be pressed until the user
    chooses from its menu. HAIR does not guess between several
    switches by name: a wrong guess would toggle something the user never
    chose, such as a power switch.
