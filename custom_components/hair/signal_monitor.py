@@ -4137,7 +4137,8 @@ class SignalMonitor:
                 )
             else:
                 clear_block_for_single_send(signal)
-            signal.last_seen = datetime.now(UTC).isoformat()
+            # An edit is not a press: last seen, and the remote's band
+            # that follows it, stay where the air left them.
 
             rewire: dict[str, list[str]] = {"rewired": [], "skipped": []}
             # Rewire on ANY identity component changing (v0.5.8): a
@@ -4299,7 +4300,8 @@ class SignalMonitor:
                 signal.alias = alias.strip()
             if send_count is not None:
                 signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
-            signal.last_seen = datetime.now(UTC).isoformat()
+            # An edit is not a press: last seen, and the remote's band
+            # that follows it, stay where the air left them.
             await self._signal_store.async_save()
 
         return {"success": True, "signal": signal.to_dict(), "triggers": rewire}
