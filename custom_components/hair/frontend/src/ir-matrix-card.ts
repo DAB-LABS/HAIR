@@ -413,10 +413,13 @@ export class IrMatrixCard extends LitElement {
      * Punch list item 16. Hear mode draws a branch before anyone has
      * clicked -- something has to be on screen -- but that branch is a
      * default, not a selection, and the handoff is explicit that
-     * nothing fills blue until a real click. The temperature tiles
-     * already knew this (they gate on ``_browsed``); the Mode / Fan /
-     * Swing chips did not, so a never-touched card came up reading as
-     * though the user had picked its first mode.
+     * nothing fills blue until a real click. The Mode / Fan / Swing
+     * chips did not know this, so a never-touched card came up reading
+     * as though the user had picked its first mode. The temperature
+     * tiles gated on ``_browsed`` instead, which was right for Hear
+     * mode and wrong for Send mode, where the seeded tile is the one
+     * Send sends and is drawn selected like the chips (GH #116). All
+     * of them read this one rule now.
      *
      * Send mode is UNCHANGED: the device card has always drawn its
      * seeded branch filled, its Set-state line is armed from the first
@@ -694,7 +697,7 @@ export class IrMatrixCard extends LitElement {
             const isCurrent =
                 currentName !== null &&
                 this._cellName(bare) === currentName;
-            const isSel = this._selPower === null && this._browsed;
+            const isSel = this._selPower === null && this._fills;
             const rest = rings.tiles.includes(null);
             return html`<div class="mx-grid">
                 <button
@@ -750,7 +753,7 @@ export class IrMatrixCard extends LitElement {
                 return html`<button
                     class="mx-tile ${
                         this._selPower === null &&
-                        this._browsed &&
+                        this._fills &&
                         pos === this._selTemp
                             ? "sel"
                             : ""

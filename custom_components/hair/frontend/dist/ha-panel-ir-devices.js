@@ -5944,7 +5944,7 @@ function e(e,t,i,o){var n,a=arguments.length,r=a<3?t:null===o?o=Object.getOwnPro
                         </button>`})}
                 </span>
             </div>
-        `}_renderGrid(e){const t=this._selMode,i=this._branchCells(t,this._selFan,this._selSwing),o=new Map;for(const e of i)void 0!==e.t&&o.set(e.t,e);const n=[...o.keys()].sort((e,t)=>e-t),a=this._rings();if(0===n.length){const o=i.find(e=>void 0===e.t)??null;if(!o)return K;const n=null!==e&&this._cellName(o)===e,r=null===this._selPower&&this._browsed,s=a.tiles.includes(null);return V`<div class="mx-grid">
+        `}_renderGrid(e){const t=this._selMode,i=this._branchCells(t,this._selFan,this._selSwing),o=new Map;for(const e of i)void 0!==e.t&&o.set(e.t,e);const n=[...o.keys()].sort((e,t)=>e-t),a=this._rings();if(0===n.length){const o=i.find(e=>void 0===e.t)??null;if(!o)return K;const n=null!==e&&this._cellName(o)===e,r=null===this._selPower&&this._fills,s=a.tiles.includes(null);return V`<div class="mx-grid">
                 <button
                     class="mx-tile ${r?"sel":""} ${n?"cur":""} ${s?"rest":""} ${s&&this._bloom?"bloom":""}"
                     @click=${()=>this._select(t,this._selFan,this._selSwing,null)}
@@ -5959,7 +5959,7 @@ function e(e,t,i,o){var n,a=arguments.length,r=a<3?t:null===o?o=Object.getOwnPro
                     >
                         ${this._displayTemp(i)}
                     </button>`;const r=null!==e&&this._cellName(n)===e,s=a.tiles.includes(i);return V`<button
-                    class="mx-tile ${null===this._selPower&&this._browsed&&i===this._selTemp?"sel":""} ${r?"cur":""} ${s?"rest":""} ${s&&this._bloom?"bloom":""}"
+                    class="mx-tile ${null===this._selPower&&this._fills&&i===this._selTemp?"sel":""} ${r?"cur":""} ${s?"rest":""} ${s&&this._bloom?"bloom":""}"
                     @click=${()=>this._select(t,this._selFan,this._selSwing,i)}
                 >
                     ${this._displayTemp(i)}
