@@ -8,6 +8,9 @@ F5: the Assign dialog treats a radio row's stored count of 1 as unset
 and prefills what one press carried (``rf_send.seed_send_count``),
 clamped 2 to 10, 4 when the press was not measured.
 
+N15 (the Code box half): the radio editor's Code box follows the
+frequency buttons, so a .sub says the band the buttons say.
+
 The rules run under node with the repo's TypeScript (skipped without the
 toolchain), with ``localize.js`` replaced by a stand-in that echoes the
 key and its values; the source pins run everywhere.
@@ -41,6 +44,7 @@ import {
     MAX_SEND_COUNT, RF_DEFAULT_SEND_COUNT, RF_MIN_SEND_COUNT,
     assignSendCount, seedSendCount,
 } from "./rf-send-count.js";
+import { toSub, withSubFrequency } from "./rf-code.js";
 
 const err = (code) => ({ code });
 const rf = (send_count, repeats) => ({
@@ -56,6 +60,15 @@ console.log(JSON.stringify({
         testRefusalKey(new Error("boom"), "Athom RF", "315"),
         testRefusalKey(null, "Athom RF", "315"),
     ],
+    sub: {
+        row: withSubFrequency(toSub([350, -1050, 1050, -350], 433920000, 9000), 315000000),
+        fresh: toSub([350, -1050, 1050, -350], 315000000, 9000),
+        indented: withSubFrequency(
+            "Filetype: Flipper SubGhz RAW File\n  Frequency: 433920000\n", 868350000,
+        ),
+        timings: withSubFrequency("350 -1050 1050 -350", 315000000),
+        rounds: withSubFrequency("Frequency: 1\nFrequency: 2", 303874999.6),
+    },
     sentence: testRefusal(err("rf_frequency_unsupported"), "Athom RF", "433.92"),
     constants: [MAX_SEND_COUNT, RF_MIN_SEND_COUNT, RF_DEFAULT_SEND_COUNT],
     seed: [null, undefined, 0, 1, 2, 3, 8, 10, 11, 40, 7.6].map(seedSendCount),
@@ -80,7 +93,7 @@ def run(tmp_path_factory):
     out = tmp_path_factory.mktemp("sendfixjs")
     subprocess.run(
         [
-            str(TSC), "src/rf-errors.ts", "src/rf-send-count.ts",
+            str(TSC), "src/rf-errors.ts", "src/rf-send-count.ts", "src/rf-code.ts",
             "--module", "esnext", "--target", "es2022",
             "--moduleResolution", "bundler", "--resolveJsonModule",
             "--skipLibCheck", "--outDir", str(out),
@@ -178,3 +191,29 @@ class TestTheAssignCount:
         assert "this.signal?.send_count ?? 1" not in flat
         assert ".value=${String(this._sendCount)}" in flat
         assert re.search(r"send_count: this\._sendCount,", flat)
+
+
+class TestTheCodeBoxFollowsTheBand:
+    def test_a_sub_takes_the_band_picked(self, run):
+        assert run["sub"]["row"] == run["sub"]["fresh"]
+        assert "Frequency: 315000000\n" in run["sub"]["row"]
+
+    def test_only_the_first_frequency_line_and_nothing_else(self, run):
+        assert run["sub"]["indented"].endswith("  Frequency: 868350000\n")
+        assert run["sub"]["timings"] == "350 -1050 1050 -350"
+        assert run["sub"]["rounds"] == "Frequency: 303875000\nFrequency: 2"
+
+    def test_both_buttons_and_the_typed_band_move_the_code(self):
+        flat = _flat("ir-rf-editor.ts")
+        pick = flat.split("private _pick(hz: number): void {", 1)[1].split("}", 1)[0]
+        assert "this._codeFollows(hz);" in pick
+        typed = flat.split("private _onTyped(e: Event): void {", 1)[1]
+        typed = typed.split("private _codeFollows(", 1)[0]
+        assert "this._codeFollows(hz);" in typed
+        follows = flat.split("private _codeFollows(hz: number): void {", 1)[1]
+        follows = follows.split("private get _typedInvalid()", 1)[0]
+        # The row's own .sub stays unchanged, so Save sends the frequency
+        # alone; a pasted .sub is read again.
+        assert "this._initialCode = withSubFrequency(this._initialCode, hz);" in follows
+        validate = "this._timer = setTimeout(() => void this._validate(), VALIDATE_DELAY_MS);"
+        assert validate in follows

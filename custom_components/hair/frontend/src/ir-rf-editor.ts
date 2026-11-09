@@ -40,6 +40,7 @@ import {
     presetOf,
     sourceKey,
     toSub,
+    withSubFrequency,
 } from "./rf-code.js";
 import type { HairApi } from "./api.js";
 import type { RfValidation } from "./types.js";
@@ -150,6 +151,7 @@ export class IrRfEditor extends LitElement {
         this._frequencySource = "user";
         this._frequencyChanged = true;
         this._typed = "";
+        this._codeFollows(hz);
     }
 
     private _onTyped(e: Event): void {
@@ -159,7 +161,27 @@ export class IrRfEditor extends LitElement {
             this._frequencyHz = hz;
             this._frequencySource = "user";
             this._frequencyChanged = true;
+            this._codeFollows(hz);
         }
+    }
+
+    /** The Code box follows the frequency buttons (N15): a .sub's
+     *  Frequency line becomes the band picked here. The row's own .sub
+     *  stays "unchanged", so Save sends only the frequency; a pasted
+     *  .sub is read again so the paste and the band agree. */
+    private _codeFollows(hz: number): void {
+        const code = withSubFrequency(this._code, hz);
+        if (code === this._code) return;
+        const pasted = this._codeChanged;
+        this._code = code;
+        if (!pasted) {
+            this._initialCode = withSubFrequency(this._initialCode, hz);
+            return;
+        }
+        this._validation = null;
+        this._validating = true;
+        if (this._timer !== null) clearTimeout(this._timer);
+        this._timer = setTimeout(() => void this._validate(), VALIDATE_DELAY_MS);
     }
 
     private get _typedInvalid(): boolean {

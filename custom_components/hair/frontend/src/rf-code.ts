@@ -38,6 +38,13 @@ export function toSub(frame: number[], frequencyHz: number | null, gapUs: number
     return lines.join("\n") + "\n";
 }
 
+/** A .sub's text with its Frequency line set to ``frequencyHz``, so the
+ *  Code box says the band the buttons say (N15). Text with no Frequency
+ *  line (timings, a Broadlink code) comes back unchanged. */
+export function withSubFrequency(text: string, frequencyHz: number): string {
+    return text.replace(/^([ \t]*Frequency:[ \t]*)\d+/m, `$1${Math.round(frequencyHz)}`);
+}
+
 /** "433.92" or "433.92 MHz" to Hz, or null when it is not a frequency
  *  the doors take. */
 export function mhzToHz(text: string): number | null {
