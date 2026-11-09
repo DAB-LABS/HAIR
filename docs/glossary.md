@@ -219,6 +219,28 @@ the raw capture exactly as heard. Try the other one if a device is fussy.
 **LISTEN.** The button in the signal editor that captures a code fresh off the
 handset in place of the one you are looking at.
 
+## Radio
+
+**Medium.** Whether a code travels as infrared light or as radio. Every row,
+trigger and receiver has one, and the panel shows it as a glyph or an `IR` or
+`RF` badge.
+
+**Band.** The radio carrier a code is shown and identified by, such as 433.92
+MHz. A carrier near a common band is moved to it, so one remote heard by two
+receivers is one band. [Radio remotes](rf.md#bands) has the rule.
+
+**Frame.** One repeat of a radio code. A press sends several, and HAIR files a
+code once two frames agree.
+
+**Rolling code.** A remote that sends a different code on every press, as most
+car keys and modern garage doors do. HAIR hears each press but cannot
+recognize the button.
+
+**Capture window.** The time a receiver takes new codes. A capture device
+hears only inside one. An always-on radio receiver hears known codes all the
+time and takes new codes only inside one. Opened from the receiver's pill on
+the Sniffer, or by a Listen in the editor.
+
 ## Sending
 
 **Action mapping.** Explicitly telling HAIR which command drives which entity
