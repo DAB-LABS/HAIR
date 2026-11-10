@@ -199,6 +199,7 @@
     "assign.mode_existing": "Dispositivo esistente",
     "assign.mode_new": "Nuovo dispositivo",
     "assign.send_times": "Numero di invii",
+    "assign.transmitter_required": "Seleziona almeno un trasmettitore radio.",
     "assign.send_times_hint": "Trasmette questo comando questo numero di volte per pressione, per i dispositivi che richiedono una ripetizione. Predefinito 1.",
     "assign.ditto_count": "Numero di ditto",
     "assign.ditto_title": "Aggiunge frame di ripetizione dopo il frame principale; alcuni ricevitori rigorosi ne richiedono almeno uno per registrare il comando.",

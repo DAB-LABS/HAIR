@@ -199,6 +199,7 @@
     "assign.mode_existing": "现有设备",
     "assign.mode_new": "新建设备",
     "assign.send_times": "发送次数",
+    "assign.transmitter_required": "至少选择一个无线电发射器。",
     "assign.send_times_hint": "每次按下时将此命令发送这么多次，适用于需要重复的设备。默认 1。",
     "assign.ditto_count": "重复帧数量",
     "assign.ditto_title": "在主帧之后追加重复帧；一些严格的接收器至少需要一个重复帧才能识别命令。",

@@ -199,6 +199,7 @@
     "assign.mode_existing": "Existing Device",
     "assign.mode_new": "New Device",
     "assign.send_times": "Send times",
+    "assign.transmitter_required": "Select at least one radio transmitter.",
     "assign.send_times_hint": "Transmit this command this many times per press, for devices that need a repeat. Default 1.",
     "assign.ditto_count": "Ditto count",
     "assign.ditto_title": "Append repeat frames after the main frame; some strict receivers need at least one to register the command.",

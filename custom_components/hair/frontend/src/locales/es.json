@@ -199,6 +199,7 @@
     "assign.mode_existing": "Dispositivo existente",
     "assign.mode_new": "Dispositivo nuevo",
     "assign.send_times": "Número de envíos",
+    "assign.transmitter_required": "Selecciona al menos un emisor de radio.",
     "assign.send_times_hint": "Envía este comando el número de veces indicado con cada pulsación. El valor predeterminado es 1.",
     "assign.ditto_count": "Número de repeticiones NEC",
     "assign.ditto_title": "Añade tramas de repetición después de la trama principal. Algunos receptores necesitan al menos una para reconocer el comando.",

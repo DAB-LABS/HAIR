@@ -225,6 +225,7 @@
     "assign.mode_existing": "Istniejące urządzenie",
     "assign.mode_new": "Nowe urządzenie",
     "assign.send_times": "Liczba wysyłek",
+    "assign.transmitter_required": "Wybierz co najmniej jeden nadajnik radiowy.",
     "assign.send_times_hint": "Wysyła to polecenie tyle razy na naciśnięcie, dla urządzeń wymagających powtórzenia. Domyślnie 1.",
     "assign.ditto_count": "Liczba ditto",
     "assign.ditto_title": "Dołącza ramki powtórzeń po ramce głównej; niektóre rygorystyczne odbiorniki wymagają co najmniej jednej, aby zarejestrować polecenie.",

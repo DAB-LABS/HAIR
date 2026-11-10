@@ -199,6 +199,7 @@
     "assign.mode_existing": "既存のデバイス",
     "assign.mode_new": "新しいデバイス",
     "assign.send_times": "送信回数",
+    "assign.transmitter_required": "無線送信機を1つ以上選択してください。",
     "assign.send_times_hint": "リピートが必要なデバイス向けに、1回の押下でこのコマンドをこの回数送信します。デフォルトは1。",
     "assign.ditto_count": "ディットー数",
     "assign.ditto_title": "メインフレームの後にリピートフレームを追加します。厳格なレシーバーでは、コマンドを認識させるのに1つ以上必要な場合があります。",

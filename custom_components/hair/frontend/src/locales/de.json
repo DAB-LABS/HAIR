@@ -199,6 +199,7 @@
     "assign.mode_existing": "Vorhandenes Gerät",
     "assign.mode_new": "Neues Gerät",
     "assign.send_times": "Sendeanzahl",
+    "assign.transmitter_required": "Wähle mindestens einen Funksender.",
     "assign.send_times_hint": "Sendet diesen Befehl pro Tastendruck so oft, für Geräte, die eine Wiederholung brauchen. Standard 1.",
     "assign.ditto_count": "Ditto-Anzahl",
     "assign.ditto_title": "Hängt Wiederholungsrahmen an den Hauptrahmen an; manche strengen Empfänger verlangen mindestens einen, um den Befehl zu registrieren.",
