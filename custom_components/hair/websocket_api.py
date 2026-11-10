@@ -1394,16 +1394,15 @@ async def ws_get_receivers(
     except (ImportError, AttributeError):
         pass  # Pre-2026.6: no native receiver API.
 
-    # The radio receivers HAIR hears (RF hear, round 1): the capture
-    # devices, which are the only radio receivers it subscribes to.
-    from .receiver_window import says_capture
+    # The radio receivers HAIR hears: every one, capture device or
+    # always-on, since HAIR subscribes to all of them (ece6f74). A radio
+    # trigger's picker lists only these (N18), so an always-on receiver
+    # such as the Athom's has to be here.
     from .rf_receive import rf_receiver_ids
 
     for entity_id in rf_receiver_ids(hass):
         state = hass.states.get(entity_id)
-        if not says_capture(state):
-            continue
-        name = state.attributes.get("friendly_name", entity_id)
+        name = entity_id if state is None else state.attributes.get("friendly_name", entity_id)
         entry = er.async_get(hass).async_get(entity_id)
         if entry is not None and entry.device_id is not None:
             device = dr.async_get(hass).async_get(entry.device_id)
@@ -3923,6 +3922,27 @@ async def ws_get_triggers(
     connection.send_result(msg["id"], [t.to_dict() for t in triggers])
 
 
+
+RECEIVER_WRONG_MEDIUM = "receiver_wrong_medium"
+
+
+def _receiver_medium_error(trigger_medium: str, entity_ids: list[str]) -> str | None:
+    """Why a trigger's receiver scope cannot stand, or None when it can.
+
+    N18: a radio trigger scoped to an infrared receiver never fires,
+    because its code arrives on a radio receiver, and the other way
+    round. A receiver whose domain names no medium is left alone.
+    """
+    wrong = [
+        entity_id
+        for entity_id in entity_ids
+        if emitter_medium(entity_id) not in (None, trigger_medium)
+    ]
+    if not wrong:
+        return None
+    hears = "a radio" if trigger_medium == MEDIUM_RF else "an infrared"
+    return f"{', '.join(wrong)} cannot hear {hears} trigger"
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/trigger/create",
@@ -4046,6 +4066,10 @@ async def ws_create_trigger(
         trigger_remote_id=msg.get("trigger_remote_id"),
         origin=msg.get("origin"),
     )
+    problem = _receiver_medium_error(trigger.medium, trigger.receiver_entity_ids)
+    if problem is not None:
+        connection.send_error(msg["id"], RECEIVER_WRONG_MEDIUM, problem)
+        return
     if trigger.decoded_fingerprint is None and trigger.code:
         # Safe server-side derive (see the comment at the top of the
         # handler); same computation as the load-time trigger backfill.
@@ -4107,6 +4131,15 @@ async def ws_update_trigger(
     if trigger is None:
         connection.send_error(msg["id"], "not_found", "Trigger not found")
         return
+    if "receiver_entity_ids" in msg:
+        # Checked before anything changes, so a refused update leaves
+        # the whole trigger as it was.
+        problem = _receiver_medium_error(
+            trigger.medium, list(msg["receiver_entity_ids"] or [])
+        )
+        if problem is not None:
+            connection.send_error(msg["id"], RECEIVER_WRONG_MEDIUM, problem)
+            return
 
     from datetime import UTC, datetime
 

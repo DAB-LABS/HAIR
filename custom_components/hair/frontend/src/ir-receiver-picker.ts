@@ -50,7 +50,8 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
-import type { ReceiverInfo } from "./types.js";
+import type { Medium, ReceiverInfo } from "./types.js";
+import { receiverMedium, receiversOf } from "./receiver-medium.js";
 import {
     healthChipClass,
     healthDotClass,
@@ -73,6 +74,11 @@ export class IrReceiverPicker extends LitElement {
 
     /** Disable all interactions. */
     @property({ type: Boolean }) public disabled = false;
+
+    /** List only this medium's receivers (a trigger's own medium, N18);
+     *  null lists every receiver. Each chip names its medium either
+     *  way, because an Athom's two receivers share one device name. */
+    @property({ attribute: false }) public medium: Medium | null = null;
 
     @state() private _receivers: ReceiverInfo[] = [];
     private _receiversLoaded = false;
@@ -122,17 +128,23 @@ export class IrReceiverPicker extends LitElement {
         return html`
             <label>${t("picker.receivers_label")}</label>
             <div class="chips">
-                ${this._receivers.length === 0
+                ${this._listed().length === 0
                     ? html`<span class="no-receivers"
                           >${t("picker.no_receivers")}</span
                       >`
-                    : this._receivers.map((r) => this._renderChip(r))}
+                    : this._listed().map((r) => this._renderChip(r))}
             </div>
         `;
     }
 
+    /** The receivers this picker offers. */
+    private _listed(): ReceiverInfo[] {
+        return receiversOf(this._receivers, this.medium);
+    }
+
     private _renderChip(r: ReceiverInfo) {
         const on = this.value.includes(r.entity_id);
+        const medium = t(receiverMedium(r) === "rf" ? "proto.rf" : "proto.ir");
         // No hass, no health: a plain dot, never a false "offline".
         const health = this.hass !== undefined;
         const online = health && isEntityOnline(this.hass.states, r.entity_id);
@@ -145,13 +157,14 @@ export class IrReceiverPicker extends LitElement {
                 class="rx ${cls}"
                 role="switch"
                 aria-checked=${on ? "true" : "false"}
-                aria-label="${r.name}, ${word}"
+                aria-label="${r.name} ${medium}, ${word}"
                 ?disabled=${this.disabled}
-                title="${r.name}, ${word} · ${r.entity_id}"
+                title="${r.name} ${medium}, ${word} · ${r.entity_id}"
                 @click=${() => this._toggle(r.entity_id)}
             >
                 <span class="dot ${health ? healthDotClass(online) : ""}"></span>
                 <span class="rx-name">${r.name}</span>
+                <span class="rx-medium">${medium}</span>
             </button>
         `;
     }
@@ -203,6 +216,13 @@ export class IrReceiverPicker extends LitElement {
         .rx:disabled {
             cursor: default;
             opacity: 0.55;
+        }
+        .rx-medium {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            opacity: 0.75;
+            flex: none;
         }
         .rx-name {
             white-space: nowrap;

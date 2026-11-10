@@ -31,6 +31,7 @@ import "./ir-receiver-picker.js";
 import "./ir-add-trigger-remote-dialog.js";
 import type { HairApi } from "./api.js";
 import type { IRTrigger, TriggerRemoteInfo } from "./types.js";
+import { keepMedium, triggerMedium } from "./receiver-medium.js";
 
 @customElement("ir-trigger-dialog")
 export class IrTriggerDialog extends LitElement {
@@ -99,7 +100,14 @@ export class IrTriggerDialog extends LitElement {
         if (this.trigger) {
             this._name = this.trigger.name;
             this._minHits = this.trigger.min_hits;
-            this._receiverIds = [...(this.trigger.receiver_entity_ids ?? [])];
+            // N18: a stored receiver of the other medium never hears
+            // this trigger and the picker no longer lists it, so it is
+            // dropped here; Save writes the repaired scope, and nothing
+            // changes until then.
+            this._receiverIds = keepMedium(
+                this.trigger.receiver_entity_ids ?? [],
+                triggerMedium(this.trigger, null),
+            );
         } else if (this.remoteId) {
             // Create mode opened from a door that already knows its
             // remote (signpost 4, Track M). Set before the list loads:
@@ -445,6 +453,7 @@ export class IrTriggerDialog extends LitElement {
                                       .api=${this.api}
                                       .hass=${this.hass}
                                       .value=${this._receiverIds}
+                                      .medium=${triggerMedium(this.trigger, this.protocol)}
                                       ?disabled=${this._busy}
                                       @receivers-changed=${(e: CustomEvent) => {
                                           this._receiverIds = e.detail.value;
