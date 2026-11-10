@@ -199,6 +199,7 @@
     "assign.mode_existing": "Appareil existant",
     "assign.mode_new": "Nouvel appareil",
     "assign.send_times": "Nombre d'envois",
+    "assign.transmitter_required": "Sélectionnez au moins un émetteur radio.",
     "assign.send_times_hint": "Transmet cette commande autant de fois par appui, pour les appareils qui ont besoin d'une répétition. Par défaut 1.",
     "assign.ditto_count": "Nombre de dittos",
     "assign.ditto_title": "Ajoute des trames de répétition après la trame principale ; certains récepteurs stricts en exigent au moins une pour enregistrer la commande.",

@@ -12,6 +12,8 @@ import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tv } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { assignSendCount } from "./rf-send-count.js";
+import { newDeviceRefusalKey } from "./assign-new-device.js";
+import { carrierParts } from "./sniffer-filter.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-alias.js";
 import type { HairApi } from "./api.js";
@@ -224,13 +226,15 @@ export class IrAssignSignalDialog extends LitElement {
                         : undefined,
                 });
             } else {
-                if (!this._newName.trim()) {
-                    this._error = t("promote.device_name_required");
-                    this._busy = false;
-                    return;
-                }
-                if (this._newEmitterIds.length === 0) {
-                    this._error = t("promote.emitter_required");
+                // A radio row asks for a radio transmitter, an infrared
+                // row for an IR emitter (bench, 2026-11-10).
+                const refusal = newDeviceRefusalKey(
+                    this.signal?.medium,
+                    this._newName,
+                    this._newEmitterIds,
+                );
+                if (refusal) {
+                    this._error = t(refusal);
                     this._busy = false;
                     return;
                 }
@@ -302,9 +306,15 @@ export class IrAssignSignalDialog extends LitElement {
     }
 
     render() {
-        const freqKhz = this.signal.frequency
-            ? `${Math.round(this.signal.frequency / 1000)}kHz`
-            : "";
+        // A radio row shows its band ("433.92 MHz"), as its Sniffer row
+        // does; its stored ``frequency`` is an infrared default and
+        // read "38kHz" here (bench, 2026-11-10).
+        const parts = carrierParts(this.signal);
+        const freqKhz = !parts
+            ? ""
+            : "band" in parts
+              ? t("listen.band", { band: parts.band })
+              : `${parts.khz}kHz`;
 
         return html`
             <ha-dialog

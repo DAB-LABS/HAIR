@@ -199,6 +199,7 @@
     "assign.mode_existing": "Dispositivo existente",
     "assign.mode_new": "Novo dispositivo",
     "assign.send_times": "Número de envios",
+    "assign.transmitter_required": "Selecione pelo menos um transmissor de rádio.",
     "assign.send_times_hint": "Transmite este comando essa quantidade de vezes por toque, para dispositivos que precisam de repetição. Padrão 1.",
     "assign.ditto_count": "Número de dittos",
     "assign.ditto_title": "Anexa quadros de repetição após o quadro principal; alguns receptores rigorosos exigem pelo menos um para registrar o comando.",

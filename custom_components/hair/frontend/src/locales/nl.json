@@ -199,6 +199,7 @@
     "assign.mode_existing": "Bestaand apparaat",
     "assign.mode_new": "Nieuw apparaat",
     "assign.send_times": "Aantal verzendingen",
+    "assign.transmitter_required": "Selecteer minstens één radiozender.",
     "assign.send_times_hint": "Verzendt dit commando zo vaak per druk, voor apparaten die een herhaling nodig hebben. Standaard 1.",
     "assign.ditto_count": "Aantal ditto's",
     "assign.ditto_title": "Voegt herhalingsframes toe na het hoofdframe; sommige strenge ontvangers vereisen er minstens één om het commando te registreren.",
