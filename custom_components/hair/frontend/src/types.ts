@@ -1105,6 +1105,8 @@ export interface RfReceiverItem {
 export interface ReceiverInfo {
     entity_id: string;
     name: string;
+    /** What the receiver hears; hair/receivers always sends it. */
+    medium?: Medium;
 }
 
 /** Error codes the receiver doors send with a reason of their own, so

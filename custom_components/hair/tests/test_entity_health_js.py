@@ -535,7 +535,7 @@ class TestThePickers:
         assert "const online = health && isEntityOnline(this.hass.states, r.entity_id);" in text
         assert 'const cls = health ? healthChipClass(on, online) : on ? "on" : "";' in text
         assert '<span class="dot ${health ? healthDotClass(online) : ""}"></span>' in text
-        assert 'title="${r.name}, ${word} · ${r.entity_id}"' in text
+        assert 'title="${r.name} ${medium}, ${word} · ${r.entity_id}"' in text
         assert "`, healthDotStyles];" in text
 
     def test_no_hass_is_no_false_offline(self):
