@@ -1,8 +1,8 @@
-# The wig format (hair-wig/3, and /4 for extra lattices)
+# The wig format (hair-wig/3, /4 for extra lattices, /5 for radio codes)
 
 A wig is a portable IR code set: one JSON file describing one remote. HAIR reads wigs from `/config/hair/wigs/`, and any tool can emit them. This page is the format contract; if you build something that writes wigs, this is everything you need.
 
-The current version is `hair-wig/3`, and it is what nearly every file declares: HAIR emits it for every wig, plain button sets and climate matrices alike, and new files -- including anything submitted to the WigShop -- must declare it or better. `hair-wig/4` adds exactly one thing, the climate block's `extras` key, and a file says `4` only when it carries one; a wig without extras is still a v3 file that every install already reads. Both supersede `hair-wig/1` and `hair-wig/2`; the short history of those majors, and how existing old files are handled, lives in the collapsed section near the bottom.
+The current version is `hair-wig/3`, and it is what nearly every file declares: HAIR emits it for every wig, plain button sets and climate matrices alike, and new files -- including anything submitted to the WigShop -- must declare it or better. `hair-wig/4` adds exactly one thing, the climate block's `extras` key, and a file says `4` only when it carries one; a wig without extras is still a v3 file that every install already reads. `hair-wig/5` likewise adds one thing, radio signals, and a file says `5` only when it holds one (see Radio signals below). All three supersede `hair-wig/1` and `hair-wig/2`; the short history of those majors, and how existing old files are handled, lives in the collapsed section near the bottom.
 
 ## A complete example
 
