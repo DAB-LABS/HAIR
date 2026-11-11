@@ -46,4 +46,4 @@ Home Assistant 2026.6以降が必要。
 
 ---
 
-*英語版READMEからの翻訳、v1.1.1時点。このファイルはプログラミングアシスタントが下書きし、リリースごとに更新されます。ネイティブスピーカーによる引き継ぎを歓迎します。[Adding a language](CONTRIBUTING.md#adding-a-language)をご覧ください。*
+*英語版READMEからの翻訳、v1.2.0時点。このファイルはプログラミングアシスタントが下書きし、リリースごとに更新されます。ネイティブスピーカーによる引き継ぎを歓迎します。[Adding a language](CONTRIBUTING.md#adding-a-language)をご覧ください。*
