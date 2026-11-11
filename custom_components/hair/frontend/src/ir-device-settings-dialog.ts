@@ -740,16 +740,11 @@ export class IrDeviceSettingsDialog extends LitElement {
         );
         return html`
             <section class="settings-section section-power">
-                <h3 class="section-label">
-                    ${t("devsettings.power_section_label")}
-                </h3>
-
-                <p class="section-explainer">
-                    ${t("devsettings.power_intro")}
-                </p>
-
                 ${this.device.matrix
                     ? html`
+                          <h3 class="section-label">
+                              ${t("devsettings.power_button_label")}
+                          </h3>
                           <label class="check-row">
                               <input
                                   type="checkbox"
@@ -767,6 +762,14 @@ export class IrDeviceSettingsDialog extends LitElement {
                           </p>
                       `
                     : ""}
+
+                <h3 class="section-label">
+                    ${t("devsettings.power_section_label")}
+                </h3>
+
+                <p class="section-explainer">
+                    ${t("devsettings.power_intro")}
+                </p>
 
                 <div class="field">
                     <label id="source-label"
