@@ -248,7 +248,7 @@ class DeviceManager:
     def climate_state(self, device_id: str) -> dict | None:
         """The device's climate entity's current state, or None.
 
-        ``{"mode", "fan", "swing", "temp"}`` in the file's own
+        ``{"mode", "fan", "swing", "temp", "off"}`` in the file's own
         vocabulary and unit, ``mode`` None while the entity is OFF.
         None when no entity has registered (a disabled entity, or the
         moment between a receiver's subscription and the climate

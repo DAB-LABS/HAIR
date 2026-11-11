@@ -9062,7 +9062,7 @@ async def ws_device_matrix_send(
     resolved = await _matrix_for_request(hass, connection, msg)
     if resolved is None:
         return
-    data, _device, matrix = resolved
+    data, device, matrix = resolved
     from .wig_climate import (
         cell_display_name,
         exact_cell,
@@ -9072,6 +9072,7 @@ async def ws_device_matrix_send(
 
     manager: DeviceManager = data["device_manager"]
     power = msg.get("power")
+    power_first = False
     if power is not None:
         pronto = matrix.off if power == "off" else matrix.on
         if pronto is None:
@@ -9136,6 +9137,19 @@ async def ws_device_matrix_send(
         if extra is not None:
             cell_state["axis"] = extra.axis
             cell_state["lattice"] = extra.key
+        # A TOGGLE UNIT BELIEVED OFF GETS POWER FIRST (GH #183). Every
+        # cell carries the power bit clear, so a cell alone sets the
+        # settings and leaves the unit off; the card's Send means "go to
+        # this state", which the entity does the same way: the power
+        # code, the gap, then the cell. The power send flips the card
+        # on, so the cell that follows moves it as on any other unit.
+        # No entity answering (disabled, or not yet added) means no
+        # belief to act on, and the cell goes alone as before.
+        if device.power_toggles is True and (matrix.on or matrix.off):
+            current = manager.climate_state(device.id)
+            power_first = isinstance(current, dict) and (
+                current.get("off") is True
+            )
     # The echo hook behind the TEST button's SENT . HEARD reading
     # (Second Fitting v3 punch list item 14): a cell send rides the
     # exact same Mirror hook a stored command's TEST does via
@@ -9149,6 +9163,14 @@ async def ws_device_matrix_send(
         asyncio.get_running_loop().create_future()
     )
     try:
+        if power_first:
+            from .const import TOGGLE_POWER_ON_GAP_S
+
+            await manager.async_send_matrix_cell(
+                msg["device_id"], state_display_name("on"),
+                matrix.on or matrix.off, power="on",
+            )
+            await asyncio.sleep(TOGGLE_POWER_ON_GAP_S)
         await manager.async_send_matrix_cell(
             msg["device_id"], name, pronto, send_count,
             heard_future=heard_future,

@@ -25,6 +25,7 @@ with invented clock values. None of orthobots' bytes is used.
 """
 from __future__ import annotations
 
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -418,6 +419,148 @@ class TestPresetClimateFollowsAToggle:
         assert entity.hvac_mode == HVACMode.OFF
         entity._handle_device_sent(sent)
         assert entity.hvac_mode == HVACMode.COOL
+
+
+# ---------------------------------------------------------------------------
+# The State Matrix card's Send
+# ---------------------------------------------------------------------------
+
+
+async def _card(*, toggles: bool = True, on: HVACMode | None = None,
+                entity_answers: bool = True):
+    """The card's send door wired to a real entity that follows.
+
+    The manager's send lands the way the real one does: a DeviceSent
+    from the manager, which the entity follows, and an echo for the
+    TEST reading so nothing waits out the heard window.
+    """
+    from custom_components.hair.const import DOMAIN
+
+    entity, matrix, log = await _entity(toggles=toggles, on=on)
+    mgr = entity._manager
+
+    async def _send(device_id, name, pronto, send_count=1, *,
+                    heard_future=None, cell=None, power=None, **_kw):
+        log.append(("send", pronto, power, cell))
+        entity._handle_device_sent(DeviceSent(
+            device_id=device_id, command_name=name,
+            matrix_cell=dict(cell) if cell else None, power=power,
+        ))
+        if heard_future is not None and not heard_future.done():
+            heard_future.set_result("infrared.receiver")
+
+    mgr.async_send_matrix_cell = AsyncMock(side_effect=_send)
+    mgr.get_device = MagicMock(return_value=entity._device)
+    mgr.climate_state = MagicMock(
+        side_effect=lambda _id: (
+            entity._native_climate_state() if entity_answers else None
+        )
+    )
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"entry-1": {"device_manager": mgr}}}
+    hass.config.units.temperature_unit = "°C"
+    return entity, matrix, log, hass
+
+
+async def _press_send(hass, **coords):
+    from custom_components.hair.websocket_api import ws_device_matrix_send
+
+    conn = MagicMock()
+    await ws_device_matrix_send(hass, conn, {
+        "id": 1, "type": "hair/devices/matrix-send", "device_id": "dev-1",
+        **coords,
+    })
+    return conn
+
+
+class TestTheCardsSend:
+    """Owner ruling at the bench (2026-11-10): on a toggle unit HAIR
+    shows off, the card's Send goes to the cell's state, as the
+    entity's own turn-on does: Power, the gap, then the cell."""
+
+    CELL: ClassVar[dict] = {"mode": "dry", "fan": "low", "temp": 26}
+
+    @pytest.mark.asyncio
+    async def test_while_off_sends_power_then_the_cell_after_the_gap(
+        self, gap
+    ):
+        entity, matrix, log, hass = await _card()
+        gap["log"] = log
+        conn = await _press_send(hass, **self.CELL)
+
+        assert log == [
+            ("send", POWER, "on", None),
+            ("sleep", TOGGLE_POWER_ON_GAP_S),
+            ("send", _pronto(matrix, "dry", "low", 26.0), None,
+             {"mode": "dry", "fan": "low", "swing": None, "temp": 26}),
+        ]
+        # The power send flipped the card on, and the cell moved it.
+        assert entity.hvac_mode == HVACMode.DRY
+        assert (entity._fan_mode, entity._target_temperature) == ("low", 26)
+        # The TEST reading is the cell's, as before.
+        result = conn.send_result.call_args[0][1]
+        assert result["sent"] == "dry / fan: low / 26"
+        assert result["heard"] is True
+
+    @pytest.mark.asyncio
+    async def test_while_on_sends_the_cell_alone(self, gap):
+        entity, matrix, log, hass = await _card(on=HVACMode.COOL)
+        gap["log"] = log
+        await _press_send(hass, **self.CELL)
+
+        assert log == [
+            ("send", _pronto(matrix, "dry", "low", 26.0), None,
+             {"mode": "dry", "fan": "low", "swing": None, "temp": 26}),
+        ]
+        assert entity.hvac_mode == HVACMode.DRY
+
+    @pytest.mark.asyncio
+    async def test_a_discrete_on_code_is_the_one_sent(self, gap):
+        _, matrix, log, hass = await _card()
+        matrix.on = _daikin64("dry", "auto", 18, power=True, clock=17 * 60)
+        gap["log"] = log
+        await _press_send(hass, **self.CELL)
+
+        assert log[0] == ("send", matrix.on, "on", None)
+
+    @pytest.mark.asyncio
+    async def test_without_the_setting_the_cell_goes_alone(self, gap):
+        _, _, log, hass = await _card(toggles=False)
+        gap["log"] = log
+        await _press_send(hass, **self.CELL)
+
+        assert [entry[0] for entry in log] == ["send"]
+        assert log[0][2] is None
+
+    @pytest.mark.asyncio
+    async def test_with_no_entity_answering_the_cell_goes_alone(self, gap):
+        """A disabled entity holds no belief to act on."""
+        _, _, log, hass = await _card(entity_answers=False)
+        gap["log"] = log
+        await _press_send(hass, **self.CELL)
+
+        assert [entry[0] for entry in log] == ["send"]
+        assert log[0][2] is None
+
+    @pytest.mark.asyncio
+    async def test_the_cards_power_chip_is_unchanged(self, gap):
+        """The Power chip sends the power code alone, as it did; the
+        follow flips the card."""
+        entity, _, log, hass = await _card()
+        gap["log"] = log
+        await _press_send(hass, power="off")
+
+        assert log == [("send", POWER, "off", None)]
+        assert entity.hvac_mode != HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_a_cell_that_is_not_there_sends_nothing(self, gap):
+        _, _, log, hass = await _card()
+        gap["log"] = log
+        conn = await _press_send(hass, mode="dry", fan="low", temp=24)
+
+        assert log == []
+        assert conn.send_error.call_args[0][1] == "not_found"
 
 
 # ---------------------------------------------------------------------------
