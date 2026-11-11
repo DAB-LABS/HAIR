@@ -824,9 +824,11 @@ class TestTheClimateStateProvider:
 
         assert manager.climate_state("dev-1") == {
             "mode": "cold", "fan": "low", "swing": None, "temp": 72.0,
+            "off": False,
         }
         entity._hvac_mode = HVACMode.OFF
         assert manager.climate_state("dev-1")["mode"] is None
+        assert manager.climate_state("dev-1")["off"] is True
 
     @pytest.mark.asyncio
     async def test_a_flat_entity_answers_nothing(self):

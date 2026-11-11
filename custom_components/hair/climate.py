@@ -624,18 +624,18 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         HA state attribute is converted to the install's, and an exact
         match against the file's temperatures would silently miss on a
         mixed-unit install. None outside matrix mode. ``mode`` is None
-        while OFF, and for a mode the file does not map.
+        while OFF, and for a mode the file does not map; ``off`` says
+        which, for the card's Send on a toggle unit (GH #183).
         """
         if not self._matrix_mode:
             return None
+        off = self._hvac_mode == HVACMode.OFF
         return {
-            "mode": (
-                None if self._hvac_mode == HVACMode.OFF
-                else self._file_mode_for(self._hvac_mode)
-            ),
+            "mode": None if off else self._file_mode_for(self._hvac_mode),
             "fan": self._fan_mode,
             "swing": self._swing_mode,
             "temp": self._target_temperature,
+            "off": off,
         }
 
     def _apply_sent_matrix(self, sent: DeviceSent) -> None:
