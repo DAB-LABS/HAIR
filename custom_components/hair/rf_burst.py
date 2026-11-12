@@ -62,8 +62,9 @@ class _Burst:
 class BurstAssembler:
     """Collects one receiver's split-delivered frames into presses.
 
-    ``on_burst(analysis, signal)`` receives each burst that passed the
-    vote, with the last signal object that fed it; ``on_lone()`` is
+    ``on_burst(analysis, signal, frames)`` receives each burst that
+    passed the vote, with the last signal object that fed it and how
+    many frames the burst held; ``on_lone()`` is
     called for each burst that ended with too few frames (a lone frame).
     ``call_at(when, fn)`` schedules ``fn`` at the clock's ``when`` and
     returns a handle with ``cancel()``; ``now()`` reads that clock.
@@ -72,7 +73,7 @@ class BurstAssembler:
     def __init__(
         self,
         *,
-        on_burst: Callable[[RfCapture, Any], None],
+        on_burst: Callable[[RfCapture, Any, int], None],
         on_lone: Callable[[], None],
         call_at: Callable[[float, Callable[[], None]], Any],
         now: Callable[[], float],
@@ -132,7 +133,7 @@ class BurstAssembler:
         if analysis is None:
             self._on_lone()
         else:
-            self._on_burst(analysis, burst.signal)
+            self._on_burst(analysis, burst.signal, len(burst.frames))
 
     def _cancel(self) -> None:
         if self._timer is not None:

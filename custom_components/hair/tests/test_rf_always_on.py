@@ -243,7 +243,9 @@ class TestBurstAssembler:
     def _assembler(self, loop):
         bursts, failed = [], []
         assembler = BurstAssembler(
-            on_burst=lambda analysis, signal: bursts.append((analysis, signal)),
+            on_burst=lambda analysis, signal, _frames: bursts.append(
+                (analysis, signal)
+            ),
             on_lone=lambda: failed.append(loop.now),
             call_at=loop.call_at,
             now=loop.time,

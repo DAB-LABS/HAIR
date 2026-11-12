@@ -357,6 +357,14 @@ def _signed(edges: list[int]) -> list[int]:
     return [value if index % 2 == 0 else -abs(value) for index, value in enumerate(edges)]
 
 
+def piece_frame(piece: FramePiece) -> list[int]:
+    """One piece as signed timings, mark positive, its gap last when the
+    capture measured one: what a row holds for a single frame."""
+    if piece.gap is not None:
+        return [*_signed(list(piece.edges[:-1])), -int(piece.gap)]
+    return _signed(list(piece.edges))
+
+
 def analyze(timings: list[int] | None) -> RfCapture | None:
     """One capture to one canonical frame, or None when it says nothing.
 

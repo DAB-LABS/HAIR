@@ -112,16 +112,18 @@ def _send(monitor, timings: list[int], label: str = "TV / Power", **kwargs):
     return n
 
 
+# Every event says its medium and its verdict (radio in the drawer).
+VERDICT_KEYS = {"medium", "stage", "verdict", "known_from", "known_name"}
 RX_KEYS = {
     "ts", "dir", "entity_id", "name", "protocol", "address", "command",
     "fingerprint", "covers", "carrier_hz", "frames", "pronto", "raw",
     "ditto", "echo", "echo_of", "echo_via",
-}
+} | VERDICT_KEYS
 TX_KEYS = {
     "ts", "dir", "seq", "emitters", "label", "device", "command_name",
     "sends", "origin", "protocol", "address", "command", "fingerprint",
     "covers", "carrier_hz", "frames", "pronto", "raw",
-}
+} | VERDICT_KEYS
 
 
 # --- the pure builders ----------------------------------------------------
