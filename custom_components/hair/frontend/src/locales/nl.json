@@ -1301,5 +1301,9 @@
     "candy.capped": "--- {count} oudere blokken verwijderd, 2.000 bewaard ---",
     "candy.rx": "RX",
     "candy.tx": "TX",
+    "candy.known": "Bekend",
+    "candy.unknown": "Onbekend",
+    "candy.static": "Ruis",
+    "candy.static_hidden": "{name}: {count} ruisopnamen verborgen",
     "candy.closed": "--- verbinding met Home Assistant gesloten ---"
 }

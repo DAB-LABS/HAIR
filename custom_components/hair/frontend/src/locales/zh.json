@@ -1301,5 +1301,9 @@
     "candy.capped": "--- 已丢弃 {count} 个较早的块，保留 2,000 个 ---",
     "candy.rx": "RX",
     "candy.tx": "TX",
+    "candy.known": "已知",
+    "candy.unknown": "未知",
+    "candy.static": "噪声",
+    "candy.static_hidden": "{name}：已隐藏 {count} 次噪声捕获",
     "candy.closed": "--- 与 Home Assistant 的连接已关闭 ---"
 }

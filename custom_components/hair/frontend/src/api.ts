@@ -1747,13 +1747,18 @@ export class HairApi {
      * Subscribe to the Candy Drawer's raw feed: every frame heard and
      * every send made, while subscribed. Admin only. Returns an
      * unsubscribe function; nothing is kept on either side after it.
+     * ``static`` also asks for every single radio static capture; the
+     * per-receiver summaries come either way.
      */
     async subscribeCandy(
         onEvent: (event: CandyEvent) => void,
+        opts: { static?: boolean } = {},
     ): Promise<() => Promise<void>> {
         return this.hass.connection.subscribeMessage<CandyEvent>(
             onEvent,
-            { type: "hair/candy/subscribe" },
+            opts.static
+                ? { type: "hair/candy/subscribe", static: true }
+                : { type: "hair/candy/subscribe" },
         );
     }
 

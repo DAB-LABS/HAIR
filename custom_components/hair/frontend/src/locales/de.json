@@ -1301,5 +1301,9 @@
     "candy.capped": "--- {count} ältere Blöcke verworfen, 2.000 behalten ---",
     "candy.rx": "RX",
     "candy.tx": "TX",
+    "candy.known": "Bekannt",
+    "candy.unknown": "Unbekannt",
+    "candy.static": "Rauschen",
+    "candy.static_hidden": "{name}: {count} Rauschaufnahmen ausgeblendet",
     "candy.closed": "--- Verbindung zu Home Assistant getrennt ---"
 }

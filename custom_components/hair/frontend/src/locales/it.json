@@ -1301,5 +1301,9 @@
     "candy.capped": "--- {count} blocchi più vecchi scartati, 2.000 conservati ---",
     "candy.rx": "RX",
     "candy.tx": "TX",
+    "candy.known": "Noto",
+    "candy.unknown": "Sconosciuto",
+    "candy.static": "Disturbi",
+    "candy.static_hidden": "{name}: {count} acquisizioni di disturbo nascoste",
     "candy.closed": "--- connessione a Home Assistant chiusa ---"
 }

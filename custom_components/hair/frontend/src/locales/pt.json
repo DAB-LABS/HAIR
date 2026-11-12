@@ -1301,5 +1301,9 @@
     "candy.capped": "--- {count} blocos antigos descartados, 2.000 mantidos ---",
     "candy.rx": "RX",
     "candy.tx": "TX",
+    "candy.known": "Conhecido",
+    "candy.unknown": "Desconhecido",
+    "candy.static": "Estática",
+    "candy.static_hidden": "{name}: {count} capturas de estática ocultas",
     "candy.closed": "--- ligação ao Home Assistant fechada ---"
 }

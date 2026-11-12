@@ -286,7 +286,7 @@ To use it:
 
 Repeat sends of the same command bump one row's count instead of piling up. Deleting a row just clears the entry; it comes back the next time that signal is sent. The Mirror is also the third road for importing codes, next to the Clipper (paste) and the Plucker (pull by name): press a button in any vendor app whose blaster transmits through the `infrared` platform, and if a receiver hears it, the code appears in the Mirror ready to assign.
 
-The **Candy Drawer** button at the top right of the Mirror opens a live, raw console of everything your receivers hear and everything HAIR sends, in a window of its own beside Home Assistant (or a dialog over the panel in the companion app, on a phone, or when pop-ups are blocked), one block per frame with its decode, Pronto and raw timings; nothing in it is saved, and **Copy all** gives you the text to paste into an issue.
+The **Candy Drawer** button at the top right of the Mirror opens a live, raw console of everything your receivers hear and everything HAIR sends, in a window of its own beside Home Assistant (or a dialog over the panel in the companion app, on a phone, or when pop-ups are blocked), one block per frame, infrared or radio, showing the decode or band, the code, the raw timings, and whether HAIR already knows it. Nothing is saved, and **Copy all** gives you the text to paste into an issue.
 
 ![Mirror tab logging every HA-originated IR send with provenance chips, heard-by areas, and send counts](images/screenshots/mirror-tab.png)
 

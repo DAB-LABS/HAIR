@@ -17,6 +17,8 @@ import { LitElement, html, css, unsafeCSS } from "lit";
 import { customElement, property } from "./decorators.js";
 import type { HairApi } from "./api.js";
 import { CANDY_CSS, CandyConsole, type CandyLabels } from "./candy-console.js";
+import { CandyFeed } from "./candy-feed.js";
+import { browserStorage } from "./media-filter.js";
 import { dialogSize, overlayBox, type Box } from "./candy-surface.js";
 
 /** The panel element an element sits in, across shadow roots, or null. */
@@ -38,7 +40,7 @@ export class IrCandyDrawer extends LitElement {
     @property({ attribute: false }) public bounds: Element | null = null;
 
     private _console: CandyConsole | null = null;
-    private _unsubscribe: (() => Promise<void>) | null = null;
+    private _feed: CandyFeed | null = null;
     private _gone = false;
     private _resize: ResizeObserver | null = null;
     private _onResize = () => this._place();
@@ -59,21 +61,18 @@ export class IrCandyDrawer extends LitElement {
             zone: this.zone,
             mode: "dialog",
             onClose: () => this._close(),
+            storage: browserStorage(),
+            onStaticChange: (on) => this._feed?.start(on),
         });
         if (typeof ResizeObserver !== "undefined" && this.bounds) {
             this._resize = new ResizeObserver(this._onResize);
             this._resize.observe(this.bounds);
         }
         this._place();
-        this.api
-            .subscribeCandy((event) => this._console?.push(event))
-            .then((unsubscribe) => {
-                if (this._gone) void unsubscribe().catch(() => undefined);
-                else this._unsubscribe = unsubscribe;
-            })
-            .catch(() => {
-                /* An admin-only stream: nothing to show otherwise. */
-            });
+        if (this._gone) return;
+        this._feed = new CandyFeed(this.api, (event) => this._console?.push(event));
+        // Static starts off every time, so the first subscription never asks.
+        this._feed.start(false);
     }
 
     disconnectedCallback(): void {
@@ -84,9 +83,8 @@ export class IrCandyDrawer extends LitElement {
         this._resize = null;
         this._console?.destroy();
         this._console = null;
-        const unsubscribe = this._unsubscribe;
-        this._unsubscribe = null;
-        if (unsubscribe) void unsubscribe().catch(() => undefined);
+        this._feed?.stop();
+        this._feed = null;
     }
 
     /** Fit the overlay to the panel's area and the window inside it. */

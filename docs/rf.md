@@ -72,6 +72,18 @@ The Clipper and the code editor take a radio code in three shapes: a Flipper `.s
 
 Radio codes travel in wigs too. A wig that holds one is written as `hair-wig/5`; [The wig format](wig-format.md#radio-signals-hair-wig5) has the details.
 
+## Radio in the Candy Drawer
+
+The Candy Drawer, at the top right of the Mirror, shows radio as well as infrared.
+
+**Reading a radio block.** The first line names the receiver and says whether HAIR knows the code. `known:` is followed by what holds it: a device and command, a trigger (`known: trigger Doorbell`), or a remote and row. `new` means HAIR has never seen it. The second line gives the band and where it came from, the short mark, the gap between repeats, how many frames arrived and how many agreed, and the start of the frame's hash (`fp`). Next is the code as a `.sub`, identical to what the code editor's copy icon gives you, so you can paste it into the Clipper. The raw timings come last.
+
+**Receivers that deliver one frame at a time.** Some receivers, including ESPHome ones, hand over a press as separate frames. The drawer prints a frame of a known code as soon as it arrives (`known: ..., frame`). It holds other frames until enough of them agree, then prints them just before the press (`frame, waiting`).
+
+**The chips.** RX and TX, IR and RF, Known and Unknown. Known means HAIR holds the code somewhere: a device command (even an imported or pasted one it has never heard), a trigger, or a remote's row in the Sniffer or the Clipper. Unknown means this is the first time HAIR has seen it. Your browser remembers the chips.
+
+**Static.** Static is radio hiss and frames that never repeated. It's hidden by default, and each receiver gets one line counting it ("17 static captures hidden"). Turn on the Static chip to see every capture. Use it when a remote isn't being picked up. Static starts off every time you open the drawer.
+
 ## What to expect
 
 - **Fixed-code remotes** work best: one button sends the same code every time. Most plugs, fans, doorbells and cheap keyfobs are fixed-code, as are garage-door openers from before the mid-1990s.

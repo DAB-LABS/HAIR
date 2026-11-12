@@ -37,6 +37,9 @@ import {
 } from "./candy-text.js";
 
 const TS = %(ts)s;
+const ALL = { rx: true, tx: true, ir: true, rf: true, known: true, unknown: true, static: false };
+const RX = { dir: "rx", medium: "ir", verdict: "known" };
+const TX = { dir: "tx", medium: "ir", verdict: "known" };
 const nec = {
     ts: TS, dir: "rx", entity_id: "infrared.living_ir", name: "Living room IR",
     protocol: "NEC", address: "0x0004", command: "0x08",
@@ -98,12 +101,12 @@ const out = {
         tie: insertIndex([1, 2, 2], 2),
     },
     overflow: [overflow(1999, 0), overflow(2000, 1), overflow(1990, 20), CANDY_CAP],
-    visible: [isVisible("rx", { rx: false, tx: true }), isVisible("tx", { rx: false, tx: true })],
+    visible: [isVisible(RX, { ...ALL, rx: false }), isVisible(TX, { ...ALL, rx: false })],
     copy: copyText("--- opened ---", null,
-                   [{ dir: "rx", text: "A" }, { dir: "tx", text: "B" }, { dir: "rx", text: "C" }],
-                   { rx: true, tx: false }),
+                   [{ kind: RX, text: "A" }, { kind: TX, text: "B" }, { kind: RX, text: "C" }],
+                   { ...ALL, tx: false }),
     copyDropped: copyText("--- opened ---", "--- dropped: 3 ---",
-                          [{ dir: "tx", text: "B" }], { rx: true, tx: true }),
+                          [{ kind: TX, text: "B" }], ALL),
 };
 console.log(JSON.stringify(out));
 """

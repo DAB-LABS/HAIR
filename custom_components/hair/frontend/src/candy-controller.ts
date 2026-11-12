@@ -22,7 +22,9 @@ import {
     CandyConsole,
     type CandyLabels,
 } from "./candy-console.js";
+import { CandyFeed } from "./candy-feed.js";
 import { CANDY_POPUP_NAME, popupFeatures } from "./candy-surface.js";
+import { browserStorage } from "./media-filter.js";
 
 export interface CandyPopoutOptions {
     api: HairApi;
@@ -35,7 +37,7 @@ export interface CandyPopoutOptions {
 interface Popout {
     win: Window;
     console: CandyConsole;
-    unsubscribe: (() => Promise<void>) | null;
+    feed: CandyFeed | null;
     timer: number;
 }
 
@@ -87,6 +89,7 @@ function start(win: Window, opts: CandyPopoutOptions): void {
     // the panel's window has gone and its listeners with it.
     doc.body.setAttribute("onkeydown", "if(event.key==='Escape')window.close()");
 
+    let feed: CandyFeed | null = null;
     const candy = new CandyConsole({
         doc,
         mount: doc.body,
@@ -94,11 +97,14 @@ function start(win: Window, opts: CandyPopoutOptions): void {
         zone: opts.zone,
         mode: "popout",
         onClose: () => win.close(),
+        // The panel's own window keeps the chips (same origin).
+        storage: browserStorage(),
+        onStaticChange: (on) => feed?.start(on),
     });
     const popout: Popout = {
         win,
         console: candy,
-        unsubscribe: null,
+        feed: null,
         timer: window.setInterval(() => {
             if (win.closed) stop(popout);
         }, 1000),
@@ -109,15 +115,10 @@ function start(win: Window, opts: CandyPopoutOptions): void {
         watchingPageHide = true;
         window.addEventListener("pagehide", panelGone);
     }
-    opts.api
-        .subscribeCandy((event) => popout.console.push(event))
-        .then((unsubscribe) => {
-            if (current === popout) popout.unsubscribe = unsubscribe;
-            else void unsubscribe().catch(() => undefined);
-        })
-        .catch(() => {
-            /* An admin-only stream: nothing to show otherwise. */
-        });
+    feed = new CandyFeed(opts.api, (event) => popout.console.push(event));
+    popout.feed = feed;
+    // Static starts off every time, so the first subscription never asks.
+    feed.start(false);
 }
 
 /** The pop-out closed (or reloaded): unsubscribe and forget it. */
@@ -126,9 +127,8 @@ function stop(popout: Popout): void {
     current = null;
     window.clearInterval(popout.timer);
     popout.console.destroy();
-    const unsubscribe = popout.unsubscribe;
-    popout.unsubscribe = null;
-    if (unsubscribe) void unsubscribe().catch(() => undefined);
+    popout.feed?.stop();
+    popout.feed = null;
 }
 
 /** The panel's window is going: the pop-out says so, stops, keeps its text. */
@@ -138,9 +138,8 @@ function panelGone(): void {
     current = null;
     window.clearInterval(popout.timer);
     if (!popout.win.closed) popout.console.end();
-    const unsubscribe = popout.unsubscribe;
-    popout.unsubscribe = null;
-    if (unsubscribe) void unsubscribe().catch(() => undefined);
+    popout.feed?.stop();
+    popout.feed = null;
 }
 
 /** For the component check: what the pop-out is, without exporting state. */

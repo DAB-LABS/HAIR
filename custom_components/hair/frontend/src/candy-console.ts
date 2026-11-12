@@ -14,7 +14,14 @@
  * - Pause queues: blocks that arrive while paused wait and are appended
  *   in order on resume. The cap counts the queue too.
  * - Blocks go in by arrival time, not delivery order.
- * - The RX / TX chips hide blocks; they never drop them.
+ * - The chips (RX TX | IR RF | Known Unknown | Static) hide blocks; they
+ *   never drop them. All but Static are kept in this browser; Static
+ *   starts off every time, and turning it on or off asks the host to
+ *   resubscribe (``onStaticChange``), since single static captures only
+ *   come to a subscription that asked. Static is radio only, so it is
+ *   off and disabled while RF is off.
+ * - Static summaries are not blocks: each receiver gets one line that
+ *   adds them up and updates in place.
  * - Scrolling up stops the follow and offers "jump to latest";
  *   scrolling back to the bottom resumes it.
  * - Copy all tries the clipboard, then the browser's copy command on the
@@ -23,14 +30,31 @@
  */
 import {
     CANDY_CAP,
+    CANDY_CHIPS_KEY,
+    addStatic,
     copyText,
     formatBlock,
     insertIndex,
+    isStaticSummary,
     isVisible,
+    kindOf,
     openedLine,
     overflow,
+    parseChips,
+    serializeChips,
+    staticLine,
     type CandyEvent,
+    type CandyFilter,
+    type CandyKind,
 } from "./candy-text.js";
+import {
+    CANDY_GLYPH_IR,
+    CANDY_GLYPH_KNOWN,
+    CANDY_GLYPH_RF,
+    CANDY_GLYPH_STATIC,
+    CANDY_GLYPH_UNKNOWN,
+    type CandyGlyph,
+} from "./candy-glyphs.js";
 import { CANDY_VIEWBOX, ICON_CANDY } from "./ir-icons.js";
 
 export interface CandyLabels {
@@ -42,6 +66,13 @@ export interface CandyLabels {
     copy: string;
     rx: string;
     tx: string;
+    ir: string;
+    rf: string;
+    known: string;
+    unknown: string;
+    static: string;
+    /** One receiver's static line, with {count} and {name}. */
+    staticHidden: string;
     jumpLatest: string;
     /** The opened marker's template, with {time} and {zone}. */
     opened: string;
@@ -63,13 +94,27 @@ export interface CandyConsoleOptions {
     /** "popout" fills its window; "dialog" sits in the panel's overlay. */
     mode: "popout" | "dialog";
     onClose: () => void;
+    /** The Static chip turned on or off: the host resubscribes. */
+    onStaticChange?: (on: boolean) => void;
+    /** This browser's storage for the chips; none keeps nothing. */
+    storage?: Pick<Storage, "getItem" | "setItem">;
 }
+
+type ChipKey = keyof CandyFilter;
 
 interface Block {
     ts: number;
-    dir: "rx" | "tx";
+    kind: CandyKind;
+    hasVerdict: boolean;
     text: string;
     node: HTMLDivElement | null;
+}
+
+/** The glyph a received block carries in front of its text. */
+function blockGlyph(kind: CandyKind, hasVerdict: boolean): CandyGlyph | null {
+    if (kind.dir !== "rx" || !hasVerdict) return null;
+    if (kind.verdict === "static") return CANDY_GLYPH_STATIC;
+    return kind.verdict === "known" ? CANDY_GLYPH_KNOWN : CANDY_GLYPH_UNKNOWN;
 }
 
 /** Inline handlers for the pop-out's X and Copy all, compiled in the
@@ -98,8 +143,10 @@ export class CandyConsole {
     private pauseBtn!: HTMLButtonElement;
     private copyBtn!: HTMLButtonElement;
     private hint!: HTMLSpanElement;
-    private rxChip!: HTMLButtonElement;
-    private txChip!: HTMLButtonElement;
+    private chips = new Map<ChipKey, HTMLButtonElement>();
+    private staticBox!: HTMLDivElement;
+    private staticNodes = new Map<string, HTMLDivElement>();
+    private staticTotals = new Map<string, { name: string; count: number }>();
     private controls: HTMLButtonElement[] = [];
 
     private blocks: Block[] = [];
@@ -109,7 +156,7 @@ export class CandyConsole {
     private dropped = 0;
     private paused = false;
     private following = true;
-    private filter = { rx: true, tx: true };
+    private filter: CandyFilter;
     private ended = false;
     private readonly onKey = (e: KeyboardEvent) => {
         if (e.key === "Escape") this.opts.onClose();
@@ -121,6 +168,13 @@ export class CandyConsole {
         this.win = opts.doc.defaultView as Window;
         this.labels = opts.labels;
         this.zone = opts.zone;
+        let stored: string | null = null;
+        try {
+            stored = opts.storage?.getItem(CANDY_CHIPS_KEY) ?? null;
+        } catch {
+            stored = null;
+        }
+        this.filter = parseChips(stored);
         this.build();
         this.win.addEventListener("keydown", this.onKey);
     }
@@ -128,6 +182,10 @@ export class CandyConsole {
     /** One event from the subscription. */
     push(event: CandyEvent): void {
         if (this.ended) return;
+        if (isStaticSummary(event)) {
+            this.noteStatic(event);
+            return;
+        }
         this.incoming.push(event);
         // A hidden window gets no animation frames, so the cap has to
         // hold here too or a background window would collect without bound.
@@ -211,6 +269,32 @@ export class CandyConsole {
         return b;
     }
 
+    /** A glyph as SVG in this console's document. */
+    private glyph(g: CandyGlyph, cls: string): SVGSVGElement {
+        const ns = "http://www.w3.org/2000/svg";
+        const svg = this.doc.createElementNS(ns, "svg");
+        svg.setAttribute("viewBox", g.viewBox);
+        svg.setAttribute("aria-hidden", "true");
+        svg.setAttribute("focusable", "false");
+        svg.setAttribute("class", cls);
+        for (const part of g.parts) {
+            const node = this.doc.createElementNS(ns, part.tag);
+            for (const [k, v] of Object.entries(part.attrs)) node.setAttribute(k, v);
+            node.setAttribute("class", part.fill ? "fill" : "stroke");
+            svg.appendChild(node);
+        }
+        return svg;
+    }
+
+    /** One chip: a toggle, with its glyph when it has one. */
+    private chip(key: ChipKey, label: string, g: CandyGlyph | null): HTMLButtonElement {
+        const b = this.button("chip", "", () => this.toggle(key));
+        if (g) b.append(this.glyph(g, "glyph"));
+        b.append(this.doc.createTextNode(label));
+        this.chips.set(key, b);
+        return b;
+    }
+
     private build(): void {
         const l = this.labels;
         this.root = this.el("div", `candy-root ${this.opts.mode}`);
@@ -226,16 +310,25 @@ export class CandyConsole {
         this.pauseBtn = this.button("btn", l.pause, () => this.togglePause());
         const clear = this.button("btn", l.clear, () => this.clear());
         this.copyBtn = this.button("btn", l.copy, () => void this.copy());
-        this.rxChip = this.button("chip on", l.rx, () => this.toggle("rx"));
-        this.txChip = this.button("chip on", l.tx, () => this.toggle("tx"));
-        this.rxChip.setAttribute("aria-pressed", "true");
-        this.txChip.setAttribute("aria-pressed", "true");
+        const chips = this.el("span", "chips");
+        chips.append(
+            this.chip("rx", l.rx, null),
+            this.chip("tx", l.tx, null),
+            this.el("span", "sep"),
+            this.chip("ir", l.ir, CANDY_GLYPH_IR),
+            this.chip("rf", l.rf, CANDY_GLYPH_RF),
+            this.el("span", "sep"),
+            this.chip("known", l.known, CANDY_GLYPH_KNOWN),
+            this.chip("unknown", l.unknown, CANDY_GLYPH_UNKNOWN),
+            this.el("span", "sep"),
+            this.chip("static", l.static, CANDY_GLYPH_STATIC),
+        );
         this.hint = this.el("span", "hint");
         const close = this.button("x", "×", () => this.opts.onClose());
         close.setAttribute("aria-label", l.close);
         if (this.opts.mode === "popout") close.setAttribute("onclick", POPOUT_CLOSE);
-        bar.append(this.pauseBtn, clear, this.copyBtn, this.rxChip, this.txChip, this.hint, close);
-        this.controls = [this.pauseBtn, clear, this.copyBtn, this.rxChip, this.txChip];
+        bar.append(this.pauseBtn, clear, this.copyBtn, chips, this.hint, close);
+        this.controls = [this.pauseBtn, clear, this.copyBtn, ...this.chips.values()];
 
         this.screen = this.el("div", "screen");
         this.screen.addEventListener("scroll", () => this.onScroll());
@@ -246,10 +339,11 @@ export class CandyConsole {
         );
         this.cappedLine = this.el("div", "blk capped");
         this.cappedLine.hidden = true;
+        this.staticBox = this.el("div", "statics");
         this.log = this.el("div", "log");
         this.closedLine = this.el("div", "blk closed");
         this.closedLine.hidden = true;
-        this.screen.append(marker, this.cappedLine, this.log, this.closedLine);
+        this.screen.append(marker, this.cappedLine, this.staticBox, this.log, this.closedLine);
 
         this.jump = this.button("jump", l.jumpLatest, () => {
             this.following = true;
@@ -261,6 +355,7 @@ export class CandyConsole {
         win.append(bar, this.screen, this.jump);
         this.root.append(win);
         this.opts.mount.appendChild(this.root);
+        this.paintChips();
     }
 
     // --- the stream ----------------------------------------------------------
@@ -269,7 +364,13 @@ export class CandyConsole {
         if (this.frame !== null) this.win.cancelAnimationFrame(this.frame);
         this.frame = null;
         const arrived = this.incoming.splice(0).map(
-            (e): Block => ({ ts: e.ts, dir: e.dir, text: formatBlock(e, this.zone), node: null }),
+            (e): Block => ({
+                ts: e.ts,
+                kind: kindOf(e),
+                hasVerdict: !!e.verdict,
+                text: formatBlock(e, this.zone),
+                node: null,
+            }),
         );
         if (this.paused) {
             this.queue.push(...arrived);
@@ -284,7 +385,11 @@ export class CandyConsole {
 
     private place(block: Block): void {
         const at = insertIndex(this.blocks.map((b) => b.ts), block.ts);
-        const node = this.el("div", `blk ${block.dir}`, block.text);
+        const node = this.el("div", `blk ${block.kind.dir}`);
+        const g = blockGlyph(block.kind, block.hasVerdict);
+        if (g) node.append(this.glyph(g, `mark ${block.kind.verdict}`));
+        node.append(this.doc.createTextNode(block.text));
+        node.hidden = !isVisible(block.kind, this.filter, block.hasVerdict);
         block.node = node;
         this.log.insertBefore(node, this.blocks[at]?.node ?? null);
         this.blocks.splice(at, 0, block);
@@ -321,19 +426,73 @@ export class CandyConsole {
     private togglePause(): void {
         this.paused = !this.paused;
         if (!this.paused) {
+            for (const key of this.staticTotals.keys()) this.paintStatic(key);
             for (const block of this.queue.splice(0)) this.place(block);
             if (this.following) this.scrollToEnd();
         }
         this.updatePauseLabel();
     }
 
-    private toggle(dir: "rx" | "tx"): void {
-        this.filter[dir] = !this.filter[dir];
-        const chip = dir === "rx" ? this.rxChip : this.txChip;
-        chip.classList.toggle("on", this.filter[dir]);
-        chip.setAttribute("aria-pressed", this.filter[dir] ? "true" : "false");
-        this.screen.classList.toggle("hide-rx", !isVisible("rx", this.filter));
-        this.screen.classList.toggle("hide-tx", !isVisible("tx", this.filter));
+    private toggle(key: ChipKey): void {
+        if (key === "static" && !this.filter.rf) return;
+        const staticWas = this.filter.static;
+        this.filter[key] = !this.filter[key];
+        // Static is radio only: RF off takes it off too.
+        if (key === "rf" && !this.filter.rf) this.filter.static = false;
+        this.paintChips();
+        for (const b of this.blocks) {
+            if (b.node) b.node.hidden = !isVisible(b.kind, this.filter, b.hasVerdict);
+        }
+        try {
+            this.opts.storage?.setItem(CANDY_CHIPS_KEY, serializeChips(this.filter));
+        } catch {
+            /* a browser that keeps nothing */
+        }
+        if (this.filter.static !== staticWas) this.opts.onStaticChange?.(this.filter.static);
+    }
+
+    private paintChips(): void {
+        for (const [key, chip] of this.chips) {
+            const on = this.filter[key];
+            chip.classList.toggle("on", on);
+            chip.setAttribute("aria-pressed", on ? "true" : "false");
+        }
+        const staticChip = this.chips.get("static");
+        if (staticChip && !this.ended) staticChip.disabled = !this.filter.rf;
+        this.staticBox.classList.toggle("shown", this.staticShown());
+    }
+
+    /** The static lines show with RX and RF on and Static off: they are
+     *  received radio, and with Static on the captures print one by one. */
+    private staticShown(): boolean {
+        return this.filter.rx && this.filter.rf && !this.filter.static;
+    }
+
+    /** A static summary: add it to its receiver's line, in place. While
+     *  Static is on the captures print one by one, so they are not added
+     *  to a count of hidden ones. While paused the count grows but the
+     *  line waits for Resume, as blocks do. */
+    private noteStatic(event: CandyEvent): void {
+        if (this.filter.static) return;
+        const key = addStatic(this.staticTotals, event);
+        if (!this.paused) this.paintStatic(key);
+    }
+
+    private paintStatic(key: string): void {
+        const seen = this.staticTotals.get(key);
+        if (!seen) return;
+        let node = this.staticNodes.get(key);
+        if (!node) {
+            node = this.el("div", "blk static-line");
+            this.staticNodes.set(key, node);
+            this.staticBox.append(node);
+        }
+        node.textContent = staticLine(this.labels.staticHidden, seen.name, seen.count);
+    }
+
+    private staticLines(): string[] {
+        if (!this.staticShown()) return [];
+        return [...this.staticNodes.values()].map((n) => n.textContent ?? "");
     }
 
     private clear(): void {
@@ -341,6 +500,9 @@ export class CandyConsole {
         this.blocks = [];
         this.queue = [];
         this.dropped = 0;
+        for (const n of this.staticNodes.values()) n.remove();
+        this.staticNodes.clear();
+        this.staticTotals.clear();
         this.enforceCap();
         this.updatePauseLabel();
     }
@@ -351,6 +513,7 @@ export class CandyConsole {
             this.droppedLine(),
             this.blocks,
             this.filter,
+            this.staticLines(),
         );
         const range = this.doc.createRange();
         range.selectNodeContents(this.screen);
@@ -509,9 +672,61 @@ export const CANDY_CSS = `
 .candy-root [hidden] {
     display: none !important;
 }
-.candy-root .hide-rx .blk.rx,
-.candy-root .hide-tx .blk.tx {
+.candy-root .chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.candy-root .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.candy-root .sep {
+    width: 1px;
+    height: 16px;
+    background: var(--candy-line);
+    margin: 0 2px;
+}
+.candy-root svg.glyph,
+.candy-root svg.mark {
+    width: 14px;
+    height: 14px;
+    flex: none;
+}
+.candy-root svg .stroke {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.candy-root svg .fill {
+    fill: currentColor;
+    stroke: none;
+}
+.candy-root .chip.on svg.glyph {
+    color: #03a9f4;
+}
+.candy-root svg.mark {
+    display: inline-block;
+    vertical-align: -2px;
+    margin-right: 6px;
+    color: var(--candy-dim);
+}
+.candy-root svg.mark.unknown {
+    color: #ffb74d;
+}
+.candy-root .statics {
     display: none;
+}
+.candy-root .statics.shown {
+    display: block;
+}
+.candy-root .static-line {
+    color: var(--candy-dim);
+    margin-bottom: 0.4em;
 }
 .candy-root .jump {
     position: absolute;

@@ -112,11 +112,15 @@ hears it, the code lands here.
 
 **Candy Drawer.** The button at the top right of the Mirror. It opens a black
 window of its own (a dialog over the panel where a separate window cannot
-open) that prints every frame your receivers hear and every send HAIR makes,
-as it happens, with nothing grouped or hidden: five presses are five blocks,
-each with its decode, Pronto and raw timings, and HAIR's own sends coming back
-are marked as echoes. Nothing in it is saved, and closing it clears it. Copy
-all gives you the text to paste into an issue.
+open) that prints every infrared and radio frame your receivers hear and every
+send HAIR makes, as it happens. Five presses are five blocks. Each block shows
+the decode or band, the code and the raw timings, and says whether HAIR
+already knows the code (`known`, with what holds it) or not (`new`). HAIR's
+own sends coming back are marked as echoes. Chips filter by direction, by IR
+or RF, and by Known or Unknown. The Static chip shows radio hiss and frames
+that never repeated; it starts off, and it's there for when a remote isn't
+being picked up. Nothing is saved, and closing the drawer clears it. Copy all
+copies what's shown, ready to paste into an issue.
 
 **Devices tab.** Two sections. DEVICES holds the things HAIR sends codes to,
 plus your Emitters, Receivers, Proxies, and pluckable Blasters. REMOTES holds
