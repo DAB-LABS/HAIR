@@ -62,10 +62,11 @@ class _Burst:
 class BurstAssembler:
     """Collects one receiver's split-delivered frames into presses.
 
-    ``on_burst(analysis, signal, frames)`` receives each burst that
-    passed the vote, with the last signal object that fed it and how
-    many frames the burst held; ``on_lone()`` is
-    called for each burst that ended with too few frames (a lone frame).
+    ``on_burst(analysis, signal, frames, fingerprint)`` receives each
+    burst that passed the vote, with the last signal object that fed it,
+    how many frames the burst held and the fingerprint it was keyed by;
+    ``on_lone(fingerprint)`` is called for each burst that ended without
+    a vote (a lone frame).
     ``call_at(when, fn)`` schedules ``fn`` at the clock's ``when`` and
     returns a handle with ``cancel()``; ``now()`` reads that clock.
     """
@@ -73,8 +74,8 @@ class BurstAssembler:
     def __init__(
         self,
         *,
-        on_burst: Callable[[RfCapture, Any, int], None],
-        on_lone: Callable[[], None],
+        on_burst: Callable[[RfCapture, Any, int, str], None],
+        on_lone: Callable[[str], None],
         call_at: Callable[[float, Callable[[], None]], Any],
         now: Callable[[], float],
     ) -> None:
@@ -131,9 +132,11 @@ class BurstAssembler:
             del self._open[burst.fingerprint]
         analysis = vote(burst.frames) if len(burst.frames) >= RF_MIN_FRAMES else None
         if analysis is None:
-            self._on_lone()
+            self._on_lone(burst.fingerprint)
         else:
-            self._on_burst(analysis, burst.signal, len(burst.frames))
+            self._on_burst(
+                analysis, burst.signal, len(burst.frames), burst.fingerprint
+            )
 
     def _cancel(self) -> None:
         if self._timer is not None:

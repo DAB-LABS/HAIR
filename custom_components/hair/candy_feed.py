@@ -43,6 +43,16 @@ CANDY_FRAME_GAP_US = 8000
 # receiver: an always-on receiver hands over several captures a second.
 CANDY_STATIC_SUMMARY_S = 5.0
 
+# An unknown radio frame is held until its burst ends: printed if the
+# burst votes, counted as static if it ends lone. At most this many are
+# held per receiver; past it the oldest is counted as static.
+CANDY_HOLD_MAX = 256
+
+# Why a radio capture is static.
+STATIC_NO_BODY = "no_body"  # no frame with a body
+STATIC_SHORT = "short"  # a vote too short to be a remote's
+STATIC_LONE = "lone"  # a frame whose burst never voted
+
 # Echo kinds, as the verdict reports them.
 ECHO_SEND = "send"
 ECHO_GUARD = "guard"
@@ -394,8 +404,12 @@ def rf_static_capture_event(
     entity_id: str | None,
     name: str | None,
     raw: list[int] | None,
+    reason: str,
 ) -> dict[str, Any]:
-    """One static capture, for a subscription that asked for them."""
+    """One static capture, for a subscription that asked for them.
+
+    ``reason`` says why it is static: ``no_body``, ``short`` or ``lone``.
+    """
     timings = _ints(raw)
     return {
         **_rf_rx_base(
@@ -403,6 +417,7 @@ def rf_static_capture_event(
             verdict=STATIC,
         ),
         "count": None,
+        "reason": reason,
         "raw": timings,
         "values": len(timings),
     }

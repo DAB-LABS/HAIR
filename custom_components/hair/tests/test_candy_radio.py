@@ -21,9 +21,9 @@ What is pinned here:
 """
 from __future__ import annotations
 
+import collections
 import json
 import types
-from dataclasses import asdict
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -213,7 +213,9 @@ class TestShapes:
         assert frame["fingerprint"] == keyfob.fingerprint
         assert frame["frames"] == 1 and frame["votes"] is None
         assert frame["raw"] == frames[0]
-        assert frame["gap_us"] is None and frame["gap_source"] == "assumed"
+        # What a row minted from this burst holds: the assumed gap.
+        assert frame["gap_us"] == sm.RF_ASSUMED_FRAME_GAP_US
+        assert frame["gap_source"] == "assumed"
         press = events[-1]
         assert press["frames"] == len(frames)
         # A burst never existed as one capture: raw is the voted frame.
@@ -401,33 +403,281 @@ class TestVerdict:
         assert self._known(monitor, keyfob) == candy_feed.UNKNOWN
 
     @pytest.mark.asyncio
-    async def test_the_drawer_changes_nothing(self, fake_hass, keyfob, captures):
-        """Rows, counters and saves come out the same, drawer open or closed."""
-        presses = [_signed(c["pulses"]) for c in captures[:4]] + [STATIC_CAPTURE] * 3
+    async def test_the_drawer_changes_nothing(self, fake_hass):
+        """An always-on receiver, presses through the burst assembler with
+        noise between them, a window open for the first file and closed
+        for the second, a trigger on the frame path. Rows, saves, the
+        receiver's counters and every trigger call come out the same with
+        the drawer open (Static on) and closed."""
+        from . import test_rf_always_on as ao
+
+        files = [
+            ("athom-433-it104-150us-6ms-presses.json.gz", "open"),
+            ("athom-433-it104-150us-12ms-presses.json.gz", None),
+        ]
 
         async def run(open_drawer):
-            monitor, store, hair = _monitor(fake_hass)
-            monitor._trigger_manager = MagicMock()
-            monitor._trigger_manager.on_signal_captured = MagicMock(return_value=[])
+            loop = ao.FakeLoop()
+            monitor, store = ao._monitor(fake_hass, loop)
+            monitor.rf_always_on.attach(ao.RID)
+            store.async_save = MagicMock(side_effect=lambda: _noop())
+            triggers = MagicMock()
+            triggers.on_signal_captured = MagicMock(return_value=["trigger-1"])
+            monitor._trigger_manager = triggers
             if open_drawer:
                 _subscribe(monitor, static=True)
-            await _hear(fake_hass, monitor, presses)
-            rows = [
-                {k: v for k, v in asdict(d).items() if k not in ("id", "first_seen", "last_seen")}
-                for d in store.get_all_devices()
+            for name, window in files:
+                await ao._replay(
+                    fake_hass, name, window=window, trigger_manager=triggers,
+                    monitor=(monitor, store, loop),
+                )
+            rows = []
+            for device in store.get_all_devices():
+                for signal in device.signals:
+                    rows.append((
+                        device.fingerprint, signal.rf_frame_hash, signal.hit_count,
+                        list(signal.raw_timings), signal.rf_frequency_hz,
+                    ))
+            fires = [
+                (c.args[:3], sorted(c.kwargs.items(), key=lambda kv: kv[0]))
+                for c in triggers.on_signal_captured.call_args_list
             ]
-            for row in rows:
-                for signal in row["signals"]:
-                    for key in ("id", "first_seen", "last_seen"):
-                        signal.pop(key, None)
+            counters = dict(monitor.rf_always_on.counters(ao.RID))
+            counters.pop("since", None)
             return (
-                rows,
+                sorted(rows),
                 store.schedule_save.call_count,
-                monitor._trigger_manager.on_signal_captured.call_count,
-                hair.async_save.call_count,
+                counters,
+                [str(f) for f in fires],
             )
 
-        assert await run(True) == await run(False)
+        closed = await run(False)
+        opened = await run(True)
+        assert closed[0], "the presses minted rows"
+        assert closed[3], "the trigger was asked on the frame path"
+        assert opened == closed
+
+
+# ---------------------------------------------------------------------------
+# An always-on receiver's noise, with a drawer open
+# ---------------------------------------------------------------------------
+
+
+class TestAlwaysOnNoise:
+    """The review's blocker: on an Athom most bodied pieces are noise that
+    never votes. With Static off the drawer must print none of them."""
+
+    @staticmethod
+    async def _replay(fake_hass, name, *, monitor=None, window=None):
+        from . import test_rf_always_on as ao
+
+        loop = monitor[2] if monitor else ao.FakeLoop()
+        if monitor is None:
+            mon, store = ao._monitor(fake_hass, loop)
+            mon.rf_always_on.attach(ao.RID)
+            monitor = (mon, store, loop)
+        events = monitor[3] if len(monitor) > 3 else None
+        flushes = []
+        real_call_later = loop.call_later
+
+        def call_later(delay, fn, *args):
+            flushes.append(1)
+            return real_call_later(delay, fn, *args)
+
+        loop.call_later = call_later
+        await ao._replay(fake_hass, name, window=window, monitor=monitor[:3])
+        loop.advance_to(loop.now + candy_feed.CANDY_STATIC_SUMMARY_S + 1)
+        return monitor, events
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("name", [
+        "athom-433-150us-6ms-noise-1h.json.gz",
+        "athom-433-150us-6ms-fs20-noise-1h.json.gz",
+    ])
+    async def test_an_hour_of_noise_prints_only_summaries(self, fake_hass, name):
+        from . import test_rf_always_on as ao
+
+        loop = ao.FakeLoop()
+        monitor, store = ao._monitor(fake_hass, loop)
+        monitor.rf_always_on.attach(ao.RID)
+        events = _subscribe(monitor)
+        captures = ao._load(name)["captures"]
+        await ao._replay(fake_hass, name, monitor=(monitor, store, loop))
+        loop.advance_to(loop.now + candy_feed.CANDY_STATIC_SUMMARY_S + 1)
+        stages = {e["stage"] for e in events}
+        assert stages == {"static"}
+        assert all(e["count"] is not None for e in events)  # summaries only
+        assert sum(e["count"] for e in events) == len(captures)
+        assert monitor._candy_hold.get(ao.RID, ()) == collections.deque() or not (
+            monitor._candy_hold.get(ao.RID)
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_known_press_in_the_noise_prints_and_nothing_else(self, fake_hass):
+        from . import test_rf_always_on as ao
+
+        name = "athom-433-it104-150us-6ms-presses.json.gz"
+        loop = ao.FakeLoop()
+        monitor, store = ao._monitor(fake_hass, loop)
+        monitor.rf_always_on.attach(ao.RID)
+        await ao._replay(fake_hass, name, window="open", monitor=(monitor, store, loop))
+        held_codes = {
+            s.rf_fingerprint if hasattr(s, "rf_fingerprint") else s.fingerprint
+            for d in store.get_all_devices() for s in d.signals
+        }
+        assert held_codes
+        events = _subscribe(monitor)
+        await ao._replay(fake_hass, name, window=None, monitor=(monitor, store, loop))
+        loop.advance_to(loop.now + candy_feed.CANDY_STATIC_SUMMARY_S + 1)
+        printed = [e for e in events if e["stage"] in ("frame", "press")]
+        assert any(e["stage"] == "press" for e in printed)
+        assert any(e["stage"] == "frame" and e["verdict"] == "known" for e in printed)
+        assert {e["fingerprint"] for e in printed} <= held_codes
+        assert all(e["stage"] in ("frame", "press", "static") for e in events)
+
+    @pytest.mark.asyncio
+    async def test_a_lone_burst_goes_to_static_with_its_reason(self, fake_hass, keyfob):
+        monitor, _, _ = _monitor(fake_hass)
+        events = _subscribe(monitor, static=True)
+        await _hear(fake_hass, monitor, _one_frame_captures(keyfob, 1), receiver=ATHOM_RX)
+        assert events == []  # held, not printed
+        await _flush_bursts(fake_hass, monitor, ATHOM_RX)
+        assert [(e["stage"], e["reason"]) for e in events] == [("static", "lone")]
+        assert events[0]["raw"] == _one_frame_captures(keyfob, 1)[0]
+        assert monitor._candy_hold[ATHOM_RX] == collections.deque()
+
+    @pytest.mark.asyncio
+    async def test_the_hold_is_bounded(self, fake_hass, keyfob, monkeypatch):
+        monkeypatch.setattr(candy_feed, "CANDY_HOLD_MAX", 3)
+        monitor, _, _ = _monitor(fake_hass)
+        events = _subscribe(monitor, static=True)
+        await _hear(fake_hass, monitor, _one_frame_captures(keyfob, 5), receiver=ATHOM_RX)
+        assert len(monitor._candy_hold[ATHOM_RX]) == 3
+        assert [e["reason"] for e in events] == ["lone", "lone"]
+
+    @pytest.mark.asyncio
+    async def test_reasons_on_single_static_captures(self, fake_hass, captures, monkeypatch):
+        monitor, _, _ = _monitor(fake_hass)
+        events = _subscribe(monitor, static=True)
+        await _hear(fake_hass, monitor, [STATIC_CAPTURE])
+        monkeypatch.setattr(sm, "RF_MIN_BODY_EDGES", 10_000)
+        await _hear(fake_hass, monitor, [_signed(captures[0]["pulses"])])
+        assert [e["reason"] for e in events] == ["no_body", "short"]
+
+
+# ---------------------------------------------------------------------------
+# A failing drawer never costs a capture or a send
+# ---------------------------------------------------------------------------
+
+
+def _boom(*_args, **_kwargs):
+    raise RuntimeError("drawer failure")
+
+
+class TestGuards:
+    @pytest.mark.asyncio
+    async def test_a_failing_press_print_still_files_the_press(self, fake_hass, captures):
+        monitor, store, _ = _monitor(fake_hass)
+        _subscribe(monitor)
+        with patch.object(candy_feed, "rf_press_event", _boom):
+            await _hear(fake_hass, monitor, [_signed(captures[0]["pulses"])])
+        assert len(store.get_all_devices()) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_failing_frame_print_still_assembles(self, fake_hass, keyfob):
+        monitor, store, _ = _monitor(fake_hass)
+        _subscribe(monitor)
+        with patch.object(candy_feed, "rf_frame_event", _boom):
+            await _hear(fake_hass, monitor, _one_frame_captures(keyfob), receiver=ATHOM_RX)
+            await _flush_bursts(fake_hass, monitor, ATHOM_RX)
+        assert len(store.get_all_devices()) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_failing_release_still_emits_the_press(self, fake_hass, keyfob):
+        monitor, store, _ = _monitor(fake_hass)
+        _subscribe(monitor)
+        await _hear(fake_hass, monitor, _one_frame_captures(keyfob), receiver=ATHOM_RX)
+        with patch.object(monitor, "_candy_release", _boom):
+            await _flush_bursts(fake_hass, monitor, ATHOM_RX)
+        assert len(store.get_all_devices()) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_failing_lone_release_still_counts_the_lone_frame(
+        self, fake_hass, keyfob
+    ):
+        monitor, _, _ = _monitor(fake_hass)
+        monitor.rf_always_on.count = MagicMock()
+        _subscribe(monitor)
+        await _hear(fake_hass, monitor, _one_frame_captures(keyfob, 1), receiver=ATHOM_RX)
+        with patch.object(monitor, "_candy_release", _boom):
+            await _flush_bursts(fake_hass, monitor, ATHOM_RX)
+        monitor.rf_always_on.count.assert_called_once_with(ATHOM_RX, "lone_frames")
+
+    @pytest.mark.asyncio
+    async def test_a_failing_static_print_still_counts_the_noise(self, fake_hass):
+        from . import test_rf_always_on as ao
+
+        loop = ao.FakeLoop()
+        monitor, _ = ao._monitor(fake_hass, loop)
+        monitor.rf_always_on.attach(ao.RID)
+        _subscribe(monitor, static=True)
+        run = ao._Run(fake_hass, loop, monitor)
+        with patch.object(candy_feed, "rf_static_capture_event", _boom):
+            await run.feed([(loop.now + 0.1, list(STATIC_CAPTURE))])
+        assert monitor.rf_always_on.counters(ao.RID)["noise"] == 1
+
+    def test_a_failing_radio_tx_print_still_sends(self, fake_hass, keyfob):
+        monitor, _, _ = _monitor(fake_hass)
+        _subscribe(monitor)
+        fake_hass.async_create_task = MagicMock(side_effect=lambda coro: coro.close())
+        row = _command(keyfob.frame)
+        with patch.object(candy_feed, "rf_tx_event", _boom):
+            monitor.record_send_rf(row, _plan(row, ATHOM_TX), "Plug / On")
+        ticket = monitor._echo_expectations[-1]
+        assert ticket["candy_seq"] is None and ticket["sig_fp"] == keyfob.fingerprint
+
+    def test_a_failing_infrared_tx_print_still_sends(self):
+        from .test_candy_feed import _monitor as ir_monitor
+        from .test_candy_feed import _send
+
+        monitor, _, _ = ir_monitor()
+        _subscribe(monitor)
+        with patch.object(candy_feed, "tx_event", _boom):
+            _send(monitor, _nec())
+        assert monitor._echo_expectations[-1]["candy_seq"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_failing_ditto_print_still_attributes_the_ditto(self):
+        monitor, hass, _ = TestDitto()._ir_monitor()
+        _subscribe(monitor)
+        with patch.object(candy_feed, "ditto_event", _boom), patch.object(
+            monitor, "_maybe_attribute_repeat_frame"
+        ) as attribute:
+            await TestDitto()._press(monitor, hass, DITTO)
+        attribute.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Stopping
+# ---------------------------------------------------------------------------
+
+
+class TestStop:
+    @pytest.mark.asyncio
+    async def test_stop_leaves_the_drawer_nothing(self, fake_hass, keyfob):
+        from unittest.mock import AsyncMock
+
+        monitor, store, _ = _monitor(fake_hass)
+        store.async_shutdown = AsyncMock()
+        _subscribe(monitor, static=True)
+        await _hear(fake_hass, monitor, [STATIC_CAPTURE])
+        await _hear(fake_hass, monitor, _one_frame_captures(keyfob, 1), receiver=ATHOM_RX)
+        handle = fake_hass.loop.call_later.return_value
+        await monitor.async_stop()
+        handle.cancel.assert_called()
+        assert monitor._candy == [] and monitor._candy_static == []
+        assert monitor._candy_static_window == {}
+        assert monitor._candy_hold == {} and monitor._candy_memo == {}
 
 
 # ---------------------------------------------------------------------------
