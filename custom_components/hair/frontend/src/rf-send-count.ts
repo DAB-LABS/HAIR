@@ -19,6 +19,30 @@ export function seedSendCount(repeatsObserved: number | null | undefined): numbe
     return Math.max(RF_MIN_SEND_COUNT, Math.min(Math.trunc(repeatsObserved), MAX_SEND_COUNT));
 }
 
+/** The line under a radio code's send count (N20): why the count is
+ *  what it is, as a locale key and its number, or null when there is
+ *  nothing true to say. It speaks only while the field holds the seed
+ *  (what one press carried, or the usual count), so it never describes
+ *  a number the field does not show; a count the user chose, or a
+ *  stored 1 the field still shows, gets no line. "As the remote sent
+ *  it" only when the press was measured and the clamp left it alone.
+ *  Null for an infrared row, which keeps its own sentence. */
+export function sendTimesHint(
+    medium: string | null | undefined,
+    repeatsObserved: number | null | undefined,
+    current: number,
+): { key: string; count: number } | null {
+    if (medium !== "rf") return null;
+    const seed = seedSendCount(repeatsObserved);
+    if (current !== seed) return null;
+    const measured =
+        !!repeatsObserved && Number.isFinite(repeatsObserved) && Math.trunc(repeatsObserved) === seed;
+    return {
+        key: measured ? "rfedit.send_times_measured" : "rfedit.send_times_usual",
+        count: seed,
+    };
+}
+
 /** The Assign dialog's starting count for a row. */
 export function assignSendCount(
     signal: Pick<UnknownSignal, "medium" | "send_count" | "rf_repeats_observed"> | null | undefined,

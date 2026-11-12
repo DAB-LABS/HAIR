@@ -32,6 +32,7 @@ import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { renderProtoGlyph, protoGlyphStyles } from "./ir-proto-glyph.js";
 import { sendRefusal } from "./rf-errors.js";
+import { sendTimesHint } from "./rf-send-count.js";
 import { EMBER_VAR } from "./ir-header-chip-styles.js";
 import {
     RF_PRESETS_HZ,
@@ -67,6 +68,9 @@ export class IrRfEditor extends LitElement {
     @property({ attribute: false }) public initialGapUs: number | null = null;
     @property({ attribute: false }) public initialAlias = "";
     @property({ attribute: false }) public initialSendCount = 1;
+    /** How many agreeing frames the press carried, for the line under
+     *  the count (N20); null for a paste or an unmeasured press. */
+    @property({ attribute: false }) public repeatsObserved: number | null = null;
     @property({ type: Boolean }) public hasTrigger = false;
 
     @state() private _code = "";
@@ -350,6 +354,15 @@ export class IrRfEditor extends LitElement {
         </div>`;
     }
 
+    /** The line under the count (N20): what one press carried, or the
+     *  usual count when it was not measured, while the field holds it. */
+    private _countHint() {
+        const hint = sendTimesHint("rf", this.repeatsObserved, this._sendCount);
+        return hint
+            ? html`<div class="count-hint">${t(hint.key, { count: String(hint.count) })}</div>`
+            : nothing;
+    }
+
     render() {
         const heading = this._creating
             ? t("rfedit.new_signal")
@@ -415,6 +428,7 @@ export class IrRfEditor extends LitElement {
                         if (Number.isFinite(n)) this._sendCount = Math.min(MAX_SEND_COUNT, Math.max(1, n));
                     }}
                 />
+                ${this._countHint()}
             </div>
 
             ${this.hasTrigger && this._codeChanged
@@ -446,6 +460,11 @@ export class IrRfEditor extends LitElement {
         dialogStyles,
         protoGlyphStyles,
         css`
+            .count-hint {
+                margin-top: 6px;
+                font-size: 0.78rem;
+                color: var(--secondary-text-color);
+            }
             .medium {
                 display: inline-flex;
                 align-items: center;

@@ -1064,6 +1064,7 @@ class DeviceManager:
             device,
             ir_cmd,
             command.name,
+            command_name=command.name,
             send_count=max(1, command.send_count or 1),
             # The field alone picks the path (GH #151). None here is a
             # row saved before this feature landed, and it transmits
@@ -1165,6 +1166,7 @@ class DeviceManager:
         heard_future: Any | None = None,
         pinned: bool = False,
         sent: Any | None = None,
+        command_name: str | None = None,
     ) -> set[str]:
         """The shared all-emitters transmit path (GH #65 semantics).
 
@@ -1221,8 +1223,14 @@ class DeviceManager:
             e for e in device.emitter_entity_ids if not is_radio_entity(e)
         ]
         if not infrared_ids:
+            # N19: a stored command names itself; a Test or a climate
+            # cell is not a code with a name, and keeps the short form.
             raise SendRefusedError(
-                NO_EMITTER_FOR_MEDIUM, f"{device.name} has no infrared emitter"
+                NO_EMITTER_FOR_MEDIUM,
+                f"{command_name} is an infrared code and {device.name} has no "
+                "infrared emitter. Add one in the device's settings."
+                if command_name
+                else f"{device.name} has no infrared emitter",
             )
         for emitter_id in infrared_ids:
             state = self._hass.states.get(emitter_id)
@@ -1497,7 +1505,8 @@ class DeviceManager:
         from .rf_send import async_transmit, plan_radio_send
 
         plan = plan_radio_send(
-            self._hass, command, list(device.emitter_entity_ids), device.name
+            self._hass, command, list(device.emitter_entity_ids), device.name,
+            command_name=getattr(command, "name", None),
         )
         unavailable = {
             e: why for e, why in plan.skipped.items() if why == "unavailable"

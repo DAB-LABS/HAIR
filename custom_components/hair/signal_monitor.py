@@ -2596,6 +2596,11 @@ class SignalMonitor:
         }
         if n.rf is not None:
             summary["medium"] = MEDIUM_RF
+            # The row's carrier after this hit (N15): a hit from a better
+            # source moves it (a user-set 315 back to a measured 433.92),
+            # and the Sniffer updates its band cell from here.
+            summary["rf_frequency_hz"] = signal.rf_frequency_hz
+            summary["rf_frequency_source"] = signal.rf_frequency_source
         self._hass.bus.async_fire(EVENT_SIGNAL_DETECTED, summary)
 
         # Step 12: Notify subscribers.

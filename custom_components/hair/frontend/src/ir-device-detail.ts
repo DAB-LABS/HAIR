@@ -6,7 +6,8 @@ import { LitElement, html, css, nothing } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp, tv } from "./localize.js";
-import { rfRefusal } from "./rf-errors.js";
+import { deviceRefusal } from "./rf-errors.js";
+import { bandLabel } from "./rf-band.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -1120,8 +1121,14 @@ export class IrDeviceDetail extends LitElement {
             await this.api.sendCommand(this.device.id, command.id);
             this._flash(t("devdetail.sent_cmd", { name: command.name }));
         } catch (err) {
+            // N19: the refusal names the code, its medium and the device.
             this._flash(
-                rfRefusal(err) ?? t("devdetail.send_failed", { message: (err as Error).message }),
+                deviceRefusal(err, {
+                    device: this.device.name,
+                    command: command.name,
+                    medium: command.medium ?? "ir",
+                    band: command.rf_frequency_hz ? bandLabel(command.rf_frequency_hz) : null,
+                }) ?? t("devdetail.send_failed", { message: (err as Error).message }),
             );
         } finally {
             this._busy = false;
@@ -1894,6 +1901,7 @@ export class IrDeviceDetail extends LitElement {
                                 .initialGapUs=${this._editCommand.rf_frame_gap_us ?? null}
                                 .initialAlias=${this._editCommand.name}
                                 .initialSendCount=${this._editCommand.send_count ?? 1}
+                                .repeatsObserved=${this._editCommand.rf_repeats_observed ?? null}
                                 .hasTrigger=${this._commandHasTrigger(this._editCommand)}
                                 @command-edited=${this._onCommandEdited}
                                 @delete-requested=${() => {

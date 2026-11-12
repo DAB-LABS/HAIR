@@ -389,6 +389,94 @@ class TestDeviceSend:
         assert radio.sent == []
 
     @pytest.mark.asyncio
+    async def test_n19_an_infrared_code_names_itself_and_the_device(
+        self, manager, radio, keyfob
+    ):
+        from custom_components.hair.device_manager import SendRefusedError
+
+        manager._store.get_device = MagicMock(
+            return_value=_device([ATHOM_TX], _ir_command())
+        )
+        with pytest.raises(SendRefusedError) as caught:
+            await manager.async_send_command("dev1", "c2")
+        assert str(caught.value) == (
+            "Power is an infrared code and Plug has no infrared emitter. "
+            "Add one in the device's settings."
+        )
+
+    @pytest.mark.asyncio
+    async def test_n19_a_radio_code_names_itself_and_the_device(
+        self, manager, radio, keyfob
+    ):
+        from custom_components.hair.device_manager import SendRefusedError
+
+        manager._store.get_device = MagicMock(
+            return_value=_device([IR_TX], _radio_command(keyfob.frame))
+        )
+        with pytest.raises(SendRefusedError) as caught:
+            await manager.async_send_command("dev1", "c1")
+        assert caught.value.code == "no_emitter_for_medium"
+        assert str(caught.value) == (
+            "Button 1 on is a radio code and Plug has no radio transmitter. "
+            "Add one in the device's settings."
+        )
+        assert radio.sent == []
+
+    @pytest.mark.asyncio
+    async def test_n19_no_transmitter_for_the_band_names_the_device(
+        self, manager, radio, keyfob
+    ):
+        from custom_components.hair.device_manager import SendRefusedError
+
+        command = _radio_command(keyfob.frame, rf_frequency_hz=315_000_000)
+        manager._store.get_device = MagicMock(return_value=_device([ATHOM_TX], command))
+        with pytest.raises(SendRefusedError) as caught:
+            await manager.async_send_command("dev1", "c1")
+        assert str(caught.value) == "Plug has no radio transmitter that can send 315 MHz"
+
+    @pytest.mark.asyncio
+    async def test_n19_with_a_transmitter_down_it_says_not_up(self, manager, radio, keyfob):
+        from custom_components.hair.device_manager import SendRefusedError
+
+        command = _radio_command(keyfob.frame, rf_frequency_hz=315_000_000)
+        manager._store.get_device = MagicMock(
+            return_value=_device([ATHOM_TX, RM4_TX], command)
+        )
+        real_get = manager._hass.states.get
+
+        def get(entity_id):
+            if entity_id == RM4_TX:
+                return types.SimpleNamespace(entity_id=RM4_TX, state="unavailable", attributes={})
+            return real_get(entity_id)
+
+        manager._hass.states.get = get
+        with pytest.raises(SendRefusedError) as caught:
+            await manager.async_send_command("dev1", "c1")
+        assert str(caught.value) == (
+            "Plug has no radio transmitter that is up and can send 315 MHz "
+            f"({RM4_TX} unavailable)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_n19_a_test_send_is_not_named_as_a_code(self, manager, radio):
+        from custom_components.hair.device_manager import SendRefusedError
+
+        manager._store.get_device = MagicMock(return_value=_device([ATHOM_TX]))
+        with pytest.raises(SendRefusedError) as caught:
+            await manager._async_broadcast(
+                manager._store.get_device("dev1"), MagicMock(), "Test"
+            )
+        assert str(caught.value) == "Plug has no infrared emitter"
+
+    def test_n19_without_a_command_name_the_sentence_is_the_old_one(self, fake_hass):
+        from custom_components.hair.device_manager import SendRefusedError
+        from custom_components.hair.rf_send import plan_radio_send
+
+        with pytest.raises(SendRefusedError) as caught:
+            plan_radio_send(fake_hass, MagicMock(), [IR_TX], "Remote 20")
+        assert str(caught.value) == "Remote 20 has no radio transmitter"
+
+    @pytest.mark.asyncio
     async def test_the_315_row_goes_out_where_it_fits(self, manager, radio, keyfob):
         command = _radio_command(keyfob.frame, rf_frequency_hz=315_000_000)
         manager._store.get_device = MagicMock(
