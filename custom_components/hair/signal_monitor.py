@@ -108,6 +108,12 @@ from .storage import HAIRStore
 _LOGGER = logging.getLogger(__name__)
 
 
+def _rf_modulation(signal: Any) -> str:
+    """A radio capture's modulation as a row stores it (OOK when unsaid)."""
+    modulation = getattr(signal, "modulation", None)
+    return str(getattr(modulation, "value", None) or modulation or "OOK").upper()
+
+
 @contextlib.contextmanager
 def _candy_guard(where: str) -> Any:
     """The Candy Drawer never costs a capture or a send: a failure in a
@@ -2891,15 +2897,21 @@ class SignalMonitor:
             )
         else:
             assembler = self._rf_assembler(receiver_entity_id)
-            # The drawer's token for this capture: [frames held, printed].
-            capture: list[Any] = [0, False]
-            for piece, parts in bodied:
-                if self._candy:
+            if self._candy:
+                # The drawer's token for this capture: [frames held, printed].
+                capture: list[Any] = [0, False]
+                for piece, parts in bodied:
+                    # Add first: ``add`` can end an earlier burst of the
+                    # same key whose deadline passed before its timer ran,
+                    # and that burst must release only its own frames.
+                    assembler.add(frame_fingerprint(parts), (piece, parts), signal)
                     with _candy_guard("radio frame"):
                         self._candy_rf_frame(
                             receiver_entity_id, piece, parts, signal, timings, capture
                         )
-                assembler.add(frame_fingerprint(parts), (piece, parts), signal)
+            else:
+                for piece, parts in bodied:
+                    assembler.add(frame_fingerprint(parts), (piece, parts), signal)
         if always_on:
             self.rf_always_on.note_time(receiver_entity_id, started)
 
@@ -2923,7 +2935,6 @@ class SignalMonitor:
         frequency_hz, source = frequency_of(
             self._hass, receiver_entity_id, signal
         )
-        modulation = getattr(signal, "modulation", None)
         parsed = CaptureResult(
             protocol=RF_PROTOCOL,
             code=None,
@@ -2931,9 +2942,7 @@ class SignalMonitor:
             medium=MEDIUM_RF,
             rf_frequency_hz=frequency_hz,
             rf_frequency_source=source,
-            rf_modulation=str(
-                getattr(modulation, "value", None) or modulation or "OOK"
-            ).upper(),
+            rf_modulation=_rf_modulation(signal),
             rf_frame_hash=analysis.frame_hash,
             rf_repeats_observed=analysis.votes,
             rf_frame_gap_us=analysis.gap_us,
@@ -5162,6 +5171,7 @@ class SignalMonitor:
             body_edges=len(parts.body),
             frequency_hz=frequency_hz,
             frequency_source=source,
+            modulation=_rf_modulation(signal),
             raw=timings,
             verdict=verdict,
         )

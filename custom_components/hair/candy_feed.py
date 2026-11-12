@@ -354,6 +354,7 @@ def rf_frame_event(
     frequency_hz: int | None,
     frequency_source: str | None,
     raw: list[int] | None,
+    modulation: str | None = None,
     verdict: CandyVerdict = UNKNOWN,
 ) -> dict[str, Any]:
     """One frame a one-frame-per-capture receiver handed to the burst
@@ -364,7 +365,7 @@ def rf_frame_event(
     event.update({
         "frequency_hz": frequency_hz,
         "frequency_source": frequency_source,
-        "modulation": None,
+        "modulation": modulation,
         "short_mark_us": None,
         "gap_us": gap_us,
         "gap_source": gap_source,

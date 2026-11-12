@@ -216,11 +216,55 @@ class TestShapes:
         # What a row minted from this burst holds: the assumed gap.
         assert frame["gap_us"] == sm.RF_ASSUMED_FRAME_GAP_US
         assert frame["gap_source"] == "assumed"
+        # The capture's modulation, as the press carries it.
+        assert frame["modulation"] == "OOK" == events[-1]["modulation"]
         press = events[-1]
         assert press["frames"] == len(frames)
         # A burst never existed as one capture: raw is the voted frame.
         assert press["raw"] == press["frame"]
         assert len(store.get_all_devices()) == 1
+
+    @staticmethod
+    async def _hear_at(fake_hass, monitor, times, captures):
+        """Captures at the given loop times, the burst timer never run (a
+        late timer: the next capture's callback runs first)."""
+        for at, capture in zip(times, captures, strict=True):
+            fake_hass.loop.time.return_value = at
+            await _hear(fake_hass, monitor, [capture], receiver=ATHOM_RX)
+
+    @pytest.mark.asyncio
+    async def test_a_late_timer_releases_only_the_ended_bursts_frames(
+        self, fake_hass, keyfob
+    ):
+        """100.0 alone, then 100.3 past its deadline (the timer not yet
+        run), then 100.35: the first burst ends lone with its one frame;
+        the frame at 100.3 belongs to the burst that votes and prints
+        with it."""
+        monitor, store, _ = _monitor(fake_hass)
+        events = _subscribe(monitor, static=True)
+        await self._hear_at(
+            fake_hass, monitor, [100.0, 100.3, 100.35], _one_frame_captures(keyfob, 3)
+        )
+        await _flush_bursts(fake_hass, monitor, ATHOM_RX)
+        assert [(e["stage"], e.get("reason")) for e in events] == [
+            ("static", "lone"), ("frame", None), ("frame", None), ("press", None),
+        ]
+        assert len(store.get_all_devices()) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_late_timer_does_not_print_the_next_frame_early(
+        self, fake_hass, keyfob
+    ):
+        """A burst that votes inside ``add`` prints its frames and its
+        press before the frame that began the next burst."""
+        monitor, _, _ = _monitor(fake_hass)
+        events = _subscribe(monitor, static=True)
+        await self._hear_at(
+            fake_hass, monitor, [100.0, 100.05, 100.4], _one_frame_captures(keyfob, 3)
+        )
+        assert [e["stage"] for e in events] == ["frame", "frame", "press"]
+        await _flush_bursts(fake_hass, monitor, ATHOM_RX)
+        assert [(e["stage"], e.get("reason")) for e in events[3:]] == [("static", "lone")]
 
     def test_a_piece_with_a_measured_gap_keeps_it_last(self):
         """As a row stores one frame: signed, the gap last when measured."""
@@ -772,6 +816,31 @@ class TestCost:
             await _hear(fake_hass, monitor, [STATIC_CAPTURE] * 3)
         assert not any(mock.called for mock in built.values())
         known.assert_not_called()
+
+    def test_one_check_per_capture_with_nobody_subscribed(self, fake_hass, captures):
+        """A capture handed to the burst assembler costs the drawer one
+        truthiness check, whatever its frames, and builds nothing (the
+        per-capture token sits behind that check)."""
+
+        class _Counted(list):
+            checks = 0
+
+            def __len__(self):
+                _Counted.checks += 1
+                return super().__len__()
+
+        monitor, _, _ = _monitor(fake_hass)
+        monitor._candy = _Counted()
+        one = rf_frames.analyze(_signed(captures[0]["pulses"])).frame
+        other = rf_frames.analyze(_signed(captures[1]["pulses"])).frame
+        # Two different frames in one capture: no vote, both to the assembler.
+        capture = [*one, *other]
+        bodied = rf_frames.bodied_pieces(rf_frames.split_frames(capture))
+        assert len(bodied) == 2 and rf_frames.vote(bodied) is None
+        with patch.object(monitor, "_candy_rf_frame") as frame:
+            monitor._on_rf_signal(_signal(capture), ATHOM_RX)
+        frame.assert_not_called()
+        assert _Counted.checks == 1
         fake_hass.loop.call_later.assert_not_called()
         assert monitor._candy_static_window == {} and monitor._candy_memo == {}
 
