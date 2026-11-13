@@ -148,13 +148,16 @@ class TestSource:
     def test_the_pop_out_carries_no_token_and_no_new_door(self):
         controller = (SRC / "candy-controller.ts").read_text(encoding="utf-8")
         console = (SRC / "candy-console.ts").read_text(encoding="utf-8")
-        for source in (controller, console):
+        feed = (SRC / "candy-feed.ts").read_text(encoding="utf-8")
+        for source in (controller, console, feed):
             assert "access_token" not in source
             assert "localStorage" not in source and "sessionStorage" not in source
             assert "postMessage" not in source
-        # The pop-out is a blank window rendered from the panel's code.
+        # The pop-out is a blank window rendered from the panel's code,
+        # and its events come over the panel's own connection.
         assert 'window.open(\n        "",' in controller
-        assert "subscribeCandy(" in controller
+        assert "new CandyFeed(opts.api," in controller
+        assert "this.api\n            .subscribeCandy(" in feed
 
     def test_the_console_is_not_a_custom_element(self):
         console = (SRC / "candy-console.ts").read_text(encoding="utf-8")

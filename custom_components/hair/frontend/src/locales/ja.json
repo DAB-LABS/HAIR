@@ -1301,5 +1301,9 @@
     "candy.capped": "--- 古いブロック {count} 件を破棄、2,000 件を保持 ---",
     "candy.rx": "RX",
     "candy.tx": "TX",
+    "candy.known": "既知",
+    "candy.unknown": "未知",
+    "candy.static": "ノイズ",
+    "candy.static_hidden": "{name}: {count} 件のノイズのキャプチャを非表示",
     "candy.closed": "--- Home Assistant との接続が閉じられました ---"
 }

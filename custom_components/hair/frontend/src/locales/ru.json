@@ -1442,5 +1442,9 @@
     "candy.capped": "--- Удалено старых блоков: {count}, сохранено 2000 ---",
     "candy.rx": "RX",
     "candy.tx": "TX",
+    "candy.known": "Известные",
+    "candy.unknown": "Неизвестные",
+    "candy.static": "Помехи",
+    "candy.static_hidden": "{name}: скрыто захватов помех: {count}",
     "candy.closed": "--- соединение с Home Assistant закрыто ---"
 }

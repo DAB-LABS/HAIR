@@ -1441,5 +1441,9 @@
     "candy.capped": "--- Usunięto starsze bloki: {count}, zachowano 2000 ---",
     "candy.rx": "RX",
     "candy.tx": "TX",
+    "candy.known": "Znane",
+    "candy.unknown": "Nieznane",
+    "candy.static": "Szumy",
+    "candy.static_hidden": "{name}: ukryto przechwycenia szumu ({count})",
     "candy.closed": "--- połączenie z Home Assistant zamknięte ---"
 }

@@ -342,7 +342,7 @@ class SignalStore:
                 self.index_signal(device, signal)
 
     def find_filed_signal(
-        self, identity: SignalIdentity
+        self, identity: SignalIdentity, *, prune: bool = True
     ) -> tuple[UnknownDevice, UnknownSignal] | None:
         """Where this signal already lives, or None if nowhere.
 
@@ -362,6 +362,9 @@ class SignalStore:
         button, and "heard means shown" would quietly stop being true.
         That confirmation is bounded by the per-device signal cap, not
         by the size of the catalog.
+
+        ``prune=False`` leaves the index exactly as it is (the Candy
+        Drawer's lookup, which must write nothing).
         """
         best: tuple[UnknownDevice, UnknownSignal] | None = None
         best_tier = 99
@@ -378,7 +381,7 @@ class SignalStore:
                 if e[0].id in self._devices
                 and any(row is e[1] for row in e[0].signals)
             ]
-            if len(live) != len(bucket):
+            if prune and len(live) != len(bucket):
                 if live:
                     self._sig_index[key] = live
                 else:

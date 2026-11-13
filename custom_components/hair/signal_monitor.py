@@ -15,6 +15,7 @@ activity for user assignment.
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextlib
 import copy
 import logging
@@ -66,7 +67,10 @@ from .const import (
     PINNED_TICKET_ARM_FALLBACK_S,
     RECEIVER_HEARD_MIN_GAP_S,
     REPEAT_ATTRIBUTION_WINDOW,
+    RF_ASSUMED_FRAME_GAP_US,
     RF_BURST_HOLD_S,
+    RF_GAP_ASSUMED,
+    RF_GAP_MEASURED,
     RF_MIN_BODY_EDGES,
     RF_PROTOCOL,
     SEND_REPEAT_GAP,
@@ -102,6 +106,22 @@ from .signal_store import SignalStore
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _rf_modulation(signal: Any) -> str:
+    """A radio capture's modulation as a row stores it (OOK when unsaid)."""
+    modulation = getattr(signal, "modulation", None)
+    return str(getattr(modulation, "value", None) or modulation or "OOK").upper()
+
+
+@contextlib.contextmanager
+def _candy_guard(where: str) -> Any:
+    """The Candy Drawer never costs a capture or a send: a failure in a
+    drawer call is logged at debug and the pipeline carries on."""
+    try:
+        yield
+    except Exception:
+        _LOGGER.debug("Candy Drawer: %s failed", where, exc_info=True)
 
 # What a catalog remote's source says about the triggers minted from it
 # (2026-08-18). UnknownDevice.source is one of sniffed / manual /
@@ -677,8 +697,32 @@ class SignalMonitor:
         # and every send made, raw, while a panel has the drawer open.
         # Empty means nothing is built for it at all.
         self._candy: list[candy_feed.CandyListener] = []
+        # The listeners among them that asked for every static capture,
+        # not only the summary.
+        self._candy_static: list[candy_feed.CandyListener] = []
         # One number per TX block, so an echo can name the send it is.
         self._candy_seq = 0
+        # Per radio receiver, the static captures not yet summarized:
+        # [count, wall time of the first, the flush timer]. Filled only
+        # while a drawer is open.
+        self._candy_static_window: dict[str, list[Any]] = {}
+        # Per radio receiver, the unknown frames waiting for their burst
+        # to end, oldest first, as (fingerprint, event, capture): printed
+        # if the burst votes, static if it ends lone. ``capture`` is shared
+        # by the frames of one capture, [held, printed], so a capture is
+        # counted static once, when its last held frame ends lone and none
+        # of its frames printed. Filled only while a drawer is open; at
+        # most CANDY_HOLD_MAX frames per receiver.
+        self._candy_hold: dict[
+            str, collections.deque[tuple[str, dict[str, Any], list[Any]]]
+        ] = {}
+        # Per receiver key, what the last printed RX block carried and
+        # when (monotonic), so a ditto can carry the verdict of the frame
+        # it repeats. Drawer-only: written in _candy_rx, never read by
+        # the ditto attribution.
+        self._candy_memo: dict[
+            str, tuple[candy_feed.CandyVerdict, float, float | None]
+        ] = {}
 
         # HA device_ids that have fired ``esphome.remote_received`` events
         # since HA started. Populated lazily as bridge events arrive.
@@ -1090,6 +1134,11 @@ class SignalMonitor:
         for assembler in self._rf_bursts.values():
             assembler.discard()
         self._rf_bursts.clear()
+        # The drawer: its listeners belong to connections of this
+        # monitor, and its timers must not fire into them after a reload.
+        self._candy.clear()
+        self._candy_static.clear()
+        self._candy_drop_all()
         if self._rf_tracker is not None:
             self._rf_tracker.async_stop()
             self._rf_tracker = None
@@ -1135,8 +1184,15 @@ class SignalMonitor:
         plan: Any,
         source_label: str,
         heard_future: asyncio.Future[str | None] | None = None,
+        *,
+        device_name: str | None = None,
+        command_name: str | None = None,
+        origin: str | None = None,
     ) -> None:
         """``record_send`` for a radio send (RF send, T1; plan 5.10).
+
+        ``device_name``, ``command_name`` and ``origin`` are for the
+        Candy Drawer's TX block only, as on ``record_send``.
 
         The Mirror row and the echo ticket are made from what goes on the
         air, read by the receive path's own code: the wire frame repeated,
@@ -1188,6 +1244,14 @@ class SignalMonitor:
         ) or "unknown transmitter"
         label = f"{source_label} -- via {emitters}"
         now = monotonic()
+        candy_seq = None
+        if self._candy:
+            with _candy_guard("radio TX"):
+                candy_seq = self._candy_tx_rf(
+                    row, plan, n, source_label,
+                    device_name=device_name, command_name=command_name,
+                    origin=origin,
+                )
         sent_at = datetime.now(UTC).isoformat()
         for entity_id in emitter_ids:
             self._own_send_marks[entity_id] = now
@@ -1231,7 +1295,7 @@ class SignalMonitor:
             "emitters": emitter_ids,
             "armed_at": None,
             "guard_until": 0.0,
-            "candy_seq": None,
+            "candy_seq": candy_seq,
         }
         self._echo_expectations.append(expectation)
 
@@ -1370,11 +1434,14 @@ class SignalMonitor:
         ) or "unknown emitter"
         label = f"{source_label} -- via {emitters}"
         now = monotonic()
-        candy_seq = self._candy_tx(
-            n, source_label, emitter_entity_ids,
-            device_name=device_name, command_name=command_name,
-            sends=send_count or 1, origin=origin,
-        )
+        candy_seq = None
+        if self._candy:
+            with _candy_guard("TX"):
+                candy_seq = self._candy_tx(
+                    n, source_label, emitter_entity_ids,
+                    device_name=device_name, command_name=command_name,
+                    sends=send_count or 1, origin=origin,
+                )
         sent_at = datetime.now(UTC).isoformat()
         for entity_id in emitter_entity_ids:
             self._own_send_marks[entity_id] = now
@@ -2193,18 +2260,20 @@ class SignalMonitor:
             event_data
         ):
             if self._candy:
-                self._candy_emit(candy_feed.ditto_event(
-                    ts=arrived_at,
-                    entity_id=None,
-                    name=LEGACY_ESPHOME_IR_EVENT,
-                    raw=event_data.get("raw") or event_data.get("raw_timings"),
-                    carrier_hz=event_data.get("frequency"),
-                    pronto=(
-                        event_data.get("code")
-                        if str(event_data.get("protocol") or "").upper() == "PRONTO"
-                        else None
-                    ),
-                ))
+                with _candy_guard("ditto"):
+                    self._candy_emit(candy_feed.ditto_event(
+                        ts=arrived_at,
+                        entity_id=None,
+                        name=LEGACY_ESPHOME_IR_EVENT,
+                        verdict=self._candy_ditto_verdict("__legacy__"),
+                        raw=event_data.get("raw") or event_data.get("raw_timings"),
+                        carrier_hz=event_data.get("frequency"),
+                        pronto=(
+                            event_data.get("code")
+                            if str(event_data.get("protocol") or "").upper() == "PRONTO"
+                            else None
+                        ),
+                    ))
             return
         parsed = EventParser.parse(event_data)
         if parsed is None:
@@ -2297,12 +2366,16 @@ class SignalMonitor:
         # and beacon windows are per medium, so neither kind of send can
         # swallow a press of the other kind.
         echo = await self._match_echo(n, receiver_entity_id)
-        if self._candy and n.rf is None:
+        if self._candy:
             # The Candy Drawer prints every frame here, echo or not:
             # after the echo verdict exists, before the dismiss list,
             # the rate limit and repeat suppression can hide anything.
-            # Both receiver paths pass this point.
-            self._candy_rx(n, receiver_entity_id, arrived_at, echo)
+            # Both infrared receiver paths pass this point, and so does
+            # every radio press that passed the vote.
+            with _candy_guard("RX"):
+                self._candy_rx(
+                    n, parsed, receiver_entity_id, arrived_at, echo, rid_key
+                )
         if echo:
             self._ditto_anchor.pop(rid_key, None)
             return
@@ -2661,14 +2734,16 @@ class SignalMonitor:
         # frame on the SAME receiver instead of dropping it (v0.5.5/0.5.7).
         if EventParser.is_native_repeat(signal):
             if self._candy:
-                modulation = getattr(signal, "modulation", None)
-                self._candy_emit(candy_feed.ditto_event(
-                    ts=arrived_at,
-                    entity_id=receiver_entity_id,
-                    name=self._candy_name(receiver_entity_id),
-                    raw=EventParser.timings_to_raw(signal.timings),
-                    carrier_hz=int(modulation) if modulation else None,
-                ))
+                with _candy_guard("ditto"):
+                    modulation = getattr(signal, "modulation", None)
+                    self._candy_emit(candy_feed.ditto_event(
+                        ts=arrived_at,
+                        entity_id=receiver_entity_id,
+                        name=self._candy_name(receiver_entity_id),
+                        raw=EventParser.timings_to_raw(signal.timings),
+                        carrier_hz=int(modulation) if modulation else None,
+                        verdict=self._candy_ditto_verdict(rid_key),
+                    ))
             self._maybe_attribute_repeat_frame(rid_key)
             return
 
@@ -2692,6 +2767,10 @@ class SignalMonitor:
         self._ditto_anchor[rid_key] = (None, time.monotonic(), n_dev_fp)
         self._ditto_running_count[rid_key] = 0
         self._last_ditto_monotonic.pop(rid_key, None)
+        if self._candy:
+            # A ditto landing while this frame is in flight must not
+            # borrow the previous press's verdict: it prints as an orphan.
+            self._candy_memo.pop(rid_key, None)
 
         self._hass.async_create_task(
             self._process_parsed_signal(parsed, receiver_entity_id, arrived_at)
@@ -2707,6 +2786,8 @@ class SignalMonitor:
         assembler = self._rf_bursts.pop(receiver_entity_id, None)
         if assembler is not None:
             assembler.discard()
+        # Its held frames would never see their burst end.
+        self._candy_hold.pop(receiver_entity_id, None)
         self.rf_always_on.detach(receiver_entity_id)
 
     def _rf_assembler(self, receiver_entity_id: str) -> Any:
@@ -2716,17 +2797,50 @@ class SignalMonitor:
 
             loop = self._hass.loop
             assembler = BurstAssembler(
-                on_burst=lambda analysis, signal, rid=receiver_entity_id: (
-                    self._emit_rf(analysis, signal, rid)
+                on_burst=lambda analysis, signal, frames, fp, rid=receiver_entity_id: (
+                    self._rf_burst_voted(rid, analysis, signal, frames, fp)
                 ),
-                on_lone=lambda rid=receiver_entity_id: (
-                    self.rf_always_on.count(rid, "lone_frames")
+                on_lone=lambda fp, rid=receiver_entity_id: (
+                    self._rf_burst_lone(rid, fp)
                 ),
                 call_at=loop.call_at,
                 now=loop.time,
             )
             self._rf_bursts[receiver_entity_id] = assembler
         return assembler
+
+    def _rf_burst_voted(
+        self, rid: str, analysis: Any, signal: Any, frames: int, fingerprint: str
+    ) -> None:
+        """A burst voted: its held frames print, then the press goes on.
+
+        A vote too short to be a remote's, of a code HAIR does not hold, is
+        static (the pipeline counts it as noise and files nothing): its
+        held frames go to static instead, and are the only count it gets.
+        """
+        if self._candy:
+            with _candy_guard("held frames"):
+                short = analysis.body_edges < RF_MIN_BODY_EDGES and (
+                    self._candy_known(
+                        sig_fp=analysis.fingerprint, byte_hash=analysis.frame_hash,
+                        decoded_fingerprint=None, norm_fp=None,
+                        protocol=RF_PROTOCOL, code=None, decode_covers=None,
+                    ).verdict != candy_feed.VERDICT_KNOWN
+                )
+                self._candy_release(
+                    rid, fingerprint, voted=not short, reason=candy_feed.STATIC_SHORT
+                )
+        self._emit_rf(analysis, signal, rid, frames=frames)
+
+    def _rf_burst_lone(self, rid: str, fingerprint: str) -> None:
+        """A burst ended without a vote: a lone frame, and for the drawer,
+        static."""
+        self.rf_always_on.count(rid, "lone_frames")
+        if self._candy:
+            with _candy_guard("held frames"):
+                self._candy_release(
+                    rid, fingerprint, voted=False, reason=candy_feed.STATIC_LONE
+                )
 
     def _on_rf_signal(self, signal: Any, receiver_entity_id: str) -> None:
         """Handle a capture from a radio frequency receiver.
@@ -2761,6 +2875,11 @@ class SignalMonitor:
         timings = list(getattr(signal, "timings", None) or [])
         bodied = bodied_pieces(split_frames(timings))
         if not bodied:
+            if self._candy:
+                with _candy_guard("static"):
+                    self._candy_static_hit(
+                        receiver_entity_id, timings, candy_feed.STATIC_NO_BODY
+                    )
             if always_on:
                 self.rf_always_on.count(receiver_entity_id, "noise")
                 self.rf_always_on.note_time(receiver_entity_id, started)
@@ -2772,22 +2891,51 @@ class SignalMonitor:
             return
         analysis = vote(bodied)
         if analysis is not None:
-            self._emit_rf(analysis, signal, receiver_entity_id)
+            self._emit_rf(
+                analysis, signal, receiver_entity_id,
+                frames=len(bodied), raw=timings,
+            )
         else:
             assembler = self._rf_assembler(receiver_entity_id)
-            for piece, parts in bodied:
-                assembler.add(frame_fingerprint(parts), (piece, parts), signal)
+            if self._candy:
+                # The drawer's token for this capture: [frames held,
+                # printed, any held piece long enough to be a remote's].
+                capture: list[Any] = [0, False, False]
+                for piece, parts in bodied:
+                    # Add first: ``add`` can end an earlier burst of the
+                    # same key whose deadline passed before its timer ran,
+                    # and that burst must release only its own frames.
+                    assembler.add(frame_fingerprint(parts), (piece, parts), signal)
+                    with _candy_guard("radio frame"):
+                        self._candy_rf_frame(
+                            receiver_entity_id, piece, parts, signal, timings, capture
+                        )
+            else:
+                for piece, parts in bodied:
+                    assembler.add(frame_fingerprint(parts), (piece, parts), signal)
         if always_on:
             self.rf_always_on.note_time(receiver_entity_id, started)
 
-    def _emit_rf(self, analysis: Any, signal: Any, receiver_entity_id: str) -> None:
-        """A press that passed the vote, into the shared pipeline."""
+    def _emit_rf(
+        self,
+        analysis: Any,
+        signal: Any,
+        receiver_entity_id: str,
+        *,
+        frames: int | None = None,
+        raw: list[int] | None = None,
+    ) -> None:
+        """A press that passed the vote, into the shared pipeline.
+
+        ``frames`` is how many bodied frames the capture or burst held,
+        and ``raw`` the capture as received (None for a burst, which
+        never existed as one capture). Only the Candy Drawer reads them.
+        """
         from .rf_receive import frequency_of
 
         frequency_hz, source = frequency_of(
             self._hass, receiver_entity_id, signal
         )
-        modulation = getattr(signal, "modulation", None)
         parsed = CaptureResult(
             protocol=RF_PROTOCOL,
             code=None,
@@ -2795,9 +2943,7 @@ class SignalMonitor:
             medium=MEDIUM_RF,
             rf_frequency_hz=frequency_hz,
             rf_frequency_source=source,
-            rf_modulation=str(
-                getattr(modulation, "value", None) or modulation or "OOK"
-            ).upper(),
+            rf_modulation=_rf_modulation(signal),
             rf_frame_hash=analysis.frame_hash,
             rf_repeats_observed=analysis.votes,
             rf_frame_gap_us=analysis.gap_us,
@@ -2806,6 +2952,8 @@ class SignalMonitor:
             rf_short_mark_us=analysis.short_mark_us,
         )
         parsed.rf = analysis  # type: ignore[attr-defined]
+        parsed.rf_frames_seen = frames  # type: ignore[attr-defined]
+        parsed.rf_capture_raw = raw  # type: ignore[attr-defined]
         self._hass.async_create_task(
             self._process_parsed_signal(parsed, receiver_entity_id, time.time())
         )
@@ -4778,22 +4926,135 @@ class SignalMonitor:
     # The Candy Drawer (candy_feed.py): raw events, never stored
     # -----------------------------------------------------------------
 
-    def candy_subscribe(self, listener: candy_feed.CandyListener) -> None:
-        """Start handing every frame heard and every send to ``listener``."""
+    def candy_subscribe(
+        self, listener: candy_feed.CandyListener, *, static: bool = False
+    ) -> None:
+        """Start handing every frame heard and every send to ``listener``.
+
+        With ``static``, also every radio static capture; without it, a
+        summary of them every 5 s per receiver.
+        """
         if listener not in self._candy:
             self._candy.append(listener)
+        if static and listener not in self._candy_static:
+            self._candy_static.append(listener)
 
     def candy_unsubscribe(self, listener: candy_feed.CandyListener) -> None:
         """Stop handing events to ``listener``."""
         with contextlib.suppress(ValueError):
             self._candy.remove(listener)
+        with contextlib.suppress(ValueError):
+            self._candy_static.remove(listener)
+        if not self._candy:
+            # Nobody is watching: keep nothing for the drawer.
+            self._candy_drop_all()
+
+    def _candy_drop_all(self) -> None:
+        """Keep nothing for the drawer: timers, windows, hold, memo."""
+        for window in self._candy_static_window.values():
+            window[2].cancel()
+        self._candy_static_window.clear()
+        self._candy_hold.clear()
+        self._candy_memo.clear()
 
     def _candy_emit(self, event: dict[str, Any]) -> None:
-        for listener in list(self._candy):
+        self._candy_send(self._candy, event)
+
+    @staticmethod
+    def _candy_send(
+        listeners: list[candy_feed.CandyListener], event: dict[str, Any]
+    ) -> None:
+        for listener in list(listeners):
             try:
                 listener(event)
             except Exception:
                 _LOGGER.exception("Error handing an event to the Candy Drawer")
+
+    # The verdict: does HAIR already hold this code, and where from.
+
+    def _candy_known(
+        self,
+        *,
+        sig_fp: str,
+        byte_hash: str | None,
+        decoded_fingerprint: str | None,
+        norm_fp: str | None,
+        protocol: str | None,
+        code: str | None,
+        decode_covers: bool | None,
+    ) -> candy_feed.CandyVerdict:
+        """Device, then trigger, then Sniffer row. Read-only, drawer only.
+
+        The same lookups the pipeline makes, none of the calls that
+        count, stamp or fire: ``match_command`` (the store's reverse
+        index), ``get_triggers_for_signal`` (the matcher under the
+        trigger manager, which applies no receiver scope: a code held
+        for another room is still held), and ``find_filed_signal`` with
+        pruning off. The Mirror's rows are never in the filing index.
+        """
+        try:
+            ref = self._hair_store.match_command(
+                decoded_fingerprint, sig_fp, byte_hash, norm_fp
+            )
+            if ref is not None:
+                device = self._hair_store.get_device(ref[0])
+                command = device.get_command(ref[1]) if device is not None else None
+                if device is not None and command is not None:
+                    return candy_feed.CandyVerdict(
+                        candy_feed.VERDICT_KNOWN,
+                        candy_feed.KNOWN_FROM_DEVICE,
+                        f"{device.name} / {command.name}",
+                    )
+            triggers = self._hair_store.get_triggers_for_signal(
+                protocol, code, sig_fp, byte_hash, decoded_fingerprint,
+                norm_fp, decode_covers,
+            )
+            names = sorted(t.name for t in triggers or [])
+            if names:
+                # Several can match; the first by name, so the header does
+                # not flicker between presses.
+                return candy_feed.CandyVerdict(
+                    candy_feed.VERDICT_KNOWN, candy_feed.KNOWN_FROM_TRIGGER, names[0]
+                )
+            filed = self._signal_store.find_filed_signal(
+                SignalIdentity(decoded_fingerprint, byte_hash, sig_fp),
+                prune=False,
+            )
+            if filed is not None:
+                remote, row = filed
+                index = next(
+                    (i for i, held in enumerate(remote.signals, 1) if held is row), 0
+                )
+                return candy_feed.CandyVerdict(
+                    candy_feed.VERDICT_KNOWN,
+                    candy_feed.KNOWN_FROM_SNIFFER,
+                    f"{remote.label or 'Remote'} / "
+                    f"{row.alias.strip() or f'Signal {index}'}",
+                )
+        except Exception:  # the drawer must never break a capture
+            _LOGGER.debug("Candy Drawer: verdict lookup failed", exc_info=True)
+        return candy_feed.UNKNOWN
+
+    def _candy_ditto_verdict(self, rid_key: str) -> candy_feed.CandyVerdict:
+        """A ditto carries the verdict of the frame it repeats, if fresh.
+
+        Fresh is within ``REPEAT_ATTRIBUTION_WINDOW`` of the main frame
+        and within ``DITTO_INTER_FRAME_MAX_S`` of the last ditto that
+        carried it, the windows the ditto attribution uses; each ditto
+        that inherits refreshes the second, so a long hold stays Known.
+        """
+        memo = self._candy_memo.get(rid_key)
+        if memo is None:
+            return candy_feed.UNKNOWN
+        verdict, main_at, last_at = memo
+        now = time.monotonic()
+        if (last_at is None and now - main_at > REPEAT_ATTRIBUTION_WINDOW) or (
+            last_at is not None and now - last_at > DITTO_INTER_FRAME_MAX_S
+        ):
+            self._candy_memo.pop(rid_key, None)
+            return candy_feed.UNKNOWN
+        self._candy_memo[rid_key] = (verdict, main_at, now)
+        return verdict
 
     def _candy_name(self, entity_id: str | None) -> str | None:
         return self._friendly_name(entity_id) if entity_id else None
@@ -4801,14 +5062,66 @@ class SignalMonitor:
     def _candy_rx(
         self,
         n: NormalizedSignal,
+        parsed: Any,
         receiver_entity_id: str | None,
         arrived_at: float | None,
         echo: EchoVerdict | None,
+        rid_key: str,
     ) -> None:
-        """Print one received frame, with what the echo gate made of it."""
+        """Print one received frame or radio press, with what the echo
+        gate made of it and whether HAIR already holds the code."""
         ticket = echo.ticket if echo is not None else None
+        ts = arrived_at if arrived_at is not None else time.time()
+        verdict = (
+            candy_feed.KNOWN_ECHO
+            if echo
+            else self._candy_known(
+                sig_fp=n.sig_fp,
+                byte_hash=n.byte_hash,
+                decoded_fingerprint=n.decoded_fingerprint,
+                norm_fp=n.norm_fp,
+                protocol=getattr(parsed, "protocol", None),
+                code=getattr(parsed, "code", None),
+                decode_covers=n.decode_covers,
+            )
+        )
+        echo_fields = {
+            "echo": echo.kind if echo is not None else None,
+            "echo_of": ticket.get("candy_seq") if ticket is not None else None,
+            "echo_via": echo.via if echo is not None else None,
+        }
+        if n.rf is not None:
+            if (
+                verdict.verdict == candy_feed.VERDICT_UNKNOWN
+                and n.rf.body_edges < RF_MIN_BODY_EDGES
+            ):
+                # Repeating scrap that passed the vote: the pipeline
+                # counts it as noise and never files it, so it is static.
+                # A burst's scrap was counted through its held frames
+                # (``_rf_burst_voted``); a whole capture's is counted here.
+                raw = getattr(parsed, "rf_capture_raw", None)
+                if raw is not None:
+                    self._candy_static_hit(
+                        receiver_entity_id or "", raw, candy_feed.STATIC_SHORT
+                    )
+                return
+            self._candy_emit(candy_feed.rf_press_event(
+                ts=ts,
+                entity_id=receiver_entity_id,
+                name=self._candy_name(receiver_entity_id),
+                n=n,
+                frames=getattr(parsed, "rf_frames_seen", None),
+                raw=getattr(parsed, "rf_capture_raw", None),
+                frequency_hz=getattr(parsed, "rf_frequency_hz", None),
+                frequency_source=getattr(parsed, "rf_frequency_source", None),
+                modulation=getattr(parsed, "rf_modulation", None),
+                verdict=verdict,
+                **echo_fields,
+            ))
+            return
+        self._candy_memo[rid_key] = (verdict, time.monotonic(), None)
         self._candy_emit(candy_feed.rx_event(
-            ts=arrived_at if arrived_at is not None else time.time(),
+            ts=ts,
             entity_id=receiver_entity_id,
             name=(
                 self._candy_name(receiver_entity_id)
@@ -4816,9 +5129,153 @@ class SignalMonitor:
                 else LEGACY_ESPHOME_IR_EVENT
             ),
             n=n,
-            echo=echo.kind if echo is not None else None,
-            echo_of=ticket.get("candy_seq") if ticket is not None else None,
-            echo_via=echo.via if echo is not None else None,
+            verdict=verdict,
+            **echo_fields,
+        ))
+
+    # Radio: lone frames, static.
+
+    def _candy_rf_frame(
+        self,
+        receiver_entity_id: str,
+        piece: Any,
+        parts: Any,
+        signal: Any,
+        timings: list[int],
+        capture: list[Any],
+    ) -> None:
+        """Print a frame handed to the burst assembler, before its press."""
+        from .rf_frames import frame_fingerprint, frame_hash, piece_frame
+        from .rf_receive import frequency_of
+
+        frame = piece_frame(piece)
+        fingerprint = frame_fingerprint(parts)
+        hashed = frame_hash(parts)
+        frequency_hz, source = frequency_of(self._hass, receiver_entity_id, signal)
+        verdict = self._candy_known(
+            sig_fp=fingerprint, byte_hash=hashed, decoded_fingerprint=None,
+            norm_fp=None, protocol=RF_PROTOCOL, code=None, decode_covers=None,
+        )
+        event = candy_feed.rf_frame_event(
+            ts=time.time(),
+            entity_id=receiver_entity_id,
+            name=self._candy_name(receiver_entity_id),
+            frame=frame,
+            # What a row minted from this burst would hold: the measured
+            # gap, else the assumed one.
+            gap_us=(
+                int(piece.gap) if piece.gap is not None else RF_ASSUMED_FRAME_GAP_US
+            ),
+            gap_source=RF_GAP_MEASURED if piece.gap is not None else RF_GAP_ASSUMED,
+            fingerprint=fingerprint,
+            frame_hash=hashed,
+            body_edges=len(parts.body),
+            frequency_hz=frequency_hz,
+            frequency_source=source,
+            modulation=_rf_modulation(signal),
+            raw=timings,
+            verdict=verdict,
+        )
+        if verdict.verdict == candy_feed.VERDICT_KNOWN:
+            # A frame of a held code: noise does not match held codes, so
+            # it prints as it comes.
+            capture[1] = True
+            self._candy_emit(event)
+            return
+        # Any other frame waits for its burst: most bodied pieces on an
+        # always-on receiver are noise that never votes.
+        held = self._candy_hold.setdefault(receiver_entity_id, collections.deque())
+        if len(held) >= candy_feed.CANDY_HOLD_MAX:
+            _fp, old, old_capture = held.popleft()
+            self._candy_frame_done(
+                receiver_entity_id, old, old_capture, printed=False,
+                reason=candy_feed.STATIC_LONE,
+            )
+        capture[0] += 1
+        if len(parts.body) >= RF_MIN_BODY_EDGES:
+            capture[2] = True
+        # Keyed by the assembler's own key for the burst.
+        held.append((fingerprint, event, capture))
+
+    def _candy_release(
+        self, rid: str, fingerprint: str, *, voted: bool, reason: str
+    ) -> None:
+        """A burst ended: its held frames print (it voted) or go to static
+        (it ended lone). Each keeps its own arrival time."""
+        held = self._candy_hold.get(rid)
+        if not held:
+            return
+        mine = [item for item in held if item[0] == fingerprint]
+        if not mine:
+            return
+        self._candy_hold[rid] = collections.deque(
+            item for item in held if item[0] != fingerprint
+        )
+        for _fp, event, capture in mine:
+            self._candy_frame_done(rid, event, capture, printed=voted, reason=reason)
+
+    def _candy_frame_done(
+        self,
+        rid: str,
+        event: dict[str, Any],
+        capture: list[Any],
+        *,
+        printed: bool,
+        reason: str,
+    ) -> None:
+        """One held frame's fate. A capture whose frames all ended lone,
+        none printed, is one static capture, counted once.
+
+        A capture none of whose held pieces was long enough to be a
+        remote's frame is hiss, not a lone frame: it says ``short``, as a
+        too-short vote does. The token remembers whether any piece was, so
+        the answer does not depend on which piece is released last.
+        """
+        capture[0] -= 1
+        if printed:
+            capture[1] = True
+            self._candy_emit(event)
+        elif capture[0] <= 0 and not capture[1]:
+            if (
+                reason == candy_feed.STATIC_LONE and not capture[2]
+            ):
+                reason = candy_feed.STATIC_SHORT
+            self._candy_static_hit(rid, event.get("raw"), reason)
+
+    def _candy_static_hit(
+        self, receiver_entity_id: str, raw: list[int] | None, reason: str
+    ) -> None:
+        """Count one static capture toward the receiver's summary, and
+        print it to the listeners that asked for every one."""
+        if self._candy_static:
+            self._candy_send(self._candy_static, candy_feed.rf_static_capture_event(
+                ts=time.time(),
+                entity_id=receiver_entity_id,
+                name=self._candy_name(receiver_entity_id),
+                raw=raw,
+                reason=reason,
+            ))
+        window = self._candy_static_window.get(receiver_entity_id)
+        if window is None:
+            handle = self._hass.loop.call_later(
+                candy_feed.CANDY_STATIC_SUMMARY_S,
+                lambda rid=receiver_entity_id: self._candy_static_flush(rid),
+            )
+            window = [0, time.time(), handle]
+            self._candy_static_window[receiver_entity_id] = window
+        window[0] += 1
+
+    def _candy_static_flush(self, receiver_entity_id: str) -> None:
+        """The receiver's static summary, at most one per 5 s."""
+        window = self._candy_static_window.pop(receiver_entity_id, None)
+        if window is None or not window[0] or not self._candy:
+            return
+        self._candy_emit(candy_feed.rf_static_summary_event(
+            ts=time.time(),
+            entity_id=receiver_entity_id,
+            name=self._candy_name(receiver_entity_id),
+            count=window[0],
+            since=window[1],
         ))
 
     def _candy_tx(
@@ -4850,5 +5307,47 @@ class SignalMonitor:
             command_name=command_name,
             sends=sends,
             origin=origin,
+        ))
+        return self._candy_seq
+
+    def _candy_tx_rf(
+        self,
+        row: Any,
+        plan: Any,
+        n: NormalizedSignal,
+        label: str,
+        *,
+        device_name: str | None,
+        command_name: str | None,
+        origin: str | None,
+    ) -> int | None:
+        """Print one radio send as planned; return its sequence number, or
+        None when nobody is watching (then nothing is built at all)."""
+        if not self._candy:
+            return None
+        self._candy_seq += 1
+        self._candy_emit(candy_feed.rf_tx_event(
+            ts=time.time(),
+            seq=self._candy_seq,
+            n=n,
+            frame=list(getattr(row, "raw_timings", None) or []),
+            gap_us=getattr(row, "rf_frame_gap_us", None),
+            wire=list(plan.timings),
+            emitters=[
+                {"entity_id": e, "name": self._friendly_name(e)}
+                for e in plan.attempted
+            ],
+            skipped=[
+                {"entity_id": e, "name": self._friendly_name(e), "reason": reason}
+                for e, reason in plan.skipped.items()
+            ],
+            label=label,
+            device=device_name,
+            command_name=command_name,
+            sends=plan.count,
+            origin=origin,
+            frequency_hz=getattr(row, "rf_frequency_hz", None),
+            on_air_hz=plan.on_air_hz,
+            substituted=plan.substituted,
         ))
         return self._candy_seq

@@ -4284,6 +4284,7 @@ async def ws_subscribe_triggers(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/candy/subscribe",
+    vol.Optional("static", default=False): bool,
 })
 @websocket_api.async_response
 async def ws_subscribe_candy(
@@ -4292,6 +4293,9 @@ async def ws_subscribe_candy(
     msg: dict[str, Any],
 ) -> None:
     """Stream the Candy Drawer: every frame heard and every send made.
+
+    With ``static``, also every radio static capture; without it, a
+    summary of them every 5 s per receiver.
 
     Admin only. Events go to this connection and nowhere else: nothing
     is stored and nothing is fired on the bus. Unsubscribing, or the
@@ -4310,7 +4314,7 @@ async def ws_subscribe_candy(
     def _on_candy(event: dict[str, Any]) -> None:
         connection.send_event(msg_id, event)
 
-    monitor.candy_subscribe(_on_candy)
+    monitor.candy_subscribe(_on_candy, static=bool(msg.get("static")))
 
     @callback
     def _on_disconnect() -> None:

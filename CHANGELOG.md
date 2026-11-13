@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Candy Drawer now shows radio as well as infrared: presses, HAIR's own radio sends and their echoes, each with the band and the code as a `.sub` you can paste into the Clipper. Every received block says whether HAIR already knows the code (and what holds it) or whether it's new. New chips filter by IR or RF and by Known or Unknown. Radio static is counted on one line per receiver; turn on the Static chip to see it.
+
 ### Changed
 
 - A command that a device has no emitter for now says which code, which kind and which device, for example "Power is a radio code and Bench Plug has no radio transmitter. Add one in the device's settings." When the device's radio transmitters cannot send the code's band, it says so with the band.

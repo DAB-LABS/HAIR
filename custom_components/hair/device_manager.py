@@ -1528,6 +1528,9 @@ class DeviceManager:
                     else f"{device.name} / {send_name}"
                 ),
                 heard_future=heard_future,
+                device_name=device.name,
+                command_name=send_name,
+                origin=getattr(sent, "origin", None),
             )
 
         await async_transmit(self._hass, plan)

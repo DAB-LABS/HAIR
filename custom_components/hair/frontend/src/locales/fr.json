@@ -1301,5 +1301,9 @@
     "candy.capped": "--- {count} blocs anciens supprimés, 2 000 conservés ---",
     "candy.rx": "RX",
     "candy.tx": "TX",
+    "candy.known": "Connu",
+    "candy.unknown": "Inconnu",
+    "candy.static": "Parasites",
+    "candy.static_hidden": "{name} : {count} captures de parasites masquées",
     "candy.closed": "--- connexion à Home Assistant fermée ---"
 }
