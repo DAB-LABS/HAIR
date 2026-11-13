@@ -58,6 +58,9 @@ export interface CandyEvent {
     count?: number | null;
     since?: number | null;
     values?: number | null;
+    /** A radio family's decoded fields, in display order (rf_family.py);
+     *  null when no family matched. The label itself is ``protocol``. */
+    family_fields?: { name: string; value: string }[] | null;
     /** A single static capture: why it is static. */
     reason?: "lone" | "no_body" | "short" | string | null;
     on_air_hz?: number | null;
@@ -243,11 +246,22 @@ function ms(us: number): string {
     return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} ms`;
 }
 
+/** A radio family, as the block prints it: the label, then each
+ *  decoded field as "name value" ("EV1527 address 950E4 data 9").
+ *  Empty when no family matched. */
+export function familyText(e: CandyEvent): string {
+    if (!e.protocol) return "";
+    const parts = [e.protocol];
+    for (const f of e.family_fields ?? []) parts.push(`${f.name} ${f.value}`);
+    return parts.join(" ");
+}
+
 /** A radio block's second line: band and source, short mark, gap,
- *  frames and agreement, fingerprint. A family name, when decoders
- *  exist, goes right after "RF". */
+ *  frames and agreement, fingerprint. A family, when one matched, goes
+ *  right after "RF". */
 function radioLine(e: CandyEvent): string {
-    const head = e.protocol ? `RF${GAP}${e.protocol}` : "RF";
+    const family = familyText(e);
+    const head = family ? `RF${GAP}${family}` : "RF";
     const fields = [head];
     if (e.dir === "tx") {
         const band = mhz(e.frequency_hz);

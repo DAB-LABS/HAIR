@@ -23,6 +23,9 @@ from pathlib import Path
 
 import pytest
 
+from custom_components.hair.rf_family import family_slots
+from custom_components.hair.tests.test_rf_family import _frame
+
 FRONTEND = Path(__file__).parent.parent / "frontend"
 TSC = FRONTEND / "node_modules" / ".bin" / "tsc"
 SRC = FRONTEND / "src"
@@ -33,6 +36,15 @@ TOOLCHAIN_MISSING = not TSC.exists() or shutil.which("node") is None
 TS = 1793473471.218  # 2026-10-31 19:04:31.218 UTC
 
 FRAME = [456, -1368, 1368, -456, 456, -1368, 456, -12900]
+# The drawer's two family slots, as the server fills them (rf_family.py):
+# the keyfob's button 1 on (EV1527), a code with no "10" symbol (PT2262
+# or EV1527), and a frame no family reads.
+FAMILIES = [
+    family_slots(_frame(0x950E49)),
+    family_slots(_frame(0x1C50C3)),
+    family_slots(FRAME),
+]
+
 PRESS = {
     "ts": TS, "dir": "rx", "entity_id": "radio_frequency.athom_rx",
     "name": "Athom IR-RF 433MHz RF Receiver", "medium": "rf",
@@ -116,6 +128,10 @@ console.log(JSON.stringify({
                           frame: null, verdict: "unknown", known_from: null,
                           known_name: null }, "UTC"),
     family: formatBlock({ ...press, protocol: "EV1527" }, "UTC").split("\n")[1],
+    families: __FAMILIES__.map(
+        (slots) => formatBlock({ ...press, ...slots }, "UTC").split("\n")[1],
+    ),
+    familyTx: formatBlock({ ...tx, ...__FAMILIES__[0] }, "UTC").split("\n")[1],
     echo: formatBlock({ ...press, echo: "send", echo_of: 9, known_from: "echo",
                         known_name: null }, "UTC").split("\n")[0],
     staticCapture: formatBlock({ ts: press.ts, dir: "rx", entity_id: "radio_frequency.athom_rx",
@@ -185,7 +201,10 @@ def run(tmp_path_factory):
         cwd=FRONTEND, check=True, capture_output=True, timeout=180,
     )
     (out / "driver.mjs").write_text(
-        DRIVER.replace("__PRESS__", json.dumps(PRESS)), encoding="utf-8"
+        DRIVER.replace("__PRESS__", json.dumps(PRESS)).replace(
+            "__FAMILIES__", json.dumps(FAMILIES)
+        ),
+        encoding="utf-8",
     )
     result = subprocess.run(
         ["node", str(out / "driver.mjs")],
@@ -227,6 +246,27 @@ class TestARadioPress:
 
     def test_a_family_name_goes_after_rf(self, run):
         assert run["family"].startswith("RF  EV1527   433.92 MHz (receiver)")
+
+    def test_the_server_family_slots(self):
+        assert FAMILIES[0]["protocol"] == "EV1527"
+        assert FAMILIES[1]["protocol"] == "PT2262 or EV1527"
+        assert FAMILIES[2] == {"protocol": None, "family_fields": None}
+
+    def test_a_decoded_family_prints_its_fields(self, run):
+        assert run["families"][0].startswith(
+            "RF  EV1527 address 950E4 data 9   433.92 MHz (receiver)"
+        )
+
+    def test_an_ambiguous_family_prints_tri_state_then_code(self, run):
+        assert run["families"][1].startswith(
+            "RF  PT2262 or EV1527 tri-state 0F10FF001001 code 1C50C3   433.92 MHz"
+        )
+
+    def test_no_family_prints_nothing_after_rf(self, run):
+        assert run["families"][2].startswith("RF   433.92 MHz (receiver)")
+
+    def test_a_send_prints_its_family(self, run):
+        assert run["familyTx"].startswith("RF  EV1527 address 950E4 data 9   ")
 
     def test_no_band_and_no_frame(self, run):
         lines = run["noBand"].split("\n")
