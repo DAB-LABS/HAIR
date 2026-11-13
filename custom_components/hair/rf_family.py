@@ -140,6 +140,24 @@ class RfFamily:
         }
 
 
+def family_payload(frame: list[int] | tuple[int, ...] | None) -> dict[str, Any] | None:
+    """``family_of`` as the panel receives it: the object, or None."""
+    result = family_of(frame)
+    return result.to_dict() if result is not None else None
+
+
+def family_slots(frame: list[int] | tuple[int, ...] | None) -> dict[str, Any]:
+    """The Candy Drawer's two keys for a radio event: ``protocol`` (the
+    label) and ``family_fields`` (the fields as name and value)."""
+    result = family_of(frame)
+    if result is None:
+        return {"protocol": None, "family_fields": None}
+    return {
+        "protocol": result.label,
+        "family_fields": [{"name": n, "value": v} for n, v in result.fields],
+    }
+
+
 def family_of(frame: list[int] | tuple[int, ...] | None) -> RfFamily | None:
     """The family of one voted frame, or None when no family fits."""
     if not frame:

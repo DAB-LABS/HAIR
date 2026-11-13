@@ -304,10 +304,22 @@ def _media(rows: Any, *, matrix: bool = False) -> list[str]:
     return [m for m in (MEDIUM_IR, MEDIUM_RF) if m in present]
 
 
+def _augment_rf_family(rows: Any) -> None:
+    """Give each radio row its family label, worked out from the row's
+    own timings for the panel (a label only: never stored, never part of
+    the identity). Infrared rows are left as they are."""
+    from .rf_family import family_payload
+
+    for row in rows or []:
+        if isinstance(row, dict) and row.get("medium") == MEDIUM_RF:
+            row["rf_family"] = family_payload(row.get("raw_timings"))
+
+
 async def _device_full(
     hass: HomeAssistant, device: IRDevice
 ) -> dict[str, Any]:
     full = device.to_dict()
+    _augment_rf_family(full.get("commands"))
     # The store record omits an unset settle time (models.py, so the
     # default stays a default); the panel always gets the key, null
     # meaning the default, the same as the list summary sends.
@@ -2245,6 +2257,7 @@ async def ws_get_unknown_device(
         connection.send_error(msg["id"], "not_found", "Unknown device not found")
         return
     result = device.to_dict()
+    _augment_rf_family(result.get("signals"))
     # Annotate each signal with its HAIR-command assignment count for the green
     # Assign dot (dots polish, v0.5.7). Non-critical enrichment: if the HAIR
     # store is not wired, the signals simply carry no assignment info.

@@ -230,3 +230,113 @@ class TestLabelsOnly:
     def test_the_module_imports_nothing_from_home_assistant(self):
         source = Path(rf_family.__file__).read_text()
         assert "homeassistant" not in source
+
+
+# ---------------------------------------------------------------------------
+# Where the label travels
+# ---------------------------------------------------------------------------
+
+
+class TestWhereItTravels:
+    def test_the_drawers_slots(self):
+        from custom_components.hair.rf_family import family_slots
+
+        assert family_slots(_frame(0x950E49)) == {
+            "protocol": "EV1527",
+            "family_fields": [
+                {"name": "address", "value": "950E4"}, {"name": "data", "value": "9"},
+            ],
+        }
+        assert family_slots(_frame(0x950E49, ratio=2)) == {
+            "protocol": None, "family_fields": None,
+        }
+
+    def test_a_radio_frame_event_and_a_send_carry_it(self):
+        from custom_components.hair import candy_feed
+
+        frame = _frame(0x950E41)
+        event = candy_feed.rf_frame_event(
+            ts=0.0, entity_id="radio_frequency.rx", name="RX", frame=frame,
+            gap_us=12_400, gap_source="measured", fingerprint="fp", frame_hash="h",
+            body_edges=49, frequency_hz=433_920_000, frequency_source="signal",
+            raw=frame,
+        )
+        assert event["protocol"] == "EV1527"
+        assert event["family_fields"][1] == {"name": "data", "value": "1"}
+
+    def test_static_carries_none(self):
+        from custom_components.hair import candy_feed
+
+        summary = candy_feed.rf_static_summary_event(
+            ts=0.0, entity_id="radio_frequency.rx", name="RX", count=3, since=0.0,
+        )
+        assert summary["protocol"] is None and summary["family_fields"] is None
+
+    def test_the_doors_label_radio_rows_only(self):
+        from custom_components.hair.websocket_api import _augment_rf_family
+
+        rows = [
+            {"medium": "rf", "raw_timings": _frame(0x950E49)},
+            {"medium": "rf", "raw_timings": _frame(0x950E49, ratio=2)},
+            {"raw_timings": [9000, -4500, 560]},
+        ]
+        _augment_rf_family(rows)
+        assert rows[0]["rf_family"]["label"] == LABEL_EV1527
+        assert rows[1]["rf_family"] is None
+        assert "rf_family" not in rows[2]
+
+    @pytest.mark.asyncio
+    async def test_a_minted_row_carries_it_on_the_door_and_the_push(self, fake_hass):
+        """A keyfob press through the receive path: the detected push and
+        the Sniffer's remote door both carry the row's label, and the
+        stored row does not."""
+        from unittest.mock import MagicMock
+
+        from custom_components.hair.const import DOMAIN, EVENT_SIGNAL_DETECTED
+        from custom_components.hair.websocket_api import ws_get_unknown_device
+
+        from .test_candy_radio import _hear, _monitor
+        from .test_websocket_api import _make_connection
+
+        data = json.loads((FIXTURES / "it104-keyfob-433.json").read_text())
+        pulses = data["captures"][0]["pulses"]
+        capture = [v if i % 2 == 0 else -v for i, v in enumerate(pulses)]
+        monitor, store, _ = _monitor(fake_hass)
+        await _hear(fake_hass, monitor, [capture])
+        pushed = [
+            c.args[1] for c in fake_hass.bus.async_fire.call_args_list
+            if c.args[0] == EVENT_SIGNAL_DETECTED
+        ]
+        assert pushed and pushed[-1]["rf_family"]["label"] == LABEL_EV1527
+        device = store.get_all_devices()[0]
+        assert "rf_family" not in device.signals[0].to_dict()
+        fake_hass.data[DOMAIN] = {
+            "entry-1": {"device_manager": MagicMock(), "signal_monitor": monitor}
+        }
+        conn = _make_connection()
+        await ws_get_unknown_device(
+            fake_hass, conn,
+            {"id": 1, "type": "hair/unknown/device", "device_id": device.id},
+        )
+        row = json.loads(json.dumps(conn.send_result.call_args[0][1]))["signals"][0]
+        assert row["rf_family"]["fields"][0] == {"name": "address", "value": "950E4"}
+
+    @pytest.mark.asyncio
+    async def test_a_devices_radio_command_carries_it(self, fake_hass):
+        from unittest.mock import patch
+
+        from custom_components.hair.models import IRDevice
+        from custom_components.hair.websocket_api import _device_full
+
+        from .test_candy_radio import _command
+
+        command = _command(_frame(0x950E4B))
+        device = IRDevice(id="d1", name="Bench Plug", device_type="switch",
+                          commands=[command])
+        with patch("custom_components.hair.websocket_api._ha_device_id",
+                   return_value=None):
+            full = await _device_full(fake_hass, device)
+        assert full["commands"][0]["rf_family"]["fields"][1] == {
+            "name": "data", "value": "B",
+        }
+        assert "rf_family" not in command.to_dict()

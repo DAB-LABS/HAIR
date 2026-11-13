@@ -2693,6 +2693,10 @@ class SignalMonitor:
             # and the Sniffer updates its band cell from here.
             summary["rf_frequency_hz"] = signal.rf_frequency_hz
             summary["rf_frequency_source"] = signal.rf_frequency_source
+            # The row's family label, so a row patched in place keeps it.
+            from .rf_family import family_payload
+
+            summary["rf_family"] = family_payload(signal.raw_timings)
         self._hass.bus.async_fire(EVENT_SIGNAL_DETECTED, summary)
 
         # Step 12: Notify subscribers.
