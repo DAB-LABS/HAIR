@@ -606,6 +606,46 @@ class TestAlwaysOnNoise:
         fake_hass.loop.call_later.call_args[0][1]()
         assert [e["count"] for e in plain] == [1]
 
+    @staticmethod
+    def _full_and_short(keyfob):
+        """A whole keyfob frame and a clipped one, each ending on a mark."""
+        full = _one_frame_captures(keyfob, 1)[0]
+        short = full[:-8]
+        return full, short
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("order", ["full first", "short first"])
+    async def test_a_capture_with_one_whole_frame_is_lone_either_way(
+        self, fake_hass, keyfob, monkeypatch, order
+    ):
+        """One capture, two held pieces in different bursts: a whole frame
+        and a scrap. Whichever is released last, the capture held a piece
+        long enough to be a remote's, so it is ``lone``."""
+        full, short = self._full_and_short(keyfob)
+        pieces = [full, short] if order == "full first" else [short, full]
+        capture = [*pieces[0], -12_000, *pieces[1]]
+        bodied = rf_frames.bodied_pieces(rf_frames.split_frames(capture))
+        lengths = sorted(len(parts.body) for _piece, parts in bodied)
+        assert len(bodied) == 2 and rf_frames.vote(bodied) is None
+        monkeypatch.setattr(sm, "RF_MIN_BODY_EDGES", lengths[1])
+        assert lengths[0] < sm.RF_MIN_BODY_EDGES
+        monitor, _, _ = _monitor(fake_hass)
+        static = _subscribe(monitor, static=True)
+        await _hear(fake_hass, monitor, [capture], receiver=ATHOM_RX)
+        await _flush_bursts(fake_hass, monitor, ATHOM_RX)
+        assert [(e["stage"], e["reason"]) for e in static] == [("static", "lone")]
+
+    @pytest.mark.asyncio
+    async def test_an_evicted_scrap_says_short(self, fake_hass, keyfob, monkeypatch):
+        """The hold's cap applies the same rule: a scrap pushed out of a
+        full hold is ``short``."""
+        monkeypatch.setattr(candy_feed, "CANDY_HOLD_MAX", 1)
+        monkeypatch.setattr(sm, "RF_MIN_BODY_EDGES", keyfob.body_edges + 1)
+        monitor, _, _ = _monitor(fake_hass)
+        events = _subscribe(monitor, static=True)
+        await _hear(fake_hass, monitor, _one_frame_captures(keyfob, 2), receiver=ATHOM_RX)
+        assert [e["reason"] for e in events] == ["short"]
+
     @pytest.mark.asyncio
     async def test_the_hold_is_bounded(self, fake_hass, keyfob, monkeypatch):
         monkeypatch.setattr(candy_feed, "CANDY_HOLD_MAX", 3)

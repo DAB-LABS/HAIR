@@ -50,7 +50,7 @@ CANDY_HOLD_MAX = 256
 
 # Why a radio capture is static.
 STATIC_NO_BODY = "no_body"  # no frame with a body
-STATIC_SHORT = "short"  # a vote too short to be a remote's
+STATIC_SHORT = "short"  # too short to be a remote's: a vote, or every lone piece
 STATIC_LONE = "lone"  # a frame whose burst never voted
 
 # Echo kinds, as the verdict reports them.

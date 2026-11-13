@@ -2898,8 +2898,9 @@ class SignalMonitor:
         else:
             assembler = self._rf_assembler(receiver_entity_id)
             if self._candy:
-                # The drawer's token for this capture: [frames held, printed].
-                capture: list[Any] = [0, False]
+                # The drawer's token for this capture: [frames held,
+                # printed, any held piece long enough to be a remote's].
+                capture: list[Any] = [0, False, False]
                 for piece, parts in bodied:
                     # Add first: ``add`` can end an earlier burst of the
                     # same key whose deadline passed before its timer ran,
@@ -5191,6 +5192,8 @@ class SignalMonitor:
                 reason=candy_feed.STATIC_LONE,
             )
         capture[0] += 1
+        if len(parts.body) >= RF_MIN_BODY_EDGES:
+            capture[2] = True
         # Keyed by the assembler's own key for the burst.
         held.append((fingerprint, event, capture))
 
@@ -5223,8 +5226,10 @@ class SignalMonitor:
         """One held frame's fate. A capture whose frames all ended lone,
         none printed, is one static capture, counted once.
 
-        A lone piece too short to be a remote's frame is hiss, not a lone
-        frame: it says ``short``, as a too-short vote does.
+        A capture none of whose held pieces was long enough to be a
+        remote's frame is hiss, not a lone frame: it says ``short``, as a
+        too-short vote does. The token remembers whether any piece was, so
+        the answer does not depend on which piece is released last.
         """
         capture[0] -= 1
         if printed:
@@ -5232,8 +5237,7 @@ class SignalMonitor:
             self._candy_emit(event)
         elif capture[0] <= 0 and not capture[1]:
             if (
-                reason == candy_feed.STATIC_LONE
-                and (event.get("body_edges") or 0) < RF_MIN_BODY_EDGES
+                reason == candy_feed.STATIC_LONE and not capture[2]
             ):
                 reason = candy_feed.STATIC_SHORT
             self._candy_static_hit(rid, event.get("raw"), reason)
