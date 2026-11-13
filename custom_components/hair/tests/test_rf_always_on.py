@@ -111,7 +111,7 @@ def _load(name):
         folder = os.environ.get("HAIR_RF_FIXTURES")
         path = Path(folder) / name if folder else path
     if not path.exists():
-        pytest.skip(f"{name} is kept outside the repository")
+        pytest.skip(f"{name} is not in this checkout")
     with gzip.open(path, "rb") as handle:
         return json.loads(handle.read())
 
@@ -633,7 +633,7 @@ class TestReplay:
 
     @pytest.mark.asyncio
     async def test_noise_hour_with_filter_symbols(self, fake_hass):
-        """The same, at ``filter_symbols: 20`` (a fixture kept outside the repository)."""
+        """The same, at ``filter_symbols: 20``."""
         name = "athom-433-150us-6ms-fs20-noise-1h.json.gz"
         _m, closed, _ = await _replay(fake_hass, name, window=None)
         assert closed.get_all_devices() == []
