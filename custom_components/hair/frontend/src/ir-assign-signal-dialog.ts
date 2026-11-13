@@ -11,7 +11,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tv } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
-import { assignSendCount } from "./rf-send-count.js";
+import { assignSendCount, sendTimesHint } from "./rf-send-count.js";
 import { newDeviceRefusalKey } from "./assign-new-device.js";
 import { carrierParts } from "./sniffer-filter.js";
 import "./ir-emitter-picker.js";
@@ -305,6 +305,15 @@ export class IrAssignSignalDialog extends LitElement {
         `;
     }
 
+    /** The line under Send times: a radio row says why its count is
+     *  what it is while it holds the seed (N20), and nothing once the
+     *  user changes it; an infrared row keeps its sentence. */
+    private _sendTimesHint(): string {
+        if (this.signal?.medium !== "rf") return t("assign.send_times_hint");
+        const hint = sendTimesHint("rf", this.signal.rf_repeats_observed, this._sendCount);
+        return hint ? t(hint.key, { count: String(hint.count) }) : "";
+    }
+
     render() {
         // A radio row shows its band ("433.92 MHz"), as its Sniffer row
         // does; its stored ``frequency`` is an infrared default and
@@ -381,9 +390,7 @@ export class IrAssignSignalDialog extends LitElement {
                         .value=${String(this._sendCount)}
                         @input=${this._onSendCountInput}
                     />
-                    <div class="hint">
-                        ${t("assign.send_times_hint")}
-                    </div>
+                    <div class="hint">${this._sendTimesHint()}</div>
                 </div>
 
                 ${this.signal.decoded_fingerprint

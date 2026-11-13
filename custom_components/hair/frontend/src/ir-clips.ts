@@ -63,6 +63,7 @@ import { substitutedHz, testRefusal } from "./rf-errors.js";
 import { BOTTOM_TOAST_MS, bottomToastStyles } from "./bottom-toast-styles.js";
 import { bandLabel } from "./rf-band.js";
 import { bandNumber } from "./ir-listen-state.js";
+import { assignSendCount } from "./rf-send-count.js";
 
 /** The USE fork's two possible sources on this surface (signpost 3,
  *  Track 3 item 1): a Clipper catalog row, or -- via the matrix-clip
@@ -1596,7 +1597,8 @@ export class IrClips extends LitElement {
                       .initialFrequencySource=${this._editSignal.signal.rf_frequency_source ?? null}
                       .initialGapUs=${this._editSignal.signal.rf_frame_gap_us ?? null}
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
-                      .initialSendCount=${this._editSignal.signal.send_count ?? 1}
+                      .initialSendCount=${assignSendCount(this._editSignal.signal)}
+                      .repeatsObserved=${this._editSignal.signal.rf_repeats_observed ?? null}
                       .hasTrigger=${this._hasTrigger(this._editSignal.signal)}
                       @signal-edited=${this._onSignalEdited}
                       @delete-requested=${() => {

@@ -71,6 +71,7 @@ import type {
 } from "./types.js";
 import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import { singleOppositeLink } from "./ir-pin-link-match.js";
+import { assignSendCount } from "./rf-send-count.js";
 
 /** Format an ISO timestamp to a short locale string. */
 function fmtTime(iso: string): string {
@@ -1263,6 +1264,12 @@ export class IrSignalMonitor extends LitElement {
             const updated = { ...this._devices[idx] };
             updated.hit_count = ev.device_hit_count ?? ev.hit_count;
             updated.last_seen = now;
+            // N15: a radio hit carries the row's carrier after the hit, and
+            // the remote's band is its most recently heard row's that has
+            // one, so a hit on a row with no carrier leaves it as it is.
+            if (ev.medium === "rf" && typeof ev.rf_frequency_hz === "number") {
+                updated.rf_frequency_hz = ev.rf_frequency_hz;
+            }
             // hit_count === 1 means a brand-new signal was created.
             if (ev.hit_count === 1) {
                 updated.signal_count = (updated.signal_count ?? 0) + 1;
@@ -1285,6 +1292,10 @@ export class IrSignalMonitor extends LitElement {
                 const updatedSig = { ...this._expandedDevice.signals[sigIdx] };
                 updatedSig.hit_count = ev.hit_count;
                 updatedSig.last_seen = now;
+                if (ev.medium === "rf" && ev.rf_frequency_hz !== undefined) {
+                    updatedSig.rf_frequency_hz = ev.rf_frequency_hz;
+                    updatedSig.rf_frequency_source = ev.rf_frequency_source ?? null;
+                }
                 const sigs = [...this._expandedDevice.signals];
                 sigs[sigIdx] = updatedSig;
                 this._expandedDevice = {
@@ -1700,7 +1711,8 @@ export class IrSignalMonitor extends LitElement {
                           .initialFrequencySource=${this._editSignal.signal.rf_frequency_source ?? null}
                           .initialGapUs=${this._editSignal.signal.rf_frame_gap_us ?? null}
                           .initialAlias=${this._editSignal.signal.alias ?? ""}
-                          .initialSendCount=${this._editSignal.signal.send_count ?? 1}
+                          .initialSendCount=${assignSendCount(this._editSignal.signal)}
+                          .repeatsObserved=${this._editSignal.signal.rf_repeats_observed ?? null}
                           @signal-edited=${this._onSignalEdited}
                           @delete-requested=${() => {
                               const { deviceId, signal } = this._editSignal!;

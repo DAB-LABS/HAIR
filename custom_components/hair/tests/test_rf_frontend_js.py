@@ -271,8 +271,9 @@ class TestTheSources:
         errors = _src("rf-errors.ts")
         assert 'RF_SEND_UNSUPPORTED = "rf_send_unsupported"' in errors
         assert 'RF_EDIT_UNSUPPORTED = "rf_edit_unsupported"' in errors
-        for name in ("ir-signal-editor.ts", "ir-device-detail.ts"):
-            assert "rfRefusal(" in _src(name), name
+        assert "rfRefusal(" in _src("ir-signal-editor.ts")
+        # The device page's Test names the code and the device (N19).
+        assert "deviceRefusal(" in _src("ir-device-detail.ts")
         # The Sniffer's Test names the picked transmitter (send review N14).
         assert "testRefusal(" in _src("ir-signal-monitor.ts")
 

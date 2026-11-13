@@ -86,6 +86,8 @@ export interface IRCommand {
     rf_frequency_source?: string | null;
     rf_frame_gap_us?: number | null;
     rf_frame_gap_source?: string | null;
+    /** How many agreeing frames the press it came from carried. */
+    rf_repeats_observed?: number | null;
     frequency: number;
     repeat_count: number;
     // Whole-frame send count (v0.4.x): transmit the built signal this many
@@ -1550,6 +1552,11 @@ export interface UnknownSignalEvent {
     /** The receiver that heard the press; null on the legacy ESPHome
      *  bridge and on HAIR's own Mirror rows. */
     receiver_entity_id?: string | null;
+    /** A radio hit only: the row's carrier and its source after the hit
+     *  (N15), so the Sniffer's band cell follows a better source. */
+    medium?: Medium;
+    rf_frequency_hz?: number | null;
+    rf_frequency_source?: string | null;
 }
 
 // ---------------------------------------------------------------------------

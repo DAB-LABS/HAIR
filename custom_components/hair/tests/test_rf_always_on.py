@@ -563,6 +563,45 @@ class TestReplay:
         assert "hair_signal_detected" not in fired
 
     @pytest.mark.asyncio
+    async def test_n15_a_radio_hit_says_its_rows_carrier(self, fake_hass):
+        """A hit that moves a row's carrier (a better source on the ladder)
+        reaches the Sniffer with the carrier the row holds after it, so the
+        band cell updates in place (N15)."""
+        name = "athom-433-it104-150us-6ms-presses.json.gz"
+        loop = FakeLoop()
+        monitor, store = _monitor(fake_hass, loop)
+        monitor.rf_always_on.attach(RID)
+        await _replay(fake_hass, name, window="open", monitor=(monitor, store, loop))
+        signals = {s.id: s for s in store.get_all_devices()[0].signals}
+        # A user-set 315 on every row, as on the bench; the next hits
+        # carry whatever the ladder leaves on the row.
+        for s in signals.values():
+            s.rf_frequency_hz, s.rf_frequency_source = 315_000_000, "user"
+        before = fake_hass.bus.async_fire.call_count
+        # The second round's receiver measures the carrier (a signal
+        # source), which outranks a user-set band on the ladder.
+        win = monitor.rf_always_on.window(RID)
+        win.open("multiple", RF_WINDOW_MAX_S)
+        run = _Run(fake_hass, loop, monitor)
+        await run.feed(
+            _schedule(_load(name)["captures"], loop.now),
+            frequency=433_920_000,
+            before=lambda: win.capturing or win.open("multiple", RF_WINDOW_MAX_S),
+        )
+        last: dict[str, dict] = {}
+        for call in fake_hass.bus.async_fire.call_args_list[before:]:
+            if call.args[0] == "hair_signal_detected":
+                last[call.args[1]["signal_id"]] = call.args[1]
+        assert last
+        moved = [s for s in signals.values() if s.rf_frequency_hz == 433_920_000]
+        assert moved, "no row took the measured carrier"
+        assert all(s.rf_frequency_source != "user" for s in moved)
+        for signal_id, data in last.items():
+            assert data["medium"] == MEDIUM_RF
+            assert data["rf_frequency_hz"] == signals[signal_id].rf_frequency_hz
+            assert data["rf_frequency_source"] == signals[signal_id].rf_frequency_source
+
+    @pytest.mark.asyncio
     async def test_noise_hour_window_closed_mints_nothing(self, fake_hass):
         monitor, store, _ = await _replay(
             fake_hass, "athom-433-150us-6ms-noise-1h.json.gz", window=None

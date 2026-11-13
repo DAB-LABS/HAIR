@@ -285,11 +285,17 @@ class RadioSend:
 
 
 def plan_radio_send(
-    hass: Any, row: Any, transmitter_ids: list[str], owner: str
+    hass: Any,
+    row: Any,
+    transmitter_ids: list[str],
+    owner: str,
+    *,
+    command_name: str | None = None,
 ) -> RadioSend:
     """Check everything before the air: refusals raise, skips are kept.
 
-    ``owner`` names the device (or the Sniffer row) for the messages.
+    ``owner`` names the device (or the Sniffer row) for the messages, and
+    ``command_name`` the device's command when there is one (N19).
     Raises ``SendRefusedError`` when no transmitter can send at all for a
     reason the user can act on (no transmitter of this medium, no
     frequency, none takes it, radio not loaded); returns a plan with no
@@ -301,7 +307,11 @@ def plan_radio_send(
     radio_ids = [e for e in transmitter_ids if is_radio_entity(e)]
     if not radio_ids:
         raise SendRefusedError(
-            "no_emitter_for_medium", f"{owner} has no radio transmitter"
+            "no_emitter_for_medium",
+            f"{command_name} is a radio code and {owner} has no radio "
+            "transmitter. Add one in the device's settings."
+            if command_name
+            else f"{owner} has no radio transmitter",
         )
     frequency_hz = getattr(row, "rf_frequency_hz", None)
     if not frequency_hz:
@@ -350,8 +360,13 @@ def plan_radio_send(
                 "add frequency: to its YAML"
             )
         else:
+            # N19: with every transmitter up this is the plain sentence;
+            # with one down, the one that might take it is not up.
             message = (
-                f"No radio transmitter on {owner} that is up takes "
+                f"{owner} has no radio transmitter that is up and can send "
+                f"{band_label(frequency_hz)} MHz"
+                if down
+                else f"{owner} has no radio transmitter that can send "
                 f"{band_label(frequency_hz)} MHz"
             )
         if down:

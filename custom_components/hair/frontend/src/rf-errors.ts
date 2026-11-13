@@ -88,5 +88,51 @@ export function substitutedHz(
     return null;
 }
 
+/** Words in the server's rf_frequency_unsupported message (rf_send.py)
+ *  that mean "no transmitter can send this band" would not be true. */
+export const BAND_SENTENCE_UNTRUE = ["unavailable", "declares no frequency"] as const;
+
+/** A device command's send refused (N19): the locale key and its
+ *  values, naming the code, the medium and the device. A radio code
+ *  with no radio transmitter, an infrared code with no infrared
+ *  emitter, and radio transmitters that cannot send the band each get
+ *  their own sentence; anything else is the refusal's general sentence,
+ *  as is a refusal with no names to hand. Null for an error that is
+ *  not a refusal. Pure, for the node tests. */
+export function deviceRefusalKey(
+    err: unknown,
+    ctx: { device?: string | null; command?: string | null; medium?: string | null; band?: string | null },
+): { key: string; params?: Record<string, string> } | null {
+    const code = (err as { code?: unknown } | null)?.code;
+    const device = ctx.device || "";
+    const command = ctx.command || "";
+    if (code === NO_EMITTER_FOR_MEDIUM && device && command) {
+        return {
+            key: ctx.medium === "rf" ? "errors.no_radio_transmitter" : "errors.no_infrared_emitter",
+            params: { command, device },
+        };
+    }
+    if (code === RF_FREQUENCY_UNSUPPORTED && device && ctx.band) {
+        // The band sentence says no transmitter can send it. When one is
+        // down, or every transmitter declares no frequency (a YAML fix),
+        // that is not the reason: the server's own message says which,
+        // so the caller shows it.
+        const message = String((err as { message?: unknown }).message ?? "");
+        if (BAND_SENTENCE_UNTRUE.some((m) => message.includes(m))) return null;
+        return { key: "errors.no_transmitter_for_band", params: { device, band: ctx.band } };
+    }
+    const key = refusalKey(err);
+    return key ? { key } : null;
+}
+
+/** The sentence for a device command's refused send, or null. */
+export function deviceRefusal(
+    err: unknown,
+    ctx: { device?: string | null; command?: string | null; medium?: string | null; band?: string | null },
+): string | null {
+    const found = deviceRefusalKey(err, ctx);
+    return found ? t(found.key, found.params) : null;
+}
+
 /** The round 1 name, kept for its callers. */
 export const rfRefusal = sendRefusal;

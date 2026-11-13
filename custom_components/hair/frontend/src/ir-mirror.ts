@@ -30,6 +30,7 @@
  *
  * Authoritative design: docs/internal/mockups/mirror-tab-mockup-m5.html.
  */
+import { assignSendCount } from "./rf-send-count.js";
 import { LitElement, html, css } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { headerChipStyles } from "./ir-header-chip-styles.js";
@@ -1374,7 +1375,8 @@ export class IrMirror extends LitElement {
                           .initialFrequencySource=${this._editSignal.rf_frequency_source ?? null}
                           .initialGapUs=${this._editSignal.rf_frame_gap_us ?? null}
                           .initialAlias=${this._editSignal.alias ?? ""}
-                          .initialSendCount=${this._editSignal.send_count ?? 1}
+                          .initialSendCount=${assignSendCount(this._editSignal)}
+                          .repeatsObserved=${this._editSignal.rf_repeats_observed ?? null}
                           @signal-edited=${this._onSignalEdited}
                           @delete-requested=${() => {
                               const sig = this._editSignal;
