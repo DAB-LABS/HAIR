@@ -591,6 +591,22 @@ class TestAlwaysOnNoise:
         assert monitor._candy_hold[ATHOM_RX] == collections.deque()
 
     @pytest.mark.asyncio
+    async def test_a_lone_scrap_too_short_for_a_remote_says_short(
+        self, fake_hass, keyfob, monkeypatch
+    ):
+        """A held piece whose body is under a remote's minimum is hiss: it
+        ends lone as ``short``, not ``lone``, and still counts once."""
+        monkeypatch.setattr(sm, "RF_MIN_BODY_EDGES", keyfob.body_edges + 1)
+        monitor, _, _ = _monitor(fake_hass)
+        plain = _subscribe(monitor)
+        static = _subscribe(monitor, static=True)
+        await _hear(fake_hass, monitor, _one_frame_captures(keyfob, 1), receiver=ATHOM_RX)
+        await _flush_bursts(fake_hass, monitor, ATHOM_RX)
+        assert [(e["stage"], e["reason"]) for e in static] == [("static", "short")]
+        fake_hass.loop.call_later.call_args[0][1]()
+        assert [e["count"] for e in plain] == [1]
+
+    @pytest.mark.asyncio
     async def test_the_hold_is_bounded(self, fake_hass, keyfob, monkeypatch):
         monkeypatch.setattr(candy_feed, "CANDY_HOLD_MAX", 3)
         monitor, _, _ = _monitor(fake_hass)

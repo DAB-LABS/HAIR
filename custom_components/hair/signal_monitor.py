@@ -5221,12 +5221,21 @@ class SignalMonitor:
         reason: str,
     ) -> None:
         """One held frame's fate. A capture whose frames all ended lone,
-        none printed, is one static capture, counted once."""
+        none printed, is one static capture, counted once.
+
+        A lone piece too short to be a remote's frame is hiss, not a lone
+        frame: it says ``short``, as a too-short vote does.
+        """
         capture[0] -= 1
         if printed:
             capture[1] = True
             self._candy_emit(event)
         elif capture[0] <= 0 and not capture[1]:
+            if (
+                reason == candy_feed.STATIC_LONE
+                and (event.get("body_edges") or 0) < RF_MIN_BODY_EDGES
+            ):
+                reason = candy_feed.STATIC_SHORT
             self._candy_static_hit(rid, event.get("raw"), reason)
 
     def _candy_static_hit(
