@@ -507,7 +507,7 @@
     "errors.no_infrared_emitter": "{command} は赤外線コードですが、{device} には赤外線送信機がありません。デバイスの設定で追加してください。",
     "errors.no_transmitter_for_band": "{device} には {band} MHz を送信できる無線送信機がありません。",
     "errors.rf_no_frequency": "この無線コードにはまだ周波数がありません。コードエディターで設定してから送信してください。",
-    "errors.rf_no_frame": "この無線コマンドには送信するコードがありません。無線受信機の近くで、リモコンのそのボタンを一度押すか、コマンドエディターにコードを貼り付けてください。",
+    "errors.rf_no_frame": "この無線コマンドには送信するコードがありません。HAIR が受信待機中に、リモコンのそのボタンを一度押すか、コードエディターにコードを貼り付けてください。",
     "errors.rf_frequency_unsupported": "このデバイスの無線送信機はいずれもこのコードの周波数で送信できません。",
     "errors.test_rf_frequency_unsupported": "{name} は {band} MHz で送信できません。別の送信機を選んでください。",
     "errors.rf_platform_not_loaded": "Home Assistant の無線周波数プラットフォームが読み込まれていないため、送信に使える送信機がありません。",

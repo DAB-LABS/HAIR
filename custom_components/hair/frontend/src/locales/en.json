@@ -507,7 +507,7 @@
     "errors.no_infrared_emitter": "{command} is an infrared code and {device} has no infrared emitter. Add one in the device's settings.",
     "errors.no_transmitter_for_band": "{device} has no radio transmitter that can send {band} MHz.",
     "errors.rf_no_frequency": "This radio code has no frequency yet. Set it in the code editor, then send.",
-    "errors.rf_no_frame": "This radio command has no code to send. Press its button on the remote once near a radio receiver, or paste the code in the command editor.",
+    "errors.rf_no_frame": "This radio command has no code to send. Press its button on the remote once while HAIR is listening, or paste the code in the code editor.",
     "errors.rf_frequency_unsupported": "No radio transmitter on this device can send this code's frequency.",
     "errors.test_rf_frequency_unsupported": "{name} can't send {band} MHz; choose another transmitter.",
     "errors.rf_platform_not_loaded": "Home Assistant's radio frequency platform isn't loaded, so there is no transmitter to send through.",

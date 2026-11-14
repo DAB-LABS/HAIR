@@ -586,7 +586,7 @@ RF_NO_FREQUENCY = "rf_no_frequency"
 RF_NO_FRAME = "rf_no_frame"
 RF_NO_FRAME_MESSAGE = (
     "This radio command has no code to send. Press its button on the remote "
-    "once near a radio receiver, or paste the code in the command editor."
+    "once while HAIR is listening, or paste the code in the code editor."
 )
 RF_FREQUENCY_UNSUPPORTED = "rf_frequency_unsupported"
 RF_PLATFORM_NOT_LOADED = "rf_platform_not_loaded"

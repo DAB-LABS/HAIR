@@ -131,6 +131,44 @@ class TestTheWaitingButtonsAreNamed:
         assert "this._announce(minted);" in create
 
 
+class TestTheApprovedWording:
+    """Owner, 2026-11-14 10:43 PT (ir-2026-11-14-trigger-fix-wording-
+    approved.md)."""
+
+    def test_the_refusal_says_while_hair_is_listening_and_code_editor(self):
+        from custom_components.hair.const import RF_NO_FRAME_MESSAGE
+
+        assert RF_NO_FRAME_MESSAGE == (
+            "This radio command has no code to send. Press its button on the "
+            "remote once while HAIR is listening, or paste the code in the code editor."
+        )
+        for lang in sorted(p.stem for p in LOCALES.glob("*.json") if p.stem != "xx"):
+            value = _locale(lang)["errors.rf_no_frame"]
+            assert "HAIR" in value, lang
+
+    def test_no_command_editor_on_this_branch(self):
+        assert "command editor" not in _locale("en")["errors.rf_no_frame"]
+
+    def test_a_radio_remote_asks_for_a_radio_transmitter(self):
+        create = " ".join(_method(_src("ir-promote-dialog.ts"), "_create").split())
+        assert (
+            "this._error = t( emitterRequiredKey(this.media?.length === 1 ? "
+            "this.media[0] : null), );"
+        ) in create
+        assert 'import { emitterRequiredKey } from "./assign-new-device.js";' in _src(
+            "ir-promote-dialog.ts"
+        )
+        assert _locale("en")["assign.transmitter_required"] == (
+            "Select at least one radio transmitter."
+        )
+        assert _locale("en")["promote.emitter_required"] == "Select at least one IR emitter."
+
+    def test_the_waiting_line_is_unchanged(self):
+        assert _locale("en")["promote.needs_press"] == (
+            "These buttons need a press before they can send:"
+        )
+
+
 class TestTheNoFrameRefusal:
     def test_the_code_has_a_sentence(self):
         from custom_components.hair.const import RF_NO_FRAME

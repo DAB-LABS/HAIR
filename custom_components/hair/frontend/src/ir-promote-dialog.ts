@@ -35,6 +35,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import { emitterRequiredKey } from "./assign-new-device.js";
 import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
 import type { DeviceTypeId, IRDevice, Medium, RemoteNeedsPress } from "./types.js";
@@ -154,7 +155,12 @@ export class IrPromoteDialog extends LitElement {
             return;
         }
         if (this._emitterIds.length === 0) {
-            this._error = t("promote.emitter_required");
+            // A radio Remote's picker offers radio transmitters only, so
+            // the refusal names one (owner, 2026-11-14); the Assign
+            // dialog's New Device tab already asks this way.
+            this._error = t(
+                emitterRequiredKey(this.media?.length === 1 ? this.media[0] : null),
+            );
             return;
         }
 

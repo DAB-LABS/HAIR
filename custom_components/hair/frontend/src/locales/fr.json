@@ -507,7 +507,7 @@
     "errors.no_infrared_emitter": "{command} est un code infrarouge et {device} n'a pas d'émetteur IR. Ajoutez-en un dans les réglages de l'appareil.",
     "errors.no_transmitter_for_band": "{device} n'a aucun émetteur radio capable d'envoyer {band} MHz.",
     "errors.rf_no_frequency": "Ce code radio n'a pas encore de fréquence. Indiquez-la dans l'éditeur du code, puis envoyez.",
-    "errors.rf_no_frame": "Cette commande radio n'a aucun code à envoyer. Appuyez une fois sur son bouton de la télécommande près d'un récepteur radio, ou collez le code dans l'éditeur de la commande.",
+    "errors.rf_no_frame": "Cette commande radio n'a aucun code à envoyer. Appuyez une fois sur son bouton de la télécommande pendant que HAIR écoute, ou collez le code dans l'éditeur du code.",
     "errors.rf_frequency_unsupported": "Aucun émetteur radio de cet appareil ne peut émettre à la fréquence de ce code.",
     "errors.test_rf_frequency_unsupported": "{name} ne peut pas émettre à {band} MHz ; choisissez un autre émetteur.",
     "errors.rf_platform_not_loaded": "La plateforme radiofréquence de Home Assistant n'est pas chargée, il n'y a donc aucun émetteur pour envoyer.",

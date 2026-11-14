@@ -910,7 +910,10 @@ class TestTheRefusal:
         with pytest.raises(ValueError) as caught:
             build_command(protocol=RF_PROTOCOL, code=None, raw_timings=None)
         assert "radio command has no code to send" in str(caught.value)
-        assert "IR" not in str(caught.value)
+        # Not the infrared builder's words. ("IR" alone would now match
+        # "HAIR", which the approved sentence names.)
+        assert "Cannot build IR command" not in str(caught.value)
+        assert "Pronto" not in str(caught.value)
 
     def test_the_infrared_refusal_is_unchanged(self):
         with pytest.raises(ValueError) as caught:
