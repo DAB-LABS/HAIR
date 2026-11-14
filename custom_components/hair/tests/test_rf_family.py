@@ -321,6 +321,55 @@ class TestWhereItTravels:
         row = json.loads(json.dumps(conn.send_result.call_args[0][1]))["signals"][0]
         assert row["rf_family"]["fields"][0] == {"name": "address", "value": "950E4"}
 
+    def test_a_failing_decoder_costs_one_row_its_label_not_the_page(
+        self, monkeypatch
+    ):
+        from custom_components.hair import rf_family
+        from custom_components.hair.websocket_api import _augment_rf_family
+
+        bad = _frame(0x950E4B)
+        real = rf_family.family_payload
+
+        def payload(frame):
+            if frame == bad:
+                raise ZeroDivisionError
+            return real(frame)
+
+        monkeypatch.setattr(rf_family, "family_payload", payload)
+        rows = [
+            {"medium": "rf", "raw_timings": bad},
+            {"medium": "rf", "raw_timings": _frame(0x950E49)},
+        ]
+        _augment_rf_family(rows)
+        assert rows[0]["rf_family"] is None
+        assert rows[1]["rf_family"]["label"] == LABEL_EV1527
+
+    @pytest.mark.asyncio
+    async def test_a_failing_decoder_never_costs_a_press_its_event(
+        self, fake_hass, monkeypatch
+    ):
+        """The ruling: a decoder bug must never cost a press its event."""
+        from custom_components.hair import rf_family
+        from custom_components.hair.const import EVENT_SIGNAL_DETECTED
+
+        from .test_candy_radio import _hear, _monitor
+
+        def payload(frame):
+            raise ZeroDivisionError
+
+        monkeypatch.setattr(rf_family, "family_payload", payload)
+        data = json.loads((FIXTURES / "it104-keyfob-433.json").read_text())
+        pulses = data["captures"][0]["pulses"]
+        capture = [v if i % 2 == 0 else -v for i, v in enumerate(pulses)]
+        monitor, _store, _ = _monitor(fake_hass)
+        await _hear(fake_hass, monitor, [capture])
+        pushed = [
+            c.args[1] for c in fake_hass.bus.async_fire.call_args_list
+            if c.args[0] == EVENT_SIGNAL_DETECTED
+        ]
+        assert pushed and pushed[-1]["rf_family"] is None
+        assert pushed[-1]["medium"] == "rf"
+
     @pytest.mark.asyncio
     async def test_a_devices_radio_command_carries_it(self, fake_hass):
         from unittest.mock import patch

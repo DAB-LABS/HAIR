@@ -178,6 +178,8 @@ class TestHT6P20:
         assert result.certainty == CERTAINTY_DECODED
         assert _fields(result) == {"code": f"{int(HT6P20_DATA, 2):06X}"}
         assert "HT6P20D2" in result.aliases
+        assert "HT6P20B" not in result.aliases
+        assert "HT6P20D" not in result.aliases
 
     @pytest.mark.parametrize("unit", [360.0, 400.0, 440.0, 250.0, 600.0])
     def test_the_datasheets_range_and_an_old_parts_resistor(self, unit):
@@ -247,7 +249,9 @@ class TestCAME:
         result = family_of(_sf_frame(ADDRESS + DATA, unit=320.0, gap_units=47.0))
         assert result.label == "HT12E or CAME"
         assert result.certainty == CERTAINTY_AMBIGUOUS
-        assert _fields(result) == {"code": ADDRESS + DATA}
+        assert _fields(result) == {
+            "bits": ADDRESS + DATA, "code": f"{int(ADDRESS + DATA, 2):03X}",
+        }
 
     @pytest.mark.parametrize("unit", [250.0, 320.0, 343.0, 440.0])
     def test_the_measured_units(self, only, unit):
@@ -281,7 +285,9 @@ class TestCAME:
     def test_a_12_bit_came_code_reads_as_its_switches(self, only):
         only("came")
         result = family_of(_sf_frame(ADDRESS + DATA, unit=320.0, gap_units=47.0))
-        assert _fields(result) == {"code": ADDRESS + DATA}
+        assert _fields(result) == {
+            "bits": ADDRESS + DATA, "code": f"{int(ADDRESS + DATA, 2):03X}",
+        }
 
 
 class TestNiceFLO:
@@ -322,7 +328,9 @@ class TestNiceFLO:
     def test_a_12_bit_code_reads_as_its_switches(self, only):
         only("nice_flo")
         result = family_of(_sf_frame(ADDRESS + DATA, unit=700.0))
-        assert _fields(result) == {"code": ADDRESS + DATA}
+        assert _fields(result) == {
+            "bits": ADDRESS + DATA, "code": f"{int(ADDRESS + DATA, 2):03X}",
+        }
 
     @pytest.mark.parametrize("unit", [520.0, 700.0, 880.0])
     def test_the_band(self, only, unit):

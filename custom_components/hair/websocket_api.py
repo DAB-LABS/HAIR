@@ -312,7 +312,13 @@ def _augment_rf_family(rows: Any) -> None:
 
     for row in rows or []:
         if isinstance(row, dict) and row.get("medium") == MEDIUM_RF:
-            row["rf_family"] = family_payload(row.get("raw_timings"))
+            # A label never costs the page: a decoder failure on one row
+            # is logged at debug and that row goes out with no label.
+            try:
+                row["rf_family"] = family_payload(row.get("raw_timings"))
+            except Exception:
+                _LOGGER.debug("Radio family label failed", exc_info=True)
+                row["rf_family"] = None
 
 
 async def _device_full(

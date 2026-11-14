@@ -145,6 +145,8 @@ Source (datasheet, read 2026-11-14 through the portal; md5 da214d13):
 The older HT6P20B/D (external oscillator resistor) was not read; the
 community sources say it sends the same waveform, and its T varies with
 its resistor, which the decoder allows for by measuring T on each frame.
+Its names are not aliases until its datasheet is read (ruling
+2026-11-14).
 
 ``λ`` (lambda) is 32 internal oscillator periods.
 
@@ -195,8 +197,8 @@ Sources (datasheets, read 2026-11-14 through the portal):
 | Guard | 39 TE | Table 8-4 |
 | Seed | all buttons held: a seed replaces the encrypted part | 4.2 |
 
-HCS200: the same word, with bits 64 and 65 a status bit and a fixed bit
-rather than VLOW and RPT (DS40138C 4.2). Its Synchronous Transmission
+HCS200: the same word, with bit 64 VLOW and bit 65 a fixed bit rather
+than RPT (DS40138C Figure 4-2). Its Synchronous Transmission
 mode, which adds 16 reserved bits, is a test mode and is not read.
 
 What follows for one frame (derived): the preamble is a run of equal
@@ -409,6 +411,7 @@ and facts only were taken:
 | Units | #1 is 00, #2 01, #3 10 | A is 1010, B 1011 |
 | Dim | | the on/off slot as T,T,T,T, then 4 dim bits after the unit |
 | Repeats | 4 | 10 to 20 |
+| Names | Proove | KlikAanKlikUit, KAKU, COCO |
 
 What follows (derived): HAIR's frame is the start pair, 64 wire bits (72
 with dim) and the stop mark, the stop's low as the gap. Every mark is
@@ -486,7 +489,7 @@ FAMILIES: dict[str, FamilySpec] = {
         ),
         FamilySpec(
             "ht6p20", "HT6P20",
-            aliases=("HT6P20B", "HT6P20D", "HT6P20B2", "HT6P20D2", "HT6P20F2"),
+            aliases=("HT6P20B2", "HT6P20D2", "HT6P20F2"),
             shown=True,
             evidence="Holtek HT6P20B2/D2/F2 datasheet Rev 1.10 (shown on the "
                      "datasheet alone, ruling 2026-11-14)",
@@ -507,7 +510,8 @@ FAMILIES: dict[str, FamilySpec] = {
         ),
         FamilySpec(
             "nexa_old", "Nexa",
-            aliases=("KlikAanKlikUit", "Intertechno", "Proove"),
+            # The page's own title: "The NEXA/PROOVE Remote Protocol".
+            aliases=("Proove",),
             shown=False,
             evidence="elektronikforumet wiki (one community description); "
                      "held off until a real capture (ruling 2026-11-14)",
@@ -535,7 +539,10 @@ FAMILIES: dict[str, FamilySpec] = {
         ),
         FamilySpec(
             "nexa_sl", "Nexa",
-            aliases=("KlikAanKlikUit", "Intertechno", "Proove", "HomeEasy"),
+            # Proove: elektronikforumet's title. KlikAanKlikUit and COCO:
+            # RFLink-ESP's ("KlikAanKlikUit (KAKU, COCO)"). Neither page
+            # names Nexa; the label word waits on a ruling.
+            aliases=("Proove", "KlikAanKlikUit", "COCO"),
             shown=False,
             evidence="elektronikforumet wiki and RFLink-ESP descriptions; "
                      "held off until the receive-path change and a real "
@@ -767,9 +774,17 @@ _SF_GAP_MIN_T = 12.0
 _SF_GAP_MAX_T = 90.0
 
 
-def _sf_code(bits: str) -> str:
-    """A gate remote's code: 12 bits as the switches read, 24 as hex."""
-    return bits if len(bits) == 12 else f"{int(bits, 2):06X}"
+def _hex(bits: str) -> str:
+    """Bits as hex, the first bit sent as the most significant."""
+    return f"{int(bits, 2):0{(len(bits) + 3) // 4}X}"
+
+
+def _sf_fields(bits: str) -> tuple[tuple[str, str], ...]:
+    """A gate remote's code: 12 bits also as the switches read (``bits``),
+    always hex as ``code`` (one meaning per field, ruling 2026-11-14)."""
+    if len(bits) == 12:
+        return (("bits", bits), ("code", _hex(bits)))
+    return (("code", _hex(bits)),)
 
 
 def _space_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
@@ -820,14 +835,16 @@ def _space_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
     if bits_n in (12, 24) and "came" in FAMILIES and (
         _CAME_T_US[0] <= unit <= _CAME_T_US[1]
     ):
-        fits.append(_Fit("came", (("code", _sf_code(bits)),)))
+        fits.append(_Fit("came", _sf_fields(bits)))
     if bits_n in (12, 24) and "nice_flo" in FAMILIES and (
         _NICE_FLO_T_US[0] <= unit <= _NICE_FLO_T_US[1]
     ):
-        fits.append(_Fit("nice_flo", (("code", _sf_code(bits)),)))
+        fits.append(_Fit("nice_flo", _sf_fields(bits)))
     if bits_n == 28 and bits[24:] == "0101" and "ht6p20" in FAMILIES:
         fits.append(_Fit("ht6p20", (("code", f"{int(bits[:24], 2):06X}"),)))
-    return _ShapeRead(unit_us, tuple(fits), shared=(("code", bits),))
+    return _ShapeRead(
+        unit_us, tuple(fits), shared=(("bits", bits), ("code", _hex(bits))),
+    )
 
 
 # ---------------------------------------------------------------------------

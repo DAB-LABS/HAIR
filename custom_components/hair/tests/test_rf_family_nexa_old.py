@@ -64,7 +64,10 @@ class TestHeldOff:
         assert result.label == "PT2262 or EV1527"
         assert result.certainty == CERTAINTY_AMBIGUOUS
         assert "Nexa" not in result.label
-        assert "KlikAanKlikUit" not in family_payload(_nexa(_tri("B", 3, True)))["aliases"]
+        assert "Proove" not in family_payload(_nexa(_tri("B", 3, True)))["aliases"]
+
+    def test_its_aliases_are_the_ones_its_page_names(self):
+        assert FAMILIES["nexa_old"].aliases == ("Proove",)
 
     def test_include_hidden_names_it(self):
         result = family_of(_nexa(_tri("B", 3, True)), include_hidden=True)

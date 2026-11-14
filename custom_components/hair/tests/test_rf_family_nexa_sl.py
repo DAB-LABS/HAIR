@@ -110,7 +110,7 @@ class TestDescribedWords:
             "id": "0E1C502", "group": "0", "state": "on", "unit": "3",
         }
         assert result.unit_us == 260
-        assert "KlikAanKlikUit" in result.aliases
+        assert result.aliases == ("Proove", "KlikAanKlikUit", "COCO")
 
     def test_the_state_follows_elektronikforumet(self, shown):
         """0 is on there (RFLink says on is 1); recorded until a capture."""
