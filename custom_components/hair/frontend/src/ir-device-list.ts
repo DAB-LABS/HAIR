@@ -3075,6 +3075,7 @@ export class IrDeviceList extends LitElement {
                           .hass=${this.hass}
                           .sourceRemoteId=${this._makeDeviceSource.id}
                           .suggestedName=${this._makeDeviceSource.name}
+                          .media=${this._makeDeviceSource.media?.length ? this._makeDeviceSource.media : null}
                           @device-created=${this._onDeviceMinted}
                           @closed=${this._closeMakeDeviceDialog}
                       ></ir-promote-dialog>

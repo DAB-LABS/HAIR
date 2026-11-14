@@ -15,6 +15,21 @@
  * minted IRDevice -- every door, not just the mirror-door one, per
  * signpost 3 Track 3 item 5's USE-fork pin-prompt trigger), `closed`
  * on cancel / close.
+ *
+ * RADIO REMOTES (radio trigger fix, answer 5). The Remote door passes
+ * the Remote's `media`, so a radio Remote offers radio transmitters
+ * and an infrared one infrared emitters. A radio button the Remote
+ * never heard is still made, with nothing to send yet, and the result
+ * names it in `needs_press`. When any are named, the dialog stays open
+ * on a short list of them instead of closing, and `device-created`
+ * fires when that list is closed, by its button or by Escape: the
+ * device exists by then, so Escape must not read as a cancel.
+ *
+ * ONE <ha-dialog>, TWO WRAPPERS. The form and the list are two
+ * permanently mounted <div>s inside one dialog, toggled with `hidden`,
+ * as ir-save-new-dialog.ts does and for its reason: since HA 2026.7 a
+ * dialog swapped for another mid-transition aborts and leaves the
+ * screen, so neither view replaces the dialog or its direct children.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -22,7 +37,7 @@ import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
-import type { DeviceTypeId } from "./types.js";
+import type { DeviceTypeId, IRDevice, Medium, RemoteNeedsPress } from "./types.js";
 
 const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
     { value: "media_player", label: "Media Player" },
@@ -60,12 +75,19 @@ export class IrPromoteDialog extends LitElement {
      * Air Conditioner. The backend refuses anything else, so the lock
      * is honest UI, not a suggestion (owner ruling 2026-07-28). */
     @property({ type: Boolean }) public isMatrix = false;
+    /** The Remote door's media (its triggers' kinds), handed to the
+     *  emitter picker; null for both, as every other door is. */
+    @property({ attribute: false }) public media: Medium[] | null = null;
 
     @state() private _name = "";
     @state() private _type: DeviceTypeId = "other";
     @state() private _emitterIds: string[] = [];
     @state() private _busy = false;
     @state() private _error: string | null = null;
+    /** Set once a Remote's device is made with buttons still waiting:
+     *  the dialog then shows only their names. */
+    @state() private _needsPress: RemoteNeedsPress[] | null = null;
+    private _minted: IRDevice | null = null;
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -86,7 +108,46 @@ export class IrPromoteDialog extends LitElement {
         );
     }
 
+    private _announce(minted: IRDevice): void {
+        this.dispatchEvent(
+            new CustomEvent("device-created", {
+                detail: minted,
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
+    /** Close the waiting list: the device was made, so this announces
+     *  it rather than cancelling. */
+    private _finish(): void {
+        // _needsPress stays set: the page removes this dialog on the
+        // announcement, and going back to the form first would flash it.
+        const minted = this._minted;
+        this._minted = null;
+        if (minted) this._announce(minted);
+    }
+
+    /** The dialog's own close (Escape): a cancel on the form, but an
+     *  announcement once a device was made. */
+    private _onClosed(): void {
+        if (this._minted) this._finish();
+        else this._close();
+    }
+
+    /** Focus follows the view: the Create button it was on is hidden
+     *  once the waiting list shows, so it moves to Close. */
+    updated(changed: Map<string, unknown>): void {
+        super.updated(changed);
+        if (changed.has("_needsPress") && this._needsPress) {
+            this.shadowRoot?.querySelector<HTMLButtonElement>(".done-btn")?.focus();
+        }
+    }
+
     private async _create(): Promise<void> {
+        // Enter in the name box while a request is out would make a
+        // second device.
+        if (this._busy) return;
         const name = this._name.trim();
         if (!name) {
             this._error = t("promote.device_name_required");
@@ -109,12 +170,18 @@ export class IrPromoteDialog extends LitElement {
             // this shape originally shipped for.
             let minted: Awaited<ReturnType<typeof this.api.createDevice>>;
             if (this.sourceRemoteId) {
-                minted = await this.api.remoteMakeDevice(
+                const made = await this.api.remoteMakeDevice(
                     this.sourceRemoteId,
                     name,
                     this._type,
                     this._emitterIds,
                 );
+                if (made.needs_press?.length) {
+                    this._minted = made;
+                    this._needsPress = made.needs_press;
+                    return;
+                }
+                minted = made;
             } else if (this.wigFilename || this.codebookId) {
                 minted = await this.api.wigMakeDevice(
                     this.wigFilename
@@ -132,13 +199,7 @@ export class IrPromoteDialog extends LitElement {
                     promoted_from_unknown_id: this.sourceUnknownId || null,
                 });
             }
-            this.dispatchEvent(
-                new CustomEvent("device-created", {
-                    detail: minted,
-                    bubbles: true,
-                    composed: true,
-                }),
-            );
+            this._announce(minted);
         } catch (err) {
             this._error = (err as Error).message;
         } finally {
@@ -146,14 +207,22 @@ export class IrPromoteDialog extends LitElement {
         }
     }
 
-    render() {
+    private _renderNeedsPress(names: RemoteNeedsPress[]) {
         return html`
-            <ha-dialog
-                open
-                heading=${t("promote.heading")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
+            <p class="needs-press-lead">${t("promote.needs_press")}</p>
+            <ul class="needs-press-list">
+                ${names.map((n) => html`<li>${n.name}</li>`)}
+            </ul>
+            <div class="dialog-actions">
+                <button class="action-btn wide create-btn done-btn" @click=${this._finish}>
+                    ${t("common.close")}
+                </button>
+            </div>
+        `;
+    }
+
+    private _renderForm() {
+        return html`
                 ${this._error
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
@@ -207,6 +276,7 @@ export class IrPromoteDialog extends LitElement {
                 <ir-emitter-picker
                     .hass=${this.hass}
                     .api=${this.api}
+                    .media=${this.media}
                     .value=${this._emitterIds}
                     ?disabled=${this._busy}
                     @emitters-changed=${(e: CustomEvent) =>
@@ -229,6 +299,21 @@ export class IrPromoteDialog extends LitElement {
                         ${this._busy ? t("common.creating") : t("promote.create_device")}
                     </button>
                 </div>
+        `;
+    }
+
+    render() {
+        return html`
+            <ha-dialog
+                open
+                heading=${t("promote.heading")}
+                scrimClickAction=""
+                @closed=${this._onClosed}
+            >
+                <div ?hidden=${!!this._needsPress}>${this._renderForm()}</div>
+                <div ?hidden=${!this._needsPress}>
+                    ${this._needsPress ? this._renderNeedsPress(this._needsPress) : ""}
+                </div>
             </ha-dialog>
         `;
     }
@@ -245,6 +330,14 @@ export class IrPromoteDialog extends LitElement {
         ha-alert {
             display: block;
             margin: 8px 0;
+        }
+        .needs-press-lead {
+            margin: 0 0 8px;
+        }
+        .needs-press-list {
+            margin: 0 0 8px;
+            padding-left: 20px;
+            font-size: 0.9rem;
         }
         .description {
             font-size: 0.85rem;

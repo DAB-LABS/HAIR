@@ -847,6 +847,15 @@ export interface TriggerRemoteInfo {
     state_entity_id: string | null;
 }
 
+/** A radio button "Make a Device" made with nothing to send yet (radio
+ *  trigger fix): it refuses until its button is pressed once near a
+ *  radio receiver. Listed in the make-device result, in the Remote's
+ *  order. */
+export interface RemoteNeedsPress {
+    command_id: string;
+    name: string;
+}
+
 /** The Device types a Remote can take: the ones with a state entity. */
 export type RemoteTypeId = "media_player" | "fan" | "light" | "switch" | "screen";
 
