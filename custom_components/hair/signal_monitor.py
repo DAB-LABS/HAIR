@@ -96,6 +96,7 @@ from .models import (
     UnknownDevice,
     UnknownSignal,
     copy_rf_fields,
+    copy_rf_signal,
     is_rf,
     upgrade_rf_fields,
 )
@@ -106,6 +107,10 @@ from .signal_store import SignalStore
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long after the last press that filled a radio row its save waits,
+# so a burst of presses is one write (radio trigger fix).
+RADIO_FILL_SAVE_DELAY_S = 2.0
 
 
 def _rf_modulation(signal: Any) -> str:
@@ -1143,6 +1148,13 @@ class SignalMonitor:
             self._rf_tracker.async_stop()
             self._rf_tracker = None
         self.rf_always_on.async_stop()
+        # A press-filled radio row still waiting for its debounced save
+        # is written now rather than lost to the unload.
+        fill_save = self.__dict__.get("_radio_fill_save")
+        if fill_save is not None:
+            fill_save.cancel()
+            self._radio_fill_save = None
+            await self._hair_store.async_save()
         for entity_id in list(self._receiver_subs):
             self._release_receiver(entity_id)
         if self._receiver_watch_unsub is not None:
@@ -2406,6 +2418,13 @@ class SignalMonitor:
                 press_cue.gap_s * 1000,
             )
 
+        # Step 2e: a radio press fills the triggers and commands of its
+        # code that have no frame (radio trigger fix). Behind the echo
+        # gate, so HAIR's own send never stands in for a press; ahead of
+        # the triggers, and it fires nothing itself.
+        if n.rf is not None:
+            self._fill_waiting_radio(parsed, sig_fp, byte_hash)
+
         # Step 3: Check triggers. Threads the capturing receiver so scoped
         # triggers can match and the payload carries receiver + area
         # (v0.5.7).
@@ -2682,6 +2701,33 @@ class SignalMonitor:
                 subscriber(summary)
             except Exception:
                 _LOGGER.exception("Error notifying signal subscriber")
+
+    def _fill_waiting_radio(
+        self, parsed: Any, fingerprint: str | None, byte_hash: str | None
+    ) -> None:
+        """Fill what waits for this radio code, and save once a burst of
+        presses is over rather than once per press (radio trigger fix)."""
+        try:
+            filled = self._hair_store.fill_waiting_radio(
+                parsed, fingerprint, byte_hash
+            )
+        except Exception:  # a repair must never break the capture path
+            _LOGGER.exception("Radio codes: could not fill rows from a press")
+            return
+        # An int by contract; anything else is a test double standing in
+        # for the store, and nothing was filled.
+        if not isinstance(filled, int) or filled <= 0:
+            return
+        handle = self.__dict__.get("_radio_fill_save")
+        if handle is not None:
+            handle.cancel()
+        self._radio_fill_save = self._hass.loop.call_later(
+            RADIO_FILL_SAVE_DELAY_S, self._save_radio_fill
+        )
+
+    def _save_radio_fill(self) -> None:
+        self._radio_fill_save = None
+        self._hass.async_create_task(self._hair_store.async_save())
 
     def _note_heard(self, receiver_entity_id: str | None) -> None:
         """Mark a receiver as heard now: HAIR took a code from it.
@@ -4459,6 +4505,7 @@ class SignalMonitor:
                         old_fp, signal.fingerprint, RF_PROTOCOL, None,
                         old_byte_hash=old_byte_hash,
                         new_byte_hash=signal.byte_hash,
+                        source_row=signal,
                     )
             elif rf_frequency_hz is not None:
                 rf_paste.set_frequency(signal, rf_frequency_hz)
@@ -4847,6 +4894,10 @@ class SignalMonitor:
                         unknown.source, "remote"
                     ),
                 )
+                if is_rf(trigger):
+                    # The button's own signal, so the Remote can be made
+                    # into a device (radio trigger fix).
+                    copy_rf_signal(signal, trigger)
                 self._hair_store.add_trigger(trigger)
                 triggers.append(trigger)
             if triggers:

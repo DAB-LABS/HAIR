@@ -95,6 +95,11 @@ async def async_setup_entry(
     # knows which catalog row a Remote was promoted from. One save.
     if store.backfill_catalog_trigger_origins(signal_store):
         await store.async_save()
+    # And the second: radio triggers and commands with no frame take it
+    # from a catalog row or another row that holds the same code (radio
+    # trigger fix). Nothing waiting costs one walk and no save.
+    if store.repair_radio_signals(signal_store):
+        await store.async_save()
 
     # Load the pluckable YAML registry in a single executor hop (off-loop).
     pluckable_registry = await hass.async_add_executor_job(

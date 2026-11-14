@@ -491,6 +491,7 @@ class DeviceManager:
                     old_fp, new_fp, RF_PROTOCOL, None,
                     old_byte_hash=old_byte_hash,
                     new_byte_hash=command.byte_hash,
+                    source_row=command,
                 )
         elif rf_frequency_hz is not None:
             from . import rf_paste

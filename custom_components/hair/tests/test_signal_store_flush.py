@@ -311,6 +311,7 @@ async def _set_up(hass, entry, signal_store):
         mock_store = MagicMock()
         mock_store.async_load = AsyncMock()
         mock_store.backfill_catalog_trigger_origins.return_value = False
+        mock_store.repair_radio_signals.return_value = False
         mock_store_cls.return_value = mock_store
         assert await async_setup_entry(hass, entry) is True
 

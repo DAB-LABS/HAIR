@@ -241,6 +241,57 @@ def copy_rf_fields(source: Any, target: Any) -> None:
         setattr(target, name, getattr(source, name, None))
 
 
+def rf_needs_press(row: Any) -> bool:
+    """A radio row with no frame: it cannot send until its button is
+    heard once (radio trigger fix). Infrared rows never need one."""
+    return is_rf(row) and not getattr(row, "raw_timings", None)
+
+
+def copy_rf_signal(source: Any, target: Any) -> None:
+    """Carry a radio row's whole signal onto another row: its medium and
+    radio fields, the frame, and the send count.
+
+    The one place a trigger door or "Make a Device" moves them, so a
+    trigger holds what a command would. A source with no count of its
+    own (a capture) gives the count its press carried.
+    """
+    from .rf_send import seed_send_count
+
+    copy_rf_fields(source, target)
+    frame = getattr(source, "raw_timings", None)
+    target.raw_timings = [int(v) for v in frame] if frame else None
+    count = getattr(source, "send_count", None)
+    if not isinstance(count, int) or count < 1:
+        count = seed_send_count(getattr(source, "rf_repeats_observed", None))
+    target.send_count = count
+
+
+def _trigger_rf_out(trigger: Any) -> dict[str, Any]:
+    """A radio trigger's own keys for its record; nothing for infrared."""
+    if not is_rf(trigger):
+        return {}
+    return {
+        **_rf_out(trigger),
+        "raw_timings": list(trigger.raw_timings) if trigger.raw_timings else None,
+        "send_count": trigger.send_count,
+    }
+
+
+def _trigger_rf_in(data: dict[str, Any]) -> dict[str, Any]:
+    """Constructor keywords for a radio trigger's record."""
+    kwargs = _rf_in(data)
+    if not kwargs:
+        return {"medium": MEDIUM_IR}
+    frame = data.get("raw_timings")
+    kwargs["raw_timings"] = (
+        [int(v) for v in frame]
+        if isinstance(frame, list) and frame and all(isinstance(v, int) for v in frame)
+        else None
+    )
+    kwargs["send_count"] = _optional_int(data.get("send_count"))
+    return kwargs
+
+
 # How much a radio row's carrier can be trusted, by where it came from:
 # the code's own measurement, then the window it was heard in, then the
 # receiver's declared range.
@@ -494,6 +545,14 @@ class IRCommand:
     _extra: dict[str, Any] = field(
         default_factory=dict, repr=False, compare=False
     )
+
+    def __post_init__(self) -> None:
+        # A radio code's protocol makes it a radio row, as on a trigger.
+        # Without this a command minted from a radio trigger came out
+        # infrared with nothing to send, and its send failed in
+        # infrared words (radio Remote "Make a Device", 2026-11-13).
+        if self.protocol == RF_PROTOCOL:
+            self.medium = MEDIUM_RF
 
     def to_dict(self) -> dict[str, Any]:
         d = _with_extra({
@@ -1205,8 +1264,10 @@ _KNOWN_TRIGGER = frozenset({
     "updated_at", "receiver_entity_ids", "byte_hash",
     "decoded_fingerprint", "order", "alias_history", "fire_count",
     "last_fired_at", "trigger_remote_id", "origin",
-    # Written only for a trigger on a radio code (RF hear, round 1).
-    "medium",
+    # Written only for a trigger on a radio code (RF hear, round 1), and
+    # since the radio trigger fix the signal it sends: the frame, the
+    # radio fields and the send count.
+    *_RF_KNOWN, "raw_timings", "send_count",
 })
 
 
@@ -1316,6 +1377,23 @@ class IRTrigger:
     # the protocol at every creation door without each door having to
     # remember it. Written only for a radio trigger.
     medium: str = MEDIUM_IR
+    # A radio trigger's own signal (radio trigger fix, owner ruling
+    # 2026-11-13): what its Remote sends when it is made into a device,
+    # as an infrared trigger's ``code`` is. None of these is identity;
+    # matching reads only the fields above. Written only for a radio
+    # trigger. A radio trigger with no frame is waiting for its button
+    # to be heard once (``rf_needs_press``).
+    raw_timings: list[int] | None = None
+    rf_frequency_hz: int | None = None
+    rf_frequency_source: str | None = None
+    rf_modulation: str | None = None
+    rf_frame_hash: str | None = None
+    rf_repeats_observed: int | None = None
+    rf_frame_gap_us: int | None = None
+    rf_frame_gap_source: str | None = None
+    rf_header_shape: str | None = None
+    rf_short_mark_us: int | None = None
+    send_count: int | None = None
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
@@ -1348,7 +1426,7 @@ class IRTrigger:
             "last_fired_at": self.last_fired_at,
             "trigger_remote_id": self.trigger_remote_id,
             "origin": self.origin,
-            **({"medium": MEDIUM_RF} if self.medium == MEDIUM_RF else {}),
+            **_trigger_rf_out(self),
         }, self._extra)
 
     @classmethod
@@ -1390,7 +1468,7 @@ class IRTrigger:
             # Absent on every trigger made before signpost 2; not
             # backfilled, per the provenance ruling.
             origin=data.get("origin") or None,
-            medium=MEDIUM_RF if data.get("medium") == MEDIUM_RF else MEDIUM_IR,
+            **_trigger_rf_in(data),
         ), data, _KNOWN_TRIGGER)
 
     def rename(self, new_name: str) -> None:

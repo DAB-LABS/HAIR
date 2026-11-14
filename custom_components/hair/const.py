@@ -580,6 +580,14 @@ RF_SEND_UNSUPPORTED = "rf_send_unsupported"
 # says each from its code; the message beside it is English, for the log.
 NO_EMITTER_FOR_MEDIUM = "no_emitter_for_medium"
 RF_NO_FREQUENCY = "rf_no_frequency"
+# A radio command with no frame: one "Make a Device" minted from a radio
+# Remote before the radio trigger fix, or one still waiting for its
+# button to be heard once. Refused before anything else is checked.
+RF_NO_FRAME = "rf_no_frame"
+RF_NO_FRAME_MESSAGE = (
+    "This radio command has no code to send. Press its button on the remote "
+    "once near a radio receiver, or paste the code in the command editor."
+)
 RF_FREQUENCY_UNSUPPORTED = "rf_frequency_unsupported"
 RF_PLATFORM_NOT_LOADED = "rf_platform_not_loaded"
 # A transmitter that declares no frequency ((0, 0) or nothing): the
