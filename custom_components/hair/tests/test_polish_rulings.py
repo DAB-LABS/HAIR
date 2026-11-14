@@ -3556,6 +3556,19 @@ class TestTheGhostTileHasTwoButtons:
     layouts.
     """
 
+    def test_the_empty_page_hint_names_the_buttons_and_every_format(self):
+        # Owner, 2026-11-14 07:01 PT (ir-2026-11-14-ghost-tile-text-approved.md):
+        # the full layout lists the compact tile's formats and points at
+        # the buttons above it, not at a click on the tile.
+        text = _read("ir-ghost-tile.ts")
+        formats = "Wig, SmartIR, Flipper, LIRC, Girr, Harmony, Global Cache, Tasmota, or irdb"
+        assert f'hintFull: "Drag a {formats} file here, or use the buttons above",' in text
+        assert f'aria: "Add Device -- or drop a {formats} file",' in text
+        assert f'aria: "Add Remote -- or drop a {formats} file",' in text
+        assert "click to add" not in text
+        en = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert en["ghost.hint_compact_device"].endswith(f"{formats} file")
+
     def test_the_tile_is_no_longer_a_button(self):
         text = _read("ir-ghost-tile.ts")
         render = text.split("render() {", 1)[1]

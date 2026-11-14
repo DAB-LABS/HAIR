@@ -115,13 +115,13 @@ const COPY: Record<
 > = {
     device: {
         title: "Add a Device",
-        hintFull: "Drag a Wig, SmartIR, Flipper, LIRC, or Girr file here, or click to add",
+        hintFull: "Drag a Wig, SmartIR, Flipper, LIRC, Girr, Harmony, Global Cache, Tasmota, or irdb file here, or use the buttons above",
         hintCompactKey: "ghost.hint_compact_device",
-        aria: "Add Device -- or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
+        aria: "Add Device -- or drop a Wig, SmartIR, Flipper, LIRC, Girr, Harmony, Global Cache, Tasmota, or irdb file",
     },
     remote: {
         hintCompactKey: "ghost.hint_compact_remote",
-        aria: "Add Remote -- or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
+        aria: "Add Remote -- or drop a Wig, SmartIR, Flipper, LIRC, Girr, Harmony, Global Cache, Tasmota, or irdb file",
     },
 };
 
