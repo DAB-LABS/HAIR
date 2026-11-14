@@ -282,3 +282,66 @@ class TestCAME:
         only("came")
         result = family_of(_sf_frame(ADDRESS + DATA, unit=320.0, gap_units=47.0))
         assert _fields(result) == {"code": ADDRESS + DATA}
+
+
+class TestNiceFLO:
+    @pytest.fixture
+    def only(self, monkeypatch):
+        import dataclasses
+
+        def show(*keys: str) -> None:
+            table = {
+                k: dataclasses.replace(v, shown=k in keys)
+                for k, v in rf_family.FAMILIES.items()
+            }
+            monkeypatch.setattr(rf_family, "FAMILIES", table)
+            rf_family._family_of.cache_clear()
+
+        yield show
+        rf_family._family_of.cache_clear()
+
+    def test_it_is_off(self):
+        assert rf_family.FAMILIES["nice_flo"].shown is False
+
+    def test_a_24_bit_word_reads_as_nothing_while_off(self):
+        assert family_of(_sf_frame(CAME_24, unit=700.0)) is None
+
+    def test_on_a_24_bit_word_is_nice_flo_alone(self, only):
+        only("nice_flo")
+        result = family_of(_sf_frame(CAME_24, unit=700.0))
+        assert result.label == "Nice FLO"
+        assert result.certainty == CERTAINTY_DECODED
+        assert _fields(result) == {"code": f"{int(CAME_24, 2):06X}"}
+
+    def test_on_a_12_bit_word_is_nice_flo_or_ht12e(self, only):
+        only("nice_flo", "ht12e")
+        result = family_of(_sf_frame(ADDRESS + DATA, unit=700.0))
+        assert result.label == "HT12E or Nice FLO"
+        assert result.certainty == CERTAINTY_AMBIGUOUS
+
+    def test_a_12_bit_code_reads_as_its_switches(self, only):
+        only("nice_flo")
+        result = family_of(_sf_frame(ADDRESS + DATA, unit=700.0))
+        assert _fields(result) == {"code": ADDRESS + DATA}
+
+    @pytest.mark.parametrize("unit", [520.0, 700.0, 880.0])
+    def test_the_band(self, only, unit):
+        only("nice_flo")
+        assert family_of(_sf_frame(CAME_24, unit=unit)).label == "Nice FLO"
+
+    @pytest.mark.parametrize("unit", [460.0, 950.0])
+    def test_outside_the_band_is_not_nice_flo(self, only, unit):
+        only("nice_flo")
+        assert family_of(_sf_frame(CAME_24, unit=unit)) is None
+
+    def test_came_and_nice_flo_never_both_fit(self):
+        """The two bands do not meet, so one word is never both brands."""
+        assert rf_family._CAME_T_US[1] < rf_family._NICE_FLO_T_US[0]
+
+    @pytest.mark.parametrize("seed", range(10))
+    def test_both_receivers(self, only, seed):
+        only("nice_flo")
+        frame = _sf_frame(CAME_24, unit=700.0, mark_widening=60, seed=seed)
+        assert family_of(frame).label == "Nice FLO"
+        frame = _sf_frame(CAME_24, unit=700.0, short_spread=0.3, long_spread=0.1, seed=seed)
+        assert _fields(family_of(frame))["code"] == f"{int(CAME_24, 2):06X}"

@@ -250,21 +250,29 @@ No vendor specification exists. Sources, re-read 2026-11-14:
 
 - Flipper forum thread with independent measurements (BitcoinRaven,
   a.fabbro, 2022): https://forum.flipper.net/t/protocol-documentation/4794
-- rtl_433 flex config CAME-TOP432.conf (GPL project; facts only):
+- rtl_433 flex config CAME-TOP432.conf (rtl_433 is GPL-2.0; a config
+  file, read for facts only):
   https://git.sudo.is/mirrors/rtl_433/src/branch/master/conf/CAME-TOP432.conf
-- Flipper-lineage decoder came.c (GPL; facts only, the only source for
-  24 bits):
+- came.c in unleashed-firmware, a Flipper-lineage decoder (GPL-3.0; read
+  for facts only, ruling 2026-11-14; no code, table, names or comments
+  taken):
   https://code.popov.link/mirrors/unleashed-firmware/src/branch/dev/lib/subghz/protocols/came.c
+
+Rows marked [GPL only] have no published description: each was taken
+from came.c in unleashed-firmware (GPL-3.0), read for facts only; no
+published description found.
 
 | Fact | CAME | Sources |
 |---|---|---|
 | T | 320 us (measured 321 to 343; 250 also works) | forum, rtl_433, Flipper |
-| Tolerance used | +/- 150 us | Flipper |
+| Tolerance used | +/- 150 us | [GPL only] |
 | Zero | 1 T low, then 2 T high | forum (-334/667), Flipper |
 | One | 2 T low, then 1 T high | forum (-664/343), Flipper |
 | Start | a 1 T pulse after the pilot | forum, rtl_433 |
-| Pilot | at least 36 T (11.5 ms); 47 T for 12 bits, 76 T for 24 | rtl_433; Flipper (one lineage) |
-| Bits | 12; 24 in one lineage only | all; Flipper |
+| Pilot | at least 36 T (11.5 ms) | rtl_433; forum (about 47 T) |
+| Pilot, 24 bits | 76 T | [GPL only] |
+| Bits, 12 | 12 | forum, rtl_433 |
+| Bits, 24 | 24 | [GPL only] |
 | Order | most significant first | forum (by its script) |
 | Repeats | 4 per press | forum, rtl_433 |
 
@@ -274,6 +282,35 @@ HT12E and is never ``decoded``; a 24-bit frame in the band fits CAME
 alone. The same waveform at 18, 25 and 42 bits is named for other brands
 (Airforce, Prastel) in the Flipper lineage only, and is not built.
 Held off until one real capture (ruling 2026-11-14).
+
+SPEC TABLE: Nice FLO 12 and 24 (held off)
+=========================================
+
+One source only, re-read 2026-11-14:
+
+- nice_flo.c in unleashed-firmware, a Flipper-lineage decoder (GPL-3.0;
+  read for facts only, ruling 2026-11-14; no code, table, names or
+  comments taken):
+  https://code.popov.link/mirrors/unleashed-firmware/src/branch/dev/lib/subghz/protocols/nice_flo.c
+
+Every row below was taken from nice_flo.c in unleashed-firmware
+(GPL-3.0), read for facts only; no published description found. A real
+capture will be the primary evidence when one exists.
+
+| Fact | Nice FLO | |
+|---|---|---|
+| T | 700 us, long 1400 | |
+| Tolerance used | +/- 200 us | |
+| Zero | 1 T low, then 2 T high | |
+| One | 2 T low, then 1 T high | |
+| Pilot | about 36 T low | |
+| Bits | 12 or 24 | |
+| End | a low of at least 4 T | |
+
+What follows (derived): the HT12E shape again, at about twice CAME's T.
+A 12-bit frame with T in the Nice FLO band (500 to 900 us) fits Nice
+FLO and HT12E and is never ``decoded``; 24 bits in the band fit Nice FLO
+alone. Held off until one real capture (ruling 2026-11-14).
 """
 from __future__ import annotations
 
@@ -353,6 +390,12 @@ FAMILIES: dict[str, FamilySpec] = {
             evidence="Flipper forum measurements, rtl_433 CAME-TOP432.conf, "
                      "Flipper-lineage came.c (facts only); held off until a "
                      "real capture (ruling 2026-11-14)",
+        ),
+        FamilySpec(
+            "nice_flo", "Nice FLO",
+            shown=False,
+            evidence="Flipper-lineage nice_flo.c (one lineage, facts only); "
+                     "held off until a real capture (ruling 2026-11-14)",
         ),
         FamilySpec(
             "nexa_old", "Nexa",
@@ -582,6 +625,8 @@ _SF_START_MAX_SHORT_MARKS = 1.6
 # shown to work): a frame of this shape whose T falls here also fits
 # CAME.
 _CAME_T_US = (220.0, 450.0)
+# Nice FLO's unit (700 us, +/- 200 in the one lineage that reads it).
+_NICE_FLO_T_US = (500.0, 900.0)
 # The pilot before the start mark is 12 bit-times (36 T) on the HT12E;
 # a receiver may cut it shorter, and other families of this shape send
 # up to about 76 T.
@@ -643,6 +688,10 @@ def _space_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
         _CAME_T_US[0] <= unit <= _CAME_T_US[1]
     ):
         fits.append(_Fit("came", (("code", _sf_code(bits)),)))
+    if bits_n in (12, 24) and "nice_flo" in FAMILIES and (
+        _NICE_FLO_T_US[0] <= unit <= _NICE_FLO_T_US[1]
+    ):
+        fits.append(_Fit("nice_flo", (("code", _sf_code(bits)),)))
     if bits_n == 28 and bits[24:] == "0101" and "ht6p20" in FAMILIES:
         fits.append(_Fit("ht6p20", (("code", f"{int(bits[:24], 2):06X}"),)))
     return _ShapeRead(unit_us, tuple(fits), shared=(("code", bits),))
