@@ -234,13 +234,19 @@ class TestTheModel:
             code=PRONTO, created_at="2026-01-01T00:00:00+00:00",
             updated_at="2026-01-01T00:00:00+00:00",
         )
-        assert sorted(trig.to_dict()) == sorted([
-            "id", "name", "signal_fingerprint", "protocol", "code", "min_hits",
-            "enabled", "source_device_id", "source_command_id", "created_at",
-            "updated_at", "receiver_entity_ids", "byte_hash",
-            "decoded_fingerprint", "order", "alias_history", "fire_count",
-            "last_fired_at", "trigger_remote_id", "origin",
-        ])
+        # The record main 02fdd45 writes for this trigger, value for value.
+        assert json.dumps(trig.to_dict()) == json.dumps({
+            "id": "t1", "name": "Power", "signal_fingerprint": "fp",
+            "protocol": "PRONTO", "code": PRONTO, "min_hits": 1,
+            "enabled": True, "source_device_id": None,
+            "source_command_id": None,
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+            "receiver_entity_ids": [], "byte_hash": None,
+            "decoded_fingerprint": None, "order": None, "alias_history": [],
+            "fire_count": 0, "last_fired_at": None, "trigger_remote_id": None,
+            "origin": None,
+        })
         assert IRTrigger.from_dict(trig.to_dict()).medium == MEDIUM_IR
 
     def test_a_v120_radio_trigger_loads_waiting(self, keyfob):  # noqa: F811
@@ -306,6 +312,34 @@ class TestTheDoors:
         assert command.byte_hash == keyfob.frame_hash
         _assert_sends_like(fake_hass, command, row)
         assert result["needs_press"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_sniffer_rows_default_count_is_seeded_not_kept(
+        self, fake_hass, store, catalog, keyfob, radio,  # noqa: F811
+    ):
+        """A RADIO COUNT OF 1 IS UNSET (review 1): a row as the Sniffer
+        mints it sends what its press carried, as Sniffer to Device does."""
+        row = _rf_signal(keyfob)
+        assert row.send_count == 1
+        card = _file_row(catalog, row)
+        remote = _remote(store)
+        await SignalMonitor(fake_hass, catalog, store).copy_signals_to_trigger_remote(
+            card.id, remote.id
+        )
+        _wire(fake_hass, store, catalog)
+        device, _ = await _make_device(fake_hass, store, remote.id)
+        expected = rf_send.seed_send_count(keyfob.votes)
+        assert expected > 1
+        assert device.commands[0].send_count == expected
+        plan = rf_send.plan_radio_send(fake_hass, device.commands[0], [ATHOM_TX], "Plug")
+        assert plan.count == rf_send.send_count_for(device.commands[0], plan.timings)
+
+    def test_a_commands_count_of_1_is_a_choice(self, keyfob):  # noqa: F811
+        command = _radio_command(keyfob, send_count=1)
+        command.send_count = 1
+        trig = IRTrigger(protocol=RF_PROTOCOL)
+        copy_rf_signal(command, trig)
+        assert trig.send_count == 1
 
     @pytest.mark.asyncio
     async def test_mixed_remote_makes_both_kinds(self, fake_hass, store, keyfob, radio):  # noqa: F811
@@ -460,6 +494,73 @@ class TestTheDoors:
 
 class TestEdits:
     @pytest.mark.asyncio
+    async def test_update_moving_a_radio_trigger_to_another_code_drops_the_old_frame(
+        self, fake_hass, store, catalog, keyfob,  # noqa: F811
+    ):
+        """Review 2: a new byte hash means another code, so the old frame
+        goes; with nothing holding the new code the trigger waits."""
+        from custom_components.hair.websocket_api import ws_update_trigger
+
+        trig = _radio_trigger(keyfob)
+        store.add_trigger(trig)
+        _wire(fake_hass, store, catalog)
+        conn = _make_connection()
+        with _Patched(_quiet()):
+            await ws_update_trigger(fake_hass, conn, {
+                "id": 6, "type": "hair/trigger/update",
+                "trigger_id": trig.id, "byte_hash": "another-code",
+            })
+        conn.send_error.assert_not_called()
+        assert trig.byte_hash == "another-code"
+        assert rf_needs_press(trig)
+
+    @pytest.mark.asyncio
+    async def test_an_update_that_keeps_the_code_keeps_the_frame(
+        self, fake_hass, store, catalog, keyfob,  # noqa: F811
+    ):
+        from custom_components.hair.websocket_api import ws_update_trigger
+
+        trig = _radio_trigger(keyfob)
+        store.add_trigger(trig)
+        _wire(fake_hass, store, catalog)
+        with _Patched(_quiet()):
+            await ws_update_trigger(fake_hass, _make_connection(), {
+                "id": 7, "type": "hair/trigger/update",
+                "trigger_id": trig.id, "byte_hash": keyfob.frame_hash, "name": "On",
+            })
+        assert trig.raw_timings == list(keyfob.frame)
+
+    @pytest.mark.asyncio
+    async def test_a_code_and_count_edit_reaches_the_trigger_with_the_new_count(
+        self, manager, keyfob, captures,  # noqa: F811
+    ):
+        """Review 6: the count set in the same edit as the code."""
+        from custom_components.hair import rf_frames
+        from custom_components.hair.tests.test_rf_hear import _signed
+
+        other = next(
+            a for a in (rf_frames.analyze(_signed(c["pulses"])) for c in captures)
+            if a is not None and a.frame_hash != keyfob.frame_hash
+        )
+        command = _radio_command(keyfob)
+        device = IRDevice(name="Plug", commands=[command])
+        manager._store.add_device(device)
+        tm = MagicMock()
+        seen = {}
+
+        async def rewire(*args, source_row=None, **kwargs):
+            seen["count"] = source_row.send_count
+            return {"rewired": [], "skipped": []}
+
+        tm.rewire = rewire
+        paste = " ".join(str(v) for v in [*other.frame[:-1], -9_999] * 3)
+        result = await manager.async_update_command(
+            device.id, command.id, rf_code=paste, send_count=9, trigger_manager=tm,
+        )
+        assert result["success"], result
+        assert seen == {"count": 9}
+
+    @pytest.mark.asyncio
     async def test_radio_edit_rewire_carries_the_new_frame(self, fake_hass, store, keyfob):  # noqa: F811
         trig = _radio_trigger(keyfob)
         store.add_trigger(trig)
@@ -552,6 +653,52 @@ class TestTheRepair:
         store.add_trigger(trig)
         store.repair_radio_signals(catalog)
         assert trig.send_count == 6
+
+    def test_repair_never_takes_a_sibling_by_fingerprint(self, store, catalog, keyfob):  # noqa: F811
+        """Review 3: a catalog row of the same fingerprint and another
+        frame hash is a different button."""
+        _file_row(catalog, _row(keyfob, id="sib", byte_hash="sibling-hash",
+                                rf_frame_hash="sibling-hash"))
+        trig = _radio_trigger(keyfob, whole=False)
+        store.add_trigger(trig)
+        assert store.repair_radio_signals(catalog) is False
+        assert rf_needs_press(trig)
+
+    def test_a_trigger_with_no_hash_waits(self, store, catalog, keyfob):  # noqa: F811
+        _file_row(catalog, _row(keyfob))
+        trig = _radio_trigger(keyfob, whole=False)
+        trig.byte_hash = None
+        store.add_trigger(trig)
+        assert store.repair_radio_signals(catalog) is False
+        assert rf_needs_press(trig)
+
+    def test_repair_keeps_what_the_user_set_on_a_waiting_command(
+        self, store, catalog, keyfob,  # noqa: F811
+    ):
+        """Review 5: a count above 1 and a carrier the user gave stay."""
+        waiting = _broken_command(keyfob)
+        waiting.send_count = 9
+        waiting.rf_frequency_hz = 315_000_000
+        waiting.rf_frequency_source = "user"
+        store.add_device(IRDevice(name="Plug", commands=[waiting]))
+        _file_row(catalog, _row(keyfob))
+        store.repair_radio_signals(catalog)
+        assert waiting.raw_timings == list(keyfob.frame)
+        assert waiting.send_count == 9
+        assert (waiting.rf_frequency_hz, waiting.rf_frequency_source) == (315_000_000, "user")
+
+    @pytest.mark.asyncio
+    async def test_a_failing_repair_does_not_stop_setup(self, fake_hass, caplog):
+        """Review 4: the setup call is guarded and logged."""
+        import inspect
+
+        from custom_components import hair as hair_init
+
+        source = inspect.getsource(hair_init.async_setup_entry)
+        call = source.index("store.repair_radio_signals(signal_store)")
+        guard = source.rindex("try:", 0, call)
+        handler = source.index("except Exception:", call)
+        assert guard < call < handler < source.index("_LOGGER.exception", handler)
 
     def test_repair_flags_when_neither(self, store, catalog, keyfob):  # noqa: F811
         trig = _radio_trigger(keyfob, whole=False)
@@ -674,6 +821,19 @@ class TestTheNextPress:
         store.fill_waiting_radio(_press(keyfob), keyfob.fingerprint, keyfob.frame_hash)
         assert not rf_needs_press(off) and not rf_needs_press(scoped)
         assert off.fire_count == 0 and scoped.fire_count == 0
+
+    def test_a_press_with_the_same_fingerprint_fills_no_sibling(self, store, keyfob):  # noqa: F811
+        """Review 3: same fingerprint, another frame hash."""
+        trig = _radio_trigger(keyfob, whole=False)
+        trig.byte_hash = None
+        store.add_trigger(trig)
+        other = _radio_trigger(keyfob, whole=False)
+        other.byte_hash = "sibling-hash"
+        store.add_trigger(other)
+        assert store.fill_waiting_radio(
+            _press(keyfob), keyfob.fingerprint, keyfob.frame_hash
+        ) == 0
+        assert rf_needs_press(trig) and rf_needs_press(other)
 
     def test_a_press_of_another_code_fills_nothing(self, store, keyfob):  # noqa: F811
         trig = _radio_trigger(keyfob, whole=False)

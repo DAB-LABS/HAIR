@@ -98,7 +98,14 @@ async def async_setup_entry(
     # And the second: radio triggers and commands with no frame take it
     # from a catalog row or another row that holds the same code (radio
     # trigger fix). Nothing waiting costs one walk and no save.
-    if store.repair_radio_signals(signal_store):
+    # Guarded like the press path: a malformed stored row must never stop
+    # HAIR from loading (review 4).
+    try:
+        repaired = store.repair_radio_signals(signal_store)
+    except Exception:
+        _LOGGER.exception("Radio codes: the repair of rows with no frame failed")
+        repaired = False
+    if repaired:
         await store.async_save()
 
     # Load the pluckable YAML registry in a single executor hop (off-loop).

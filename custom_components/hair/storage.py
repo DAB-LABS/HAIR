@@ -637,18 +637,16 @@ class HAIRStore:
         it filled; the caller saves.
         """
         from .const import RF_PROTOCOL
-        from .identity import SignalIdentity
-        from .models import copy_rf_signal, rf_needs_press
+        from .models import copy_rf_signal, fill_rf_command, rf_needs_press
 
-        if not getattr(row, "raw_timings", None) or not (fingerprint or byte_hash):
+        # The frame hash only. Two buttons of one remote can share a
+        # fingerprint, so a row with no hash of its own is never filled
+        # by guess: it waits (review 3).
+        if not getattr(row, "raw_timings", None) or not byte_hash:
             return 0
-        heard = SignalIdentity(None, byte_hash, fingerprint or "")
         filled = 0
         for trigger in self._triggers.values():
-            if rf_needs_press(trigger) and SignalIdentity(
-                trigger.decoded_fingerprint, trigger.byte_hash,
-                trigger.signal_fingerprint,
-            ).same_as(heard):
+            if rf_needs_press(trigger) and trigger.byte_hash == byte_hash:
                 copy_rf_signal(row, trigger)
                 filled += 1
         mended = 0
@@ -657,9 +655,9 @@ class HAIRStore:
                 if (
                     cmd.protocol == RF_PROTOCOL
                     and not cmd.raw_timings
-                    and SignalIdentity(None, cmd.byte_hash, "").same_as(heard)
+                    and cmd.byte_hash == byte_hash
                 ):
-                    copy_rf_signal(row, cmd)
+                    fill_rf_command(row, cmd)
                     mended += 1
         if mended:
             self._rebuild_command_index()
@@ -706,7 +704,7 @@ class HAIRStore:
         """
         from .const import RF_PROTOCOL
         from .identity import SignalIdentity
-        from .models import MEDIUM_RF, copy_rf_signal, rf_needs_press
+        from .models import MEDIUM_RF, copy_rf_signal, fill_rf_command, rf_needs_press
 
         triggers = [t for t in self._triggers.values() if rf_needs_press(t)]
         commands = [
@@ -721,7 +719,11 @@ class HAIRStore:
         whole = self._radio_frames_by_hash()
 
         def from_catalog(fingerprint: str, byte_hash: str | None) -> Any:
-            if not byte_hash and not fingerprint:
+            # Only with a frame hash: a fingerprint alone can be a sibling
+            # button's (review 3). The lookup confirms a hit by the
+            # strongest tier both sides carry, so a row of another hash is
+            # never handed back.
+            if not byte_hash:
                 return None
             found = signal_store.find_filed_signal(
                 SignalIdentity(None, byte_hash, fingerprint or ""), prune=False
@@ -770,7 +772,7 @@ class HAIRStore:
             if source is None:
                 waiting += 1
                 continue
-            copy_rf_signal(source, cmd)
+            fill_rf_command(source, cmd)
 
         filled = from_rows + from_commands + from_triggers
         if filled:

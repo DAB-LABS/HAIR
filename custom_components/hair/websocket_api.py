@@ -3964,7 +3964,10 @@ def _fill_radio_trigger(data: dict[str, Any], trigger: Any, source_cmd: Any) -> 
     if source_cmd is not None and is_rf(source_cmd) and source_cmd.raw_timings:
         source = source_cmd
     signal_store = data.get("signal_store")
-    if source is None and signal_store is not None:
+    # By the frame hash only: two buttons of one remote can share a
+    # fingerprint, so a trigger with no hash waits rather than take a
+    # sibling's frame (review 3).
+    if source is None and signal_store is not None and trigger.byte_hash:
         found = signal_store.find_filed_signal(
             SignalIdentity(None, trigger.byte_hash, trigger.signal_fingerprint),
             prune=False,
@@ -4212,6 +4215,13 @@ async def ws_update_trigger(
         trigger.receiver_entity_ids = list(msg["receiver_entity_ids"] or [])
     if "byte_hash" in msg:
         # Byte-level identity (v0.5.8). None = legacy-broad matching.
+        if is_rf(trigger) and msg["byte_hash"] != trigger.byte_hash:
+            # A radio trigger's frame belongs to its code: moved to another
+            # code, it gives up the old frame and takes the new one's, or
+            # waits for a press (radio trigger fix, review 2).
+            trigger.raw_timings = None
+            trigger.byte_hash = msg["byte_hash"]
+            _fill_radio_trigger(data, trigger, None)
         trigger.byte_hash = msg["byte_hash"]
     if "decoded_fingerprint" in msg:
         # Decoded identity (v0.5.8 unified identity). None = no tier-1.

@@ -483,6 +483,10 @@ class DeviceManager:
             old_fp = _rf_fp(command.protocol, command.code, command.raw_timings)
             old_byte_hash = command.byte_hash
             rf_paste.apply_code(command, rf_result)
+            if send_count is not None:
+                # Before the rewire, so a trigger repointed to this code
+                # takes the count this same edit sets (review 6).
+                command.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
             new_fp = rf_result["fingerprint"]
             if trigger_manager is not None and new_fp and (
                 new_fp != old_fp or command.byte_hash != old_byte_hash

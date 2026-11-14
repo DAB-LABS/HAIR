@@ -252,8 +252,13 @@ def copy_rf_signal(source: Any, target: Any) -> None:
     radio fields, the frame, and the send count.
 
     The one place a trigger door or "Make a Device" moves them, so a
-    trigger holds what a command would. A source with no count of its
-    own (a capture) gives the count its press carried.
+    trigger holds what a command would.
+
+    The count follows the assign door's rule (``_apply_signal_provenance``):
+    A RADIO COUNT OF 1 IS UNSET on a Sniffer row or a capture, because 1
+    is the row's stored default, so such a source gives the count its
+    press carried. A device command's or a trigger's count was chosen (or
+    already seeded) and is kept as it is.
     """
     from .rf_send import seed_send_count
 
@@ -261,9 +266,24 @@ def copy_rf_signal(source: Any, target: Any) -> None:
     frame = getattr(source, "raw_timings", None)
     target.raw_timings = [int(v) for v in frame] if frame else None
     count = getattr(source, "send_count", None)
-    if not isinstance(count, int) or count < 1:
+    chosen = isinstance(source, IRCommand | IRTrigger)
+    if not isinstance(count, int) or count < 1 or (count == 1 and not chosen):
         count = seed_send_count(getattr(source, "rf_repeats_observed", None))
     target.send_count = count
+
+
+def fill_rf_command(source: Any, command: Any) -> None:
+    """Give a radio command with no frame the signal it is missing,
+    keeping what its user already set on it: a count above 1 and a
+    carrier. A command "Make a Device" minted before the fix has
+    neither, so it takes everything (radio trigger fix, review 5)."""
+    count = command.send_count if (command.send_count or 1) > 1 else None
+    carrier = (command.rf_frequency_hz, command.rf_frequency_source)
+    copy_rf_signal(source, command)
+    if count is not None:
+        command.send_count = count
+    if carrier[0]:
+        command.rf_frequency_hz, command.rf_frequency_source = carrier
 
 
 def _trigger_rf_out(trigger: Any) -> dict[str, Any]:

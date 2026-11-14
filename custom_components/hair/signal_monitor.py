@@ -4498,6 +4498,10 @@ class SignalMonitor:
                 self._signal_store.forget_signal(signal)
                 rf_paste.apply_code(signal, result)
                 self._signal_store.index_signal(device, signal)
+                if send_count is not None:
+                    # Before the rewire, so a trigger repointed to this code
+                    # takes the count this same edit sets (review 6).
+                    signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
                 if self._trigger_manager is not None and (
                     signal.fingerprint != old_fp or signal.byte_hash != old_byte_hash
                 ):
