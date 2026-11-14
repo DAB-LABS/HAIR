@@ -44,6 +44,8 @@ from .const import (
     RF_DEFAULT_SEND_COUNT,
     RF_FREQUENCY_UNSUPPORTED,
     RF_MIN_SEND_COUNT,
+    RF_NO_FRAME,
+    RF_NO_FRAME_MESSAGE,
     RF_NO_FREQUENCY,
     RF_NO_RANGES,
     RF_PLATFORM_NOT_LOADED,
@@ -304,6 +306,11 @@ def plan_radio_send(
     """
     from .rf_band import band_label
 
+    if not getattr(row, "raw_timings", None):
+        # First: an empty row has no carrier either, and "set its
+        # frequency" is the wrong thing to tell someone whose code is
+        # missing (radio trigger fix).
+        raise SendRefusedError(RF_NO_FRAME, RF_NO_FRAME_MESSAGE)
     radio_ids = [e for e in transmitter_ids if is_radio_entity(e)]
     if not radio_ids:
         raise SendRefusedError(

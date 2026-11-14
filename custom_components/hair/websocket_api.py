@@ -57,7 +57,9 @@ from .models import (
     IRDevice,
     IRTrigger,
     TriggerRemote,
+    copy_rf_signal,
     is_on_off_entity,
+    is_rf,
     max_power_settle_s,
     valid_fan_speed_steps,
 )
@@ -3948,6 +3950,36 @@ async def ws_get_triggers(
 RECEIVER_WRONG_MEDIUM = "receiver_wrong_medium"
 
 
+def _fill_radio_trigger(data: dict[str, Any], trigger: Any, source_cmd: Any) -> None:
+    """Give a new radio trigger its signal (radio trigger fix).
+
+    From the command it was made from when it has its frame; else the
+    Sniffer catalog row of the same code; else any device command of the
+    same code. None of them: the trigger is made all the same and waits
+    for its button to be heard once.
+    """
+    from .identity import SignalIdentity
+
+    source = None
+    if source_cmd is not None and is_rf(source_cmd) and source_cmd.raw_timings:
+        source = source_cmd
+    signal_store = data.get("signal_store")
+    # By the frame hash only: two buttons of one remote can share a
+    # fingerprint, so a trigger with no hash waits rather than take a
+    # sibling's frame (review 3).
+    if source is None and signal_store is not None and trigger.byte_hash:
+        found = signal_store.find_filed_signal(
+            SignalIdentity(None, trigger.byte_hash, trigger.signal_fingerprint),
+            prune=False,
+        )
+        if found is not None and is_rf(found[1]) and found[1].raw_timings:
+            source = found[1]
+    if source is None:
+        source = data["store"].radio_command_with_frame(trigger.byte_hash)
+    if source is not None:
+        copy_rf_signal(source, trigger)
+
+
 def _receiver_medium_error(trigger_medium: str, entity_ids: list[str]) -> str | None:
     """Why a trigger's receiver scope cannot stand, or None when it can.
 
@@ -4032,12 +4064,14 @@ async def ws_create_trigger(
     # every trigger created from a command row legacy-broad. That is the
     # exact bug this release exists to fix, on the path a user hits right
     # after assigning a signal.
+    source_cmd = None
     if msg.get("source_command_id") and msg.get("source_device_id"):
         dm = data.get("device_manager")
         if dm:
             device = dm.get_device(msg["source_device_id"])
             if device:
                 cmd = device.get_command(msg["source_command_id"])
+                source_cmd = cmd
                 if cmd:
                     if not sig_fp:
                         sig_fp = canonical_fingerprint(
@@ -4092,6 +4126,8 @@ async def ws_create_trigger(
     if problem is not None:
         connection.send_error(msg["id"], RECEIVER_WRONG_MEDIUM, problem)
         return
+    if is_rf(trigger):
+        _fill_radio_trigger(data, trigger, source_cmd)
     if trigger.decoded_fingerprint is None and trigger.code:
         # Safe server-side derive (see the comment at the top of the
         # handler); same computation as the load-time trigger backfill.
@@ -4179,6 +4215,13 @@ async def ws_update_trigger(
         trigger.receiver_entity_ids = list(msg["receiver_entity_ids"] or [])
     if "byte_hash" in msg:
         # Byte-level identity (v0.5.8). None = legacy-broad matching.
+        if is_rf(trigger) and msg["byte_hash"] != trigger.byte_hash:
+            # A radio trigger's frame belongs to its code: moved to another
+            # code, it gives up the old frame and takes the new one's, or
+            # waits for a press (radio trigger fix, review 2).
+            trigger.raw_timings = None
+            trigger.byte_hash = msg["byte_hash"]
+            _fill_radio_trigger(data, trigger, None)
         trigger.byte_hash = msg["byte_hash"]
     if "decoded_fingerprint" in msg:
         # Decoded identity (v0.5.8 unified identity). None = no tier-1.
@@ -5414,6 +5457,8 @@ async def ws_duplicate_trigger_remote(
             # (2026-08-18, receiver-tolerant identity).
             origin=trig.origin,
         )
+        if is_rf(trig):
+            copy_rf_signal(trig, new_trigger)
         store.add_trigger(new_trigger)
         sync_trigger_entities(hass, entry_id, trigger=new_trigger)
         copied.append(new_trigger)
@@ -7947,9 +7992,14 @@ async def ws_trigger_remote_make_device(
     await manager.async_create_device(device)
 
     from .identity import file_sourced_trigger
-    from .mint import mint_from_code
+    from .mint import mint_command, mint_from_code
+    from .models import rf_needs_press
 
     copied = 0
+    # Radio buttons the Remote had no code for: made all the same, so
+    # they keep their place and their mapping, and listed so the dialog
+    # can say which to press once (radio trigger fix, answer 2).
+    needs_press: list[dict[str, str]] = []
     triggers = store.get_triggers_for_remote(remote.id)
     # Make a Device from a typed Remote copies its button mapping to the
     # new Device when the Device takes the Remote's type (owner ruling
@@ -7973,18 +8023,36 @@ async def ws_trigger_remote_make_device(
         # Remote minted from a wig gives a device whose commands came
         # from that file (2026-08-18). The byte hash is the trigger's
         # own, which is the one thing here that is not derivable.
-        command = mint_from_code(
-            name=trig.name.strip() or f"Trigger {i}",
-            protocol=trig.protocol,
-            code=trig.code,
-            byte_hash=trig.byte_hash,
-            claimed_fingerprint=trig.decoded_fingerprint,
-            source=(
-                CommandSource.IMPORTED
-                if file_sourced_trigger(trig, store)
-                else CommandSource.CAPTURED
-            ),
+        command_source = (
+            CommandSource.IMPORTED
+            if file_sourced_trigger(trig, store)
+            else CommandSource.CAPTURED
         )
+        if is_rf(trig):
+            # A radio trigger holds its own signal, as an infrared one
+            # holds its code (owner ruling 2026-11-13): the command is
+            # copied from it, never rebuilt from a Pronto code it does
+            # not have.
+            command = mint_command(
+                name=trig.name.strip() or f"Trigger {i}",
+                source=command_source,
+                protocol=RF_PROTOCOL,
+                estimate_spacing=False,
+                repeat_count=0,
+                byte_hash=trig.byte_hash,
+            )
+            copy_rf_signal(trig, command)
+            if rf_needs_press(command):
+                needs_press.append({"command_id": command.id, "name": command.name})
+        else:
+            command = mint_from_code(
+                name=trig.name.strip() or f"Trigger {i}",
+                protocol=trig.protocol,
+                code=trig.code,
+                byte_hash=trig.byte_hash,
+                claimed_fingerprint=trig.decoded_fingerprint,
+                source=command_source,
+            )
         device.add_command(command)
         command_name_by_trigger[trig.id] = command.name
         if not copy_mapping:
@@ -8004,6 +8072,7 @@ async def ws_trigger_remote_make_device(
     result["copied"] = copied
     result["matrix_copied"] = matrix_copied
     result["forced_ac"] = forced_ac
+    result["needs_press"] = needs_press
     connection.send_result(msg["id"], result)
 
 
@@ -8154,6 +8223,10 @@ async def ws_wig_make_remote(
             trigger_remote_id=remote.id,
             origin="closet",
         )
+        if radio:
+            # The signal the wig-to-device door would send, so a Remote
+            # made from a wig makes the same device that wig would.
+            copy_rf_signal(_wig_radio_command(sig, trig_name, set(), {}), trigger)
         store.add_trigger(trigger)
         triggers.append(trigger)
 
@@ -8291,6 +8364,8 @@ async def ws_device_make_remote(
             trigger_remote_id=remote.id,
             origin="device",
         )
+        if is_rf(trigger):
+            copy_rf_signal(command, trigger)
         store.add_trigger(trigger)
         triggers.append(trigger)
 

@@ -292,6 +292,26 @@ class TestExportAndAdopt:
             id="dev1", name="Keyfob", device_type="other", commands=[command],
         )
 
+    def test_a_command_waiting_for_a_press_gets_its_own_note(self, keyfob):
+        """Radio trigger fix: a command with no code is left out with the
+        reason that is true for it, not the missing-frequency one."""
+        from custom_components.hair.wig_export import build_wig_from_device
+
+        waiting = _radio_command(keyfob, raw_timings=None)
+        built = build_wig_from_device(self._device(waiting))
+        assert built.skipped == 1
+        assert built.notes == ["Button 1: no code yet; press the button once"]
+
+    def test_a_frame_with_no_frequency_keeps_the_frequency_note(self, keyfob):
+        from custom_components.hair.wig_export import build_wig_from_device
+
+        no_band = _radio_command(keyfob, rf_frequency_hz=None)
+        built = build_wig_from_device(self._device(no_band))
+        assert built.skipped == 1
+        assert len(built.notes) == 1
+        assert "no frequency set" in built.notes[0]
+        assert "no code yet" not in built.notes[0]
+
     def test_export_splits_the_gap_off_the_frame(self, keyfob):
         from custom_components.hair.wig_export import wig_rf_of
 

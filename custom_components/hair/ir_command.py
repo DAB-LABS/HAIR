@@ -524,6 +524,13 @@ def build_command(
 
     Raises ValueError if neither Pronto hex nor raw timings are usable.
     """
+    from .const import RF_NO_FRAME_MESSAGE, RF_PROTOCOL
+
+    if protocol == RF_PROTOCOL and not raw_timings:
+        # Every radio send goes through rf_send, which refuses an empty
+        # row first. This is the backstop for one that did not, so the
+        # refusal says what is wrong in radio words (radio trigger fix).
+        raise ValueError(RF_NO_FRAME_MESSAGE)
     is_pronto = False
     if (protocol and protocol.upper() == "PRONTO") or (
         code and (code.startswith("0000 ") or code.startswith("0100 "))
