@@ -16,7 +16,7 @@
  * hairHealthTokens declares the colours on the panel host.
  */
 import { css, unsafeCSS } from "lit";
-import { EMBER, EMBER_RGB, ONLINE_GREEN } from "./entity-health.js";
+import { DULL_GRAY, EMBER, EMBER_RGB, ONLINE_GREEN } from "./entity-health.js";
 
 /* Chip health (ember, 2026-10-19): the colours, read from the panel
    host's custom properties. The literal values live once, in
@@ -24,6 +24,10 @@ import { EMBER, EMBER_RGB, ONLINE_GREEN } from "./entity-health.js";
    mounted outside the panel. */
 export const EMBER_VAR = css`var(--hair-ember, ${unsafeCSS(EMBER)})`;
 export const ONLINE_VAR = css`var(--hair-online, ${unsafeCSS(ONLINE_GREEN)})`;
+/* The same two colors dulled toward gray, for a dot whose chip is not
+   picked (owner, 2026-11-14). */
+export const ONLINE_DULL = css`color-mix(in srgb, ${ONLINE_VAR} 45%, ${unsafeCSS(DULL_GRAY)})`;
+export const EMBER_DULL = css`color-mix(in srgb, ${EMBER_VAR} 50%, ${unsafeCSS(DULL_GRAY)})`;
 
 /** The health colours as custom properties. The panel host
  *  (ha-panel-ir-devices.ts) declares them, so every surface under it
@@ -47,10 +51,16 @@ export const hairHealthTokens = css`
  *  to a dot that carries `online` or `offline`, so a filter chip's dot
  *  (Mirror, Closet) is never touched.
  *
- *    not selected, online   grey pill, solid green dot
- *    not selected, offline  grey pill, hollow ember ring
- *    selected, online       tone pill, green dot, glow
- *    selected, offline      ember edge and wash, ember ring, no glow
+ *    not selected, online   grey pill, solid dull green dot
+ *    not selected, offline  grey pill, hollow dull ember ring
+ *    selected, online       tone pill, bright green dot, glow
+ *    selected, offline      ember edge and wash, bright ember ring, no glow
+ *
+ *  Bright means picked (owner, 2026-11-14): an unpicked chip's dot is
+ *  its health color dulled toward gray, so "connected" never reads as
+ *  "on". Rows with nothing to pick (a search list, a source row) take
+ *  the dull dot too. Hollow keeps meaning offline everywhere, so the
+ *  two states differ in shape as well as color.
  *
  *  The ring is a shape change as well as a colour change, so it reads
  *  for red-green colour blindness. It is one pixel wider than the
@@ -61,7 +71,7 @@ export const hairHealthTokens = css`
  *  rules tie on specificity with them and win on order. */
 export const healthDotStyles = css`
     .dot.online {
-        background: ${ONLINE_VAR};
+        background: ${ONLINE_DULL};
         box-shadow: none;
     }
     .dot.offline {
@@ -69,7 +79,7 @@ export const healthDotStyles = css`
         width: var(--hair-ring, 7px);
         height: var(--hair-ring, 7px);
         background: transparent;
-        border: 1.6px solid ${EMBER_VAR};
+        border: 1.6px solid ${EMBER_DULL};
         box-shadow: none;
     }
     .on .dot.online {
@@ -78,6 +88,7 @@ export const healthDotStyles = css`
     }
     .on .dot.offline {
         background: transparent;
+        border-color: ${EMBER_VAR};
         box-shadow: none;
     }
     /* The one alarm: selected and offline. */

@@ -683,9 +683,27 @@ class TestTheStyles:
     def test_the_offline_dot_is_a_ring(self):
         ring = _block(self._health(), ".dot.offline")
         assert "background: transparent;" in ring
-        assert "border: 1.6px solid ${EMBER_VAR};" in ring
+        assert "border: 1.6px solid ${EMBER_DULL};" in ring
         assert "box-sizing: border-box;" in ring
         assert "box-shadow: none;" in ring
+
+    def test_unpicked_is_dull_and_picked_is_bright(self):
+        # Owner, 2026-11-14 (ir-2026-11-14-go-chip-dots-build.md): bright
+        # means picked; an unpicked dot is its health color toward gray.
+        css = self._health()
+        assert "background: ${ONLINE_DULL};" in _block(css, ".dot.online")
+        assert "background: ${ONLINE_VAR};" in _block(css, ".on .dot.online")
+        assert "border-color: ${EMBER_VAR};" in _block(css, ".on .dot.offline")
+        styles = _read("ir-header-chip-styles.ts")
+        assert (
+            "export const ONLINE_DULL = css`color-mix(in srgb, ${ONLINE_VAR} 45%, "
+            "${unsafeCSS(DULL_GRAY)})`;"
+        ) in styles
+        assert (
+            "export const EMBER_DULL = css`color-mix(in srgb, ${EMBER_VAR} 50%, "
+            "${unsafeCSS(DULL_GRAY)})`;"
+        ) in styles
+        assert 'export const DULL_GRAY = "#7a7f85";' in _read("entity-health.ts")
 
     def test_nothing_offline_glows(self):
         css = self._health()
