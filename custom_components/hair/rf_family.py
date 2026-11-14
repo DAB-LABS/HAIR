@@ -348,6 +348,38 @@ halves), so a stretched clock is read at its own pace. A frame whose
 checksum fails is not read at all. Shown: the address and the command,
 as a number (ruling 2026-11-14). The rolling code and the key change on
 every press and are never shown.
+
+SPEC TABLE: Dooya (held off)
+============================
+
+Three sources, re-read 2026-11-14. The timing agrees across all three,
+two of them independent measurements; the field layout does not.
+
+- ESPHome ``dooya_protocol.cpp`` (C++, GPL-3.0; read for facts only):
+  https://api-docs.esphome.io/dooya__protocol_8cpp_source
+- Flipper forum thread "Dooya and clones" (r15ch13, a DC174/DC90
+  remote; Z4urce, a copy remote), measured:
+  https://forum.flipper.net/t/dooya-and-clones-electric-roller-shutters-blinds/9369
+- MySensors forum thread (petewill, an Audacity trace of a DV24CE
+  remote), measured: https://forum.mysensors.org/post/13556
+
+| Fact | ESPHome | Flipper forum | MySensors |
+|---|---|---|---|
+| Header | 5000 mark, 1500 space | sync about 4800 | 4812 mark, 1479 space |
+| Zero | 350 mark, 750 space | 350 short, 720 long | 376-395 mark, 653-687 space |
+| One | 750 mark, 350 space | | 713-750 mark, 317-333 space |
+| Bits | 40, MSB first | 40 | 40 |
+| After the 24-bit id | channel 8, button 4, check 4 | 4 bits, channel 4, key 8 | none named |
+| Last bit | a mark, no space | | |
+
+What follows (derived): a header pair, then 40 mark-first pairs of
+about 3 units, 1:2 or 2:1, a long mark for 1. Shown: ``remote`` (the
+24-bit id, in which the layouts agree) and ``code`` (the other 16 bits
+as hex); no channel or button split until a real capture settles it
+(ruling 2026-11-14). No source gives the gap between repeats. HAIR cuts
+frames on long spaces only, so a press sent back to back (header, bits,
+header) is one piece and gives no frame today; a cut before a long
+header mark waits for a real capture (ruling 2026-11-14).
 """
 from __future__ import annotations
 
@@ -454,6 +486,13 @@ FAMILIES: dict[str, FamilySpec] = {
             shown=False,
             evidence="PushStack write-up (one source); held off until a "
                      "real capture (ruling 2026-11-14); detection only",
+        ),
+        FamilySpec(
+            "dooya", "Dooya",
+            shown=False,
+            evidence="ESPHome dooya_protocol.cpp (facts only), Flipper forum "
+                     "and MySensors forum measurements; held off until a "
+                     "real capture (ruling 2026-11-14)",
         ),
     )
 }
@@ -912,4 +951,61 @@ def _manchester_somfy(frame: tuple[int, ...]) -> _ShapeRead | None:
     )),))
 
 
-_SHAPES = (_pt2262_ev1527, _space_first_1_2, _mark_first_1_2, _manchester_somfy)
+# ---------------------------------------------------------------------------
+# Shape: a long header pair, then mark-first 1:2 and 2:1 pairs (Dooya)
+# ---------------------------------------------------------------------------
+
+_DOOYA_BITS = 40
+# Every bit is about 3 units (350 and 750 us).
+_HD_PAIR_TOLERANCE = 0.30
+_HD_SPLIT_MIN = 0.7
+_HD_SPLIT_MAX = 1.4
+# The header in units: 5000 / 367 is about 13.6, 1500 / 367 about 4.1.
+_DOOYA_HEADER_MARK_UNITS = (10.0, 18.0)
+_DOOYA_HEADER_SPACE_UNITS = (3.0, 5.5)
+
+
+def _header_mark_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
+    """A header mark and space, then 40 bits of a mark and a space.
+
+    The last bit's space runs into the gap, so the frame holds the
+    header pair, 40 marks and the 39 spaces between them. A one is the
+    long mark (all three sources).
+    """
+    edges = canonical_edges(list(frame))
+    if len(edges) != 2 + 2 * _DOOYA_BITS - 1:
+        return None
+    marks = edges[2::2]
+    spaces = edges[3::2]
+    sums = [m + s for m, s in zip(marks, spaces, strict=False)]
+    typical = median(sums)
+    if typical <= 0 or any(
+        abs(total - typical) > _HD_PAIR_TOLERANCE * typical for total in sums
+    ):
+        return None
+    unit = typical / 3.0
+    if not _DOOYA_HEADER_MARK_UNITS[0] <= edges[0] / unit <= _DOOYA_HEADER_MARK_UNITS[1]:
+        return None
+    if not _DOOYA_HEADER_SPACE_UNITS[0] <= edges[1] / unit <= _DOOYA_HEADER_SPACE_UNITS[1]:
+        return None
+    cut = (min(marks) + max(marks)) / 2.0
+    short_marks = [m for m in marks if m < cut]
+    long_marks = [m for m in marks if m >= cut]
+    if not short_marks or not long_marks:
+        return None
+    split = (median(long_marks) - median(short_marks)) / unit
+    if not _HD_SPLIT_MIN <= split <= _HD_SPLIT_MAX:
+        return None
+    bits = "".join("1" if m >= cut else "0" for m in marks)
+    if "dooya" not in FAMILIES:
+        return _ShapeRead(round(unit), ())
+    return _ShapeRead(round(unit), (_Fit("dooya", (
+        ("remote", f"{int(bits[:24], 2):06X}"),
+        ("code", f"{int(bits[24:], 2):04X}"),
+    )),))
+
+
+_SHAPES = (
+    _pt2262_ev1527, _space_first_1_2, _mark_first_1_2, _manchester_somfy,
+    _header_mark_first_1_2,
+)
