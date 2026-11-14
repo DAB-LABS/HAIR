@@ -212,6 +212,36 @@ air, so read as the datasheet numbers it, in hex); ``buttons`` are the
 inputs held; ``low battery`` is bit 64 when the frame holds it. The 32
 encrypted bits are never shown, logged or carried. Nothing here decrypts,
 learns or sends; a KeeLoq receiver rejects a replayed word.
+
+SPEC TABLE: Nexa, KAKU and Intertechno, old fixed code (held off)
+=================================================================
+
+Source (one community description, re-read 2026-11-14; no datasheet for
+its encoder was found):
+
+- elektronikforumet wiki, "RF Protokoll - Nexa/Proove (aldre, ej
+  sjalvlarande)":
+  https://www.elektronikforumet.com/wiki/RF_Protokoll_-_Nexa/Proove_(%C3%A4ldre,_ej_sj%C3%A4lvl%C3%A4rande)
+
+| Fact | Old Nexa | Note |
+|---|---|---|
+| T | 350 us; a symbol is 8 T | |
+| 0 | 1H 3L 1H 3L | PT2262's 0 |
+| 1 | 3H 1L 3H 1L | PT2262's 1, never used |
+| X | 1H 3L 3H 1L | PT2262's F |
+| Sync | 1H, then 32 L | PT2262 says 31 |
+| Word | 12 symbols, b0 first, then the sync | |
+| b0-b3 | house A to P: A 0000, B X000 ... P XXXX | X counts as 1, b0 lowest |
+| b4-b7 | unit 1 to 16, the same way | |
+| b8-b10 | 0 X X | the page calls them "Unknown" |
+| b11 | 0 off, X on | |
+| Repeats | 4 or more, in fours | |
+| Encoder | MOSDESIGN M3E (named on the page; no datasheet) | |
+
+What follows for one frame (derived): it is a PT2262 frame, so it is
+read by the 1:3 shape and is always a two-name label beside PT2262.
+It is told apart only by its symbols: none is 1, and b8 to b10 are
+0 F F. Held off until one real capture (ruling 2026-11-14).
 """
 from __future__ import annotations
 
@@ -283,6 +313,13 @@ FAMILIES: dict[str, FamilySpec] = {
             shown=True,
             evidence="Holtek HT6P20B2/D2/F2 datasheet Rev 1.10 (shown on the "
                      "datasheet alone, ruling 2026-11-14)",
+        ),
+        FamilySpec(
+            "nexa_old", "Nexa",
+            aliases=("KlikAanKlikUit", "Intertechno", "Proove"),
+            shown=False,
+            evidence="elektronikforumet wiki (one community description); "
+                     "held off until a real capture (ruling 2026-11-14)",
         ),
         FamilySpec(
             "keeloq", "KeeLoq",
@@ -466,8 +503,24 @@ def _pt2262_ev1527(frame: tuple[int, ...]) -> _ShapeRead | None:
         return _ShapeRead(unit_us, (ev1527,))
     tri = "".join({"00": "0", "11": "1", "01": "F"}[s] for s in symbols)
     pt2262 = _Fit("pt2262", (("tri-state", tri),))
+    fits = [pt2262, ev1527]
+    if "1" not in tri and tri[8:11] == "0FF" and "nexa_old" in FAMILIES:
+        fits.append(_Fit("nexa_old", _nexa_old_fields(tri)))
     return _ShapeRead(
-        unit_us, (pt2262, ev1527), shared=(("tri-state", tri), ("code", code)),
+        unit_us, tuple(fits), shared=(("tri-state", tri), ("code", code)),
+    )
+
+
+def _nexa_old_fields(tri: str) -> tuple[tuple[str, str], ...]:
+    """House, unit and state from an old Nexa word: X counts as 1 and the
+    first symbol is the lowest (the spec table above)."""
+    def value(symbols: str) -> int:
+        return sum(1 << index for index, s in enumerate(symbols) if s == "F")
+
+    return (
+        ("house", chr(ord("A") + value(tri[0:4]))),
+        ("unit", str(value(tri[4:8]) + 1)),
+        ("state", "on" if tri[11] == "F" else "off"),
     )
 
 
