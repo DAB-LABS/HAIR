@@ -9,7 +9,8 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import DOMAIN, RF_PROTOCOL
+from .models import rf_needs_press
 from .protocol_decode import registered_protocols
 
 REDACT_KEYS = {"raw_timings", "code"}
@@ -33,6 +34,10 @@ async def async_get_config_entry_diagnostics(
     devices: list[dict[str, Any]] = []
     decoded_total = 0
     decoded_by_protocol: Counter[str] = Counter()
+    # Radio rows still waiting for their button to be pressed once (radio
+    # trigger fix). The device dump redacts raw_timings, so a waiting
+    # command cannot be told from a whole one there; this says it.
+    waiting_commands = 0
     if manager is not None:
         for device in manager.get_all_devices():
             devices.append(async_redact_data(device.to_dict(), REDACT_KEYS))
@@ -40,6 +45,14 @@ async def async_get_config_entry_diagnostics(
                 if cmd.decoded_protocol:
                     decoded_total += 1
                     decoded_by_protocol[cmd.decoded_protocol] += 1
+                if cmd.protocol == RF_PROTOCOL and not cmd.raw_timings:
+                    waiting_commands += 1
+    store = data.get("store")
+    waiting_triggers = (
+        sum(1 for t in store.get_all_triggers() if rf_needs_press(t))
+        if store is not None
+        else 0
+    )
 
     # importlib.metadata.version reads the package dist-info from disk, so it
     # is offloaded to the executor rather than run on the event loop.
@@ -56,5 +69,9 @@ async def async_get_config_entry_diagnostics(
         "decoded_commands": {
             "total": decoded_total,
             "by_protocol": dict(decoded_by_protocol),
+        },
+        "radio_waiting": {
+            "triggers": waiting_triggers,
+            "commands": waiting_commands,
         },
     }
