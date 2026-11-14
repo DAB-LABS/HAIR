@@ -433,20 +433,25 @@ export class IrGhostTile extends LitElement {
            (edit-button-pass.md). Their border and icon take the
            tile's color, so the kind color on hover carries them too.
            Both layouts get them; the full layout's are larger, where
-           its text "+" was. */
+           its text "+" was. Owner, 2026-11-14 on VM999: about 20%
+           smaller than first built (32 and 40 px), so 26 and 32 px. On a
+           touch screen each button's hit area reaches 4 px past its
+           edge, so the small pair is 34 px to a finger without looking
+           bigger; the 8 px gap keeps the two hit areas from touching. */
         .gt-buttons {
             display: flex;
             gap: 8px;
             margin-bottom: 4px;
         }
         .gt-btn {
-            width: 32px;
-            height: 32px;
+            position: relative;
+            width: 26px;
+            height: 26px;
             padding: 0;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border-radius: 6px;
+            border-radius: 5px;
             border: 1.5px solid currentColor;
             background: transparent;
             color: inherit;
@@ -454,12 +459,20 @@ export class IrGhostTile extends LitElement {
             transition: background 150ms ease;
         }
         .gt-buttons-lg .gt-btn {
-            width: 40px;
-            height: 40px;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+        }
+        @media (pointer: coarse) {
+            .gt-btn::after {
+                content: "";
+                position: absolute;
+                inset: -4px;
+            }
         }
         .gt-btn svg {
-            width: 18px;
-            height: 18px;
+            width: 14px;
+            height: 14px;
             fill: none;
             stroke: currentColor;
             stroke-width: 1.8;
@@ -467,8 +480,8 @@ export class IrGhostTile extends LitElement {
             stroke-linejoin: round;
         }
         .gt-buttons-lg .gt-btn svg {
-            width: 22px;
-            height: 22px;
+            width: 18px;
+            height: 18px;
         }
         .gt-btn:hover {
             background: color-mix(in srgb, currentColor 14%, transparent);

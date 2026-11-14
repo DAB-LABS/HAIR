@@ -3556,6 +3556,20 @@ class TestTheGhostTileHasTwoButtons:
     layouts.
     """
 
+    def test_the_buttons_are_the_smaller_size(self):
+        # Owner, 2026-11-14 07:56 PT on VM999 (ir-2026-11-14-ghost-buttons-
+        # smaller.md): about 20% smaller, 32 to 26 px and 40 to 32 px, the
+        # icons with them, and a finger still gets a usable target.
+        text = " ".join(_read("ir-ghost-tile.ts").split())
+        assert ".gt-btn { position: relative; width: 26px; height: 26px;" in text
+        assert ".gt-buttons-lg .gt-btn { width: 32px; height: 32px; border-radius: 6px; }" in text
+        assert ".gt-btn svg { width: 14px; height: 14px;" in text
+        assert ".gt-buttons-lg .gt-btn svg { width: 18px; height: 18px; }" in text
+        assert (
+            '@media (pointer: coarse) { .gt-btn::after { content: ""; '
+            "position: absolute; inset: -4px; } }"
+        ) in text
+
     def test_the_empty_page_hint_names_the_buttons_and_every_format(self):
         # Owner, 2026-11-14 07:01 PT (ir-2026-11-14-ghost-tile-text-approved.md):
         # the full layout lists the compact tile's formats and points at
