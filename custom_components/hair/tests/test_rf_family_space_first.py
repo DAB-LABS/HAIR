@@ -12,7 +12,11 @@ import random
 import pytest
 
 from custom_components.hair import rf_family
-from custom_components.hair.rf_family import CERTAINTY_DECODED, family_of
+from custom_components.hair.rf_family import (
+    CERTAINTY_AMBIGUOUS,
+    CERTAINTY_DECODED,
+    family_of,
+)
 from custom_components.hair.tests.test_rf_family import _frame as _pt_frame
 
 ADDRESS = "10100011"
@@ -64,7 +68,9 @@ class TestDatasheetFrames:
         result = family_of(_sf_frame(ADDRESS + DATA))
         assert result.label == "HT12E"
         assert result.family == "ht12e"
-        assert result.certainty == CERTAINTY_DECODED
+        # 333 us is also CAME's unit: CAME is held off but still fits, so
+        # the word is ambiguous (ruling 2026-11-14, answer 1).
+        assert result.certainty == CERTAINTY_AMBIGUOUS
         assert _fields(result) == {
             "address": ADDRESS, "data": DATA, "code": f"{int(ADDRESS + DATA, 2):03X}",
         }
@@ -201,3 +207,78 @@ class TestHT6P20:
 
     def test_it_is_not_read_by_the_1_3_shape(self):
         assert rf_family._pt2262_ev1527(tuple(_ht6p20())) is None
+
+
+# CAME (held off): the HT12E shape at about 320 us, 12 or 24 bits.
+CAME_24 = "101100111000111100001101"
+
+
+class TestCAME:
+    @pytest.fixture
+    def only(self, monkeypatch):
+        import dataclasses
+
+        def show(*keys: str) -> None:
+            table = {
+                k: dataclasses.replace(v, shown=k in keys)
+                for k, v in rf_family.FAMILIES.items()
+            }
+            monkeypatch.setattr(rf_family, "FAMILIES", table)
+            rf_family._family_of.cache_clear()
+
+        yield show
+        rf_family._family_of.cache_clear()
+
+    def test_it_is_off(self):
+        assert rf_family.FAMILIES["came"].shown is False
+
+    def test_a_24_bit_came_word_reads_as_nothing_while_off(self):
+        assert family_of(_sf_frame(CAME_24, unit=320.0, gap_units=76.0)) is None
+
+    def test_on_a_24_bit_word_is_came_alone(self, only):
+        only("came")
+        result = family_of(_sf_frame(CAME_24, unit=320.0, gap_units=76.0))
+        assert result.label == "CAME"
+        assert result.certainty == CERTAINTY_DECODED
+        assert _fields(result) == {"code": f"{int(CAME_24, 2):06X}"}
+
+    def test_on_a_12_bit_word_is_came_or_ht12e(self, only):
+        only("came", "ht12e")
+        result = family_of(_sf_frame(ADDRESS + DATA, unit=320.0, gap_units=47.0))
+        assert result.label == "HT12E or CAME"
+        assert result.certainty == CERTAINTY_AMBIGUOUS
+        assert _fields(result) == {"code": ADDRESS + DATA}
+
+    @pytest.mark.parametrize("unit", [250.0, 320.0, 343.0, 440.0])
+    def test_the_measured_units(self, only, unit):
+        only("came")
+        assert family_of(_sf_frame(CAME_24, unit=unit, gap_units=76.0)).label == "CAME"
+
+    @pytest.mark.parametrize("unit", [180.0, 500.0])
+    def test_outside_the_band_is_not_came(self, only, unit):
+        only("came")
+        assert family_of(_sf_frame(CAME_24, unit=unit, gap_units=76.0)) is None
+
+    @pytest.mark.parametrize("seed", range(10))
+    def test_both_receivers(self, only, seed):
+        only("came")
+        frame = _sf_frame(CAME_24, unit=320.0, mark_widening=60, seed=seed)
+        assert family_of(frame).label == "CAME"
+        frame = _sf_frame(CAME_24, unit=320.0, short_spread=0.3, long_spread=0.1, seed=seed)
+        assert _fields(family_of(frame))["code"] == f"{int(CAME_24, 2):06X}"
+
+    def test_an_ht12e_outside_both_brands_is_decoded(self):
+        result = family_of(_sf_frame(ADDRESS + DATA, unit=1000.0))
+        assert result.label == "HT12E"
+        assert result.certainty == CERTAINTY_DECODED
+
+    @pytest.mark.parametrize("seed", range(5))
+    def test_a_24_bit_word_is_not_a_1_3_frame(self, seed):
+        frame = tuple(_sf_frame(CAME_24, unit=320.0, seed=seed, short_spread=0.2))
+        assert rf_family._pt2262_ev1527(frame) is None
+        assert rf_family._mark_first_1_2(frame) is None
+
+    def test_a_12_bit_came_code_reads_as_its_switches(self, only):
+        only("came")
+        result = family_of(_sf_frame(ADDRESS + DATA, unit=320.0, gap_units=47.0))
+        assert _fields(result) == {"code": ADDRESS + DATA}

@@ -242,6 +242,38 @@ What follows for one frame (derived): it is a PT2262 frame, so it is
 read by the 1:3 shape and is always a two-name label beside PT2262.
 It is told apart only by its symbols: none is 1, and b8 to b10 are
 0 F F. Held off until one real capture (ruling 2026-11-14).
+
+SPEC TABLE: CAME 12 and 24 (held off)
+=====================================
+
+No vendor specification exists. Sources, re-read 2026-11-14:
+
+- Flipper forum thread with independent measurements (BitcoinRaven,
+  a.fabbro, 2022): https://forum.flipper.net/t/protocol-documentation/4794
+- rtl_433 flex config CAME-TOP432.conf (GPL project; facts only):
+  https://git.sudo.is/mirrors/rtl_433/src/branch/master/conf/CAME-TOP432.conf
+- Flipper-lineage decoder came.c (GPL; facts only, the only source for
+  24 bits):
+  https://code.popov.link/mirrors/unleashed-firmware/src/branch/dev/lib/subghz/protocols/came.c
+
+| Fact | CAME | Sources |
+|---|---|---|
+| T | 320 us (measured 321 to 343; 250 also works) | forum, rtl_433, Flipper |
+| Tolerance used | +/- 150 us | Flipper |
+| Zero | 1 T low, then 2 T high | forum (-334/667), Flipper |
+| One | 2 T low, then 1 T high | forum (-664/343), Flipper |
+| Start | a 1 T pulse after the pilot | forum, rtl_433 |
+| Pilot | at least 36 T (11.5 ms); 47 T for 12 bits, 76 T for 24 | rtl_433; Flipper (one lineage) |
+| Bits | 12; 24 in one lineage only | all; Flipper |
+| Order | most significant first | forum (by its script) |
+| Repeats | 4 per press | forum, rtl_433 |
+
+What follows (derived): this is the HT12E shape (research 5.3). A
+12-bit frame with T in the CAME band (220 to 450 us) fits both CAME and
+HT12E and is never ``decoded``; a 24-bit frame in the band fits CAME
+alone. The same waveform at 18, 25 and 42 bits is named for other brands
+(Airforce, Prastel) in the Flipper lineage only, and is not built.
+Held off until one real capture (ruling 2026-11-14).
 """
 from __future__ import annotations
 
@@ -313,6 +345,14 @@ FAMILIES: dict[str, FamilySpec] = {
             shown=True,
             evidence="Holtek HT6P20B2/D2/F2 datasheet Rev 1.10 (shown on the "
                      "datasheet alone, ruling 2026-11-14)",
+        ),
+        FamilySpec(
+            "came", "CAME",
+            aliases=("CAME TOP-432", "CAME TAM-432"),
+            shown=False,
+            evidence="Flipper forum measurements, rtl_433 CAME-TOP432.conf, "
+                     "Flipper-lineage came.c (facts only); held off until a "
+                     "real capture (ruling 2026-11-14)",
         ),
         FamilySpec(
             "nexa_old", "Nexa",
@@ -529,7 +569,7 @@ def _nexa_old_fields(tri: str) -> tuple[tuple[str, str], ...]:
 # ---------------------------------------------------------------------------
 
 # Bits a word of this shape carries, by family (spec table above).
-_SF_BITS = (12, 28)
+_SF_BITS = (12, 24, 28)
 # Every bit is 3 T; one may sit this far from the frame's median bit
 # (the same allowance as the 1:3 shape, for the same receivers).
 _SF_PAIR_TOLERANCE = 0.30
@@ -538,11 +578,20 @@ _SF_SPLIT_MIN = 0.7
 _SF_SPLIT_MAX = 1.4
 # The start mark is 1 T: no longer than this many short marks.
 _SF_START_MAX_SHORT_MARKS = 1.6
+# The unit a CAME remote sends (320 us, +/- 150 in real decoders, 250
+# shown to work): a frame of this shape whose T falls here also fits
+# CAME.
+_CAME_T_US = (220.0, 450.0)
 # The pilot before the start mark is 12 bit-times (36 T) on the HT12E;
 # a receiver may cut it shorter, and other families of this shape send
 # up to about 76 T.
 _SF_GAP_MIN_T = 12.0
 _SF_GAP_MAX_T = 90.0
+
+
+def _sf_code(bits: str) -> str:
+    """A gate remote's code: 12 bits as the switches read, 24 as hex."""
+    return bits if len(bits) == 12 else f"{int(bits, 2):06X}"
 
 
 def _space_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
@@ -590,6 +639,10 @@ def _space_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
         fits.append(_Fit("ht12e", (
             ("address", bits[:8]), ("data", bits[8:]), ("code", f"{int(bits, 2):03X}"),
         )))
+    if bits_n in (12, 24) and "came" in FAMILIES and (
+        _CAME_T_US[0] <= unit <= _CAME_T_US[1]
+    ):
+        fits.append(_Fit("came", (("code", _sf_code(bits)),)))
     if bits_n == 28 and bits[24:] == "0101" and "ht6p20" in FAMILIES:
         fits.append(_Fit("ht6p20", (("code", f"{int(bits[:24], 2):06X}"),)))
     return _ShapeRead(unit_us, tuple(fits), shared=(("code", bits),))
