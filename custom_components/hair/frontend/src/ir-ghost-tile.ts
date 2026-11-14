@@ -329,9 +329,18 @@ export class IrGhostTile extends LitElement {
         :host {
             display: contents;
         }
+        /* THE EDGE. The tile's border is three custom properties, and
+           the two buttons draw their own border from the same three
+           (owner, 2026-11-14 on VM999: the buttons dashed like the card
+           around them). Hover and drag-over change the properties, not
+           the border, so the buttons follow the tile and the two
+           cannot drift apart. */
         .gt-tile {
+            --gt-edge-width: 1.5px;
+            --gt-edge-style: dashed;
+            --gt-edge-color: var(--divider-color);
             border-radius: 8px;
-            border: 1.5px dashed var(--divider-color);
+            border: var(--gt-edge-width) var(--gt-edge-style) var(--gt-edge-color);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -384,12 +393,12 @@ export class IrGhostTile extends LitElement {
         }
         .gt-tile.device:hover,
         .gt-tile.device:has(.gt-btn:focus-visible) {
-            border-color: ${unsafeCSS(ORIGIN_COLORS.device)};
+            --gt-edge-color: ${unsafeCSS(ORIGIN_COLORS.device)};
             color: ${unsafeCSS(ORIGIN_COLORS.device)};
         }
         .gt-tile.remote:hover,
         .gt-tile.remote:has(.gt-btn:focus-visible) {
-            border-color: ${unsafeCSS(ORIGIN_COLORS.remote)};
+            --gt-edge-color: ${unsafeCSS(ORIGIN_COLORS.remote)};
             color: ${unsafeCSS(ORIGIN_COLORS.remote)};
         }
         /* The compact tile takes its height from the row and carries no
@@ -430,8 +439,10 @@ export class IrGhostTile extends LitElement {
            currentColor, as the round plus was: rendered through
            ha-svg-icon a stroke icon comes out as hairline garbage,
            because that element paints path data as fill
-           (edit-button-pass.md). Their border and icon take the
-           tile's color, so the kind color on hover carries them too.
+           (edit-button-pass.md). Their border is the tile's own edge
+           (THE EDGE, above), dashed at rest and solid on drag-over, and
+           their icon takes the tile's color, so the kind color on hover
+           carries both.
            Both layouts get them; the full layout's are larger, where
            its text "+" was. Owner, 2026-11-14 on VM999: about 20%
            smaller than first built (32 and 40 px), so 26 and 32 px. On a
@@ -452,7 +463,7 @@ export class IrGhostTile extends LitElement {
             align-items: center;
             justify-content: center;
             border-radius: 5px;
-            border: 1.5px solid currentColor;
+            border: var(--gt-edge-width) var(--gt-edge-style) var(--gt-edge-color);
             background: transparent;
             color: inherit;
             cursor: pointer;
@@ -491,15 +502,15 @@ export class IrGhostTile extends LitElement {
             outline-offset: 2px;
         }
         .gt-tile.gt-dragover {
-            border-style: solid;
+            --gt-edge-style: solid;
         }
         .gt-tile.device.gt-dragover {
-            border-color: ${unsafeCSS(ORIGIN_COLORS.device)};
+            --gt-edge-color: ${unsafeCSS(ORIGIN_COLORS.device)};
             background: rgba(46, 125, 50, 0.12);
             color: ${unsafeCSS(ORIGIN_COLORS.device)};
         }
         .gt-tile.remote.gt-dragover {
-            border-color: ${unsafeCSS(ORIGIN_COLORS.remote)};
+            --gt-edge-color: ${unsafeCSS(ORIGIN_COLORS.remote)};
             background: rgba(245, 166, 35, 0.12);
             color: ${unsafeCSS(ORIGIN_COLORS.remote)};
         }

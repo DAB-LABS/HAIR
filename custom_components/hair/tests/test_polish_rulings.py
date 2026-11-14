@@ -3556,6 +3556,26 @@ class TestTheGhostTileHasTwoButtons:
     layouts.
     """
 
+    def test_the_buttons_draw_the_tiles_own_edge(self):
+        # Owner, 2026-11-14 10:02 PT on VM999 (ir-2026-11-14-ghost-buttons-
+        # dashed.md): the buttons dashed like the card, from the card's
+        # own value so the two cannot drift.
+        text = " ".join(_read("ir-ghost-tile.ts").split())
+        edge = "border: var(--gt-edge-width) var(--gt-edge-style) var(--gt-edge-color);"
+        assert text.count(edge) == 2
+        assert (
+            ".gt-tile { --gt-edge-width: 1.5px; --gt-edge-style: dashed; "
+            "--gt-edge-color: var(--divider-color);"
+        ) in text
+        assert ".gt-tile.gt-dragover { --gt-edge-style: solid; }" in text
+        btn = text.split(".gt-btn { position: relative;", 1)[1].split("}", 1)[0]
+        assert edge in btn
+        # The tile's states move the properties, never the border itself.
+        styles = text.split("static styles", 1)[1]
+        assert "border-color:" not in styles and "border-style:" not in styles
+        # A visible focus ring stays: the dashed edge is not a focus mark.
+        assert ".gt-btn:focus-visible { outline: 2px solid currentColor;" in text
+
     def test_the_buttons_are_the_smaller_size(self):
         # Owner, 2026-11-14 07:56 PT on VM999 (ir-2026-11-14-ghost-buttons-
         # smaller.md): about 20% smaller, 32 to 26 px and 40 to 32 px, the
