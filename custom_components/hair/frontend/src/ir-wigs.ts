@@ -80,6 +80,7 @@ import type {
 import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import { singleOppositeLink } from "./ir-pin-link-match.js";
 import { wigSubFiles } from "./rf-code.js";
+import { pickOneFile } from "./file-pick.js";
 
 type FilterChip = "all" | "library" | "yours" | "perfect";
 
@@ -962,22 +963,19 @@ export class IrWigs extends LitElement {
         await this._uploadText(await files[0].text(), files[0].name);
     }
 
-    private _browse(): void {
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept =
-            ".json,.ir,.conf,.girr,.xml,.csv,.txt,application/json,text/plain,text/csv";
-        input.onchange = async () => {
-            const files = Array.from(input.files ?? []);
-            if (files.length === 0) return;
-            if (!this._acceptsOne(files.length)) return;
-            await this._uploadText(await files[0].text(), files[0].name);
-        };
-        input.click();
+    /** The shared picker (file-pick.ts): one file, the same accepted
+     * types as the ghost tile's folder button. It never offers more
+     * than one, so the drop's one-file refusal has nothing to refuse
+     * here. */
+    private async _browse(): Promise<void> {
+        const file = await pickOneFile();
+        if (!file) return;
+        await this._uploadText(await file.text(), file.name);
     }
 
-    /** Guard for both entry points: true when exactly one file came
-     * in, false after posting the refusal receipt. */
+    /** Guard for a drop, which can carry several files (Browse offers
+     * one): true when exactly one file came in, false after posting
+     * the refusal receipt. */
     private _acceptsOne(count: number): boolean {
         if (count <= 1) return true;
         this._receiptKind = "warn";

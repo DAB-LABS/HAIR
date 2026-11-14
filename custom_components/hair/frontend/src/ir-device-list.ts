@@ -808,6 +808,13 @@ export class IrDeviceList extends LitElement {
     ): Promise<void> {
         const file = e.detail.files[0];
         if (!file || !this.api) return;
+        // One import at a time, across both tiles. _dropBusy is a single
+        // field, so a second import (the other tile's folder, or a drop
+        // there) would hand the busy state to the second tile while the
+        // first still uploads, and the first's finish would clear it
+        // under the second. Reachable with taps alone since the tiles
+        // got folder buttons (owner, 2026-11-13).
+        if (this._dropBusy) return;
         // Before anything else: the tile says it is working. Reading,
         // parsing, combing and writing all happen before the dialog
         // can open, and that gap used to be silent (issue 6).

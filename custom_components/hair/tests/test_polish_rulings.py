@@ -277,9 +277,20 @@ class TestClosetTakesOneFile:
     def test_browse_no_longer_offers_multiple(self):
         assert "input.multiple = true" not in _read("ir-wigs.ts")
 
-    def test_both_entry_points_share_one_guard(self):
+    def test_the_drop_keeps_its_guard(self):
         text = _read("ir-wigs.ts")
-        assert text.count("_acceptsOne(") >= 3
+        drop = text.split("private async _onDrop", 1)[1].split("_browse", 1)[0]
+        assert "_acceptsOne(" in drop
+
+    def test_browse_can_only_bring_one(self):
+        """Browse used to share the drop's guard. It now goes through
+        the shared picker, which never offers more than one file, so
+        there is nothing for the guard to refuse (ghost tile buttons,
+        owner 2026-11-13)."""
+        browse = _read("ir-wigs.ts").split("private async _browse", 1)[1]
+        browse = browse.split("\n    }\n", 1)[0]
+        assert "pickOneFile()" in browse
+        assert "multiple" not in _read("file-pick.ts")
 
     def test_a_refused_drop_hangs_nothing(self):
         text = _read("ir-wigs.ts")
@@ -3531,6 +3542,186 @@ class TestRemotesGhostTileIsAlwaysCompact:
             )
             assert data["ghost.hint_compact_remote"]
             assert data["ghost.hint_compact_device"]
+class TestTheGhostTileHasTwoButtons:
+    """Owner, 2026-11-13 (ir-2026-11-13-ghost-tile-plus-and-folder.md,
+    ir-2026-11-13-go-ghost-tile-kobe.md).
+
+    The whole tile used to be the control: a click anywhere opened the
+    Add dialog, and the only way to import from the home page was a
+    drop, which a phone has nothing to drag from. The round plus is
+    replaced by two square buttons, a plus that opens the Add dialog
+    and a folder that opens the file dialog and imports through the
+    path a drop uses. A click on the rest of the tile does nothing; a
+    drop still imports. Both tiles, Devices and Remotes, and both
+    layouts.
+    """
+
+    def test_the_buttons_draw_the_tiles_own_edge(self):
+        # Owner, 2026-11-14 10:02 PT on VM999 (ir-2026-11-14-ghost-buttons-
+        # dashed.md): the buttons dashed like the card, from the card's
+        # own value so the two cannot drift.
+        text = " ".join(_read("ir-ghost-tile.ts").split())
+        edge = "border: var(--gt-edge-width) var(--gt-edge-style) var(--gt-edge-color);"
+        assert text.count(edge) == 2
+        assert (
+            ".gt-tile { --gt-edge-width: 1.5px; --gt-edge-style: dashed; "
+            "--gt-edge-color: var(--divider-color);"
+        ) in text
+        assert ".gt-tile.gt-dragover { --gt-edge-style: solid; }" in text
+        btn = text.split(".gt-btn { position: relative;", 1)[1].split("}", 1)[0]
+        assert edge in btn
+        # The tile's states move the properties, never the border itself.
+        styles = text.split("static styles", 1)[1]
+        assert "border-color:" not in styles and "border-style:" not in styles
+        # A visible focus ring stays: the dashed edge is not a focus mark.
+        assert ".gt-btn:focus-visible { outline: 2px solid currentColor;" in text
+
+    def test_the_buttons_are_the_smaller_size(self):
+        # Owner, 2026-11-14 07:56 PT on VM999 (ir-2026-11-14-ghost-buttons-
+        # smaller.md): about 20% smaller, 32 to 26 px and 40 to 32 px, the
+        # icons with them, and a finger still gets a usable target.
+        text = " ".join(_read("ir-ghost-tile.ts").split())
+        assert ".gt-btn { position: relative; width: 26px; height: 26px;" in text
+        assert ".gt-buttons-lg .gt-btn { width: 32px; height: 32px; border-radius: 6px; }" in text
+        assert ".gt-btn svg { width: 14px; height: 14px;" in text
+        assert ".gt-buttons-lg .gt-btn svg { width: 18px; height: 18px; }" in text
+        assert (
+            '@media (pointer: coarse) { .gt-btn::after { content: ""; '
+            "position: absolute; inset: -4px; } }"
+        ) in text
+
+    def test_the_empty_page_hint_names_the_buttons_and_every_format(self):
+        # Owner, 2026-11-14 07:01 PT (ir-2026-11-14-ghost-tile-text-approved.md):
+        # the full layout lists the compact tile's formats and points at
+        # the buttons above it, not at a click on the tile.
+        text = _read("ir-ghost-tile.ts")
+        formats = "Wig, SmartIR, Flipper, LIRC, Girr, Harmony, Global Cache, Tasmota, or irdb"
+        assert f'hintFull: "Drag a {formats} file here, or use the buttons above",' in text
+        assert f'aria: "Add Device -- or drop a {formats} file",' in text
+        assert f'aria: "Add Remote -- or drop a {formats} file",' in text
+        assert "click to add" not in text
+        en = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert en["ghost.hint_compact_device"].endswith(f"{formats} file")
+
+    def test_the_tile_is_no_longer_a_button(self):
+        text = _read("ir-ghost-tile.ts")
+        render = text.split("render() {", 1)[1]
+        assert 'role="group"' in render
+        assert 'role="button"' not in render
+        assert 'tabindex="0"' not in render
+        assert "@click=${this._onClick}" not in text
+        assert "@keydown=" not in render
+
+    def test_a_drop_still_lands_on_the_tile(self):
+        render = _read("ir-ghost-tile.ts").split("render() {", 1)[1]
+        assert "@drop=${this._onDrop}" in render
+        assert "@dragover=${this._onDragOver}" in render
+
+    def test_two_native_buttons_in_both_layouts(self):
+        text = _read("ir-ghost-tile.ts")
+        buttons = text.split("private _renderButtons", 1)[1].split(
+            "\n    }\n", 1
+        )[0]
+        assert buttons.count("<button") == 2
+        assert buttons.count('type="button"') == 2
+        assert "@click=${this._onAdd}" in buttons
+        assert "@click=${this._onFolder}" in buttons
+        render = text.split("render() {", 1)[1]
+        assert "this._renderButtons(true)" in render
+        assert "this._renderButtons(false)" in render
+
+    def test_each_button_is_named_from_existing_strings(self):
+        buttons = _read("ir-ghost-tile.ts").split(
+            "private _renderButtons", 1
+        )[1].split("\n    }\n", 1)[0]
+        assert '"device" ? "adddev.heading" : "addtr.heading"' in buttons
+        assert 't("wigs.drop.browse")' in buttons
+        assert buttons.count("aria-label=") == 2
+        assert buttons.count("title=") == 2
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            for key in ("adddev.heading", "addtr.heading", "wigs.drop.browse"):
+                assert data[key], (name, key)
+
+    def test_the_plus_does_what_the_tile_did(self):
+        add = _read("ir-ghost-tile.ts").split("private _onAdd", 1)[1].split(
+            "\n    }\n", 1
+        )[0]
+        assert 'new CustomEvent("add-click"' in add
+
+    def test_the_folder_goes_through_the_drop_path(self):
+        """The same event a drop fires, so the host's drop handler does
+        the reading, the upload, the supersession offer and the dialog:
+        nothing new on the import side."""
+        folder = _read("ir-ghost-tile.ts").split("private async _onFolder", 1)[
+            1
+        ].split("\n    }\n", 1)[0]
+        assert "await pickOneFile()" in folder
+        assert "if (!file) return;" in folder
+        assert '"files-dropped"' in folder
+        assert "files: [file]" in folder
+        # Nothing on the tile waits for the dialog: the one flag it sets
+        # is set only after a file came back, so a cancel changes nothing.
+        rest = folder.replace("this.dispatchEvent", "").replace(
+            "this._refocusFolder = true;", ""
+        )
+        assert "this._" not in rest
+        assert folder.index("if (!file) return;") < folder.index(
+            "this._refocusFolder = true;"
+        )
+
+    def test_one_picker_and_one_list(self):
+        pick = _read("file-pick.ts")
+        assert "export const CODESET_ACCEPT" in pick
+        assert "input.accept = CODESET_ACCEPT;" in pick
+        assert '"cancel"' in pick
+        for name in ("ir-wigs.ts", "ir-ghost-tile.ts"):
+            text = _read(name)
+            assert 'from "./file-pick.js"' in text, name
+            assert ".json,.ir,.conf" not in text, name
+
+    def test_only_the_buttons_take_the_pointer(self):
+        text = _read("ir-ghost-tile.ts")
+        tile = text.split("        .gt-tile {", 1)[1].split("}", 1)[0]
+        assert "cursor: default;" in tile
+        btn = text.split("        .gt-btn {", 1)[1].split("}", 1)[0]
+        assert "cursor: pointer;" in btn
+
+    def test_keyboard_focus_on_a_button_lights_the_tile(self):
+        """Keyboard focus only: a mouse click leaves the button
+        focused, and :focus-within kept the tile lit after it."""
+        text = _read("ir-ghost-tile.ts")
+        assert ".gt-tile:has(.gt-btn:focus-visible)" in text
+        assert ".gt-tile:focus-within" not in text
+        assert ".gt-tile:focus-visible" not in text
+        assert ".gt-btn:focus-visible" in text
+
+    def test_focus_comes_back_to_the_folder_after_its_import(self):
+        """The busy render has no buttons, so the focused folder left
+        the page mid-import and a keyboard user landed at the top
+        (fresh review, 2026-11-14)."""
+        text = _read("ir-ghost-tile.ts")
+        folder = text.split("private async _onFolder", 1)[1].split(
+            "\n    }\n", 1
+        )[0]
+        assert "this._refocusFolder = true;" in folder
+        updated = text.split("protected updated(", 1)[1].split("\n    }\n", 1)[0]
+        assert 'changed.get("busy") === true' in updated
+        assert "!this.busy" in updated
+        assert '.querySelector<HTMLButtonElement>(".gt-folder")' in updated
+
+    def test_one_import_at_a_time_across_both_tiles(self):
+        """_dropBusy is one field for both tiles. A second import while
+        the first uploads would move the busy state and clear it early;
+        with folder buttons that takes taps alone."""
+        drop = _read("ir-device-list.ts").split(
+            "private async _onGhostTileDrop", 1
+        )[1].split("this._dropBusy = kind;", 1)[0]
+        assert "if (this._dropBusy) return;" in drop
+
+
 class TestTheGhostDropAnswersAReverseSupersession:
     """R3 (issue 11, owner ruled 2026-08-30).
 

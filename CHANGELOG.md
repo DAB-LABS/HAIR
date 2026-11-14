@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The add tiles on the Devices page have a plus button and a folder button. The folder opens a file to import, the same as dropping it on the tile.
 - A command that a device has no emitter for now says which code, which kind and which device, for example "Power is a radio code and Bench Plug has no radio transmitter. Add one in the device's settings." When the device's radio transmitters cannot send the code's band, it says so with the band.
 - Under a radio code's send count, the Assign dialog and the radio code editor say what the count starts at: as many times as the remote sent it when captured, or a usual count when that was not measured.
 
