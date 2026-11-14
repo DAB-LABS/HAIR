@@ -87,6 +87,51 @@ EV1527 sends.
 Values are written in transmit order, the first bit sent as the most
 significant: the bench keyfob's button 1 on is ``950E49``, address
 ``950E4``, data ``9``.
+
+SPEC TABLE: HT12E
+=================
+
+Source (datasheet, read 2026-11-14 through the portal; md5 787d9a31):
+
+- Holtek HT12A/HT12E, Rev. 1.20, 2009-02-20:
+  https://www.farnell.com/datasheets/1899539.pdf
+
+``T`` is one oscillator period (1/fOSC).
+
+| Fact | HT12E | Where |
+|---|---|---|
+| Base unit | T = 1/fOSC, set by one resistor | Electrical characteristics |
+| Typical T | 333 us (3 kHz at 5 V, ROSC 1.1 M) | the same |
+| Bit | 3 T | Address/Data bit waveform |
+| One | 2 T low, then 1 T high | the same figure |
+| Zero | 1 T low, then 2 T high | the same figure |
+| Pilot | 12 bit-times low (36 T) | Composition of information |
+| Sync | a 1/3 bit: 1 T high | the same |
+| Bits | A0 to A7 address, AD8 to AD11 address or data | the same |
+| Order | A0 first, AD11 last | Address/Data programming |
+| Words | at least 4 per trigger, in 4-word cycles while TE is low | Operation |
+| Pins | pulled high: an open pin sends 1 | Pin description |
+
+What follows for one frame (derived, not a datasheet statement):
+
+1. HAIR's frame starts on the first mark after the gap, so an HT12E
+   frame is the 1 T sync mark, then 12 pairs of a space and a mark each
+   3 T long, then the gap the next word's pilot made (36 T, unless the
+   receiver cut it).
+2. A one is the long space with the short mark. As in the 1:3 shape,
+   the test that a pair is 1:2 is the difference between the long and
+   the short mark over T (1 for 1:2, 2 for 1:3), which a receiver's fixed
+   mark widening cancels.
+3. AD8 to AD11 are data on a remote and address on some boards, so the
+   label shows them as ``data`` and the whole word as ``code`` too.
+4. T is an RC oscillator's and fits any value. CAME 12 (about 320 us)
+   and Nice FLO 12 (about 700 us) send this shape too (research 5.3), so
+   a 12-bit frame is never ``decoded`` once either family is in the
+   table, shown or not.
+
+Values: the address and data are written as the bits sent, A0 first,
+1 for an open pin, as a DIP switch reads left to right; ``code`` is the
+12 bits as hex, the first bit sent as the most significant.
 """
 from __future__ import annotations
 
@@ -145,6 +190,12 @@ FAMILIES: dict[str, FamilySpec] = {
             shown=True,
             evidence="RT1527 and EV1527 datasheets; the bench keyfob "
                      "(2026-11-12)",
+        ),
+        FamilySpec(
+            "ht12e", "HT12E",
+            shown=True,
+            evidence="Holtek HT12A/HT12E datasheet Rev. 1.20 (shown on the "
+                     "datasheet alone, ruling 2026-11-14)",
         ),
     )
 }
@@ -325,4 +376,73 @@ def _pt2262_ev1527(frame: tuple[int, ...]) -> _ShapeRead | None:
     )
 
 
-_SHAPES = (_pt2262_ev1527,)
+# ---------------------------------------------------------------------------
+# Shape: space first, 1:2 and 2:1 pairs after a start mark (HT12E)
+# ---------------------------------------------------------------------------
+
+# Bits a word of this shape carries, by family (spec table above).
+_SF_BITS = (12,)
+# Every bit is 3 T; one may sit this far from the frame's median bit
+# (the same allowance as the 1:3 shape, for the same receivers).
+_SF_PAIR_TOLERANCE = 0.30
+# (long - short) / T: 1 for 1:2, 2 for a 1:3 frame read in this shape.
+_SF_SPLIT_MIN = 0.7
+_SF_SPLIT_MAX = 1.4
+# The start mark is 1 T: no longer than this many short marks.
+_SF_START_MAX_SHORT_MARKS = 1.6
+# The pilot before the start mark is 12 bit-times (36 T) on the HT12E;
+# a receiver may cut it shorter, and other families of this shape send
+# up to about 76 T.
+_SF_GAP_MIN_T = 12.0
+_SF_GAP_MAX_T = 90.0
+
+
+def _space_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
+    """A start mark, then N bits of a space and a mark, 1:2 or 2:1.
+
+    HAIR's frame starts on the first mark after the gap, so the frame is
+    the start mark, the bits, and the gap the next word's pilot made.
+    A one is the long space and the short mark (HT12E datasheet: 2
+    periods low, 1 high).
+    """
+    gap = -frame[-1] if len(frame) % 2 == 0 and frame[-1] < 0 else None
+    edges = canonical_edges(list(frame))
+    bits_n = (len(edges) - 1) // 2
+    if len(edges) % 2 != 1 or bits_n not in _SF_BITS:
+        return None
+    start = edges[0]
+    spaces = edges[1::2]
+    marks = edges[2::2]
+    sums = [s + m for s, m in zip(spaces, marks, strict=True)]
+    typical = median(sums)
+    if typical <= 0 or any(
+        abs(total - typical) > _SF_PAIR_TOLERANCE * typical for total in sums
+    ):
+        return None
+    unit = typical / 3.0
+    low, high = min(marks), max(marks)
+    if high - low < 0.5 * unit:
+        return None
+    cut = (low + high) / 2.0
+    short_marks = [m for m in marks if m < cut]
+    long_marks = [m for m in marks if m >= cut]
+    if not short_marks or not long_marks:
+        return None
+    split = (median(long_marks) - median(short_marks)) / unit
+    if not _SF_SPLIT_MIN <= split <= _SF_SPLIT_MAX:
+        return None
+    if start > _SF_START_MAX_SHORT_MARKS * median(short_marks):
+        return None
+    if gap is not None and not _SF_GAP_MIN_T <= gap / unit <= _SF_GAP_MAX_T:
+        return None
+    bits = "".join("1" if m < cut else "0" for m in marks)
+    unit_us = round(unit)
+    fits: list[_Fit] = []
+    if bits_n == 12 and "ht12e" in FAMILIES:
+        fits.append(_Fit("ht12e", (
+            ("address", bits[:8]), ("data", bits[8:]), ("code", f"{int(bits, 2):03X}"),
+        )))
+    return _ShapeRead(unit_us, tuple(fits), shared=(("code", bits),))
+
+
+_SHAPES = (_pt2262_ev1527, _space_first_1_2)

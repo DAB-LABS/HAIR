@@ -94,3 +94,30 @@ class TestHiddenFamilies:
         assert family_of(_frame(KEYFOB_ON)) is None
         switch("ev1527", True)
         assert family_of(_frame(KEYFOB_ON)).label == "EV1527"
+
+
+class TestNoise:
+    """Both recorded noise hours (an Athom with nobody pressing, about
+    33,000 pieces), through every family, hidden ones included: none may
+    read as a family. Each new family is held to this as it lands."""
+
+    @pytest.mark.parametrize("name", [
+        "athom-433-150us-6ms-noise-1h.json.gz",
+        "athom-433-150us-6ms-fs20-noise-1h.json.gz",
+    ])
+    def test_no_noise_piece_reads_as_any_family(self, name):
+        import gzip
+        import json
+        from pathlib import Path
+
+        from custom_components.hair import rf_frames
+
+        path = Path(__file__).parent / "fixtures" / "rf" / "athom" / name
+        captures = json.loads(gzip.decompress(path.read_bytes()))["captures"]
+        read = [
+            family_of(rf_frames._signed(list(piece.edges)), include_hidden=True)
+            for _, timings in captures
+            for piece in rf_frames.split_frames(timings)
+        ]
+        assert len(read) > 14_000
+        assert [r.label for r in read if r is not None] == []
