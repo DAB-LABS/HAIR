@@ -132,6 +132,39 @@ What follows for one frame (derived, not a datasheet statement):
 Values: the address and data are written as the bits sent, A0 first,
 1 for an open pin, as a DIP switch reads left to right; ``code`` is the
 12 bits as hex, the first bit sent as the most significant.
+
+SPEC TABLE: HT6P20
+==================
+
+Source (datasheet, read 2026-11-14 through the portal; md5 da214d13):
+
+- Holtek HT6P20B2/D2/F2, Rev 1.10, 2011-04-26:
+  https://assets.sourcengine.com/datasheets/750225b5-2537-43de-8398-182becdc2663.pdf
+
+The older HT6P20B/D (external oscillator resistor) was not read; the
+community sources say it sends the same waveform, and its T varies with
+its resistor, which the decoder allows for by measuring T on each frame.
+
+``λ`` (lambda) is 32 internal oscillator periods.
+
+| Fact | HT6P20B2/D2/F2 | Where |
+|---|---|---|
+| Bit | 3 λ (96 oscillator periods) | Address/Data Bit Waveform |
+| Zero | 1 λ low, then 2 λ high | the same |
+| One | 2 λ low, then 1 λ high | the same |
+| Typical λ | 400 us (bit width 1.2 ms, 1.08 to 1.32 ms, at 5 V) | tDW |
+| Pilot | 23 λ low, then 1 λ high | Pilot Code |
+| Data | 24 bits: B2 A0-A21 D1-D0, D2 A0-A19 D3-D0, F2 A0-A18 D4-D0 | Code Word |
+| End code | 4 bits 0101, after the data | End code Waveform |
+| Repeats | the code word, while a data pin is held low | Code Word |
+
+What follows for one frame (derived): the bits are HT12E's (2 low 1
+high is a one), so the frame is the 1 λ high of the pilot as the start
+mark, then 28 space-mark pairs, then the gap the next pilot made (23 λ).
+It is told from every other family of this shape by its 28 bits and the
+0101 end code. The split of the 24 bits into address and data depends
+on the part, which the frame cannot tell, so the label shows ``code``
+(the 24 bits, the first sent as the most significant) and not a split.
 """
 from __future__ import annotations
 
@@ -195,6 +228,13 @@ FAMILIES: dict[str, FamilySpec] = {
             "ht12e", "HT12E",
             shown=True,
             evidence="Holtek HT12A/HT12E datasheet Rev. 1.20 (shown on the "
+                     "datasheet alone, ruling 2026-11-14)",
+        ),
+        FamilySpec(
+            "ht6p20", "HT6P20",
+            aliases=("HT6P20B", "HT6P20D", "HT6P20B2", "HT6P20D2", "HT6P20F2"),
+            shown=True,
+            evidence="Holtek HT6P20B2/D2/F2 datasheet Rev 1.10 (shown on the "
                      "datasheet alone, ruling 2026-11-14)",
         ),
     )
@@ -381,7 +421,7 @@ def _pt2262_ev1527(frame: tuple[int, ...]) -> _ShapeRead | None:
 # ---------------------------------------------------------------------------
 
 # Bits a word of this shape carries, by family (spec table above).
-_SF_BITS = (12,)
+_SF_BITS = (12, 28)
 # Every bit is 3 T; one may sit this far from the frame's median bit
 # (the same allowance as the 1:3 shape, for the same receivers).
 _SF_PAIR_TOLERANCE = 0.30
@@ -442,6 +482,8 @@ def _space_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
         fits.append(_Fit("ht12e", (
             ("address", bits[:8]), ("data", bits[8:]), ("code", f"{int(bits, 2):03X}"),
         )))
+    if bits_n == 28 and bits[24:] == "0101" and "ht6p20" in FAMILIES:
+        fits.append(_Fit("ht6p20", (("code", f"{int(bits[:24], 2):06X}"),)))
     return _ShapeRead(unit_us, tuple(fits), shared=(("code", bits),))
 
 

@@ -151,3 +151,53 @@ class TestEveryShapeRefusesTheOthers:
         frame = tuple(_sf_frame(ADDRESS + DATA, seed=seed, short_spread=0.2))
         assert rf_family._pt2262_ev1527(frame) is None
         assert rf_family._space_first_1_2(frame) is not None
+
+
+# HT6P20B2/D2/F2 (Rev 1.10): the same bits as HT12E, lambda about 400 us,
+# 24 address and data bits then the end code 0101, after a 23 lambda pilot.
+HT6P20_DATA = "101100111000111100001101"
+END_CODE = "0101"
+
+
+def _ht6p20(data: str = HT6P20_DATA, end: str = END_CODE, **kw) -> list[int]:
+    kw.setdefault("unit", 400.0)
+    kw.setdefault("gap_units", 23.0)
+    return _sf_frame(data + end, **kw)
+
+
+class TestHT6P20:
+    def test_a_code_word(self):
+        result = family_of(_ht6p20())
+        assert result.label == "HT6P20"
+        assert result.certainty == CERTAINTY_DECODED
+        assert _fields(result) == {"code": f"{int(HT6P20_DATA, 2):06X}"}
+        assert "HT6P20D2" in result.aliases
+
+    @pytest.mark.parametrize("unit", [360.0, 400.0, 440.0, 250.0, 600.0])
+    def test_the_datasheets_range_and_an_old_parts_resistor(self, unit):
+        assert family_of(_ht6p20(unit=unit)).label == "HT6P20"
+
+    @pytest.mark.parametrize("seed", range(10))
+    def test_both_receivers(self, seed):
+        assert family_of(_ht6p20(mark_widening=60, seed=seed)).label == "HT6P20"
+        frame = _ht6p20(short_spread=0.3, long_spread=0.1, seed=seed)
+        assert _fields(family_of(frame))["code"] == f"{int(HT6P20_DATA, 2):06X}"
+
+    @pytest.mark.parametrize("end", ["0000", "1111", "1010", "0100"])
+    def test_another_end_code_is_not_an_ht6p20(self, end):
+        assert family_of(_ht6p20(end=end)) is None
+
+    @pytest.mark.parametrize("bits", [27, 29])
+    def test_one_bit_more_or_less(self, bits):
+        word = (HT6P20_DATA + END_CODE)
+        word = word[:bits] if bits < 28 else word + "0"
+        assert family_of(_sf_frame(word, unit=400.0, gap_units=23.0)) is None
+
+    def test_a_1_to_3_word_is_refused(self):
+        assert family_of(_ht6p20(ratio=3.0)) is None
+
+    def test_no_measured_gap(self):
+        assert family_of(_ht6p20(gap_units=None)).label == "HT6P20"
+
+    def test_it_is_not_read_by_the_1_3_shape(self):
+        assert rf_family._pt2262_ev1527(tuple(_ht6p20())) is None
