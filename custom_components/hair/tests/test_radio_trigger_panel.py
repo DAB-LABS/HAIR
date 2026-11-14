@@ -146,8 +146,13 @@ class TestTheApprovedWording:
             value = _locale(lang)["errors.rf_no_frame"]
             assert "HAIR" in value, lang
 
-    def test_no_command_editor_on_this_branch(self):
-        assert "command editor" not in _locale("en")["errors.rf_no_frame"]
+    def test_the_refusal_names_the_code_editor_not_a_command_editor(self):
+        from custom_components.hair.const import RF_NO_FRAME_MESSAGE
+
+        assert "code editor" in RF_NO_FRAME_MESSAGE
+        assert "command editor" not in RF_NO_FRAME_MESSAGE
+        en_code_editor = _locale("en")["errors.rf_no_frequency"]
+        assert "code editor" in en_code_editor
 
     def test_a_radio_remote_asks_for_a_radio_transmitter(self):
         create = " ".join(_method(_src("ir-promote-dialog.ts"), "_create").split())

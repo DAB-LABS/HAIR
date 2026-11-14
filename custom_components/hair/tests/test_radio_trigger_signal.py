@@ -23,6 +23,7 @@ from custom_components.hair.const import (
     MEDIUM_IR,
     MEDIUM_RF,
     RF_NO_FRAME,
+    RF_NO_FRAME_MESSAGE,
     RF_PROTOCOL,
     CommandSource,
 )
@@ -909,11 +910,8 @@ class TestTheRefusal:
     def test_empty_radio_command_refuses_in_radio_words_infrared_path(self):
         with pytest.raises(ValueError) as caught:
             build_command(protocol=RF_PROTOCOL, code=None, raw_timings=None)
-        assert "radio command has no code to send" in str(caught.value)
-        # Not the infrared builder's words. ("IR" alone would now match
-        # "HAIR", which the approved sentence names.)
-        assert "Cannot build IR command" not in str(caught.value)
-        assert "Pronto" not in str(caught.value)
+        # The radio refusal, word for word, not the infrared builder's.
+        assert str(caught.value) == RF_NO_FRAME_MESSAGE
 
     def test_the_infrared_refusal_is_unchanged(self):
         with pytest.raises(ValueError) as caught:
