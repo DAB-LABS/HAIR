@@ -311,6 +311,43 @@ What follows (derived): the HT12E shape again, at about twice CAME's T.
 A 12-bit frame with T in the Nice FLO band (500 to 900 us) fits Nice
 FLO and HT12E and is never ``decoded``; 24 bits in the band fit Nice FLO
 alone. Held off until one real capture (ruling 2026-11-14).
+
+SPEC TABLE: Somfy RTS (held off; detection only)
+================================================
+
+One source, re-read 2026-11-14: the PushStack write-up, built from
+passive observation; its author says it "can be inaccurate or
+incorrect". No vendor document was found. The page states no license;
+facts only were taken from it.
+
+- https://pushstack.wordpress.com/somfy-rts-protocol/
+
+| Fact | Somfy RTS |
+|---|---|
+| Carrier | 433.42 MHz (the Athom's 433.92 SAW does not hear it) |
+| Coding | Manchester: a rising edge is 1, a falling edge 0 |
+| Symbol | 1208 us; half a symbol about 604 us |
+| Wake-up | 9415 us high, 89565 us low, before the first frame only |
+| Hardware sync | about 2416 us high and 2416 us low; 2 pairs on the |
+| | first frame, 7 on repeats |
+| Software sync | about 4550 us high, then about 604 us low |
+| Payload | 56 bits, 7 bytes, MSB first from byte 0 |
+| Byte 0 | key: 0xA and a counter (one commenter: the 0xA varies) |
+| Byte 1 | command (upper nibble), checksum (lower nibble) |
+| Bytes 2, 3 | rolling code, 16 bits, big-endian |
+| Bytes 4 to 6 | address, 24 bits, little-endian |
+| Obfuscation | each byte from byte 1 on is XORed with the byte sent |
+| | before it |
+| Checksum | the XOR of all 14 nibbles is 0 |
+| Gap | about 30415 us, half a symbol longer after a final 0 |
+
+What follows (derived): HAIR's frame cut drops the wake-up mark (a piece
+with no body) and keeps each frame from its first sync pair to the gap.
+The decoder takes the half-symbol from the sync pairs (2416 is four
+halves), so a stretched clock is read at its own pace. A frame whose
+checksum fails is not read at all. Shown: the address and the command,
+as a number (ruling 2026-11-14). The rolling code and the key change on
+every press and are never shown.
 """
 from __future__ import annotations
 
@@ -411,6 +448,12 @@ FAMILIES: dict[str, FamilySpec] = {
             evidence="Microchip HCS301 DS21143B, HCS200 DS40138C, HCS300 "
                      "DS21137G (shown on the datasheets alone, ruling "
                      "2026-11-14); detection only",
+        ),
+        FamilySpec(
+            "somfy_rts", "Somfy RTS",
+            shown=False,
+            evidence="PushStack write-up (one source); held off until a "
+                     "real capture (ruling 2026-11-14); detection only",
         ),
     )
 }
@@ -780,4 +823,93 @@ def _mark_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
     return _ShapeRead(round(unit), (_Fit("keeloq", tuple(fields)),))
 
 
-_SHAPES = (_pt2262_ev1527, _space_first_1_2, _mark_first_1_2)
+# ---------------------------------------------------------------------------
+# Shape: Manchester after sync pairs (Somfy RTS)
+# ---------------------------------------------------------------------------
+
+# Hardware sync pairs before the software sync: 2 on a press's first
+# frame, 7 on its repeats.
+_SOMFY_SYNC_PAIRS = (2, 7)
+# How far a sync edge may stray from the sync pairs' median.
+_SOMFY_SYNC_TOLERANCE = 0.30
+# The software sync mark, in half-symbols (4550 / 604 is about 7.5).
+_SOMFY_SOFT_SYNC_HALVES = (6.0, 9.0)
+# One half-symbol or two, read from a measured width.
+_SOMFY_ONE_HALF = (0.5, 1.5)
+_SOMFY_TWO_HALVES = (1.5, 2.6)
+_SOMFY_BITS = 56
+
+
+def _somfy_halves(width: float, half: float) -> int | None:
+    ratio = width / half
+    if _SOMFY_ONE_HALF[0] <= ratio < _SOMFY_ONE_HALF[1]:
+        return 1
+    if _SOMFY_TWO_HALVES[0] <= ratio <= _SOMFY_TWO_HALVES[1]:
+        return 2
+    return None
+
+
+def _manchester_somfy(frame: tuple[int, ...]) -> _ShapeRead | None:
+    """Sync pairs, a software sync, then 56 Manchester bits.
+
+    HAIR's frame starts on the first sync mark; the gap is last. Each
+    width after the software sync is one half-symbol or two, high on a
+    mark and low on a space; the software sync's own low half comes
+    first and is dropped. A final 0 ends on a low half that runs into
+    the gap, so a stream one half short gets it back.
+    """
+    edges = canonical_edges(list(frame))
+    pairs = 0
+    while 2 * pairs + 2 < len(edges) and edges[2 * pairs] < 2.5 * edges[2 * pairs + 1]:
+        pairs += 1
+        if pairs > _SOMFY_SYNC_PAIRS[1]:
+            return None
+    if not _SOMFY_SYNC_PAIRS[0] <= pairs <= _SOMFY_SYNC_PAIRS[1]:
+        return None
+    sync = edges[: 2 * pairs]
+    typical = median(sync)
+    if typical <= 0 or any(
+        abs(width - typical) > _SOMFY_SYNC_TOLERANCE * typical for width in sync
+    ):
+        return None
+    half = typical / 4.0
+    soft = edges[2 * pairs] / half
+    if not _SOMFY_SOFT_SYNC_HALVES[0] <= soft <= _SOMFY_SOFT_SYNC_HALVES[1]:
+        return None
+    levels: list[int] = []
+    level = 0
+    for width in edges[2 * pairs + 1:]:
+        count = _somfy_halves(width, half)
+        if count is None:
+            return None
+        levels += [level] * count
+        level ^= 1
+    levels = levels[1:]
+    if len(levels) == 2 * _SOMFY_BITS - 1:
+        levels.append(0)
+    if len(levels) != 2 * _SOMFY_BITS:
+        return None
+    bits: list[int] = []
+    for first, second in zip(levels[0::2], levels[1::2], strict=True):
+        if first == second:
+            return None
+        bits.append(second)
+    sent = [
+        int("".join(map(str, bits[8 * i: 8 * i + 8])), 2) for i in range(7)
+    ]
+    plain = [sent[0]] + [sent[i] ^ sent[i - 1] for i in range(1, 7)]
+    check = 0
+    for byte in plain:
+        check ^= (byte >> 4) ^ (byte & 0x0F)
+    if check:
+        return None
+    if "somfy_rts" not in FAMILIES:
+        return _ShapeRead(round(half), ())
+    address = plain[4] | plain[5] << 8 | plain[6] << 16
+    return _ShapeRead(round(half), (_Fit("somfy_rts", (
+        ("address", f"{address:06X}"),
+        ("command", str(plain[1] >> 4)),
+    )),))
+
+
+_SHAPES = (_pt2262_ev1527, _space_first_1_2, _mark_first_1_2, _manchester_somfy)
