@@ -104,31 +104,82 @@ FAMILY_PT2262_EV1527 = "pt2262_ev1527"
 CERTAINTY_DECODED = "decoded"
 CERTAINTY_AMBIGUOUS = "ambiguous"
 
-# The 24-pair pulse-width code word (section above).
-_PAIRS = 24
-# Every data pair is 4 T; one may sit this far from the frame's median
-# pair and still count (the Athom's measured spread is about 30 percent
-# on short pulses, 10 percent on long ones, and a pair is one of each).
-_PAIR_TOLERANCE = 0.30
-# (long mark - short mark) / T: 2 for 1:3, 4/3 for a 1:2 clone.
-_MARK_SPLIT_MIN = 1.7
-_MARK_SPLIT_MAX = 2.3
-# The sync mark is 1 T: no longer than this many short marks.
-_SYNC_MAX_SHORT_MARKS = 1.6
-# A measured gap after the sync is 31 T; a receiver may cut it shorter.
-_GAP_MIN_T = 12.0
-_GAP_MAX_T = 45.0
+
+# ---------------------------------------------------------------------------
+# The families
+# ---------------------------------------------------------------------------
+#
+# One row per family. A family is READ by its waveform shape's decoder
+# (several families can share a shape) and SHOWN only when ``shown`` is
+# True: turning one on is a one-line change here, with the real capture
+# that confirmed it named in ``evidence`` (owner ruling 2026-11-14). A
+# family that is off is built and tested like any other, never adds a
+# name or an alias to a label, and still counts when the certainty is
+# worked out, so a frame another family we know of also fits is never
+# called ``decoded``.
+
+
+@dataclass(frozen=True)
+class FamilySpec:
+    """One radio family: its label word, clone names and switch."""
+
+    key: str
+    name: str
+    aliases: tuple[str, ...] = ()
+    shown: bool = False
+    evidence: str = ""
+
+
+FAMILIES: dict[str, FamilySpec] = {
+    spec.key: spec for spec in (
+        FamilySpec(
+            "pt2262", "PT2262",
+            aliases=("SC2262", "HX2262", "SC5262", "PT2260", "PT2264"),
+            shown=True,
+            evidence="Princeton PT2272 V3.9, HX2262, PT2260 V1.5 datasheets; "
+                     "the bench keyfob (2026-11-12)",
+        ),
+        FamilySpec(
+            "ev1527", "EV1527",
+            aliases=("RT1527", "FP1527", "HS1527"),
+            shown=True,
+            evidence="RT1527 and EV1527 datasheets; the bench keyfob "
+                     "(2026-11-12)",
+        ),
+    )
+}
+
+
+@dataclass(frozen=True)
+class _Fit:
+    """One family a shape decoder found the frame fits."""
+
+    key: str
+    fields: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
+class _ShapeRead:
+    """What one shape decoder made of a frame.
+
+    ``shared`` are the fields shown when more than one family fits.
+    """
+
+    unit_us: int
+    fits: tuple[_Fit, ...]
+    shared: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
 class RfFamily:
-    """What a family decoder made of one frame."""
+    """What the family decoders made of one frame."""
 
     label: str
     family: str
     certainty: str
     unit_us: int
     fields: tuple[tuple[str, str], ...] = field(default=())
+    aliases: tuple[str, ...] = field(default=())
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -137,6 +188,7 @@ class RfFamily:
             "certainty": self.certainty,
             "unit_us": self.unit_us,
             "fields": [{"name": n, "value": v} for n, v in self.fields],
+            "aliases": list(self.aliases),
         }
 
 
@@ -158,19 +210,73 @@ def family_slots(frame: list[int] | tuple[int, ...] | None) -> dict[str, Any]:
     }
 
 
-def family_of(frame: list[int] | tuple[int, ...] | None) -> RfFamily | None:
-    """The family of one voted frame, or None when no family fits."""
+def family_of(
+    frame: list[int] | tuple[int, ...] | None, *, include_hidden: bool = False
+) -> RfFamily | None:
+    """The family of one voted frame, or None when no family fits.
+
+    ``include_hidden`` reads every family as if it were shown, for the
+    tests that hold the families that are off to the same standard. No
+    payload sets it.
+    """
     if not frame:
         return None
-    return _family_of(tuple(int(v) for v in frame))
+    return _family_of(tuple(int(v) for v in frame), include_hidden)
 
 
 @lru_cache(maxsize=1024)
-def _family_of(frame: tuple[int, ...]) -> RfFamily | None:
-    return _pt2262_ev1527(frame)
+def _family_of(frame: tuple[int, ...], include_hidden: bool) -> RfFamily | None:
+    # ``_SHAPES`` is defined below its decoders.
+    for decode in _SHAPES:
+        read = decode(frame)
+        if read is not None and read.fits:
+            return _label(read, include_hidden)
+    return None
 
 
-def _pt2262_ev1527(frame: tuple[int, ...]) -> RfFamily | None:
+def _label(read: _ShapeRead, include_hidden: bool) -> RfFamily | None:
+    """One shape's fits as a label: shown names only, certainty over all."""
+    shown = [
+        fit for fit in read.fits
+        if include_hidden or FAMILIES[fit.key].shown
+    ]
+    if not shown:
+        return None
+    names = [FAMILIES[fit.key].name for fit in shown]
+    aliases = tuple(
+        alias for fit in shown for alias in FAMILIES[fit.key].aliases
+    )
+    return RfFamily(
+        label=" or ".join(names),
+        family="_".join(fit.key for fit in shown),
+        certainty=CERTAINTY_DECODED if len(read.fits) == 1 else CERTAINTY_AMBIGUOUS,
+        unit_us=read.unit_us,
+        fields=shown[0].fields if len(shown) == 1 else read.shared,
+        aliases=aliases,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shape: mark first, 1:3 and 3:1 pairs (PT2262, EV1527)
+# ---------------------------------------------------------------------------
+
+# The 24-pair pulse-width code word (section above).
+_PAIRS = 24
+# Every data pair is 4 T; one may sit this far from the frame's median
+# pair and still count (the Athom's measured spread is about 30 percent
+# on short pulses, 10 percent on long ones, and a pair is one of each).
+_PAIR_TOLERANCE = 0.30
+# (long mark - short mark) / T: 2 for 1:3, 4/3 for a 1:2 clone.
+_MARK_SPLIT_MIN = 1.7
+_MARK_SPLIT_MAX = 2.3
+# The sync mark is 1 T: no longer than this many short marks.
+_SYNC_MAX_SHORT_MARKS = 1.6
+# A measured gap after the sync is 31 T; a receiver may cut it shorter.
+_GAP_MIN_T = 12.0
+_GAP_MAX_T = 45.0
+
+
+def _pt2262_ev1527(frame: tuple[int, ...]) -> _ShapeRead | None:
     gap = -frame[-1] if len(frame) % 2 == 0 and frame[-1] < 0 else None
     edges = canonical_edges(list(frame))
     # 24 pairs and the sync mark: 49 edges. HAIR's frame cut ends a frame
@@ -209,19 +315,14 @@ def _pt2262_ev1527(frame: tuple[int, ...]) -> RfFamily | None:
     code = f"{int(bits, 2):06X}"
     unit_us = round(unit)
     symbols = [bits[i:i + 2] for i in range(0, _PAIRS, 2)]
+    ev1527 = _Fit("ev1527", (("address", code[:5]), ("data", code[5])))
     if "10" in symbols:
-        return RfFamily(
-            label=LABEL_EV1527,
-            family=FAMILY_EV1527,
-            certainty=CERTAINTY_DECODED,
-            unit_us=unit_us,
-            fields=(("address", code[:5]), ("data", code[5])),
-        )
+        return _ShapeRead(unit_us, (ev1527,))
     tri = "".join({"00": "0", "11": "1", "01": "F"}[s] for s in symbols)
-    return RfFamily(
-        label=LABEL_PT2262_OR_EV1527,
-        family=FAMILY_PT2262_EV1527,
-        certainty=CERTAINTY_AMBIGUOUS,
-        unit_us=unit_us,
-        fields=(("tri-state", tri), ("code", code)),
+    pt2262 = _Fit("pt2262", (("tri-state", tri),))
+    return _ShapeRead(
+        unit_us, (pt2262, ev1527), shared=(("tri-state", tri), ("code", code)),
     )
+
+
+_SHAPES = (_pt2262_ev1527,)

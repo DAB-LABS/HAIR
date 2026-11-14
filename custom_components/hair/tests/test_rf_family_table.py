@@ -1,0 +1,96 @@
+"""The family table (second decoder round, owner go 2026-11-14 07:43 PT).
+
+Every family is built and tested; whether its label is shown is one flag
+in ``rf_family.FAMILIES``. A family that is off never adds a name or an
+alias, and still counts when the certainty is worked out, so a frame
+another family we know of also fits is never called ``decoded``.
+"""
+from __future__ import annotations
+
+import dataclasses
+
+import pytest
+
+from custom_components.hair import rf_family
+from custom_components.hair.rf_family import (
+    CERTAINTY_AMBIGUOUS,
+    CERTAINTY_DECODED,
+    FAMILIES,
+    family_of,
+    family_payload,
+)
+from custom_components.hair.tests.test_rf_family import _frame
+
+KEYFOB_ON = 0x950E49  # has a "10" symbol: EV1527 only
+NO_10 = 0x0F3C0F  # symbols 00 11 11 00 ... : PT2262 or EV1527
+
+
+@pytest.fixture
+def switch(monkeypatch):
+    """Set a family's ``shown`` flag for one test."""
+
+    def set_shown(key: str, shown: bool) -> None:
+        table = dict(FAMILIES)
+        table[key] = dataclasses.replace(table[key], shown=shown)
+        monkeypatch.setattr(rf_family, "FAMILIES", table)
+        rf_family._family_of.cache_clear()
+
+    yield set_shown
+    rf_family._family_of.cache_clear()
+
+
+class TestTheTable:
+    def test_every_family_names_its_evidence(self):
+        for spec in FAMILIES.values():
+            assert spec.name and spec.evidence, spec.key
+
+    def test_the_label_is_unchanged_for_the_first_round(self):
+        assert family_of(_frame(KEYFOB_ON)).label == "EV1527"
+        ambiguous = family_of(_frame(NO_10))
+        assert ambiguous.label == "PT2262 or EV1527"
+        assert ambiguous.family == "pt2262_ev1527"
+        assert ambiguous.certainty == CERTAINTY_AMBIGUOUS
+
+    def test_aliases_reach_the_payload(self):
+        assert family_payload(_frame(KEYFOB_ON))["aliases"] == [
+            "RT1527", "FP1527", "HS1527",
+        ]
+        assert family_payload(_frame(NO_10))["aliases"] == [
+            "SC2262", "HX2262", "SC5262", "PT2260", "PT2264",
+            "RT1527", "FP1527", "HS1527",
+        ]
+
+    def test_the_drawer_slots_do_not_change(self):
+        assert set(rf_family.family_slots(_frame(KEYFOB_ON))) == {
+            "protocol", "family_fields",
+        }
+
+
+class TestHiddenFamilies:
+    def test_a_hidden_family_adds_no_name_or_alias(self, switch):
+        switch("ev1527", False)
+        result = family_of(_frame(NO_10))
+        assert result.label == "PT2262"
+        assert result.family == "pt2262"
+        assert "RT1527" not in result.aliases
+
+    def test_a_hidden_family_that_also_fits_keeps_it_ambiguous(self, switch):
+        switch("ev1527", False)
+        assert family_of(_frame(NO_10)).certainty == CERTAINTY_AMBIGUOUS
+
+    def test_only_a_hidden_family_fits_means_no_label(self, switch):
+        switch("ev1527", False)
+        assert family_of(_frame(KEYFOB_ON)) is None
+        assert family_payload(_frame(KEYFOB_ON)) is None
+
+    def test_include_hidden_reads_it_as_shown(self, switch):
+        switch("ev1527", False)
+        result = family_of(_frame(KEYFOB_ON), include_hidden=True)
+        assert result.label == "EV1527"
+        assert result.certainty == CERTAINTY_DECODED
+
+    def test_the_flag_is_the_only_switch(self, switch):
+        switch("ev1527", False)
+        assert family_of(_frame(KEYFOB_ON)) is None
+        switch("ev1527", True)
+        assert family_of(_frame(KEYFOB_ON)).label == "EV1527"
