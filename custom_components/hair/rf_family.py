@@ -126,8 +126,9 @@ What follows for one frame (derived, not a datasheet statement):
    label shows them as ``data`` and the whole word as ``code`` too.
 4. T is an RC oscillator's and fits any value. CAME 12 (about 320 us)
    and Nice FLO 12 (about 700 us) send this shape too (research 5.3), so
-   a 12-bit frame is never ``decoded`` once either family is in the
-   table, shown or not.
+   a 12-bit frame whose T falls in either family's band (220 to 450 us,
+   500 to 900 us) is never ``decoded``, shown or not. Outside both bands,
+   including the 450 to 500 us gap between them, it is HT12E alone.
 
 Values: the address and data are written as the bits sent, A0 first,
 1 for an open pin, as a DIP switch reads left to right; ``code`` is the
@@ -369,8 +370,9 @@ two of them independent measurements; the field layout does not.
 | Zero | 350 mark, 750 space | 350 short, 720 long | 376-395 mark, 653-687 space |
 | One | 750 mark, 350 space | | 713-750 mark, 317-333 space |
 | Bits | 40, MSB first | 40 | 40 |
-| After the 24-bit id | channel 8, button 4, check 4 | 4 bits, channel 4, key 8 | none named |
-| Last bit | a mark, no space | | |
+| After the 24-bit id | [GPL only] channel 8, button | 4 bits, channel 4, key 8 | none named |
+| | 4, check 4 | | |
+| Last bit | [GPL only] a mark, no space | | |
 
 What follows (derived): a header pair, then 40 mark-first pairs of
 about 3 units, 1:2 or 2:1, a long mark for 1. Shown: ``remote`` (the
@@ -380,6 +382,43 @@ as hex); no channel or button split until a real capture settles it
 frames on long spaces only, so a press sent back to back (header, bits,
 header) is one piece and gives no frame today; a cut before a long
 header mark waits for a real capture (ruling 2026-11-14).
+
+SPEC TABLE: Nexa self-learning (held off)
+=========================================
+
+No chip datasheet exists; this is a microcontroller protocol. Two
+community descriptions, re-read 2026-11-14; neither states a license,
+and facts only were taken:
+
+- elektronikforumet wiki, "RF Protokoll - Proove self learning":
+  https://elektronikforumet.com/wiki/index.php/RF_Protokoll_-_Proove_self_learning
+- RFLink-ESP, KlikAanKlikUit (Stef Mientki, with scope measurements):
+  https://stef-aap.github.io/RFLink-ESP/KlikAanKlikUit.html
+
+| Fact | elektronikforumet | RFLink-ESP |
+|---|---|---|
+| T | | 275 us (375 also works); measured 260 and 262 |
+| Wire bits | | 1 T high, then 1 T or 5 T low (3.4 T also works) |
+| Logical bits | two wire bits, the second the inverse; | 0 is T,T,T,5T; 1 is T,5T,T,T |
+| | 0 is 01, 1 is 10 | |
+| Start | a sync bit | T high, about 10 T low (2940 us measured) |
+| Stop | a pause bit | T high, about 39 T low (10511 us measured) |
+| Layout | id 26, group 1, on/off 1, channel 2, | address 26, group 1, on/off/dim 1, |
+| | unit 2 | unit 4 |
+| On/off bit | 0 is on | on is 1 |
+| Units | #1 is 00, #2 01, #3 10 | A is 1010, B 1011 |
+| Dim | | the on/off slot as T,T,T,T, then 4 dim bits after the unit |
+| Repeats | 4 | 10 to 20 |
+
+What follows (derived): HAIR's frame is the start pair, 64 wire bits (72
+with dim) and the stop mark, the stop's low as the gap. Every mark is
+one width, so HAIR drops the capture as noise today: this decoder reads
+nothing on the air until the receive-path change (ruling 2026-11-14,
+its own branch). Both sources agree on which wire pair is 1. They
+disagree on the on/off bit; the state follows elektronikforumet (0 is
+on), recorded as such, until a real capture of a known press (plan
+answer 2026-11-14). The unit is shown as its 4-bit number, since the
+sources number units differently.
 """
 from __future__ import annotations
 
@@ -494,6 +533,14 @@ FAMILIES: dict[str, FamilySpec] = {
                      "and MySensors forum measurements; held off until a "
                      "real capture (ruling 2026-11-14)",
         ),
+        FamilySpec(
+            "nexa_sl", "Nexa",
+            aliases=("KlikAanKlikUit", "Intertechno", "Proove", "HomeEasy"),
+            shown=False,
+            evidence="elektronikforumet wiki and RFLink-ESP descriptions; "
+                     "held off until the receive-path change and a real "
+                     "capture (ruling 2026-11-14)",
+        ),
     )
 }
 
@@ -574,7 +621,11 @@ def family_of(
 
 @lru_cache(maxsize=1024)
 def _family_of(frame: tuple[int, ...], include_hidden: bool) -> RfFamily | None:
-    # ``_SHAPES`` is defined below its decoders.
+    # ``_SHAPES`` is defined below its decoders. The first shape that
+    # fits ends the search, even when all it fits are hidden families
+    # (they still count, and they keep a later shape from claiming the
+    # frame). A new family whose edge count meets an earlier shape's
+    # needs a test that each shape refuses the other's frames.
     for decode in _SHAPES:
         read = decode(frame)
         if read is not None and read.fits:
@@ -703,9 +754,9 @@ _SF_SPLIT_MIN = 0.7
 _SF_SPLIT_MAX = 1.4
 # The start mark is 1 T: no longer than this many short marks.
 _SF_START_MAX_SHORT_MARKS = 1.6
-# The unit a CAME remote sends (320 us, +/- 150 in real decoders, 250
-# shown to work): a frame of this shape whose T falls here also fits
-# CAME.
+# The unit a CAME remote sends (320 us; +/- 150 in the GPL lineage
+# only; 250 shown to work on the forum): a frame of this shape whose T
+# falls here also fits CAME.
 _CAME_T_US = (220.0, 450.0)
 # Nice FLO's unit (700 us, +/- 200 in the one lineage that reads it).
 _NICE_FLO_T_US = (500.0, 900.0)
@@ -1005,7 +1056,82 @@ def _header_mark_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
     )),))
 
 
+# ---------------------------------------------------------------------------
+# Shape: one mark width, short and long spaces (Nexa self-learning)
+# ---------------------------------------------------------------------------
+
+# Wire bits: 32 logical bits as pairs, or 36 with a dim level.
+_SL_WIRE_BITS = (64, 72)
+# A long wire bit's mark and space over a short one's: 6 T over 2 T,
+# or 4.4 T with the 3.4 T space that also works.
+_SL_LONG_OVER_SHORT = (1.8, 3.6)
+# The start's low, in T (9 to 11 T in the sources).
+_SL_START_T = (7.0, 13.0)
+# A mark may stretch to this many T before it is not one width.
+_SL_MARK_MAX_T = 2.0
+# The logical bit whose slot becomes the dim symbol (bit 28).
+_SL_STATE_BIT = 27
+
+
+def _distance_1_5(frame: tuple[int, ...]) -> _ShapeRead | None:
+    """A start pair, wire bits of one mark and a short or long space,
+    then the stop mark; the stop's low is the gap.
+
+    Two wire bits make one logical bit: short then long is 0, long then
+    short is 1 (both sources). Two short wire bits in the on/off slot
+    are the dim symbol, and then four dim bits follow the unit.
+    """
+    edges = canonical_edges(list(frame))
+    wire_n = (len(edges) - 3) // 2
+    if len(edges) % 2 != 1 or wire_n not in _SL_WIRE_BITS:
+        return None
+    marks = edges[0::2]
+    spaces = edges[3:-1:2]
+    pairs = [m + s for m, s in zip(edges[2:-1:2], spaces, strict=True)]
+    cut = (min(pairs) + max(pairs)) / 2.0
+    short = [p for p in pairs if p < cut]
+    long = [p for p in pairs if p >= cut]
+    if not short or not long or median(short) <= 0:
+        return None
+    t = median(short) / 2.0
+    ratio = median(long) / median(short)
+    if not _SL_LONG_OVER_SHORT[0] <= ratio <= _SL_LONG_OVER_SHORT[1]:
+        return None
+    if max(marks) > _SL_MARK_MAX_T * t:
+        return None
+    if not _SL_START_T[0] <= edges[1] / t <= _SL_START_T[1]:
+        return None
+    wire = [1 if p >= cut else 0 for p in pairs]
+    bits: list[int | None] = []
+    for index, (first, second) in enumerate(zip(wire[0::2], wire[1::2], strict=True)):
+        if first != second:
+            bits.append(first)
+        elif first == 0 and index == _SL_STATE_BIT:
+            bits.append(None)
+        else:
+            return None
+    dimmed = bits[_SL_STATE_BIT] is None
+    if dimmed != (len(bits) == 36):
+        return None
+    if "nexa_sl" not in FAMILIES:
+        return _ShapeRead(round(t), ())
+
+    def number(part: list[int | None]) -> int:
+        return int("".join(str(bit) for bit in part), 2)
+
+    state = "dim" if dimmed else "on" if bits[_SL_STATE_BIT] == 0 else "off"
+    fields: list[tuple[str, str]] = [
+        ("id", f"{number(bits[:26]):07X}"),
+        ("group", str(bits[26])),
+        ("state", state),
+        ("unit", str(number(bits[28:32]))),
+    ]
+    if dimmed:
+        fields.append(("dim", str(number(bits[32:36]))))
+    return _ShapeRead(round(t), (_Fit("nexa_sl", tuple(fields)),))
+
+
 _SHAPES = (
     _pt2262_ev1527, _space_first_1_2, _mark_first_1_2, _manchester_somfy,
-    _header_mark_first_1_2,
+    _header_mark_first_1_2, _distance_1_5,
 )

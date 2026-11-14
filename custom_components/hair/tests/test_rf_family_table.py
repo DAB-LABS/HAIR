@@ -121,3 +121,45 @@ class TestNoise:
         ]
         assert len(read) > 14_000
         assert [r.label for r in read if r is not None] == []
+
+
+class TestNoDecoderRaises:
+    """``family_of`` runs on every radio event and on every stored row a
+    page loads, so a decoder must return None on garbage, never raise.
+    Degenerate frames (zeros, one value, a stray edge; GH #108) and
+    random ones, at every edge count any shape reads."""
+
+    COUNTS = (25, 49, 57, 81, 127, 129, 131, 147)
+
+    @staticmethod
+    def _shapes():
+        from custom_components.hair import rf_family
+        return rf_family._SHAPES
+
+    @pytest.mark.parametrize("n", COUNTS)
+    def test_degenerate_frames(self, n):
+        frames = [
+            [0] * n,
+            [0] * (n - 2) + [-100, 1],
+            [1] * n,
+            [1, -1] * (n // 2) + [1],
+            [5, -5] * (n // 2) + [5, -30000],
+            [0, -1] * (n // 2) + [0],
+        ]
+        for frame in frames:
+            for decode in self._shapes():
+                decode(tuple(frame))
+            family_of(frame, include_hidden=True)
+
+    @pytest.mark.parametrize("n", COUNTS)
+    def test_random_frames(self, n):
+        import random
+
+        rng = random.Random(n)
+        for _ in range(300):
+            frame = [
+                rng.choice((0, 1, rng.randint(0, 20000))) * (1 if i % 2 == 0 else -1)
+                for i in range(n + rng.choice((0, 1)))
+            ]
+            for decode in self._shapes():
+                decode(tuple(frame))
