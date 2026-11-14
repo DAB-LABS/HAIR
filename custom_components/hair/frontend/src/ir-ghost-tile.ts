@@ -2,19 +2,20 @@
  * The ghost tile (add-popups, signpost 3, Track 1 item 2).
  *
  * Replaces both section "+ Add" buttons in ir-device-list.ts. Renders
- * as the last cell of a section's grid: a dashed, plus-sign card that
- * opens that section's Add dialog on click, exactly as the retired
- * button did, and is also a drop target for code-set files (funnel
+ * as the last cell of a section's grid: a dashed card whose plus button
+ * opens that section's Add dialog, exactly as the retired button did,
+ * whose folder button imports a file (see TWO BUTTONS below), and
+ * which is also a drop target for code-set files (funnel
  * callability confirmed at Track 0 -- `api.wigsUpload()` is a plain,
  * standalone WS call, not entangled in ir-wigs.ts's own state, so drop
  * wiring builds this signpost as planned; see the commit message for
  * the full finding).
  *
  * Two layouts:
- *   - compact (default): the plus glyph and the compact hint,
+ *   - compact (default): the two buttons and the compact hint,
  *     card-sized. The populated-grid case, and the ONLY layout Remotes
  *     ever uses.
- *   - full: larger plus, title and the long hint, `grid-column: 1 /
+ *   - full: larger buttons, title and the long hint, `grid-column: 1 /
  *     -1`. The Devices-section-has-zero-devices case, asked for with
  *     `empty=true`; the tile IS the section body.
  *
@@ -73,11 +74,28 @@
  * `{ files: File[] }` -- Track 2/3 wire the actual funnel call and the
  * drop-mode Add dialog; this component only knows tile presentation
  * and drag/drop capture.
+ *
+ * TWO BUTTONS, NOT A BUTTON (owner, 2026-11-13). The whole tile used to
+ * be the control: a click anywhere opened the Add dialog, and the only
+ * way to import from the home page was to drag a file onto it, which a
+ * phone has nothing to drag from. Now the tile is a plain group and a
+ * drop target, and two square buttons sit where the round plus was:
+ *   - plus: `add-click`, exactly what the tile's click did;
+ *   - folder: the shared file picker (file-pick.ts, the Closet's own
+ *     Browse), then `files-dropped` with the chosen file. The same
+ *     event a drop fires, so the host's drop path does the rest: the
+ *     busy state, the upload, the supersession offer and the dialog.
+ * A click on the rest of the tile does nothing (ruled). A drop anywhere
+ * on it, buttons included, still imports. The tile still brightens on
+ * hover so the buttons are easy to find; only the buttons take the
+ * pointer. The tile holds no state while the dialog is open, so a
+ * cancelled pick leaves nothing behind.
  */
 import { LitElement, html, css, unsafeCSS } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { ORIGIN_COLORS } from "./ir-origin-colors.js";
+import { pickOneFile } from "./file-pick.js";
 
 type GhostKind = "device" | "remote";
 
@@ -131,17 +149,84 @@ export class IrGhostTile extends LitElement {
      * section-wide lighting -- see the coding plan's open item 0.3). */
     @state() private _dragOver = false;
 
-    private _onClick(): void {
+    /** The folder was used, so when the import it started ends (busy
+     * goes back to false) focus returns to the folder. The busy render
+     * has no buttons, and without this a keyboard or screen-reader
+     * user would be dropped at the top of the page. */
+    private _refocusFolder = false;
+
+    protected updated(changed: Map<string, unknown>): void {
+        if (
+            changed.has("busy") &&
+            changed.get("busy") === true &&
+            !this.busy &&
+            this._refocusFolder
+        ) {
+            this._refocusFolder = false;
+            this.renderRoot
+                .querySelector<HTMLButtonElement>(".gt-folder")
+                ?.focus();
+        }
+    }
+
+    private _onAdd(): void {
         this.dispatchEvent(
             new CustomEvent("add-click", { bubbles: true, composed: true }),
         );
     }
 
-    private _onKeydown(e: KeyboardEvent): void {
-        if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            this._onClick();
-        }
+    /** The folder: pick one file and hand it on exactly as a drop
+     * would. Nothing on the tile waits for the dialog, so a cancel
+     * (which some browsers never report) changes nothing. */
+    private async _onFolder(): Promise<void> {
+        const file = await pickOneFile();
+        if (!file) return;
+        this._refocusFolder = true;
+        this.dispatchEvent(
+            new CustomEvent("files-dropped", {
+                detail: { files: [file] },
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
+    /** The plus and the folder, side by side. Native buttons, so Tab
+     * reaches each and Enter or Space works without a key handler. */
+    private _renderButtons(large: boolean) {
+        const addLabel = t(
+            this.kind === "device" ? "adddev.heading" : "addtr.heading",
+        );
+        const browseLabel = t("wigs.drop.browse");
+        return html`
+            <div class="gt-buttons ${large ? "gt-buttons-lg" : ""}">
+                <button
+                    type="button"
+                    class="gt-btn gt-add"
+                    title=${addLabel}
+                    aria-label=${addLabel}
+                    @click=${this._onAdd}
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    class="gt-btn gt-folder"
+                    title=${browseLabel}
+                    aria-label=${browseLabel}
+                    @click=${this._onFolder}
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                            d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"
+                        ></path>
+                    </svg>
+                </button>
+            </div>
+        `;
     }
 
     private _onDragOver(e: DragEvent): void {
@@ -197,38 +282,21 @@ export class IrGhostTile extends LitElement {
         return html`
             <div
                 class=${classes}
-                tabindex="0"
-                role="button"
+                role="group"
                 aria-label=${copy.aria}
                 title=${copy.aria}
-                @click=${this._onClick}
-                @keydown=${this._onKeydown}
                 @dragover=${this._onDragOver}
                 @dragleave=${this._onDragLeave}
                 @drop=${this._onDrop}
             >
                 ${full
                     ? html`
-                          <span class="gt-plus-lg">+</span>
+                          ${this._renderButtons(true)}
                           <div class="gt-tile-title">${copy.title}</div>
                           <div class="gt-tile-hint">${copy.hintFull}</div>
                       `
                     : html`
-                          <span class="gt-glyph">
-                              <svg
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  stroke-width="1.6"
-                                  aria-hidden="true"
-                              >
-                                  <circle cx="12" cy="12" r="10"></circle>
-                                  <line x1="17.19" y1="12.13" x2="7.19" y2="12.13"></line>
-                                  <line x1="12.19" y1="17.13" x2="12.19" y2="7.13"></line>
-                              </svg>
-                          </span>
+                          ${this._renderButtons(false)}
                           <div class="gt-tile-hint">${t(copy.hintCompactKey)}</div>
                       `}
             </div>
@@ -270,7 +338,9 @@ export class IrGhostTile extends LitElement {
             justify-content: center;
             text-align: center;
             gap: 2px;
-            cursor: pointer;
+            /* Not a control any more: only the two buttons take the
+               pointer (owner, 2026-11-13). */
+            cursor: default;
             transition: border-color 150ms ease, background 150ms ease,
                 color 150ms ease;
             color: var(--secondary-text-color);
@@ -297,21 +367,28 @@ export class IrGhostTile extends LitElement {
             transition: border-color 150ms ease, background 150ms ease,
                 color 150ms ease, opacity 150ms ease;
         }
+        /* Focus now lands on a button inside the tile, not on the
+           tile, so the tile answers a button's :focus-visible where it
+           used to answer its own. Keyboard focus only: a mouse click
+           leaves the button focused, and :focus-within would keep the
+           tile lit after it. */
         .gt-tile:hover,
-        .gt-tile:focus-visible,
+        .gt-tile:has(.gt-btn:focus-visible),
         .gt-tile.gt-dragover {
             opacity: 1;
         }
         .gt-tile:hover,
-        .gt-tile:focus-visible {
+        .gt-tile:has(.gt-btn:focus-visible) {
             background: var(--secondary-background-color);
             outline: none;
         }
-        .gt-tile.device:hover {
+        .gt-tile.device:hover,
+        .gt-tile.device:has(.gt-btn:focus-visible) {
             border-color: ${unsafeCSS(ORIGIN_COLORS.device)};
             color: ${unsafeCSS(ORIGIN_COLORS.device)};
         }
-        .gt-tile.remote:hover {
+        .gt-tile.remote:hover,
+        .gt-tile.remote:has(.gt-btn:focus-visible) {
             border-color: ${unsafeCSS(ORIGIN_COLORS.remote)};
             color: ${unsafeCSS(ORIGIN_COLORS.remote)};
         }
@@ -324,12 +401,6 @@ export class IrGhostTile extends LitElement {
             grid-column: 1 / -1;
             min-height: 120px;
             padding: 24px;
-        }
-        .gt-plus-lg {
-            font-size: 26px;
-            font-weight: 300;
-            line-height: 1;
-            margin-bottom: 4px;
         }
         .gt-tile-title {
             font-size: 0.85rem;
@@ -350,31 +421,61 @@ export class IrGhostTile extends LitElement {
         /* The hint was the one part of the tile that stayed grey while
            everything around it took the kind color on hover. */
         .gt-tile:hover .gt-tile-hint,
-        .gt-tile:focus-visible .gt-tile-hint {
+        .gt-tile:has(.gt-btn:focus-visible) .gt-tile-hint {
             color: inherit;
         }
-        /* plus-circle.svg is STROKE-based, like edit.svg. Rendered
-           through ha-svg-icon it would come out as hairline garbage,
-           because that element paints path data as fill -- the trap
-           edit-button-pass.md already documents and which this pass
-           does not walk into. Inline svg, stroke: currentColor, fill:
-           none, so the kind-color hover carries the glyph too, for
-           free. 22px against the retired 20px text character: close
-           enough in footprint to sit in the same layout, heavy enough
-           to read as a deliberate icon.
-
-           Compact layout ONLY. The full layout keeps its text "+"
-           through .gt-plus-lg -- carrying this treatment into it is a
-           separate decision the spec explicitly declines to assume. */
-        .gt-glyph {
-            width: 22px;
-            height: 22px;
-            flex-shrink: 0;
-            display: inline-flex;
+        /* The plus and the folder (owner, 2026-11-13): two squares
+           with rounded corners, a little tighter than the tile's 8px
+           so they read as the tile's own. Stroke icons inline, in
+           currentColor, as the round plus was: rendered through
+           ha-svg-icon a stroke icon comes out as hairline garbage,
+           because that element paints path data as fill
+           (edit-button-pass.md). Their border and icon take the
+           tile's color, so the kind color on hover carries them too.
+           Both layouts get them; the full layout's are larger, where
+           its text "+" was. */
+        .gt-buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 4px;
         }
-        .gt-glyph svg {
+        .gt-btn {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            border: 1.5px solid currentColor;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+            transition: background 150ms ease;
+        }
+        .gt-buttons-lg .gt-btn {
+            width: 40px;
+            height: 40px;
+        }
+        .gt-btn svg {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .gt-buttons-lg .gt-btn svg {
             width: 22px;
             height: 22px;
+        }
+        .gt-btn:hover {
+            background: color-mix(in srgb, currentColor 14%, transparent);
+        }
+        .gt-btn:focus-visible {
+            outline: 2px solid currentColor;
+            outline-offset: 2px;
         }
         .gt-tile.gt-dragover {
             border-style: solid;
