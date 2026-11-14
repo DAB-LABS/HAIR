@@ -165,6 +165,53 @@ It is told from every other family of this shape by its 28 bits and the
 0101 end code. The split of the 24 bits into address and data depends
 on the part, which the frame cannot tell, so the label shows ``code``
 (the 24 bits, the first sent as the most significant) and not a split.
+
+SPEC TABLE: KeeLoq HCS200, HCS300, HCS301 (detection only)
+===========================================================
+
+Sources (datasheets, read 2026-11-14 through the portal):
+
+- Microchip HCS301, DS21143B (md5 7b8dc83b):
+  https://ww1.microchip.com/downloads/en/DeviceDoc/21143b.pdf
+- Microchip HCS200, DS40138C (md5 ad455d4f):
+  https://ww1.microchip.com/downloads/en/DeviceDoc/40138c.pdf
+- Microchip HCS300, DS21137G (md5 78de68c8):
+  https://ww1.microchip.com/downloads/en/DeviceDoc/21137g.pdf
+
+| Fact | HCS301 (HCS300 the same) | Where |
+|---|---|---|
+| TE | 400 us typ (260 to 660); 200 or 100 us at the faster settings | Table 3-3, Table 8-4 |
+| Bit | 3 TE | Table 8-4 (TBP) |
+| Zero | 2 TE high, then 1 TE low | Figure 4-1 |
+| One | 1 TE high, then 2 TE low | the same |
+| Preamble | 23 TE at 50 percent duty (P1 to P12) | Figure 8-4 |
+| Header | 10 TE low | the same |
+| Data | 66 bits, sent LSb first | Figures 4-2 and 8-5 |
+| Bits 0-31 | encrypted (hopping) | the same |
+| Bits 32-59 | serial number | the same |
+| Bits 60-63 | buttons, as S3 S0 S1 S2 | the same |
+| Bits 64, 65 | VLOW, RPT | the same |
+| Guard | 39 TE | Table 8-4 |
+| Seed | all buttons held: a seed replaces the encrypted part | 4.2 |
+
+HCS200: the same word, with bits 64 and 65 a status bit and a fixed bit
+rather than VLOW and RPT (DS40138C 4.2). Its Synchronous Transmission
+mode, which adds 16 reserved bits, is a test mode and is not read.
+
+What follows for one frame (derived): the preamble is a run of equal
+marks and the 10 TE header is a gap to HAIR, so HAIR drops the
+preamble as a piece with no body and files the data as the frame (66
+marks, the 65 spaces between them, the guard as the gap). Real decoders
+accept 64 to 66 bits, since a receiver often loses the last ones. The
+Athom (64 RMT symbols) cannot hold a code word with its preamble; the
+RM4 Pro can.
+
+What the label shows (owner ruling 2026-11-14): the fixed part only.
+``serial`` is the datasheet's 28-bit serial number (LSb first on the
+air, so read as the datasheet numbers it, in hex); ``buttons`` are the
+inputs held; ``low battery`` is bit 64 when the frame holds it. The 32
+encrypted bits are never shown, logged or carried. Nothing here decrypts,
+learns or sends; a KeeLoq receiver rejects a replayed word.
 """
 from __future__ import annotations
 
@@ -236,6 +283,14 @@ FAMILIES: dict[str, FamilySpec] = {
             shown=True,
             evidence="Holtek HT6P20B2/D2/F2 datasheet Rev 1.10 (shown on the "
                      "datasheet alone, ruling 2026-11-14)",
+        ),
+        FamilySpec(
+            "keeloq", "KeeLoq",
+            aliases=("HCS200", "HCS300", "HCS301"),
+            shown=True,
+            evidence="Microchip HCS301 DS21143B, HCS200 DS40138C, HCS300 "
+                     "DS21137G (shown on the datasheets alone, ruling "
+                     "2026-11-14); detection only",
         ),
     )
 }
@@ -487,4 +542,87 @@ def _space_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
     return _ShapeRead(unit_us, tuple(fits), shared=(("code", bits),))
 
 
-_SHAPES = (_pt2262_ev1527, _space_first_1_2)
+# ---------------------------------------------------------------------------
+# Shape: mark first, 1:2 and 2:1 pairs, no start mark (KeeLoq)
+# ---------------------------------------------------------------------------
+
+# Bits a KeeLoq data piece holds: 66, and real decoders accept 64 and 65
+# because a receiver often loses the last bits (research 6.1).
+_KEELOQ_BITS = (64, 65, 66)
+# Every bit is 3 TE.
+_MF2_PAIR_TOLERANCE = 0.30
+_MF2_SPLIT_MIN = 0.7
+_MF2_SPLIT_MAX = 1.4
+# The guard after the last bit is 39 TE, plus the last bit's own low.
+_KEELOQ_GAP_MIN_TE = 20.0
+_KEELOQ_GAP_MAX_TE = 60.0
+# Button inputs as they ride the air, bits 60 to 63 (Figure 8-5).
+_KEELOQ_BUTTON_ORDER = ("S3", "S0", "S1", "S2")
+
+
+def _keeloq_buttons(pressed: list[str]) -> str:
+    """The inputs held, S0 first; all four is the seed word, which
+    carries a seed where the hopping code would be (HCS301 4.2)."""
+    if len(pressed) == 4:
+        return "all (seed)"
+    return "+".join(sorted(pressed)) if pressed else "none"
+
+
+def _mark_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
+    """Bits of a mark and a space, 1:2 or 2:1, with no start mark.
+
+    A KeeLoq code word's 23 TE preamble is a run of equal marks, and the
+    10 TE header after it is a gap to HAIR, so HAIR files the preamble
+    as a piece with no body (and drops it) and the data as the frame:
+    66 marks, the 65 spaces between them, and the guard as the gap. A
+    one is the short mark with the long space (HCS301 Figure 4-1).
+    """
+    gap = -frame[-1] if len(frame) % 2 == 0 and frame[-1] < 0 else None
+    edges = canonical_edges(list(frame))
+    if len(edges) % 2 != 1:
+        return None
+    bits_n = (len(edges) + 1) // 2
+    if bits_n not in _KEELOQ_BITS:
+        return None
+    marks = edges[0::2]
+    spaces = edges[1::2]
+    sums = [m + s for m, s in zip(marks, spaces, strict=False)]
+    typical = median(sums)
+    if typical <= 0 or any(
+        abs(total - typical) > _MF2_PAIR_TOLERANCE * typical for total in sums
+    ):
+        return None
+    unit = typical / 3.0
+    low, high = min(marks), max(marks)
+    if high - low < 0.5 * unit:
+        return None
+    cut = (low + high) / 2.0
+    short_marks = [m for m in marks if m < cut]
+    long_marks = [m for m in marks if m >= cut]
+    if not short_marks or not long_marks:
+        return None
+    split = (median(long_marks) - median(short_marks)) / unit
+    if not _MF2_SPLIT_MIN <= split <= _MF2_SPLIT_MAX:
+        return None
+    if gap is not None and not _KEELOQ_GAP_MIN_TE <= gap / unit <= _KEELOQ_GAP_MAX_TE:
+        return None
+    bits = [1 if m < cut else 0 for m in marks]
+    if "keeloq" not in FAMILIES:
+        return _ShapeRead(round(unit), ())
+    # The fixed part only (ruling 2026-11-14): bits 0 to 31 are the
+    # encrypted hopping code and are never shown, logged or carried.
+    serial = sum(bit << index for index, bit in enumerate(bits[32:60]))
+    pressed = [
+        name for name, bit in zip(_KEELOQ_BUTTON_ORDER, bits[60:64], strict=False)
+        if bit
+    ]
+    fields: list[tuple[str, str]] = [
+        ("serial", f"{serial:07X}"),
+        ("buttons", _keeloq_buttons(pressed)),
+    ]
+    if bits_n >= 65:
+        fields.append(("low battery", "yes" if bits[64] else "no"))
+    return _ShapeRead(round(unit), (_Fit("keeloq", tuple(fields)),))
+
+
+_SHAPES = (_pt2262_ev1527, _space_first_1_2, _mark_first_1_2)
