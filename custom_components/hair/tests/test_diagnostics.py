@@ -141,6 +141,41 @@ class TestDiagnostics:
         assert device_dict["commands"][0]["code"] == "0xDEADBEEF"
 
     @pytest.mark.asyncio
+    async def test_counts_radio_rows_waiting_for_a_press(self):
+        """Radio trigger fix: the device dump redacts raw_timings, so the
+        waiting radio rows are counted beside it."""
+        from custom_components.hair.const import RF_PROTOCOL
+        from custom_components.hair.models import IRTrigger
+
+        hass = _diag_hass()
+        entry = MagicMock()
+        entry.entry_id = "test-entry"
+        entry.options = {}
+        entry.data = {}
+        dev = IRDevice(
+            id="d1", name="Plug", device_type=DeviceType.SWITCH,
+            commands=[
+                IRCommand(id="c1", name="Waiting", protocol=RF_PROTOCOL),
+                IRCommand(id="c2", name="Whole", protocol=RF_PROTOCOL,
+                          raw_timings=[300, -900, 900, -300]),
+                IRCommand(id="c3", name="Power", protocol="PRONTO"),
+            ],
+        )
+        manager = MagicMock()
+        manager.get_all_devices.return_value = [dev]
+        store = MagicMock()
+        store.get_all_triggers.return_value = [
+            IRTrigger(name="Waiting", protocol=RF_PROTOCOL),
+            IRTrigger(name="Whole", protocol=RF_PROTOCOL, raw_timings=[300, -900]),
+            IRTrigger(name="Power", protocol="PRONTO", code="0000 006D"),
+        ]
+        hass.data = {DOMAIN: {entry.entry_id: {
+            "device_manager": manager, "store": store,
+        }}}
+        result = await async_get_config_entry_diagnostics(hass, entry)
+        assert result["radio_waiting"] == {"triggers": 1, "commands": 1}
+
+    @pytest.mark.asyncio
     async def test_handles_unconfigured_gracefully(self):
         hass = _diag_hass()
         entry = MagicMock()
@@ -152,6 +187,7 @@ class TestDiagnostics:
 
         result = await async_get_config_entry_diagnostics(hass, entry)
         assert result["devices"] == []
+        assert result["radio_waiting"] == {"triggers": 0, "commands": 0}
         # The Learn dialog's capture flag went with it (round 3).
         assert "is_capturing" not in result
 

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Making a device from a radio Remote now gives commands that send. Remotes and devices made on 1.2.0 are repaired on startup; a button that can't be repaired waits for one press.
 - A radio row in the Sniffer that a later press moves to a better carrier, such as a user-set 315 MHz back to a measured 433.92 MHz, now shows the new band at once instead of after a reload.
 
 ## [1.2.0] - 2026-11-11 -- Blow Dry

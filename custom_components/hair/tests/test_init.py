@@ -97,6 +97,7 @@ class TestAsyncSetupEntry:
             # The cross-store origin backfill runs here (2026-08-18);
             # these tests are about setup wiring, so it finds nothing.
             mock_store.backfill_catalog_trigger_origins.return_value = False
+            mock_store.repair_radio_signals.return_value = False
             mock_store_cls.return_value = mock_store
 
             result = await async_setup_entry(hass, entry)
@@ -122,6 +123,7 @@ class TestAsyncSetupEntry:
             # The cross-store origin backfill runs here (2026-08-18);
             # these tests are about setup wiring, so it finds nothing.
             mock_store.backfill_catalog_trigger_origins.return_value = False
+            mock_store.repair_radio_signals.return_value = False
             mock_store_cls.return_value = mock_store
 
             await async_setup_entry(hass, entry)
@@ -141,6 +143,7 @@ class TestAsyncSetupEntry:
             # The cross-store origin backfill runs here (2026-08-18);
             # these tests are about setup wiring, so it finds nothing.
             mock_store.backfill_catalog_trigger_origins.return_value = False
+            mock_store.repair_radio_signals.return_value = False
             mock_store_cls.return_value = mock_store
 
             await async_setup_entry(hass, entry)
@@ -169,6 +172,7 @@ class TestAsyncSetupEntry:
             mock_store = MagicMock()
             mock_store.async_load = AsyncMock()
             mock_store.backfill_catalog_trigger_origins.return_value = False
+            mock_store.repair_radio_signals.return_value = False
             mock_store_cls.return_value = mock_store
             mock_listener_cls.return_value.async_warm_indexes = AsyncMock(
                 side_effect=lambda: order.append("warm")
@@ -493,6 +497,7 @@ class TestTheMapLibraryIsWarmedOffTheLoop:
                     side_effect=lambda: canonical_byte_hash(nec)
                 )
                 mock_store.backfill_catalog_trigger_origins.return_value = False
+                mock_store.repair_radio_signals.return_value = False
                 mock_store_cls.return_value = mock_store
 
                 assert await async_setup_entry(hass, entry) is True
@@ -527,6 +532,7 @@ class TestTheMapLibraryIsWarmedOffTheLoop:
                     side_effect=lambda: order.append("store")
                 )
                 mock_store.backfill_catalog_trigger_origins.return_value = False
+                mock_store.repair_radio_signals.return_value = False
                 mock_store_cls.side_effect = lambda *a: (
                     order.append("store built") or mock_store
                 )

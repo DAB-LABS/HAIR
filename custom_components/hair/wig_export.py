@@ -191,6 +191,12 @@ def build_wig_from_device(
         # it is the one radio row still left out, and named.
         if is_rf(command):
             alias = (command.name or "").strip() or f"Command {i}"
+            if not command.raw_timings:
+                # A button still waiting for one press has no code at all
+                # (radio trigger fix): say that, not "no frequency".
+                skipped += 1
+                notes.append(f"{alias}: no code yet; press the button once")
+                continue
             rf = wig_rf_of(command)
             if rf is None:
                 skipped += 1

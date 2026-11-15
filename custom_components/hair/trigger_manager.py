@@ -42,7 +42,7 @@ from .const import (
     TRIGGER_FIRE_DEDUP_WINDOW_S,
     TRIGGER_HIT_RESET_WINDOW_S,
 )
-from .models import IRTrigger
+from .models import IRTrigger, copy_rf_signal, is_rf
 from .pin_retransmit import (
     CELL_TARGET_PREFIX,
     FOLLOW_TARGET_PREFIX,
@@ -792,8 +792,14 @@ class TriggerManager:
         new_byte_hash: str | None = None,
         old_decoded_fingerprint: str | None = None,
         new_decoded_fingerprint: str | None = None,
+        source_row: Any = None,
     ) -> dict[str, list[str]]:
         """Repoint triggers from an old signal identity to a new one.
+
+        ``source_row`` is the edited radio row (a device command or a
+        Sniffer row): a radio trigger holds its own signal, so a trigger
+        repointed to the new code takes the new frame too, or it would
+        match the new code and send the old one (radio trigger fix).
 
         Used when an edit changes a signal/command's identity. Identity is
         the (S/L fingerprint, byte_hash, decoded_fingerprint) triple
@@ -857,6 +863,8 @@ class TriggerManager:
             trigger.code = new_code
             trigger.byte_hash = new_byte_hash
             trigger.decoded_fingerprint = new_decoded_fingerprint
+            if source_row is not None and is_rf(trigger):
+                copy_rf_signal(source_row, trigger)
             self._store.update_trigger(trigger)
             rewired.append(trigger.name)
             changed = True

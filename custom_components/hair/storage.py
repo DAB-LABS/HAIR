@@ -603,6 +603,195 @@ class HAIRStore:
             )
         return bool(restamped)
 
+    def radio_command_with_frame(self, byte_hash: str | None) -> Any:
+        """A device command of this radio code that holds its frame, or
+        None. Walks the commands rather than asking the matcher's index,
+        because a command minted with nothing to send can share the code
+        and win that lookup (radio trigger fix)."""
+        from .const import RF_PROTOCOL
+
+        if not byte_hash:
+            return None
+        for device in self._data.values():
+            for cmd in device.commands:
+                if (
+                    cmd.protocol == RF_PROTOCOL
+                    and cmd.byte_hash == byte_hash
+                    and cmd.raw_timings
+                ):
+                    return cmd
+        return None
+
+    def fill_waiting_radio(
+        self, row: Any, fingerprint: str | None, byte_hash: str | None
+    ) -> int:
+        """Fill radio triggers and commands of this code that have no
+        frame, from a press of it (radio trigger fix).
+
+        ``row`` is the press as the capture path holds it, after the echo
+        claim, so HAIR's own sends never fill anything. Every trigger of
+        the code is filled, enabled or not and whatever its receiver
+        scope: it is the same code, and filling one fires nothing. The
+        commands of the code are mended from the same press, so a device
+        made before the fix sends after one press. Returns how many rows
+        it filled; the caller saves.
+        """
+        from .const import RF_PROTOCOL
+        from .models import copy_rf_signal, fill_rf_command, rf_needs_press
+
+        # The frame hash only. Two buttons of one remote can share a
+        # fingerprint, so a row with no hash of its own is never filled
+        # by guess: it waits (review 3).
+        if not getattr(row, "raw_timings", None) or not byte_hash:
+            return 0
+        filled = 0
+        for trigger in self._triggers.values():
+            if rf_needs_press(trigger) and trigger.byte_hash == byte_hash:
+                copy_rf_signal(row, trigger)
+                filled += 1
+        mended = 0
+        for device in self._data.values():
+            for cmd in device.commands:
+                if (
+                    cmd.protocol == RF_PROTOCOL
+                    and not cmd.raw_timings
+                    and cmd.byte_hash == byte_hash
+                ):
+                    fill_rf_command(row, cmd)
+                    mended += 1
+        if mended:
+            self._rebuild_command_index()
+        if filled or mended:
+            _LOGGER.info(
+                "Radio codes: a press filled %d trigger(s) and %d command(s) "
+                "that had no frame", filled, mended,
+            )
+        return filled + mended
+
+    def _radio_frames_by_hash(self) -> dict[str, Any]:
+        """Every radio device command that holds its frame, by code; the
+        first of each code wins. Built only when something waits."""
+        from .const import RF_PROTOCOL
+
+        whole: dict[str, Any] = {}
+        for device in self._data.values():
+            for cmd in device.commands:
+                if cmd.protocol == RF_PROTOCOL and cmd.raw_timings and cmd.byte_hash:
+                    whole.setdefault(cmd.byte_hash, cmd)
+        return whole
+
+    def repair_radio_signals(self, signal_store: Any) -> bool:
+        """Give radio triggers and commands with no frame the signal they
+        are missing, wherever the same code is held whole.
+
+        A radio trigger held only its identity until the radio trigger
+        fix (2026-11-13), so a "Make a Device" from a radio Remote made
+        commands with nothing to send. Both kinds are filled here, from:
+
+        1. the Sniffer catalog row of the same code;
+        2. a device command of the same code that has its frame;
+        3. for a command only, a trigger of the same code that has one.
+
+        What nothing holds is left as it is: it waits for its button to
+        be heard once (``rf_needs_press``) and the next press fills it.
+
+        Runs from setup, once both stores are loaded, on every load: it
+        touches only rows with no frame, so it does nothing the second
+        time, and a row filled later (a press, a paste) is never touched
+        again. A store with nothing waiting costs one walk and builds
+        nothing. Returns True when anything changed, so the caller
+        saves once.
+        """
+        from .const import RF_PROTOCOL
+        from .identity import SignalIdentity
+        from .models import MEDIUM_RF, copy_rf_signal, fill_rf_command, rf_needs_press
+
+        triggers = [t for t in self._triggers.values() if rf_needs_press(t)]
+        commands = [
+            (device, cmd)
+            for device in self._data.values()
+            for cmd in device.commands
+            if cmd.protocol == RF_PROTOCOL and not cmd.raw_timings
+        ]
+        if not triggers and not commands:
+            return False
+
+        whole = self._radio_frames_by_hash()
+
+        def from_catalog(fingerprint: str, byte_hash: str | None) -> Any:
+            # Only with a frame hash: a fingerprint alone can be a sibling
+            # button's (review 3). The lookup confirms a hit by the
+            # strongest tier both sides carry, so a row of another hash is
+            # never handed back.
+            if not byte_hash:
+                return None
+            found = signal_store.find_filed_signal(
+                SignalIdentity(None, byte_hash, fingerprint or ""), prune=False
+            )
+            if found is None:
+                return None
+            row = found[1]
+            return row if row.protocol == RF_PROTOCOL and row.raw_timings else None
+
+        from_rows = from_commands = from_triggers = waiting = 0
+        for trigger in triggers:
+            source = from_catalog(trigger.signal_fingerprint, trigger.byte_hash)
+            if source is not None:
+                from_rows += 1
+            else:
+                source = whole.get(trigger.byte_hash or "")
+                if source is not None:
+                    from_commands += 1
+            if source is None:
+                waiting += 1
+                continue
+            copy_rf_signal(source, trigger)
+
+        filled_triggers = {
+            t.byte_hash: t
+            for t in self._triggers.values()
+            if t.byte_hash and t.protocol == RF_PROTOCOL and t.raw_timings
+        }
+        for _device, cmd in commands:
+            # A row "Make a Device" minted before the fix said infrared.
+            # ``IRCommand`` now reads the medium off the protocol on load,
+            # so this only matters for a row built some other way; on
+            # its own it is no reason to save.
+            cmd.medium = MEDIUM_RF
+            source = from_catalog("", cmd.byte_hash)
+            if source is not None:
+                from_rows += 1
+            else:
+                source = whole.get(cmd.byte_hash or "")
+                if source is not None:
+                    from_commands += 1
+                else:
+                    source = filled_triggers.get(cmd.byte_hash or "")
+                    if source is not None:
+                        from_triggers += 1
+            if source is None:
+                waiting += 1
+                continue
+            fill_rf_command(source, cmd)
+
+        filled = from_rows + from_commands + from_triggers
+        if filled:
+            self._rebuild_command_index()
+        if filled:
+            _LOGGER.info(
+                "Radio codes: filled %d trigger(s) and command(s) that had "
+                "no frame (%d from Sniffer rows, %d from device commands, "
+                "%d from triggers); %d still wait for their button to be "
+                "pressed once",
+                filled, from_rows, from_commands, from_triggers, waiting,
+            )
+        elif waiting:
+            _LOGGER.debug(
+                "Radio codes: %d trigger(s) and command(s) wait for their "
+                "button to be pressed once", waiting,
+            )
+        return bool(filled)
+
     def _backfill_trigger_order(self) -> bool:
         """Assign ``order`` to triggers that predate Trigger Remotes signpost 1.
 

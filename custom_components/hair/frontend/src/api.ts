@@ -48,6 +48,7 @@ import type {
     ProntoValidation,
     ReceiverHardwareInfo,
     ReceiverInfo,
+    RemoteNeedsPress,
     ReverseSupersessionBlock,
     SavePlan,
     SaveResult,
@@ -887,7 +888,7 @@ export class HairApi {
         name: string,
         deviceType: DeviceTypeId,
         emitterEntityIds: string[],
-    ): Promise<IRDevice & { copied: number }> {
+    ): Promise<IRDevice & { copied: number; needs_press?: RemoteNeedsPress[] }> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/trigger-remote/make-device",
             remote_id: remoteId,
