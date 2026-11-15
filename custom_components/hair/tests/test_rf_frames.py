@@ -3,7 +3,7 @@
 The keyfob fixture is real (``fixtures/rf/README.md``). The families
 are built here from their published timings, each to pin one case of
 the rules in ``rf_frames``: the address-first 24-symbol key (PT2262),
-the strict body rule (Nexa, refused; an open ruling), a preamble family
+the pulse-distance body (Nexa, one mark width, heard), a preamble family
 keyed on shape alone (Dooya), a rolling code behind a preamble
 (KeeLoq-shaped) and Manchester behind a sync header (Somfy-shaped).
 """
@@ -233,9 +233,11 @@ class TestPT2262:
 class TestNexa:
     """Self-learning KAKU / Nexa: every mark the same width.
 
-    Refused by the strict body rule (both polarities need two levels).
-    This is the open ruling the report names: a family reader, or a
-    looser rule for one-width marks, would mint it.
+    Once refused by the strict body rule (both polarities need two
+    levels); now a pulse-distance body (one mark width, spaces 4 to 7
+    apart, at least 40 pairs; ruling 2026-11-14 and 2026-11-15), so it is
+    heard. test_rf_one_level_marks.py holds the rule to the noise hours
+    and the bench.
     """
 
     def _frame(self, bits: str) -> list[int]:
@@ -245,9 +247,16 @@ class TestNexa:
             edges += [t, t, t, 5 * t] if bit == "0" else [t, 5 * t, t, t]
         return [*edges, t, 40 * t]
 
-    def test_it_is_refused(self):
+    def test_it_is_heard(self):
         frame = self._frame("1011" * 8)
-        assert rf.analyze(_burst(frame, 5)) is None
+        result = rf.analyze(_burst(frame, 5))
+        assert result is not None
+        assert result.votes == 5
+
+    def test_its_buttons_are_told_apart(self):
+        one = rf.analyze(_burst(self._frame("1011" * 8), 5))
+        two = rf.analyze(_burst(self._frame("1011" * 7 + "1010"), 5))
+        assert one.fingerprint != two.fingerprint
 
 
 class TestDooya:

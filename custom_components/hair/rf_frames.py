@@ -16,7 +16,10 @@ the 90th-percentile space. Each piece keeps the gap that ended it as its
 last edge.
 
 WHOLE FRAMES. A piece is a frame only if it has a BODY: its marks form
-at least two width levels and so do its spaces. Receiver noise repeats
+at least two width levels and so do its spaces, or it is a long
+pulse-distance body (one mark width, two space widths 4 to 7 apart, at
+least 40 pairs; Nexa self-learning and KlikAanKlikUit send these, ruling
+2026-11-14). Receiver noise repeats
 itself only in pieces of a handful of edges with no body, so a body is
 what separates a press from noise (measured: about 12,000 noise
 captures an hour, none with a remote-length body ever repeating). Of the pieces
@@ -197,19 +200,71 @@ def _polarities(parts: FrameParts) -> tuple[list[int], list[int]]:
     return (first, second) if parts.body_starts_on_mark else (second, first)
 
 
-def has_body(parts: FrameParts) -> bool:
-    """A body: marks on at least two width levels, and spaces too.
+# A pulse-distance body (one mark width): at least this many mark-space
+# pairs. Both recorded Athom noise hours (33,366 pieces, window open and
+# closed) hold none at any length; 40 keeps a real frame with edges
+# missing (ruling 2026-11-14).
+RF_DISTANCE_MIN_PAIRS = 40
+# Its two most populated space levels: this far apart (Nexa's 1 T and
+# 5 T), and holding this share of the spaces (the start space sits inside
+# the body). Not below 4: the 10 T start space sits in the body, and with
+# a long space under about 3.2 T the fingerprint's short/long cut falls
+# between the long spaces and the start space, so a remote's buttons
+# share one fingerprint and the burst assembler can merge two of them
+# into a frame neither sent. A 3 to 3.4 T remote stays dropped, as before
+# (ruling 2026-11-15).
+RF_DISTANCE_SPACE_RATIO = (4.0, 7.0)
+RF_DISTANCE_SPACE_SHARE = 0.9
 
-    Noise repeats itself only in pieces without one (a lone mark, one
-    mark-space-mark), which is what makes this the gate's structural
-    half. It is a shape test, not a length: a long run of one width has
-    no body however many edges it has.
-    """
+
+def _has_two_level_body(parts: FrameParts) -> bool:
+    """Marks on at least two width levels, and spaces too."""
     marks, spaces = _polarities(parts)
     for values in (marks, spaces):
         if len(set(_value_levels(values, NORM_LEVEL_MIN_RATIO))) < 2:
             return False
     return True
+
+
+def _has_distance_body(parts: FrameParts) -> bool:
+    """Two space widths 4 to 7 apart that hold at least 90 percent of the
+    spaces, over at least 40 pairs.
+
+    It is the one-mark-width case: a piece with two mark widths and two
+    space widths is a two-level body already, so the marks need no test
+    here. One space width fails the ratio (its two medians are equal).
+    """
+    marks, spaces = _polarities(parts)
+    if len(marks) < RF_DISTANCE_MIN_PAIRS or len(spaces) < RF_DISTANCE_MIN_PAIRS:
+        return False
+    levels = _value_levels(spaces, NORM_LEVEL_MIN_RATIO)
+    # The same choice as ``_body_mask``: most populated first, the level
+    # number breaking a tie.
+    top = [
+        level for level, _ in sorted(
+            Counter(levels).items(), key=lambda item: (-item[1], item[0])
+        )[:2]
+    ]
+    if sum(level in top for level in levels) < RF_DISTANCE_SPACE_SHARE * len(spaces):
+        return False
+    narrow = median(s for s, lv in zip(spaces, levels, strict=True) if lv == min(top))
+    wide = median(s for s, lv in zip(spaces, levels, strict=True) if lv == max(top))
+    if narrow <= 0:
+        return False
+    return RF_DISTANCE_SPACE_RATIO[0] <= wide / narrow <= RF_DISTANCE_SPACE_RATIO[1]
+
+
+def has_body(parts: FrameParts) -> bool:
+    """A body: marks on at least two width levels, and spaces too; or a
+    long pulse-distance body, one mark width over two space widths.
+
+    Noise repeats itself only in pieces without one (a lone mark, one
+    mark-space-mark), which is what makes this the gate's structural
+    half. It is a shape test: a long run of one width has no body however
+    many edges it has, and a one-mark-width piece needs two space widths
+    4 to 7 apart over at least 40 pairs.
+    """
+    return _has_two_level_body(parts) or _has_distance_body(parts)
 
 
 def bodied_pieces(pieces: list[FramePiece]) -> list[tuple[FramePiece, FrameParts]]:
