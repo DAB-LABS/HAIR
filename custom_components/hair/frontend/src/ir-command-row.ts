@@ -444,7 +444,7 @@ export class IrCommandRow extends LitElement {
                         ${learned
                             ? html`
                                   <div class="chip-col">
-                                      ${this.command?.decoded_protocol
+                                      ${this.command?.medium !== "rf" && this.command?.decoded_protocol
                                           ? html`<ir-protocol-chip
                                                 .protocol=${this.command
                                                     .decoded_protocol}
@@ -455,6 +455,12 @@ export class IrCommandRow extends LitElement {
                                                 ?disabled=${this.busy}
                                                 @toggle-bypass=${() =>
                                                     this._emit("toggle-tx-raw")}
+                                            ></ir-protocol-chip>`
+                                          : this.command?.medium === "rf"
+                                          ? // A radio command: its family,
+                                            // read-only, or nothing.
+                                            html`<ir-protocol-chip
+                                                .family=${this.command.rf_family ?? null}
                                             ></ir-protocol-chip>`
                                           : ""}
                                   </div>

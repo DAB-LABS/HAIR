@@ -20,10 +20,20 @@
  *   name is appended after a middot.
  *
  * This settles the static-pill decision parked on 2026-06-21.
+ *
+ * RADIO (decoder round 2, owner 2026-11-14 19:06 PT). A radio row passes
+ * its `rf_family` as `family`, and the same pill names the remote's chip
+ * family. It is read-only wherever it shows: HAIR always sends a radio
+ * code as captured, so there is no re-encode to switch off. Its tooltip
+ * is the label and the fields only ("EV1527 · address 950E4 · data 9"),
+ * so it carries no sentence to translate. A radio row whose frame no
+ * shown family reads passes null and gets no pill: never the internal
+ * "RF_RAW". The text and tooltip come from rf-family-label.ts.
  */
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "./decorators.js";
 import { t } from "./localize.js";
+import { familyShort, familyTitle, type RfFamily } from "./rf-family-label.js";
 
 @customElement("ir-protocol-chip")
 export class IrProtocolChip extends LitElement {
@@ -34,6 +44,9 @@ export class IrProtocolChip extends LitElement {
     /** Read-only surfaces (fitting rows, Closet) pass false. */
     @property({ type: Boolean }) public interactive = false;
     @property({ type: Boolean }) public disabled = false;
+    /** A radio row's family (`rf_family`), or null when none fits.
+     *  Left undefined on infrared rows. Set, it replaces `protocol`. */
+    @property({ attribute: false }) public family: RfFamily | null | undefined = undefined;
 
     private _toggle(e: Event): void {
         e.stopPropagation();
@@ -48,6 +61,7 @@ export class IrProtocolChip extends LitElement {
     }
 
     render() {
+        if (this.family !== undefined) return this._renderFamily();
         // Nothing decoded means no chip. There is no protocol to name and
         // no re-encode to bypass, so the send path is already raw and a
         // pill would describe a choice that does not exist.
@@ -77,6 +91,18 @@ export class IrProtocolChip extends LitElement {
         >
             ${label}
         </button>`;
+    }
+
+    /** The radio pill: read-only, a span rather than a disabled button,
+     *  so its tooltip shows on hover in every browser. Plain text to a
+     *  screen reader, as the infrared pill's label is. */
+    private _renderFamily() {
+        const text = familyShort(this.family);
+        if (!text) return nothing;
+        const title = familyTitle(this.family);
+        return html`<span class="chip family" title=${title}
+            >${text}</span
+        >`;
     }
 
     static styles = css`
@@ -122,6 +148,16 @@ export class IrProtocolChip extends LitElement {
         }
         .chip[disabled] {
             cursor: default;
+        }
+        /* A radio family: never wider than the 88px protocol column. A
+           label too long for it ends in an ellipsis; the tooltip keeps
+           it whole. */
+        .chip.family {
+            display: inline-block;
+            box-sizing: border-box;
+            max-width: 88px;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
     `;
 }

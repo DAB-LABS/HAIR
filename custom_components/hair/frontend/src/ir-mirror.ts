@@ -31,7 +31,8 @@
  * Authoritative design: docs/internal/mockups/mirror-tab-mockup-m5.html.
  */
 import { assignSendCount } from "./rf-send-count.js";
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
+import { familyShort, familyTitle } from "./rf-family-label.js";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
@@ -112,6 +113,8 @@ interface MirrorRowView {
     title: string;
     pill: string | null;
     pillRaw: boolean;
+    /** A radio row's pill tooltip: its family's label and fields. */
+    pillTitle: string;
     via: string;
     viaFull: string;
     emitters: string[];
@@ -449,8 +452,12 @@ export class IrMirror extends LitElement {
                 : null);
         const title = chainTitle || t("mirror.unknown_title");
 
-        const pill = sig.decoded_protocol ?? sig.protocol;
-        const pillRaw = !sig.decoded_protocol;
+        // A radio row names its family, or shows no pill: never "RF_RAW",
+        // the protocol's internal name (owner 2026-11-14, ruling 4).
+        const radio = sig.medium === "rf";
+        const pill = radio ? familyShort(sig.rf_family) : (sig.decoded_protocol ?? sig.protocol);
+        const pillRaw = !radio && !sig.decoded_protocol;
+        const pillTitle = radio ? familyTitle(sig.rf_family) : "";
 
         const via =
             emitters.length > 2
@@ -488,6 +495,7 @@ export class IrMirror extends LitElement {
             title,
             pill: pill ?? null,
             pillRaw,
+            pillTitle,
             via,
             viaFull,
             emitters,
@@ -1142,6 +1150,7 @@ export class IrMirror extends LitElement {
                         ${r.pill
                             ? html`<span
                                   class="pill ${r.pillRaw ? "raw" : ""}"
+                                  title=${r.pillTitle || nothing}
                                   >${r.pill}</span
                               >`
                             : ""}
@@ -1383,6 +1392,7 @@ export class IrMirror extends LitElement {
                           .initialAlias=${this._editSignal.alias ?? ""}
                           .initialSendCount=${assignSendCount(this._editSignal)}
                           .repeatsObserved=${this._editSignal.rf_repeats_observed ?? null}
+                          .initialFamily=${this._editSignal.rf_family ?? null}
                           @signal-edited=${this._onSignalEdited}
                           @delete-requested=${() => {
                               const sig = this._editSignal;

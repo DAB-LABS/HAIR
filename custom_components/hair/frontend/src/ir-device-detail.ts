@@ -1912,6 +1912,7 @@ export class IrDeviceDetail extends LitElement {
                                 .initialAlias=${this._editCommand.name}
                                 .initialSendCount=${this._editCommand.send_count ?? 1}
                                 .repeatsObserved=${this._editCommand.rf_repeats_observed ?? null}
+                                .initialFamily=${this._editCommand.rf_family ?? null}
                                 .hasTrigger=${this._commandHasTrigger(this._editCommand)}
                                 @command-edited=${this._onCommandEdited}
                                 @delete-requested=${() => {

@@ -63,6 +63,7 @@ import type {
     ReceiverInfo,
 } from "./types.js";
 import { PIN_BLUE } from "./ir-pin-flag.js";
+import { RF_TRIGGER_PROTOCOL } from "./receiver-medium.js";
 
 // mdi:repeat -- imported verbatim from ir-tx-knobs.ts's own (unexported)
 // ICON_REPEAT, reused here for the min_hits "button press count" knob
@@ -341,9 +342,15 @@ export class IrTriggerRow extends LitElement {
                                   >${t("devices.state_chip")}</span
                               >`
                             : nothing}
-                        <ir-protocol-chip
-                            .protocol=${trig.protocol}
-                        ></ir-protocol-chip>
+                        ${trig.medium === "rf" || trig.protocol === RF_TRIGGER_PROTOCOL
+                            ? // A radio trigger: its family, or nothing. Never
+                              // "RF_RAW", the protocol's internal name.
+                              html`<ir-protocol-chip
+                                  .family=${trig.rf_family ?? null}
+                              ></ir-protocol-chip>`
+                            : html`<ir-protocol-chip
+                                  .protocol=${trig.protocol}
+                              ></ir-protocol-chip>`}
                     </div>
                     <div class="trow-controls">
                         ${this._renderActionLabel()}

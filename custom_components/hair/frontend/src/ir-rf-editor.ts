@@ -46,6 +46,8 @@ import {
 } from "./rf-code.js";
 import type { HairApi } from "./api.js";
 import type { RfValidation } from "./types.js";
+import "./ir-protocol-chip.js";
+import { familyEditorText, type RfFamily } from "./rf-family-label.js";
 
 const VALIDATE_DELAY_MS = 300;
 
@@ -72,6 +74,9 @@ export class IrRfEditor extends LitElement {
      *  the count (N20); null for a paste or an unmeasured press. */
     @property({ attribute: false }) public repeatsObserved: number | null = null;
     @property({ type: Boolean }) public hasTrigger = false;
+    /** The saved row's family (`rf_family`), for the pill row; null for
+     *  a paste, a new code or a frame no shown family reads. */
+    @property({ attribute: false }) public initialFamily: RfFamily | null = null;
 
     @state() private _code = "";
     @state() private _alias = "";
@@ -363,6 +368,17 @@ export class IrRfEditor extends LitElement {
             : nothing;
     }
 
+    /** The infrared editor's pill row, for radio (owner 2026-11-14, ruling
+     *  3): the family's pill, then its fields as plain text. It describes
+     *  the saved code, so it goes as soon as the code in the box changes. */
+    private _renderFamily() {
+        if (this._creating || this._codeChanged || !this.initialFamily) return nothing;
+        return html`<div class="pill-row">
+            <ir-protocol-chip .family=${this.initialFamily}></ir-protocol-chip>
+            <span class="family-fields">${familyEditorText(this.initialFamily)}</span>
+        </div>`;
+    }
+
     render() {
         const heading = this._creating
             ? t("rfedit.new_signal")
@@ -372,6 +388,7 @@ export class IrRfEditor extends LitElement {
         return html`<ha-dialog open heading=${heading} scrimClickAction="" @closed=${this._close}>
             ${this._error ? html`<ha-alert alert-type="error">${this._error}</ha-alert>` : nothing}
             <div class="medium">${renderProtoGlyph("rf", 16)}<span>${t("rfedit.radio")}</span></div>
+            ${this._renderFamily()}
 
             <div class="field">
                 <label for="rf-code">${t("rfedit.code")}</label>
@@ -464,6 +481,20 @@ export class IrRfEditor extends LitElement {
                 margin-top: 6px;
                 font-size: 0.78rem;
                 color: var(--secondary-text-color);
+            }
+            /* The pill row: the same spacing as the infrared editor's. */
+            .pill-row {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin: 2px 0 10px;
+            }
+            .family-fields {
+                font-family: var(--code-font-family, monospace);
+                font-size: 0.78rem;
+                color: var(--secondary-text-color);
+                overflow-wrap: anywhere;
             }
             .medium {
                 display: inline-flex;
