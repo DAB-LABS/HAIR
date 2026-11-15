@@ -25,7 +25,9 @@ import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-receiver-picker.js";
 import type { HairApi } from "./api.js";
-import type { TriggerRemoteInfo } from "./types.js";
+import type { Medium, TriggerRemoteInfo } from "./types.js";
+import { keepKind, soleKind } from "./media-kind.js";
+import { receiverIdMedium } from "./receiver-medium.js";
 
 @customElement("ir-duplicate-trigger-remote-dialog")
 export class IrDuplicateTriggerRemoteDialog extends LitElement {
@@ -45,6 +47,10 @@ export class IrDuplicateTriggerRemoteDialog extends LitElement {
      *  Stored semantics unchanged -- this is just what the picker
      *  shows lit on open. */
     @property({ attribute: false }) public sourceReceiverScope: string[] = [];
+
+    /** The source remote's media: one kind lists that kind's receivers
+     *  only (media-kind.ts); both, or none yet, lists both. */
+    @property({ attribute: false }) public sourceMedia: Medium[] | null = null;
 
     @state() private _name = "";
     @state() private _receiverIds: string[] = [];
@@ -75,7 +81,7 @@ export class IrDuplicateTriggerRemoteDialog extends LitElement {
             const created = await this.api.duplicateTriggerRemote(
                 this.sourceId,
                 name,
-                this._receiverIds,
+                keepKind(this._receiverIds, soleKind(this.sourceMedia), receiverIdMedium),
             );
             this.dispatchEvent(
                 new CustomEvent<TriggerRemoteInfo>("remote-duplicated", {
@@ -136,6 +142,7 @@ export class IrDuplicateTriggerRemoteDialog extends LitElement {
                 <ir-receiver-picker
                     .api=${this.api}
                     .hass=${this.hass}
+                    .medium=${soleKind(this.sourceMedia)}
                     .value=${this._receiverIds}
                     ?disabled=${this._busy}
                     @receivers-changed=${(e: CustomEvent) =>

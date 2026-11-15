@@ -350,6 +350,8 @@
     "mirror.clear_msg": "要从 Mirror 中移除此条目吗？下次发送此信号时它会再次出现。",
     "common.delete_failed": "删除失败：{message}",
     "device_type.other_card": "红外设备",
+    "device_type.other_card_radio": "无线电设备",
+    "device_type.other_card_both": "设备",
     "devlist.loading": "正在加载红外设备...",
     "devlist.empty_title": "还没有红外设备",
     "devlist.empty_sub": "添加你的第一个设备即可开始。",

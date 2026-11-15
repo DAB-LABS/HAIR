@@ -383,6 +383,8 @@
     "mirror.clear_msg": "Убрать эту запись из Mirror? Она вернётся при следующей отправке этого сигнала.",
     "common.delete_failed": "Не удалось удалить: {message}",
     "device_type.other_card": "ИК-устройство",
+    "device_type.other_card_radio": "Радиоустройство",
+    "device_type.other_card_both": "Устройство",
     "devlist.loading": "Загрузка ИК-устройств...",
     "devlist.empty_title": "ИК-устройств пока нет",
     "devlist.empty_sub": "Добавьте первое устройство, чтобы начать.",

@@ -52,6 +52,8 @@ import { landedManyNotice, pinFillNotice } from "./api.js";
 import type { PinResult } from "./api.js";
 import { BROADSNIFF_URL } from "./types.js";
 import type { CaptureReceiverRow, HardwareFacts, Medium } from "./types.js";
+import { listsInKind, rowsKind, soleKind } from "./media-kind.js";
+import { receiverIdMedium } from "./receiver-medium.js";
 import { PROTO_SIGNAL, PROTO_SOURCE, protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
 import { captureSignature } from "./ir-listen-state.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
@@ -134,6 +136,22 @@ const DEVICE_TYPE_LABEL_KEYS: Record<DeviceTypeId, string> = {
     screen: "device_type.screen",
     other: "device_type.other_card",
 };
+
+/** A device card's type word. "Other" says which kind of hardware the
+ *  device's codes use instead (owner, 2026-11-14): Radio Device, IR
+ *  Device, or Device when it uses both kinds or has no codes yet. Every
+ *  other type keeps DEVICE_TYPE_LABEL_KEYS. A Remote is never of type
+ *  Other (remote_state.py REMOTE_TYPES), so its card needs no rule. */
+function deviceCardTypeKey(
+    type: DeviceTypeId,
+    media: readonly Medium[] | null | undefined,
+): string {
+    if (type !== "other") return DEVICE_TYPE_LABEL_KEYS[type];
+    const kind = soleKind(media);
+    if (kind === "rf") return "device_type.other_card_radio";
+    if (kind === "ir") return "device_type.other_card";
+    return "device_type.other_card_both";
+}
 
 // Remote control (SVG Repo, scaled to a 24x24 box).
 const ICON_DEVICES =
@@ -1451,7 +1469,20 @@ export class IrDeviceList extends LitElement {
      *  drops off shows its ember ring, and the alarm when the remote
      *  listens through it, and turns green again without a reload. */
     private _receiverRows(remote: TriggerRemoteInfo): HeaderChipRow[] {
-        return this._receivers.map((r) => ({
+        // A Remote of one kind lists that kind's receivers, plus any
+        // receiver of the other kind it is still scoped to, so that one
+        // can be turned off (media-kind.ts).
+        const kind = soleKind(remote.media);
+        return this._receivers
+            .filter((r) =>
+                listsInKind(
+                    r.entity_id,
+                    kind,
+                    receiverIdMedium,
+                    remote.receiver_scope.includes(r.entity_id),
+                ),
+            )
+            .map((r) => ({
             id: r.entity_id,
             name: r.name,
             on: remote.receiver_scope.includes(r.entity_id),
@@ -2380,7 +2411,7 @@ export class IrDeviceList extends LitElement {
                                       ${this._renderMeta(
                                           [
                                               device.manufacturer,
-                                              t(DEVICE_TYPE_LABEL_KEYS[device.device_type]),
+                                              t(deviceCardTypeKey(device.device_type, device.media)),
                                           ]
                                               .filter(Boolean)
                                               .join(" • "),
@@ -2989,6 +3020,7 @@ export class IrDeviceList extends LitElement {
                           .sourceId=${this._duplicateRemoteTarget.id}
                           .sourceName=${this._duplicateRemoteTarget.name}
                           .sourceReceiverScope=${this._duplicateRemoteTarget.receiver_scope}
+                          .sourceMedia=${this._duplicateRemoteTarget.media ?? null}
                           @remote-duplicated=${this._onRemoteDuplicated}
                           @closed=${this._closeDuplicateRemoteDialog}
                       ></ir-duplicate-trigger-remote-dialog>
@@ -3059,6 +3091,10 @@ export class IrDeviceList extends LitElement {
                           .hass=${this.hass}
                           .sourceDeviceId=${this._makeRemoteSource.id}
                           .suggestedName=${this._makeRemoteSource.name}
+                          .medium=${rowsKind(
+                              this._makeRemoteSource.commands,
+                              !!this._makeRemoteSource.climate_matrix,
+                          )}
                           .previewCount=${this._eligibleCommandCount(
                               this._makeRemoteSource,
                           )}

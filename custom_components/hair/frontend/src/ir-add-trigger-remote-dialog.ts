@@ -138,12 +138,15 @@ import { anyPluckReadyNow } from "./api.js";
 import type { HairApi } from "./api.js";
 import type {
     DeviceSummary,
+    Medium,
     PluckSource,
     SignalSourceId,
     TriggerRemoteInfo,
 } from "./types.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type { SourcePickRow } from "./ir-source-picker.js";
+import { keepKind, soleKind, unknownKind } from "./media-kind.js";
+import { receiverIdMedium } from "./receiver-medium.js";
 
 /** Kind tabs backed by hair/unknown/devices -- Sniffer/Clipper/Plucker
  *  share one list call, discriminated by `source`. */
@@ -260,6 +263,7 @@ export class IrAddTriggerRemoteDialog extends LitElement {
                         name: d.label ?? d.protocol ?? t("common.raw"),
                         sub: tp("mirror.signals", d.signal_count),
                         count: d.signal_count,
+                        medium: unknownKind(d.medium),
                     }),
                 ),
             };
@@ -346,6 +350,22 @@ export class IrAddTriggerRemoteDialog extends LitElement {
         return full.commands.length;
     }
 
+    /** The kind the receiver picker offers (media-kind.ts): a device's
+     *  or a Sniffer, Clipper or Plucker row's own kind once one is
+     *  picked; both for a wig, a dropped file or a Remote made by hand. */
+    private get _kind(): Medium | null {
+        if (this._dropMode) return null;
+        if (this._activeTab === "device") return soleKind(this._pickedDevice?.media);
+        if (
+            this._activeTab === "sniffer" ||
+            this._activeTab === "clipper" ||
+            this._activeTab === "plucker"
+        ) {
+            return this._pickedSourceRow?.medium ?? null;
+        }
+        return null;
+    }
+
     private async _create(): Promise<void> {
         const name = this._name.trim();
         if (!name) {
@@ -372,6 +392,10 @@ export class IrAddTriggerRemoteDialog extends LitElement {
             return;
         }
 
+        // A receiver of the other kind, picked before the source was,
+        // is hidden now and is not saved.
+        const receiverIds = keepKind(this._receiverIds, this._kind, receiverIdMedium);
+
         this._busy = true;
         this._error = null;
         let createdRemote: TriggerRemoteInfo | null = null;
@@ -390,7 +414,7 @@ export class IrAddTriggerRemoteDialog extends LitElement {
                 // Device doors below which seed client-side in a loop.
                 createdRemote = await this.api.createTriggerRemote({
                     name,
-                    receiver_scope: this._receiverIds,
+                    receiver_scope: receiverIds,
                     promoted_from_unknown_id: this._pickedSourceRow!.id,
                 });
                 this.dispatchEvent(
@@ -405,7 +429,7 @@ export class IrAddTriggerRemoteDialog extends LitElement {
 
             createdRemote = await this.api.createTriggerRemote({
                 name,
-                receiver_scope: this._receiverIds,
+                receiver_scope: receiverIds,
                 origin: this._origin(),
             });
 
@@ -712,6 +736,7 @@ export class IrAddTriggerRemoteDialog extends LitElement {
                 <ir-receiver-picker
                     .api=${this.api}
                     .hass=${this.hass}
+                    .medium=${this._kind}
                     .value=${this._receiverIds}
                     ?disabled=${this._busy}
                     @receivers-changed=${(e: CustomEvent) =>

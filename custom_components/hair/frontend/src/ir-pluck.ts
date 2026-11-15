@@ -14,6 +14,8 @@ import { LitElement, html, css, type PropertyValues } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { popoverStyles } from "./ir-popover-styles.js";
+import { mediaFor, unknownKind } from "./media-kind.js";
+import type { Medium } from "./types.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import {
@@ -125,6 +127,8 @@ export class IrPluck extends LitElement {
         sourceUnknownId: string;
         suggestedName: string;
         previewCount: number;
+        /** The plucked remote's kind, for the receiver picker. */
+        medium: Medium;
     } | null = null;
     @state() private _linkedPopoverId: string | null = null;
     private _linkedPopoverPos = { top: 0, left: 0 };
@@ -635,6 +639,7 @@ export class IrPluck extends LitElement {
             sourceUnknownId: d.id,
             suggestedName: d.label ?? "",
             previewCount: d.signal_count,
+            medium: unknownKind(d.medium),
         };
         this._pinLinkCandidate = singleOppositeLink(
             d.linked_devices,
@@ -1353,6 +1358,7 @@ export class IrPluck extends LitElement {
                       .hass=${this.hass}
                       .suggestedName=${this._promoteTarget.label ?? ""}
                       .sourceUnknownId=${this._promoteTarget.id}
+                      .media=${mediaFor(unknownKind(this._promoteTarget.medium))}
                       @device-created=${this._onDevicePromoted}
                       @closed=${() => (this._promoteTarget = null)}
                   ></ir-promote-dialog>`
@@ -1372,6 +1378,8 @@ export class IrPluck extends LitElement {
             ${this._promoteRemoteTarget
                 ? html`<ir-promote-remote-dialog
                       .api=${this.api}
+                      .hass=${this.hass}
+                      .medium=${this._promoteRemoteTarget.medium}
                       .suggestedName=${this._promoteRemoteTarget.suggestedName}
                       .sourceUnknownId=${this._promoteRemoteTarget
                           .sourceUnknownId}

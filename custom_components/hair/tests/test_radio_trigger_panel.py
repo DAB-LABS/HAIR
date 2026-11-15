@@ -55,15 +55,21 @@ class TestThePickerTakesTheRemotesKinds:
         picker = "<ir-emitter-picker .hass=${this.hass} .api=${this.api} .media=${this.media}"
         assert picker in flat
 
-    def test_every_other_door_keeps_both_kinds(self):
-        # Only the Remote door sets media; a wig, a codebook or a
-        # Sniffer row leaves it null, which the picker reads as both.
+    def test_a_wig_or_codebook_door_keeps_both_kinds(self):
+        # A wig or a codebook leaves media null, which the picker reads
+        # as both. Since 2026-11-14 a Sniffer, Clipper or Plucker row
+        # passes its kind (test_picker_kinds.py).
         assert _src("ir-device-list.ts").count("<ir-promote-dialog") == 1
-        for name in ("ir-clips.ts", "ir-wigs.ts", "ir-signal-monitor.ts", "ir-pluck.ts"):
-            src = _src(name)
-            assert "<ir-promote-dialog" in src, name
-            for block in src.split("<ir-promote-dialog")[1:]:
-                assert ".media=" not in block.split("</ir-promote-dialog>", 1)[0], name
+        for name in ("ir-clips.ts", "ir-wigs.ts"):
+            blocks = [
+                b.split("</ir-promote-dialog>", 1)[0]
+                for b in _src(name).split("<ir-promote-dialog")[1:]
+            ]
+            wigs = [b for b in blocks if ".sourceUnknownId=" not in b]
+            assert wigs, name
+            for attrs in wigs:
+                assert ".wigFilename=" in attrs or ".codebookId=" in attrs, name
+                assert ".media=" not in attrs, name
 
 
 class TestTheWaitingButtonsAreNamed:

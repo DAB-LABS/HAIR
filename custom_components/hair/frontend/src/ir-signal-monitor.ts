@@ -8,6 +8,8 @@ import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
+import { mediaFor, unknownKind } from "./media-kind.js";
+import type { Medium } from "./types.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
 import { substitutedHz, testRefusal } from "./rf-errors.js";
@@ -269,6 +271,8 @@ export class IrSignalMonitor extends LitElement {
         sourceUnknownId: string;
         suggestedName: string;
         previewCount: number;
+        /** The Sniffer remote's kind, for the receiver picker. */
+        medium: Medium;
     } | null = null;
     @state() private _assignSignal: {
         deviceId: string;
@@ -751,6 +755,7 @@ export class IrSignalMonitor extends LitElement {
             sourceUnknownId: d.id,
             suggestedName: d.label ?? "",
             previewCount: d.signal_count,
+            medium: unknownKind(d.medium),
         };
         this._pinLinkCandidate = singleOppositeLink(
             d.linked_devices,
@@ -1635,6 +1640,7 @@ export class IrSignalMonitor extends LitElement {
                           .hass=${this.hass}
                           .suggestedName=${this._promoteTarget.label ?? ""}
                           .sourceUnknownId=${this._promoteTarget.id}
+                          .media=${mediaFor(unknownKind(this._promoteTarget.medium))}
                           @device-created=${this._onDevicePromoted}
                           @closed=${this._closePromote}
                       ></ir-promote-dialog>
@@ -1654,6 +1660,8 @@ export class IrSignalMonitor extends LitElement {
             ${this._promoteRemoteTarget
                 ? html`<ir-promote-remote-dialog
                       .api=${this.api}
+                      .hass=${this.hass}
+                      .medium=${this._promoteRemoteTarget.medium}
                       .suggestedName=${this._promoteRemoteTarget.suggestedName}
                       .sourceUnknownId=${this._promoteRemoteTarget
                           .sourceUnknownId}

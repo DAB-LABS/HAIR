@@ -350,6 +350,8 @@
     "mirror.clear_msg": "このエントリをMirrorから削除しますか？この信号が次に送信されると戻ります。",
     "common.delete_failed": "削除に失敗しました：{message}",
     "device_type.other_card": "IRデバイス",
+    "device_type.other_card_radio": "無線デバイス",
+    "device_type.other_card_both": "デバイス",
     "devlist.loading": "IRデバイスを読み込み中...",
     "devlist.empty_title": "IRデバイスがまだありません",
     "devlist.empty_sub": "最初のデバイスを追加して始めましょう。",

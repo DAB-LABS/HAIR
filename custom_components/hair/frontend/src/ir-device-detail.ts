@@ -36,6 +36,8 @@ import "./ir-save-route-dialog.js";
 import "./ir-save-new-dialog.js";
 import "./ir-save-update-dialog.js";
 import { getEmitterOptions } from "./ir-emitter-picker.js";
+import { emitterMedium } from "./emitter-options.js";
+import { listsInKind, rowsKind } from "./media-kind.js";
 import "./ir-header-chip-group.js";
 import type { HeaderChipRow } from "./ir-header-chip-group.js";
 import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
@@ -483,7 +485,15 @@ export class IrDeviceDetail extends LitElement {
     private _emitterRows(): HeaderChipRow[] {
         const receiverIds = new Set(this.receivers.map((r) => r.entity_id));
         const value = this.device.emitter_entity_ids ?? [];
-        return getEmitterOptions(this.hass, receiverIds).map((em) => ({
+        // A device of one kind lists that kind's emitters, plus any of
+        // the other kind it still has, so that one can be turned off
+        // (media-kind.ts).
+        const kind = rowsKind(this.device.commands, !!this.device.climate_matrix);
+        return getEmitterOptions(this.hass, receiverIds)
+            .filter((em) =>
+                listsInKind(em.entity_id, kind, emitterMedium, value.includes(em.entity_id)),
+            )
+            .map((em) => ({
             id: em.entity_id,
             name: em.name,
             title: em.fullName,

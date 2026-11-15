@@ -48,6 +48,9 @@ import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-receiver-picker.js";
 import type { HairApi } from "./api.js";
+import type { Medium } from "./types.js";
+import { keepKind } from "./media-kind.js";
+import { receiverIdMedium } from "./receiver-medium.js";
 
 @customElement("ir-promote-remote-dialog")
 export class IrPromoteRemoteDialog extends LitElement {
@@ -74,6 +77,9 @@ export class IrPromoteRemoteDialog extends LitElement {
     /** Display-only matrix note (see module doc -- seeding itself is
      *  already flat-signal-only server-side regardless). */
     @property({ type: Boolean }) public isMatrix = false;
+    /** The kind of the codes the Remote is made from (media-kind.ts):
+     *  the receiver picker lists that kind only; null lists both. */
+    @property({ attribute: false }) public medium: Medium | null = null;
 
     @state() private _name = "";
     @state() private _receiverIds: string[] = [];
@@ -115,7 +121,7 @@ export class IrPromoteRemoteDialog extends LitElement {
                 minted = await this.api.deviceMakeRemote(
                     this.sourceDeviceId,
                     name,
-                    this._receiverIds,
+                    keepKind(this._receiverIds, this.medium, receiverIdMedium),
                 );
             } else if (this.wigFilename || this.codebookId) {
                 minted = await this.api.wigMakeRemote(
@@ -123,12 +129,12 @@ export class IrPromoteRemoteDialog extends LitElement {
                         ? { filename: this.wigFilename }
                         : { codebookId: this.codebookId },
                     name,
-                    this._receiverIds,
+                    keepKind(this._receiverIds, this.medium, receiverIdMedium),
                 );
             } else {
                 minted = await this.api.createTriggerRemote({
                     name,
-                    receiver_scope: this._receiverIds,
+                    receiver_scope: keepKind(this._receiverIds, this.medium, receiverIdMedium),
                     promoted_from_unknown_id: this.sourceUnknownId || null,
                 });
             }
@@ -191,6 +197,7 @@ export class IrPromoteRemoteDialog extends LitElement {
                 <ir-receiver-picker
                     .api=${this.api}
                     .hass=${this.hass}
+                    .medium=${this.medium}
                     .value=${this._receiverIds}
                     ?disabled=${this._busy}
                     @receivers-changed=${(e: CustomEvent) =>

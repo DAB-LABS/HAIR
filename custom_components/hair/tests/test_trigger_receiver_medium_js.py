@@ -6,8 +6,9 @@ picker's chips looked the same and the owner's radio "Doorbell" trigger
 was saved with the infrared one. Every receiver chip now shows "IR" or
 "RF" beside its name, the trigger dialog lists only the trigger's medium
 (any receiver stays the default), and a stored receiver of the other
-medium is dropped when the dialog opens, so Save repairs it. Remotes keep
-every receiver, labeled.
+medium is dropped when the dialog opens, so Save repairs it. Remotes kept
+every receiver until 2026-11-14; they now offer their codes' kind too
+(test_picker_kinds.py).
 
 The rules run under node with the repo's TypeScript (skipped without the
 toolchain); the source pins run everywhere.
@@ -151,16 +152,17 @@ class TestTheDialog:
         ) in flat
 
     @pytest.mark.parametrize(
-        "name",
+        ("name", "medium"),
         [
-            "ir-add-trigger-remote-dialog.ts",
-            "ir-duplicate-trigger-remote-dialog.ts",
-            "ir-promote-remote-dialog.ts",
+            ("ir-add-trigger-remote-dialog.ts", ".medium=${this._kind}"),
+            ("ir-duplicate-trigger-remote-dialog.ts", ".medium=${soleKind(this.sourceMedia)}"),
+            ("ir-promote-remote-dialog.ts", ".medium=${this.medium}"),
         ],
     )
-    def test_remotes_keep_every_receiver(self, name):
+    def test_remotes_offer_their_own_kind(self, name, medium):
+        # Superseded on 2026-11-14: a Remote's receivers now follow the
+        # kind of the codes it is made from, and both kinds when that is
+        # open (media-kind.ts, test_picker_kinds.py).
         flat = _flat(name)
-        if "<ir-receiver-picker" not in flat:
-            pytest.skip(f"{name} has no receiver picker")
         picker = flat.split("<ir-receiver-picker", 1)[1].split("></ir-receiver-picker>", 1)[0]
-        assert ".medium=" not in picker
+        assert medium in picker

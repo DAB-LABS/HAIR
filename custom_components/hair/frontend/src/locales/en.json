@@ -350,6 +350,8 @@
     "mirror.clear_msg": "Remove this entry from the Mirror? It will come back the next time this signal is sent.",
     "common.delete_failed": "Delete failed: {message}",
     "device_type.other_card": "IR Device",
+    "device_type.other_card_radio": "Radio Device",
+    "device_type.other_card_both": "Device",
     "devlist.loading": "Loading IR devices...",
     "devlist.empty_title": "No IR devices yet",
     "devlist.empty_sub": "Add your first device to get started.",

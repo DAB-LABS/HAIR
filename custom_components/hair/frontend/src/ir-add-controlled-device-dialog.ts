@@ -132,12 +132,15 @@ import type { HairApi } from "./api.js";
 import type {
     DeviceTypeId,
     IRDevice,
+    Medium,
     PluckSource,
     SignalSourceId,
     TriggerRemoteInfo,
 } from "./types.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type { SourcePickRow } from "./ir-source-picker.js";
+import { keepKind, mediaFor, soleKind, unknownKind } from "./media-kind.js";
+import { emitterMedium } from "./emitter-options.js";
 
 const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
     { value: "media_player", label: "Media Player" },
@@ -279,6 +282,7 @@ export class IrAddControlledDeviceDialog extends LitElement {
                         name: d.label ?? d.protocol ?? t("common.raw"),
                         sub: tp("mirror.signals", d.signal_count),
                         count: d.signal_count,
+                        medium: unknownKind(d.medium),
                     }),
                 ),
             };
@@ -313,13 +317,35 @@ export class IrAddControlledDeviceDialog extends LitElement {
         }
     }
 
+    /** The kind the emitter picker offers (media-kind.ts): a Remote's
+     *  or a Sniffer, Clipper or Plucker row's own kind once one is
+     *  picked; both for a wig, a dropped file or a device made by hand. */
+    private get _kind(): Medium | null {
+        if (this._dropMode || !this._pickedSourceRow) return null;
+        if (this._activeTab === "remotes") {
+            const id = this._pickedSourceRow.id;
+            return soleKind(this.triggerRemotes.find((r) => r.id === id)?.media);
+        }
+        if (
+            this._activeTab === "sniffer" ||
+            this._activeTab === "clipper" ||
+            this._activeTab === "plucker"
+        ) {
+            return this._pickedSourceRow.medium ?? null;
+        }
+        return null;
+    }
+
     private async _create(): Promise<void> {
         const name = this._name.trim();
         if (!name) {
             this._error = t("common.name_required");
             return;
         }
-        if (this._emitterIds.length === 0) {
+        // An emitter of the other kind, picked before the source was,
+        // is hidden now and is not saved.
+        const emitterIds = keepKind(this._emitterIds, this._kind, emitterMedium);
+        if (emitterIds.length === 0) {
             this._error = t("adddev.emitter_required");
             return;
         }
@@ -355,7 +381,7 @@ export class IrAddControlledDeviceDialog extends LitElement {
                     source,
                     name,
                     this._deviceType,
-                    this._emitterIds,
+                    emitterIds,
                 );
             } else if (
                 this._activeTab === "sniffer" ||
@@ -370,7 +396,7 @@ export class IrAddControlledDeviceDialog extends LitElement {
                 created = await this.api.createDevice({
                     name,
                     device_type: this._deviceType,
-                    emitter_entity_ids: this._emitterIds,
+                    emitter_entity_ids: emitterIds,
                     promoted_from_unknown_id: this._pickedSourceRow!.id,
                 });
             } else if (this._activeTab === "remotes") {
@@ -382,13 +408,13 @@ export class IrAddControlledDeviceDialog extends LitElement {
                     this._pickedSourceRow!.id,
                     name,
                     this._deviceType,
-                    this._emitterIds,
+                    emitterIds,
                 );
             } else {
                 created = await this.api.createDevice({
                     name,
                     device_type: this._deviceType,
-                    emitter_entity_ids: this._emitterIds,
+                    emitter_entity_ids: emitterIds,
                 });
             }
             this.dispatchEvent(
@@ -722,6 +748,7 @@ export class IrAddControlledDeviceDialog extends LitElement {
                 <ir-emitter-picker
                     .hass=${this.hass}
                     .api=${this.api}
+                    .media=${mediaFor(this._kind)}
                     .value=${this._emitterIds}
                     ?disabled=${this._busy}
                     @emitters-changed=${(e: CustomEvent) =>
