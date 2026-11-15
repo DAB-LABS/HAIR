@@ -63,6 +63,7 @@ import { keyed } from "lit/directives/keyed.js";
 import type { HairApi } from "./api.js";
 import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import { EMBER_VAR, headerChipStyles } from "./ir-header-chip-styles.js";
+import { HAIR_GOLD, PICKED_GREEN } from "./hair-colors.js";
 import { exitToEntityButtonStyles, renderExitToEntityBtn } from "./ir-icons.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
@@ -93,10 +94,10 @@ import {
 } from "./ir-listen-state.js";
 import type { CaptureReceiverRow, RfReceiverItem, WindowMode } from "./types.js";
 
-/** Waiting: HAIR's gold (ORIGIN_COLORS.remote). */
-export const LISTEN_GOLD = "#f5a623";
-/** Hearing, or a window open. */
-export const LISTEN_GREEN = "#43a047";
+/** Waiting: HAIR's gold (hair-colors.ts). */
+export const LISTEN_GOLD = HAIR_GOLD;
+/** Hearing, or a window open: the picked green (hair-colors.ts). */
+export const LISTEN_GREEN = PICKED_GREEN;
 /** No switch yet: the card icons' own grey. */
 const WAITING_TONE = "var(--secondary-text-color)";
 

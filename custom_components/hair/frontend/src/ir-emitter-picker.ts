@@ -81,7 +81,7 @@ import { emitterGroups, getEmitterOptions, type EmitterInfo } from "./emitter-op
 import { bandNumber } from "./ir-listen-state.js";
 import type { Medium, RfFit } from "./types.js";
 import { healthChipClass, healthDotClass, healthPhrase } from "./entity-health.js";
-import { healthDotStyles } from "./ir-header-chip-styles.js";
+import { healthDotStyles, pickerChipStyles } from "./ir-header-chip-styles.js";
 
 export { emitterGroups, getEmitterOptions, type EmitterInfo };
 
@@ -284,7 +284,7 @@ export class IrEmitterPicker extends LitElement {
         // "{full name}, online, selected · {entity id}".
         return html`
             <button
-                class="em ${cls} ${blocked ? "nofit" : ""}"
+                class="pchip em ${cls} ${blocked ? "nofit" : ""}"
                 role="switch"
                 aria-checked=${on ? "true" : "false"}
                 aria-disabled=${blocked && !on ? "true" : "false"}
@@ -299,7 +299,7 @@ export class IrEmitterPicker extends LitElement {
         `;
     }
 
-    static styles = [css`
+    static styles = [pickerChipStyles, css`
         :host {
             display: block;
             /* The offline ring, one pixel wider than this picker's
@@ -323,47 +323,15 @@ export class IrEmitterPicker extends LitElement {
             gap: 7px;
             padding-top: 2px;
         }
-        .em {
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            padding: 4px 11px 4px 9px;
-            border: 1px solid var(--divider-color);
-            border-radius: 14px;
-            background: none;
-            font-family: inherit;
-            font-size: 12px;
-            color: var(--secondary-text-color);
-            cursor: pointer;
-            transition: border-color 140ms ease, background 140ms ease,
-                color 140ms ease;
-        }
-        .em:hover:not(:disabled) {
-            border-color: var(--secondary-text-color);
-        }
-        .em:disabled {
-            cursor: default;
-            opacity: 0.55;
-        }
+        /* The chip itself is the shared picker chip (pickerChipStyles):
+           one anatomy and one picked green with the receiver picker and
+           the header rows. The dot's health comes from healthDotStyles,
+           loaded last. */
         .em-name {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 200px;
-        }
-        .dot {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: #4d5359;
-            flex: none;
-        }
-        /* SELECTED. The pill takes the green; the dot is health and
-           comes from healthDotStyles, loaded after this block. */
-        .em.on {
-            border-color: rgba(79, 158, 90, 0.5);
-            background: rgba(79, 158, 90, 0.12);
-            color: var(--primary-text-color);
         }
         /* Both kinds shown: a quiet heading over each group. */
         .group + .group {

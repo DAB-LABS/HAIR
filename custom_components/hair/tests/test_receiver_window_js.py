@@ -654,8 +654,12 @@ class TestTheChipWiring:
 
     def test_gold_idle_green_hearing_or_open_ember_down(self):
         chip = " ".join(_src("ir-listen-chip.ts").split())
-        assert 'LISTEN_GOLD = "#f5a623"' in chip
-        assert 'LISTEN_GREEN = "#43a047"' in chip
+        # The values live in hair-colors.ts (chip and dot audit).
+        assert "LISTEN_GOLD = HAIR_GOLD;" in chip
+        assert "LISTEN_GREEN = PICKED_GREEN;" in chip
+        colors = _src("hair-colors.ts")
+        assert 'export const HAIR_GOLD = "#f5a623";' in colors
+        assert 'export const PICKED_GREEN = "#43a047";' in colors
         assert (
             'const tone = look === "offline" ? EMBER_VAR.cssText : look === "waiting" '
             '? WAITING_TONE : look === "idle" ? LISTEN_GOLD : LISTEN_GREEN;'
@@ -820,12 +824,15 @@ class TestTheCaptureGlyph:
         for case in ("offline_no_switch", "offline_with_switch"):
             assert run["glyph"][case] == {"glyph": "offline", "icon": "outline"}, case
 
-    def test_the_card_passes_no_capture_state(self):
+    def test_the_card_reads_the_sniffers_rows(self):
+        # Chip and dot audit, owner 2026-11-14 19:15 PT, answer 6: the
+        # capture state comes back, from the same rows the pills read.
         devlist = " ".join(_src("ir-device-list.ts").split())
         assert (
             "const glyph = cardGlyph( partsHealth( this.hass?.states, "
-            "part.map((r) => r.entity_id), ), null, );"
+            "part.map((r) => r.entity_id), ), capture, );"
         ) in devlist
+        assert "cardCaptureState( this.hass?.states, this._listenRows," in devlist
         assert "_captureGlyphState" not in devlist
 
 
@@ -899,9 +906,13 @@ class TestHealthUsesEmbersPieces:
 
     def test_the_receiver_menu_dots_are_health(self):
         editor = _src("ir-signal-editor.ts")
-        assert 'class="dot rx-dot ${healthDotClass(this._rxOnline(entityId))}"' in editor
+        assert 'class="dot rx-dot ${dotClass(this._rxOnline(entityId), bright)}"' in editor
         split = _block(editor, "private _renderListenSplit", "private _renderTangleStatus")
         assert split.count("this._rxDot(") == 2
+        # The closed line names the receiver in use: bright. The menu
+        # rows are dull (chip and dot audit, owner 2026-11-14, answer 3).
+        assert "this._rxDot(current.entityId, true)" in split
+        assert "this._rxDot(c.entityId)" in split
         assert "--tone" not in split
         assert "TONE_CAPTURE" not in editor and "TONE_ALWAYS" not in editor
         assert "        healthDotStyles,\n    ];" in editor

@@ -15,13 +15,14 @@
  * recorded this round").
  */
 import { css, unsafeCSS } from "lit";
+import { HAIR_GOLD, PICKED_GREEN } from "./hair-colors.js";
 
 export const ORIGIN_COLORS = {
     manual: "var(--primary-color)", // HA's own accent -- no new token
     device: "#2e7d32", // ir-add-controlled-device-dialog.ts's create-btn
                         // (originally ir-add-device-dialog.ts's; that file
                         // retired in Track 4)
-    remote: "#f5a623", // matches HAIR Triggers card/drawer gold (t2a)
+    remote: HAIR_GOLD, // matches HAIR Triggers card/drawer gold (t2a)
     closet: "#8e3b3b", // ir-wigs.ts's --wigs-accent, verbatim
 } as const;
 
@@ -57,7 +58,7 @@ export type RemoteKind = keyof typeof REMOTE_KIND_COLORS;
  * Emitters:/Receivers: groups on both detail-page headers, and the
  * Settings dialog's outlined Duplicate button (Track 1 item 6).
  */
-export const GREEN_PEAK = "#43a047";
+export const GREEN_PEAK = PICKED_GREEN;
 
 /**
  * CSS custom properties exposing every origin/kind color, for consumers

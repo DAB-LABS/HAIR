@@ -411,7 +411,9 @@ class TestTheDialog:
         assert 'class="iname"' in row and 'class="iid"' in row
         dot = text[text.index("private _renderSourceDot"):]
         dot = dot[: dot.index("\n    }\n")]
-        assert "healthDotClass(" in dot and "isEntityOnline(" in dot
+        # Dull in the list, bright on the closed field (chip and dot
+        # audit, owner 2026-11-14 19:15 PT).
+        assert "dotClass(isEntityOnline(this.hass?.states, entityId), bright)" in dot
         assert "healthDotStyles," in text
 
     def test_the_wattage_fields_hide_for_an_on_off_source(self):

@@ -505,3 +505,32 @@ export function bandNumber(hz: number): string {
 export function pickersActive(look: PillLook): boolean {
     return look === "idle" || look === "hearing" || look === "waiting";
 }
+
+// ---------------------------------------------------------------------------
+// The capture device's card icon (chip and dot audit, owner 2026-11-14
+// 19:15 PT, answer 6). Since the capture press moved to the Sniffer's
+// pills, the Devices card read its capture state from nothing and showed
+// plain online green. It reads the Sniffer's own rows again, by the same
+// rules the pill uses, so the card says grey with no switch, gold ready,
+// green listening, and ember offline (entity-health.ts cardGlyph).
+
+/** The capture state cardGlyph reads, for the capture devices among a
+ *  card's receivers; null when the card has none the Sniffer lists.
+ *  Several on one card: listening if any is, waiting only if every one
+ *  is, offline if any is. */
+export function cardCaptureState(
+    states: States | undefined,
+    rows: CaptureReceiverRow[],
+    receiverIds: readonly string[],
+): { online: boolean; listening: boolean; waiting: boolean } | null {
+    const wanted = new Set(receiverIds);
+    const mine = rows.filter(
+        (r) => wanted.has(r.receiver_entity_id) && !r.software_window && !r.always_on,
+    );
+    if (mine.length === 0) return null;
+    return {
+        online: mine.every((r) => listenOnline(states, r)),
+        listening: mine.some((r) => listenLive(states, r).on),
+        waiting: mine.every((r) => r.switch_entity_id === null),
+    };
+}
