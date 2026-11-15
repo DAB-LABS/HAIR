@@ -413,6 +413,12 @@ and facts only were taken:
 | Repeats | 4 | 10 to 20 |
 | Names | Proove | KlikAanKlikUit, KAKU, COCO |
 
+The label word "Nexa" is not sourced for this family: neither page names
+it. It stands while the family is off, as the name HAIR's research
+filed these codes under (old Nexa's page names Nexa for the older
+codes); the real capture that turns this family on settles the word from what
+the remote says on its case (ruling 2026-11-14).
+
 What follows (derived): HAIR's frame is the start pair, 64 wire bits (72
 with dim) and the stop mark, the stop's low as the gap. Every mark is
 one width, so HAIR drops the capture as noise today: this decoder reads
