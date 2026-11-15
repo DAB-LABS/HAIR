@@ -54,6 +54,14 @@ Receiver noise is kept out in three ways:
 - a frame with too few edges to be a remote's code is counted as noise;
 - an always-on receiver files new codes only inside a capture window.
 
+## Chip family labels
+
+HAIR names the chip family of many radio remotes in the protocol pill, the way it shows an infrared protocol: EV1527, PT2262, HT12E, HT6P20 and KeeLoq. "PT2262/1527" means the code fits both chips and one press cannot tell them apart. Hover the pill for the fields the chip sends, such as the address and the button.
+
+A KeeLoq label shows the remote's serial number and buttons only. KeeLoq codes change on every press, so each press still files a new row in the Sniffer.
+
+The label is for reading only. Matching, triggers and sends all use the code itself. If a label looks wrong for your remote, open an issue with a capture from the Candy Drawer.
+
 ## Sending radio codes
 
 A radio row sends the way an infrared one does: assign it to a device and press its button, test it from the Sniffer or the Clipper, or call it from an automation. HAIR sends through the transmitters on the `radio_frequency` platform.

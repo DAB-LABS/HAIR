@@ -1354,7 +1354,11 @@ export class IrSavePerfectDialog extends LitElement {
                     .bypassed=${row.bypass}
                 ></ir-tx-knobs>
                 <span class="pill-slot">
-                    ${row.protocol
+                    ${row.rf_family
+                        ? // A radio row's family, read-only (wig_save.py
+                          // sends null on every infrared row).
+                          html`<ir-protocol-chip .family=${row.rf_family}></ir-protocol-chip>`
+                        : row.protocol
                         ? html`<ir-protocol-chip
                               .protocol=${row.protocol}
                               ?bypass=${row.bypass}

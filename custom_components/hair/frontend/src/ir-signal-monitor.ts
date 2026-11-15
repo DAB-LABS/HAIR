@@ -1721,6 +1721,7 @@ export class IrSignalMonitor extends LitElement {
                           .initialAlias=${this._editSignal.signal.alias ?? ""}
                           .initialSendCount=${assignSendCount(this._editSignal.signal)}
                           .repeatsObserved=${this._editSignal.signal.rf_repeats_observed ?? null}
+                          .initialFamily=${this._editSignal.signal.rf_family ?? null}
                           @signal-edited=${this._onSignalEdited}
                           @delete-requested=${() => {
                               const { deviceId, signal } = this._editSignal!;
@@ -2109,18 +2110,23 @@ export class IrSignalMonitor extends LitElement {
                                     </ir-signal-alias>
                                 </div>
                                 <div class="chip-col">
-                                    <ir-protocol-chip
-                                        .protocol=${sig.decoded_protocol ?? null}
-                                        .bypass=${!!sig.tx_force_raw}
-                                        interactive
-                                        ?disabled=${device.dismissed}
-                                        @toggle-bypass=${(e: CustomEvent) =>
-                                            this._onToggleBypass(
-                                                device.id,
-                                                sig.id,
-                                                e.detail.bypass,
-                                            )}
-                                    ></ir-protocol-chip>
+                                    ${sig.medium === "rf"
+                                        ? // A radio row: its family, read-only, or nothing.
+                                          html`<ir-protocol-chip
+                                              .family=${sig.rf_family ?? null}
+                                          ></ir-protocol-chip>`
+                                        : html`<ir-protocol-chip
+                                              .protocol=${sig.decoded_protocol ?? null}
+                                              .bypass=${!!sig.tx_force_raw}
+                                              interactive
+                                              ?disabled=${device.dismissed}
+                                              @toggle-bypass=${(e: CustomEvent) =>
+                                                  this._onToggleBypass(
+                                                      device.id,
+                                                      sig.id,
+                                                      e.detail.bypass,
+                                                  )}
+                                          ></ir-protocol-chip>`}
                                 </div>
                                 <div class="hits-col ${isHitFlash ? "hit-flash" : ""}">
                                     ${sig.hit_count}

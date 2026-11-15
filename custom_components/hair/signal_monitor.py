@@ -2693,6 +2693,17 @@ class SignalMonitor:
             # and the Sniffer updates its band cell from here.
             summary["rf_frequency_hz"] = signal.rf_frequency_hz
             summary["rf_frequency_source"] = signal.rf_frequency_source
+            # The row's family label, on the public detected event (the
+            # panel's patch keeps the label it already holds). A label
+            # never costs a press its event: a decoder failure is logged
+            # at debug and the event goes out with no label.
+            from .rf_family import family_payload
+
+            try:
+                summary["rf_family"] = family_payload(signal.raw_timings)
+            except Exception:
+                _LOGGER.debug("Radio family label failed", exc_info=True)
+                summary["rf_family"] = None
         self._hass.bus.async_fire(EVENT_SIGNAL_DETECTED, summary)
 
         # Step 12: Notify subscribers.

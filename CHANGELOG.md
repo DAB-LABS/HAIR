@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Radio codes show their remote's chip family in the protocol pill: EV1527, PT2262, HT12E, HT6P20 and KeeLoq. KeeLoq shows the serial and buttons only, never the encrypted part. If a label looks wrong, open an issue with a capture.
 - The Candy Drawer now shows radio as well as infrared: presses, HAIR's own radio sends and their echoes, each with the band and the code as a `.sub` you can paste into the Clipper. Every received block says whether HAIR already knows the code (and what holds it) or whether it's new. New chips filter by IR or RF and by Known or Unknown. Radio static is counted on one line per receiver; turn on the Static chip to see it.
 
 ### Changed

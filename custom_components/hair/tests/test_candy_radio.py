@@ -179,7 +179,12 @@ class TestShapes:
         assert press["frequency_hz"] == HZ and press["frequency_source"] == "signal"
         assert press["modulation"] == "OOK"
         assert press["raw"] == capture
-        assert press["protocol"] is None
+        # The family label (a label only): the keyfob is an EV1527.
+        assert press["protocol"] == "EV1527"
+        assert press["family_fields"] == [
+            {"name": "address", "value": "950E4"},
+            {"name": "data", "value": press["family_fields"][1]["value"]},
+        ]
         assert all(press[key] is None for key in IR_ONLY)
 
     @pytest.mark.asyncio
@@ -813,6 +818,7 @@ class TestSend:
         assert tx["frame"] == list(row.raw_timings) and tx["gap_us"] == 12_881
         assert tx["raw"] == list(plan.timings)
         assert tx["fingerprint"] == keyfob.fingerprint
+        assert tx["protocol"] == "EV1527"  # the command's own code, labelled
         assert monitor._echo_expectations[-1]["candy_seq"] == 1
 
     @pytest.mark.asyncio

@@ -1478,10 +1478,10 @@ export class IrClips extends LitElement {
                 </div>
                 <div class="chip-col">
                     ${sig.medium === "rf"
-                        ? // No infrared chip on a radio row, and no glyph:
-                          // the Clipper carries none (round 1 ruling). The
-                          // band beside it says radio.
-                          ""
+                        ? // A radio row: its family, read-only, or nothing
+                          // (owner 2026-11-14, replacing round 1's no pill).
+                          // Still no glyph: the band beside it says radio.
+                          html`<ir-protocol-chip .family=${sig.rf_family ?? null}></ir-protocol-chip>`
                         : html`<ir-protocol-chip
                               .protocol=${sig.decoded_protocol ?? null}
                               .bypass=${!!sig.tx_force_raw}
@@ -1606,6 +1606,7 @@ export class IrClips extends LitElement {
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
                       .initialSendCount=${assignSendCount(this._editSignal.signal)}
                       .repeatsObserved=${this._editSignal.signal.rf_repeats_observed ?? null}
+                      .initialFamily=${this._editSignal.signal.rf_family ?? null}
                       .hasTrigger=${this._hasTrigger(this._editSignal.signal)}
                       @signal-edited=${this._onSignalEdited}
                       @delete-requested=${() => {

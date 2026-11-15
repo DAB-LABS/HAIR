@@ -32,6 +32,7 @@ from typing import Any
 from .const import MEDIUM_IR, MEDIUM_RF
 from .decoders import split_frames
 from .protocol_decode import format_fingerprint
+from .rf_family import family_slots
 
 # A silence this long or longer ends a frame, for the "N frames" count.
 # The decoders each declare their own frame gap, 4 to 8 ms; this count is
@@ -286,6 +287,7 @@ def _rf_rx_base(
         **verdict.fields(),
         **_IR_ONLY_NULLS,
         "protocol": None,
+        "family_fields": None,
         "echo": None,
         "echo_of": None,
         "echo_via": None,
@@ -336,6 +338,8 @@ def rf_press_event(
         "body_edges": rf.body_edges,
         "frame": _ints(rf.frame),
         "raw": _ints(raw if raw is not None else rf.frame),
+        # The family label: a label only, never part of the identity.
+        **family_slots(rf.frame),
     })
     return event
 
@@ -376,6 +380,7 @@ def rf_frame_event(
         "body_edges": body_edges,
         "frame": _ints(frame),
         "raw": _ints(raw),
+        **family_slots(frame),
     })
     return event
 
@@ -466,7 +471,7 @@ def rf_tx_event(
         "command_name": command_name,
         "sends": max(1, int(sends or 1)),
         "origin": origin,
-        "protocol": None,
+        **family_slots(frame),
         "frequency_hz": frequency_hz,
         "on_air_hz": on_air_hz,
         "substituted": bool(substituted),

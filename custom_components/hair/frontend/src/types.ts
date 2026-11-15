@@ -6,6 +6,9 @@
  * by websocket_api.py.
  */
 
+export type { RfFamily, RfFamilyField } from "./rf-family-label.js";
+import type { RfFamily } from "./rf-family-label.js";
+
 export type DeviceTypeId =
     | "media_player"
     | "ac"
@@ -88,6 +91,10 @@ export interface IRCommand {
     rf_frame_gap_source?: string | null;
     /** How many agreeing frames the press it came from carried. */
     rf_repeats_observed?: number | null;
+    /** Radio rows only (decoder round 2): the family the server read from
+     *  the frame, or null when no shown family fits (rf-family-label.ts).
+     *  Infrared rows carry no key. */
+    rf_family?: RfFamily | null;
     frequency: number;
     repeat_count: number;
     // Whole-frame send count (v0.4.x): transmit the built signal this many
@@ -515,6 +522,9 @@ export interface SavePlanRow {
     bypass: boolean;
     protocol: string | null;
     wig_index: number | null;
+    /** A radio command row's family, or null; null on every infrared
+     *  row (wig_save.py). */
+    rf_family?: RfFamily | null;
     /** Set when this row matched a source wig row (UPDATE or
      * SUCCESSION): what the WIG calls it. */
     wig_alias: string | null;
@@ -1239,6 +1249,10 @@ export interface UnknownSignal {
     /** Where the frequency came from: signal, receiver, window, user or
      *  assumed (RF send round, the editor's source line). */
     rf_frequency_source?: string | null;
+    /** Radio rows only (decoder round 2): the family the server read from
+     *  the frame, or null when no shown family fits (rf-family-label.ts).
+     *  Infrared rows carry no key. */
+    rf_family?: RfFamily | null;
     rf_frame_gap_us?: number | null;
     rf_frame_gap_source?: string | null;
     /** How many agreeing frames one press carried (RF hear round 1);
@@ -1569,6 +1583,10 @@ export interface UnknownSignalEvent {
     medium?: Medium;
     rf_frequency_hz?: number | null;
     rf_frequency_source?: string | null;
+    /** Radio rows only (decoder round 2): the family the server read from
+     *  the frame, or null when no shown family fits (rf-family-label.ts).
+     *  Infrared rows carry no key. */
+    rf_family?: RfFamily | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1622,6 +1640,10 @@ export interface IRTrigger {
     /** "rf" on a radio trigger; absent on infrared (RF hear round 1). */
     medium?: Medium;
     protocol: string | null;
+    /** Radio rows only (decoder round 2): the family the server read from
+     *  the frame, or null when no shown family fits (rf-family-label.ts).
+     *  Infrared rows carry no key. */
+    rf_family?: RfFamily | null;
     code: string | null;
     min_hits: number;
     enabled: boolean;
