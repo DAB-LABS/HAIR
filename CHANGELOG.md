@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-15 -- HARFing
+
 ### Added
 
 - Radio codes show their remote's chip family in the protocol pill: EV1527, PT2262, HT12E, HT6P20 and KeeLoq. KeeLoq shows the serial and buttons only, never the encrypted part. If a label looks wrong, open an issue with a capture.
