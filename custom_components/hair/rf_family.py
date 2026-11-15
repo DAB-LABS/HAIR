@@ -246,6 +246,11 @@ read by the 1:3 shape and is always a two-name label beside PT2262.
 It is told apart only by its symbols: none is 1, and b8 to b10 are
 0 F F. Held off until one real capture (ruling 2026-11-14).
 
+Its house, unit and state stay in the decoder: PT2262 always fits beside
+it, so the label carries the shape's shared tri-state and code, never
+these fields (ruling 2026-11-15). Revisit the label rule when this
+family is turned on, or those fields never reach the tooltip.
+
 SPEC TABLE: CAME 12 and 24 (held off)
 =====================================
 
