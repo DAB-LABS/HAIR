@@ -5,9 +5,8 @@ to 275 us; a wire bit is 1 T high then 1 T or 5 T low; a logical 0 is
 wire short then long, a 1 long then short; the start is T high and 10 T
 low, the stop T high and about 40 T low; 26-bit id, group, on/off, a
 4-bit unit; the dim variant puts two short wire bits in the on/off slot
-and adds 4 dim bits. Every mark is one width, so HAIR drops such a
-capture today: these frames reach the decoder only directly, until the
-receive-path change.
+and adds 4 dim bits. Every mark is one width; HAIR's receive path hears
+such a frame as a pulse-distance body (rf_frames, ruling 2026-11-15).
 """
 from __future__ import annotations
 
@@ -159,11 +158,19 @@ class TestMeasuredReceivers:
         assert _fields(family_of(_frame(spread=0.15, seed=seed)))["id"] == "0E1C502"
 
 
-class TestHairDropsItToday:
-    def test_a_whole_press_gives_no_frame_today(self, shown):
-        """One mark width: HAIR's receive path drops it as noise. The
-        receive-path change (its own branch) changes this test."""
-        assert rf_frames.analyze(_frame() * 4) is None
+class TestHairHearsIt:
+    def test_a_whole_press_votes_a_frame_the_decoder_reads(self, shown):
+        """One mark width, heard as a pulse-distance body: a whole press
+        votes, and the voted frame is read as self-learning Nexa."""
+        capture = rf_frames.analyze(_frame() * 4)
+        assert capture is not None
+        assert _fields(family_of(capture.frame))["id"] == "0E1C502"
+
+    def test_held_off_it_shows_no_label(self):
+        rf_family._family_of.cache_clear()
+        capture = rf_frames.analyze(_frame() * 4)
+        assert capture is not None
+        assert family_of(capture.frame) is None
 
 
 class TestRefusals:
