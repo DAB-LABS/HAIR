@@ -278,6 +278,8 @@ travel with a wig.
 
 **Frame.** One repeat of a radio code. A press sends several, and HAIR files a code once two frames agree.
 
+**Family.** The chip a radio remote is built on, such as EV1527 or PT2262. When HAIR recognizes it, a radio row's protocol pill names it and its tooltip shows the code's fields. A radio code HAIR does not recognize shows no pill.
+
 **Rolling code.** A remote that sends a different code on every press, as most car keys and modern garage doors do. HAIR hears each press but cannot recognize the button.
 
 **Capture window.** The time a receiver takes new codes. A capture device hears only inside one. An always-on radio receiver hears known codes all the time and takes new codes only inside one. Opened from the receiver's pill on the Sniffer, or by a Listen in the editor.
