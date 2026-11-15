@@ -11,6 +11,8 @@
 import { LitElement, html, css, type PropertyValues } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
+import { unknownKind } from "./media-kind.js";
+import type { Medium } from "./types.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
 import {
@@ -184,6 +186,9 @@ export class IrClips extends LitElement {
         suggestedName: string;
         previewCount: number;
         isMatrix: boolean;
+        /** A Clipper remote's kind; null for a wig, whose codes the
+         *  panel has not read, so both kinds are offered. */
+        medium: Medium | null;
     } | null = null;
     @state() private _linkedPopoverId: string | null = null;
     private _linkedPopoverPos = { top: 0, left: 0 };
@@ -671,6 +676,7 @@ export class IrClips extends LitElement {
                 suggestedName: f.target.label ?? "",
                 previewCount: f.target.signal_count,
                 isMatrix: false,
+                medium: unknownKind(f.target.medium),
             };
             this._pinLinkCandidate = singleOppositeLink(
                 f.target.linked_devices,
@@ -682,6 +688,7 @@ export class IrClips extends LitElement {
                 suggestedName: f.suggestedName,
                 previewCount: f.signalCount,
                 isMatrix: f.isMatrix,
+                medium: null,
             };
         }
     }
@@ -1691,6 +1698,7 @@ export class IrClips extends LitElement {
                       ""}
                       .previewCount=${this._promoteRemoteTarget.previewCount}
                       .isMatrix=${this._promoteRemoteTarget.isMatrix}
+                      .medium=${this._promoteRemoteTarget.medium}
                       @remote-created=${this._onRemotePromoted}
                       @closed=${() => (this._promoteRemoteTarget = null)}
                   ></ir-promote-remote-dialog>`

@@ -40,6 +40,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { REMOTE_KIND_COLORS, type RemoteKind } from "./ir-origin-colors.js";
+import type { Medium } from "./types.js";
 
 /** REMOTE_KIND_COLORS, restated as a 0.12-alpha wash for the selected-
  *  row background -- same alpha ir-wig-picker.ts's own `.row.selected`
@@ -65,6 +66,10 @@ export interface SourcePickRow {
      *  gate fix). Optional so existing callers that never set it keep
      *  compiling; both Add dialogs set it. */
     count?: number;
+    /** The row's kind of hardware, for the dialog's receiver or
+     *  emitter picker (owner, 2026-11-14). Only the Sniffer, Clipper
+     *  and Plucker rows set it; this component never reads it. */
+    medium?: Medium;
 }
 
 @customElement("ir-source-picker")

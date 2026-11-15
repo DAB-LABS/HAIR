@@ -16,11 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The add tiles on the Devices page have a plus button and a folder button. The folder opens a file to import, the same as dropping it on the tile.
 - A command that a device has no emitter for now says which code, which kind and which device, for example "Power is a radio code and Bench Plug has no radio transmitter. Add one in the device's settings." When the device's radio transmitters cannot send the code's band, it says so with the band.
 - Under a radio code's send count, the Assign dialog and the radio code editor say what the count starts at: as many times as the remote sent it when captured, or a usual count when that was not measured.
+- The receiver and emitter pickers offer only the kind of hardware the work uses: radio for radio, infrared for infrared, and both when it holds both kinds or its kind is not known, such as a wig.
 
 ### Fixed
 
 - Making a device from a radio Remote now gives commands that send. Remotes and devices made on 1.2.0 are repaired on startup; a button that can't be repaired waits for one press.
 - A Remote made from the Sniffer, the Clipper, the Plucker or the Closet now shows on the Devices page without a reload.
+- Make a Remote from the Sniffer, the Plucker and the Closet shows whether each receiver is online. Its chips were gray.
 - A radio row in the Sniffer that a later press moves to a better carrier, such as a user-set 315 MHz back to a measured 433.92 MHz, now shows the new band at once instead of after a reload.
 
 ## [1.2.0] - 2026-11-11 -- Blow Dry

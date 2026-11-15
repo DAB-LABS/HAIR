@@ -1538,6 +1538,7 @@ export class IrWigs extends LitElement {
             ${this._promoteRemoteTarget
                 ? html`<ir-promote-remote-dialog
                       .api=${this.api}
+                      .hass=${this.hass}
                       .suggestedName=${this._promoteRemoteTarget
                           .suggestedName}
                       .wigFilename=${this._promoteRemoteTarget.wigFilename ??

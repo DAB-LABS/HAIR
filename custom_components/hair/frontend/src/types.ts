@@ -966,6 +966,9 @@ export interface IRDevice {
     id: string;
     name: string;
     device_type: DeviceTypeId;
+    /** The stored flag: the device's codes live in a climate matrix.
+     *  `matrix` below is its summary, null when the file can't be read. */
+    climate_matrix?: boolean;
     manufacturer: string | null;
     model: string | null;
     emitter_entity_ids: string[];

@@ -52,6 +52,8 @@ import { landedManyNotice, pinFillNotice } from "./api.js";
 import type { PinResult } from "./api.js";
 import { BROADSNIFF_URL } from "./types.js";
 import type { CaptureReceiverRow, HardwareFacts, Medium } from "./types.js";
+import { listsInKind, rowsKind, soleKind } from "./media-kind.js";
+import { receiverIdMedium } from "./receiver-medium.js";
 import { PROTO_SIGNAL, PROTO_SOURCE, protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
 import { captureSignature } from "./ir-listen-state.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
@@ -1451,7 +1453,20 @@ export class IrDeviceList extends LitElement {
      *  drops off shows its ember ring, and the alarm when the remote
      *  listens through it, and turns green again without a reload. */
     private _receiverRows(remote: TriggerRemoteInfo): HeaderChipRow[] {
-        return this._receivers.map((r) => ({
+        // A Remote of one kind lists that kind's receivers, plus any
+        // receiver of the other kind it is still scoped to, so that one
+        // can be turned off (media-kind.ts).
+        const kind = soleKind(remote.media);
+        return this._receivers
+            .filter((r) =>
+                listsInKind(
+                    r.entity_id,
+                    kind,
+                    receiverIdMedium,
+                    remote.receiver_scope.includes(r.entity_id),
+                ),
+            )
+            .map((r) => ({
             id: r.entity_id,
             name: r.name,
             on: remote.receiver_scope.includes(r.entity_id),
@@ -2989,6 +3004,7 @@ export class IrDeviceList extends LitElement {
                           .sourceId=${this._duplicateRemoteTarget.id}
                           .sourceName=${this._duplicateRemoteTarget.name}
                           .sourceReceiverScope=${this._duplicateRemoteTarget.receiver_scope}
+                          .sourceMedia=${this._duplicateRemoteTarget.media ?? null}
                           @remote-duplicated=${this._onRemoteDuplicated}
                           @closed=${this._closeDuplicateRemoteDialog}
                       ></ir-duplicate-trigger-remote-dialog>
@@ -3059,6 +3075,10 @@ export class IrDeviceList extends LitElement {
                           .hass=${this.hass}
                           .sourceDeviceId=${this._makeRemoteSource.id}
                           .suggestedName=${this._makeRemoteSource.name}
+                          .medium=${rowsKind(
+                              this._makeRemoteSource.commands,
+                              !!this._makeRemoteSource.climate_matrix,
+                          )}
                           .previewCount=${this._eligibleCommandCount(
                               this._makeRemoteSource,
                           )}
