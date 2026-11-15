@@ -399,7 +399,13 @@ export class HaPanelIrDevices extends LitElement {
         this._expandedDeviceId = null;
         this._activeTab = tab;
         if (tab === "devices") {
+            // The Remotes list lives on this tab too. A Remote made from
+            // the Sniffer, Clipper, Plucker or Closet fires its
+            // remote-created there, where nothing at this level
+            // listens, so coming back reloads both lists (owner,
+            // 2026-11-14: a new Remote was missing until a reload).
             void this._refreshDevices();
+            void this._refreshTriggerRemotes();
         }
     }
 
