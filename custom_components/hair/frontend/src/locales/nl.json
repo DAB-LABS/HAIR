@@ -350,6 +350,8 @@
     "mirror.clear_msg": "Deze regel uit de Mirror verwijderen? Hij komt terug zodra dit signaal opnieuw wordt verzonden.",
     "common.delete_failed": "Verwijderen mislukt: {message}",
     "device_type.other_card": "IR-apparaat",
+    "device_type.other_card_radio": "RF-apparaat",
+    "device_type.other_card_both": "Apparaat",
     "devlist.loading": "IR-apparaten laden...",
     "devlist.empty_title": "Nog geen IR-apparaten",
     "devlist.empty_sub": "Voeg je eerste apparaat toe om te beginnen.",

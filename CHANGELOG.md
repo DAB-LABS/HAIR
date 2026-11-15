@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A device of type Other is labeled Radio Device on its card when its codes are radio, IR Device when they are infrared, and Device when it has both or none yet. It said IR Device for all of them.
 - Making a device from a radio Remote now gives commands that send. Remotes and devices made on 1.2.0 are repaired on startup; a button that can't be repaired waits for one press.
 - A Remote made from the Sniffer, the Clipper, the Plucker or the Closet now shows on the Devices page without a reload.
 - Make a Remote from the Sniffer, the Plucker and the Closet shows whether each receiver is online. Its chips were gray.

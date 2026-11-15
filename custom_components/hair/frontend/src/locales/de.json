@@ -350,6 +350,8 @@
     "mirror.clear_msg": "Diesen Eintrag aus dem Mirror entfernen? Er kommt zurück, wenn dieses Signal das nächste Mal gesendet wird.",
     "common.delete_failed": "Löschen fehlgeschlagen: {message}",
     "device_type.other_card": "IR-Gerät",
+    "device_type.other_card_radio": "RF-Gerät",
+    "device_type.other_card_both": "Gerät",
     "devlist.loading": "IR-Geräte werden geladen...",
     "devlist.empty_title": "Noch keine IR-Geräte",
     "devlist.empty_sub": "Füge dein erstes Gerät hinzu, um loszulegen.",

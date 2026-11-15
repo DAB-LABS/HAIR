@@ -382,6 +382,8 @@
     "mirror.clear_msg": "Usunąć ten wpis z Mirror? Wróci przy następnej wysyłce tego sygnału.",
     "common.delete_failed": "Usuwanie nie powiodło się: {message}",
     "device_type.other_card": "Urządzenie IR",
+    "device_type.other_card_radio": "Urządzenie radiowe",
+    "device_type.other_card_both": "Urządzenie",
     "devlist.loading": "Ładowanie urządzeń IR...",
     "devlist.empty_title": "Brak urządzeń IR",
     "devlist.empty_sub": "Dodaj pierwsze urządzenie, aby zacząć.",

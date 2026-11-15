@@ -350,6 +350,8 @@
     "mirror.clear_msg": "Retirer cette entrée du Mirror ? Elle reviendra au prochain envoi de ce signal.",
     "common.delete_failed": "Échec de la suppression : {message}",
     "device_type.other_card": "Appareil IR",
+    "device_type.other_card_radio": "Appareil radio",
+    "device_type.other_card_both": "Appareil",
     "devlist.loading": "Chargement des appareils IR...",
     "devlist.empty_title": "Aucun appareil IR pour l'instant",
     "devlist.empty_sub": "Ajoutez votre premier appareil pour commencer.",
