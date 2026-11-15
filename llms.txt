@@ -27,11 +27,16 @@ Key components:
   by the Sniffer, the Clipper, and device commands); a bound trigger re-points
   automatically when an edit changes the S/L fingerprint, and a carrier reading off
   the consumer standards can be snapped to the nearest one (30, 33, 36, 38, 40, or
-  56 kHz). The Sniffer listens to IR receivers only: RF receivers that combined
-  RF/IR hardware exposes on the infrared platform are excluded (RF support is
-  roadmapped as an explicit opt-in), and the sniffed catalog is capped (200
-  signals per remote, 20,000 total, oldest evicted first) so a noisy receiver
-  cannot grow the store without bound.
+  56 kHz). The Sniffer hears infrared receivers and, on Home Assistant 2026.11
+  and later, radio receivers on the radio_frequency platform: a Broadlink RM pro
+  or RM4 pro through BroadSniff today, and ESPHome radio receivers from Home
+  Assistant 2026.12. A radio row carries its band, and its protocol pill names
+  the remote's chip family (EV1527, PT2262, HT12E, HT6P20 or KeeLoq) when HAIR
+  recognizes it; an unrecognized radio code shows no pill. Radio codes send
+  through any radio_frequency transmitter, such as a Broadlink RM pro or RM4 pro
+  or an ESPHome radio transmitter. The sniffed catalog is capped (200 signals per
+  remote, 20,000 total, oldest evicted first) so a noisy receiver cannot grow the
+  store without bound.
 - Clipper: a manual-entry surface (a third panel tab) for building virtual remotes by
   pasting codes, for cases where a live signal cannot be sniffed. Since 0.17.5
   the paste box also takes a Tuya base64 code (Zigbee2MQTT ir_code_to_send) or
