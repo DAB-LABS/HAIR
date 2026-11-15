@@ -16,7 +16,16 @@
  * hairHealthTokens declares the colours on the panel host.
  */
 import { css, unsafeCSS } from "lit";
-import { EMBER, EMBER_RGB, ONLINE_GREEN } from "./entity-health.js";
+import {
+    DEEP_GREEN,
+    DULL_GRAY,
+    EMBER,
+    EMBER_RGB,
+    HAIR_GOLD,
+    ONLINE_GREEN,
+    PICKED_GREEN,
+    REST_GREY,
+} from "./hair-colors.js";
 
 /* Chip health (ember, 2026-10-19): the colours, read from the panel
    host's custom properties. The literal values live once, in
@@ -24,17 +33,35 @@ import { EMBER, EMBER_RGB, ONLINE_GREEN } from "./entity-health.js";
    mounted outside the panel. */
 export const EMBER_VAR = css`var(--hair-ember, ${unsafeCSS(EMBER)})`;
 export const ONLINE_VAR = css`var(--hair-online, ${unsafeCSS(ONLINE_GREEN)})`;
+/* The same two colors dulled toward gray, for a dot whose chip is not
+   picked (owner, 2026-11-14). */
+export const DULL_VAR = css`var(--hair-dull-gray, ${unsafeCSS(DULL_GRAY)})`;
+export const ONLINE_DULL = css`color-mix(in srgb, ${ONLINE_VAR} 45%, ${DULL_VAR})`;
+export const EMBER_DULL = css`color-mix(in srgb, ${EMBER_VAR} 50%, ${DULL_VAR})`;
+/* The rest of the palette (hair-colors.ts, chip and dot audit), with the
+   same fallback rule. */
+export const PICKED_VAR = css`var(--hair-picked, ${unsafeCSS(PICKED_GREEN)})`;
+export const GREY_VAR = css`var(--hair-grey, ${unsafeCSS(REST_GREY)})`;
+export const GOLD_VAR = css`var(--hair-gold, ${unsafeCSS(HAIR_GOLD)})`;
+export const DEEP_GREEN_VAR = css`var(--hair-deep-green, ${unsafeCSS(DEEP_GREEN)})`;
 
-/** The health colours as custom properties. The panel host
- *  (ha-panel-ir-devices.ts) declares them, so every surface under it
- *  reads one definition. */
-export const hairHealthTokens = css`
+/** HAIR's colours as custom properties (hair-colors.ts). The panel
+ *  host (ha-panel-ir-devices.ts) declares them, so every surface under
+ *  it reads one definition. */
+export const hairTokens = css`
     :host {
         --hair-ember: ${unsafeCSS(EMBER)};
         --hair-ember-rgb: ${unsafeCSS(EMBER_RGB)};
         --hair-online: ${unsafeCSS(ONLINE_GREEN)};
+        --hair-dull-gray: ${unsafeCSS(DULL_GRAY)};
+        --hair-grey: ${unsafeCSS(REST_GREY)};
+        --hair-picked: ${unsafeCSS(PICKED_GREEN)};
+        --hair-deep-green: ${unsafeCSS(DEEP_GREEN)};
+        --hair-gold: ${unsafeCSS(HAIR_GOLD)};
     }
 `;
+/** The name the health round gave it. */
+export const hairHealthTokens = hairTokens;
 
 /** Selection on the pill, health on the dot (ember, 2026-10-19).
  *
@@ -47,10 +74,16 @@ export const hairHealthTokens = css`
  *  to a dot that carries `online` or `offline`, so a filter chip's dot
  *  (Mirror, Closet) is never touched.
  *
- *    not selected, online   grey pill, solid green dot
- *    not selected, offline  grey pill, hollow ember ring
- *    selected, online       tone pill, green dot, glow
- *    selected, offline      ember edge and wash, ember ring, no glow
+ *    not selected, online   grey pill, solid dull green dot
+ *    not selected, offline  grey pill, hollow dull ember ring
+ *    selected, online       tone pill, bright green dot, glow
+ *    selected, offline      ember edge and wash, bright ember ring, no glow
+ *
+ *  Bright means picked (owner, 2026-11-14): an unpicked chip's dot is
+ *  its health color dulled toward gray, so "connected" never reads as
+ *  "on". Rows with nothing to pick (a search list, a source row) take
+ *  the dull dot too. Hollow keeps meaning offline everywhere, so the
+ *  two states differ in shape as well as color.
  *
  *  The ring is a shape change as well as a colour change, so it reads
  *  for red-green colour blindness. It is one pixel wider than the
@@ -61,7 +94,7 @@ export const hairHealthTokens = css`
  *  rules tie on specificity with them and win on order. */
 export const healthDotStyles = css`
     .dot.online {
-        background: ${ONLINE_VAR};
+        background: ${ONLINE_DULL};
         box-shadow: none;
     }
     .dot.offline {
@@ -69,7 +102,7 @@ export const healthDotStyles = css`
         width: var(--hair-ring, 7px);
         height: var(--hair-ring, 7px);
         background: transparent;
-        border: 1.6px solid ${EMBER_VAR};
+        border: 1.6px solid ${EMBER_DULL};
         box-shadow: none;
     }
     .on .dot.online {
@@ -78,12 +111,73 @@ export const healthDotStyles = css`
     }
     .on .dot.offline {
         background: transparent;
+        border-color: ${EMBER_VAR};
         box-shadow: none;
     }
     /* The one alarm: selected and offline. */
     .on.down {
         border-color: color-mix(in srgb, ${EMBER_VAR} 60%, transparent);
         background: color-mix(in srgb, ${EMBER_VAR} 9%, transparent);
+    }
+    /* A dot outside a chip that names the one in use (hair-colors.ts
+       dotClass): full colour, no glow, since no pill carries it. */
+    .dot.bright.online {
+        background: ${ONLINE_VAR};
+    }
+    .dot.bright.offline {
+        border-color: ${EMBER_VAR};
+    }
+`;
+
+/** The picker chip (chip and dot audit, owner 2026-11-14 19:15 PT): one
+ *  anatomy for the emitter and receiver pickers, which each carried
+ *  their own copy. A picked chip is filled in the panel's one picked
+ *  green, the header rows' green, so a chip picked in a dialog and one
+ *  picked on a header look the same. Load healthDotStyles after it.
+ *
+ *    .pchip            the pill
+ *    .pchip.on         picked: green edge and wash
+ *    .pchip .dot       the dot's size; health colours come from
+ *                      healthDotStyles, rest grey from here
+ */
+export const pickerChipStyles = css`
+    .pchip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px 11px 4px 9px;
+        border: 1px solid var(--divider-color);
+        border-radius: 14px;
+        background: none;
+        font-family: inherit;
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        cursor: pointer;
+        transition: border-color 140ms ease, background 140ms ease,
+            color 140ms ease;
+    }
+    .pchip:hover:not(:disabled) {
+        border-color: var(--secondary-text-color);
+    }
+    .pchip:disabled {
+        cursor: default;
+        opacity: 0.55;
+    }
+    .pchip:focus-visible {
+        outline: 2px solid #4dabf7;
+        outline-offset: 2px;
+    }
+    .pchip .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: ${GREY_VAR};
+        flex: none;
+    }
+    .pchip.on {
+        border-color: ${PICKED_VAR};
+        background: color-mix(in srgb, ${PICKED_VAR} 14%, transparent);
+        color: var(--primary-text-color);
     }
 `;
 
@@ -165,7 +259,7 @@ export const headerChipStyles = css`
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background: #4d5359;
+        background: ${GREY_VAR};
         flex: none;
     }
     .chip.on {

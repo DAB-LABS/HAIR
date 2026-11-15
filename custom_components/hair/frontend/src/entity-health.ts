@@ -33,6 +33,10 @@
 export const EMBER = "#e65100";
 export const EMBER_RGB = "230, 81, 0";
 export const ONLINE_GREEN = "#6cbf78";
+/** The gray a dot is dulled toward when its chip is not picked (owner,
+ *  2026-11-14): health still shows, but only a picked chip's dot is
+ *  bright. */
+export const DULL_GRAY = "#7a7f85";
 
 type States = Record<string, { state?: string } | undefined> | undefined;
 

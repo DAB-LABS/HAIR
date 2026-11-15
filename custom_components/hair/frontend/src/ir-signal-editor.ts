@@ -13,7 +13,8 @@
  */
 import { LitElement, html, css, nothing, svg, type PropertyValues } from "lit";
 import { keyed } from "lit/directives/keyed.js";
-import { healthDotClass, isEntityOnline } from "./entity-health.js";
+import { isEntityOnline } from "./entity-health.js";
+import { dotClass } from "./hair-colors.js";
 import { healthDotStyles } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
@@ -555,9 +556,11 @@ export class IrSignalEditor extends LitElement {
     }
 
     /** The shared health dot: green while HA reaches the receiver, the
-     *  ember ring while it does not (ember, 2026-10-19). */
-    private _rxDot(entityId: string) {
-        return html`<span class="dot rx-dot ${healthDotClass(this._rxOnline(entityId))}"></span>`;
+     *  ember ring while it does not (ember, 2026-10-19). Bright on the
+     *  closed line, which names the receiver in use; dull in the menu,
+     *  where nothing is picked yet (owner, 2026-11-14 19:15 PT). */
+    private _rxDot(entityId: string, bright = false) {
+        return html`<span class="dot rx-dot ${dotClass(this._rxOnline(entityId), bright)}"></span>`;
     }
 
     private _pickReceiver(entityId: string): void {
@@ -1552,7 +1555,7 @@ export class IrSignalEditor extends LitElement {
                     ?disabled=${this._busy || this._anyListening}
                     @click=${() => (this._rxMenu = !this._rxMenu)}
                 >
-                    ${this._rxDot(current.entityId)}
+                    ${this._rxDot(current.entityId, true)}
                     <span class="rx-name">${t("editor.listen_on", { name: current.name })}</span>
                     <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">${CARET}</svg>
                 </button>

@@ -411,7 +411,8 @@ class TestTheDialogWiring:
         # The chosen source as a row shows it, or None.
         assert 't("devsettings.sensor_none")' in field
         assert 'class="iname"' in field and 'class="iid"' in field
-        assert "this._renderSourceDot(id)" in field
+        # The chosen source is the one in use: a bright dot.
+        assert "this._renderSourceDot(id, true)" in field
 
     def test_the_list_renders_only_while_open(self):
         text = _dialog()

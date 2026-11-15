@@ -55,7 +55,7 @@ import type { CaptureReceiverRow, HardwareFacts, Medium } from "./types.js";
 import { listsInKind, rowsKind, soleKind } from "./media-kind.js";
 import { receiverIdMedium } from "./receiver-medium.js";
 import { PROTO_SIGNAL, PROTO_SOURCE, protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
-import { captureSignature } from "./ir-listen-state.js";
+import { captureSignature, cardCaptureState } from "./ir-listen-state.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
 import {
     browserStorage,
@@ -103,7 +103,7 @@ import { REMOTE_TYPES } from "./types.js";
 import { entityDisplayName, entityFullName } from "./entity-names.js";
 import { cardGlyph, isEntityOnline, partsHealth } from "./entity-health.js";
 import { cardIconPath } from "./card-icons.js";
-import { EMBER_VAR, ONLINE_VAR } from "./ir-header-chip-styles.js";
+import { EMBER_VAR, GOLD_VAR, ONLINE_VAR, PICKED_VAR } from "./ir-header-chip-styles.js";
 
 /**
  * Sentinel "device id" for the single HAIR Triggers drawer card, reusing
@@ -2233,13 +2233,6 @@ export class IrDeviceList extends LitElement {
         const part = card.rows.filter((r) =>
             kind === "emitters" ? r.direction === "tx" : kind === "receivers" ? r.direction === "rx" : true,
         );
-        const glyph = cardGlyph(
-            partsHealth(
-                this.hass?.states,
-                part.map((r) => r.entity_id),
-            ),
-            null,
-        );
         const icon =
             kind === "emitters"
                 ? "emitter"
@@ -2248,6 +2241,24 @@ export class IrDeviceList extends LitElement {
                   : card.rows.some((r) => r.capture_device)
                     ? "capture"
                     : "receiver";
+        // A capture device's icon follows its Sniffer pill again: grey
+        // with no switch, gold ready, green listening (chip and dot
+        // audit, owner 2026-11-14 19:15 PT).
+        const capture =
+            icon === "capture"
+                ? cardCaptureState(
+                      this.hass?.states,
+                      this._listenRows,
+                      card.rows.filter((r) => r.capture_device).map((r) => r.entity_id),
+                  )
+                : null;
+        const glyph = cardGlyph(
+            partsHealth(
+                this.hass?.states,
+                part.map((r) => r.entity_id),
+            ),
+            capture,
+        );
         const nav = this._cardNavType(card);
         const split = mediumBreak(card);
         const name = this._cardName(card);
@@ -3610,6 +3621,17 @@ export class IrDeviceList extends LitElement {
         }
         .hw-card.hw-glyph-online .card-header ha-svg-icon {
             color: ${ONLINE_VAR};
+        }
+        /* A capture device, as its Sniffer pill: gold while ready, the
+           picked green while listening, grey with no switch yet. */
+        .hw-card.hw-glyph-ready .card-header ha-svg-icon {
+            color: ${GOLD_VAR};
+        }
+        .hw-card.hw-glyph-listening .card-header ha-svg-icon {
+            color: ${PICKED_VAR};
+        }
+        .hw-card.hw-glyph-waiting .card-header ha-svg-icon {
+            color: var(--secondary-text-color);
         }
         /* Offline: the icon's outline twin (card-icons.ts) in ember, as
            drawn, with no stroke added; a stroke on top read heavy and

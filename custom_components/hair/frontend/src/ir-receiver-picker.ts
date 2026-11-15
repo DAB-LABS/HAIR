@@ -58,7 +58,7 @@ import {
     healthPhrase,
     isEntityOnline,
 } from "./entity-health.js";
-import { healthDotStyles, ONLINE_VAR } from "./ir-header-chip-styles.js";
+import { healthDotStyles, ONLINE_VAR, pickerChipStyles } from "./ir-header-chip-styles.js";
 
 @customElement("ir-receiver-picker")
 export class IrReceiverPicker extends LitElement {
@@ -154,7 +154,7 @@ export class IrReceiverPicker extends LitElement {
             : t(on ? "common.selected" : "common.not_selected");
         return html`
             <button
-                class="rx ${cls}"
+                class="pchip rx ${cls}"
                 role="switch"
                 aria-checked=${on ? "true" : "false"}
                 aria-label="${r.name} ${medium}, ${word}"
@@ -169,7 +169,7 @@ export class IrReceiverPicker extends LitElement {
         `;
     }
 
-    static styles = [css`
+    static styles = [pickerChipStyles, css`
         :host {
             /* The offline ring, one pixel wider than this picker's
                7px dot (healthDotStyles). */
@@ -195,28 +195,8 @@ export class IrReceiverPicker extends LitElement {
             flex: 1 1 auto;
             min-width: 0;
         }
-        .rx {
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            padding: 4px 11px 4px 9px;
-            border: 1px solid var(--divider-color);
-            border-radius: 14px;
-            background: none;
-            font-family: inherit;
-            font-size: 12px;
-            color: var(--secondary-text-color);
-            cursor: pointer;
-            transition: border-color 140ms ease, background 140ms ease,
-                color 140ms ease;
-        }
-        .rx:hover:not(:disabled) {
-            border-color: var(--secondary-text-color);
-        }
-        .rx:disabled {
-            cursor: default;
-            opacity: 0.55;
-        }
+        /* The chip itself is the shared picker chip (pickerChipStyles),
+           as in the emitter picker. */
         .rx-medium {
             font-size: 10px;
             font-weight: 600;
@@ -230,21 +210,9 @@ export class IrReceiverPicker extends LitElement {
             text-overflow: ellipsis;
             max-width: 200px;
         }
-        .dot {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: #4d5359;
-            flex: none;
-        }
-        .rx.on {
-            border-color: rgba(79, 158, 90, 0.5);
-            background: rgba(79, 158, 90, 0.12);
-            color: var(--primary-text-color);
-        }
         /* Without hass (no health to show) a selected chip keeps the
            plain lit dot it always had, from the shared token. */
-        .rx.on .dot:not(.online):not(.offline) {
+        .pchip.on .dot:not(.online):not(.offline) {
             background: ${ONLINE_VAR};
         }
         .no-receivers {

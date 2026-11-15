@@ -621,9 +621,15 @@ class TestTheHardwareCards:
     def test_the_glyph_class_comes_from_the_rule(self):
         card = self._card()
         assert 'class="card hw-card hw-glyph-${glyph} ' in card
+        # A capture device's card reads its Sniffer row again (chip and
+        # dot audit, owner 2026-11-14 19:15 PT, answer 6).
         assert (
             "const glyph = cardGlyph( partsHealth( this.hass?.states, "
-            "part.map((r) => r.entity_id), ), null, );"
+            "part.map((r) => r.entity_id), ), capture, );"
+        ) in card
+        assert (
+            'icon === "capture" ? cardCaptureState( this.hass?.states, this._listenRows, '
+            "card.rows.filter((r) => r.capture_device).map((r) => r.entity_id), ) : null;"
         ) in card
         # Its part: an emitter card its transmitters, a receiver card its
         # receivers, a proxy card every row.
@@ -683,9 +689,30 @@ class TestTheStyles:
     def test_the_offline_dot_is_a_ring(self):
         ring = _block(self._health(), ".dot.offline")
         assert "background: transparent;" in ring
-        assert "border: 1.6px solid ${EMBER_VAR};" in ring
+        assert "border: 1.6px solid ${EMBER_DULL};" in ring
         assert "box-sizing: border-box;" in ring
         assert "box-shadow: none;" in ring
+
+    def test_unpicked_is_dull_and_picked_is_bright(self):
+        # Owner, 2026-11-14 (ir-2026-11-14-go-chip-dots-build.md): bright
+        # means picked; an unpicked dot is its health color toward gray.
+        css = self._health()
+        assert "background: ${ONLINE_DULL};" in _block(css, ".dot.online")
+        assert "background: ${ONLINE_VAR};" in _block(css, ".on .dot.online")
+        assert "border-color: ${EMBER_VAR};" in _block(css, ".on .dot.offline")
+        styles = _read("ir-header-chip-styles.ts")
+        # Toward the dull gray token, with the literal as its fallback
+        # (chip and dot audit).
+        assert (
+            "export const DULL_VAR = css`var(--hair-dull-gray, ${unsafeCSS(DULL_GRAY)})`;"
+        ) in styles
+        assert (
+            "export const ONLINE_DULL = css`color-mix(in srgb, ${ONLINE_VAR} 45%, ${DULL_VAR})`;"
+        ) in styles
+        assert (
+            "export const EMBER_DULL = css`color-mix(in srgb, ${EMBER_VAR} 50%, ${DULL_VAR})`;"
+        ) in styles
+        assert 'export const DULL_GRAY = "#7a7f85";' in _read("entity-health.ts")
 
     def test_nothing_offline_glows(self):
         css = self._health()
@@ -737,11 +764,15 @@ class TestTheStyles:
 
     def test_the_glyph_colours(self):
         text = _read("ir-device-list.ts")
-        # The card is information only since RF hear round 1: no capture
-        # gold or green on its icon, only health.
-        for glyph in ("ready", "listening", "waiting"):
-            assert f"hw-glyph-{glyph}" not in text, glyph
-        for glyph, colour in (("online", "${ONLINE_VAR}"),):
+        # A capture device's icon follows its Sniffer pill again (chip and
+        # dot audit, owner 2026-11-14 19:15 PT, answer 6): gold ready,
+        # green listening, grey with no switch.
+        for glyph, colour in (
+            ("online", "${ONLINE_VAR}"),
+            ("ready", "${GOLD_VAR}"),
+            ("listening", "${PICKED_VAR}"),
+            ("waiting", "var(--secondary-text-color)"),
+        ):
             body = _block(text, f".hw-card.hw-glyph-{glyph} .card-header ha-svg-icon")
             assert f"color: {colour};" in body, glyph
             assert "fill:" not in body and "stroke" not in body, glyph
@@ -754,19 +785,24 @@ class TestTheStyles:
         styles = _read("ir-header-chip-styles.ts")
         assert "width: 6px;" in _block(styles, ".dot")
         assert "width: var(--hair-ring, 7px);" in _block(self._health(), ".dot.offline")
+        # The pickers share one chip (pickerChipStyles): a 7px dot.
+        assert "width: 7px;" in _block(styles, ".pchip .dot")
         for name in ("ir-emitter-picker.ts", "ir-receiver-picker.ts"):
             text = _read(name)
-            assert "width: 7px;" in _block(text, ".dot"), name
+            assert "static styles = [pickerChipStyles, css`" in text, name
             assert "--hair-ring: 8px;" in text, name
         # The Devices tab cards carry no dot since the owner's bench.
         assert ".hw-dot" not in _read("ir-device-list.ts")
 
     def test_the_tokens_live_on_the_panel_host(self):
         assert "static styles = [hairHealthTokens, css`" in _read("ha-panel-ir-devices.ts")
-        tokens = _read("ir-header-chip-styles.ts").split(
-            "export const hairHealthTokens = css`", 1
-        )[1].split("`;", 1)[0]
-        for prop in ("--hair-ember:", "--hair-ember-rgb:", "--hair-online:"):
+        styles = _read("ir-header-chip-styles.ts")
+        assert "export const hairHealthTokens = hairTokens;" in styles
+        tokens = styles.split("export const hairTokens = css`", 1)[1].split("`;", 1)[0]
+        for prop in (
+            "--hair-ember:", "--hair-ember-rgb:", "--hair-online:", "--hair-dull-gray:",
+            "--hair-grey:", "--hair-picked:", "--hair-deep-green:", "--hair-gold:",
+        ):
             assert prop in tokens
 
 

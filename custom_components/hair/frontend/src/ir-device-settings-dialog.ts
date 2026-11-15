@@ -84,8 +84,9 @@ import {
     hasSpeedCycle,
     speedStepsForSave,
 } from "./speed-cycle-settings.js";
-import { healthDotClass, isEntityOnline } from "./entity-health.js";
-import { healthDotStyles } from "./ir-header-chip-styles.js";
+import { isEntityOnline } from "./entity-health.js";
+import { dotClass } from "./hair-colors.js";
+import { healthDotStyles, ONLINE_VAR } from "./ir-header-chip-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import {
     PANEL_GAP,
@@ -1111,7 +1112,7 @@ export class IrDeviceSettingsDialog extends LitElement {
             @keydown=${(e: KeyboardEvent) =>
                 this._pickerEvent({ kind: "field-key", key: e.key }, e)}
         >
-            ${this._renderSourceDot(id)}
+            ${this._renderSourceDot(id, true)}
             <span class="txt">
                 <span class="iname">${name}</span>
                 ${id ? html`<span class="iid">${id}</span>` : ""}
@@ -1201,12 +1202,13 @@ export class IrDeviceSettingsDialog extends LitElement {
         </div>`;
     }
 
-    private _renderSourceDot(entityId: string) {
+    /** The source's health dot: bright on the closed field, which names
+     *  the source in use, dull in the list, where nothing is picked yet
+     *  (chip and dot audit, owner 2026-11-14 19:15 PT). */
+    private _renderSourceDot(entityId: string, bright = false) {
         return entityId
             ? html`<span
-                  class="dot ${healthDotClass(
-                      isEntityOnline(this.hass?.states, entityId),
-                  )}"
+                  class="dot ${dotClass(isEntityOnline(this.hass?.states, entityId), bright)}"
               ></span>`
             : html`<span class="dot-gap"></span>`;
     }
@@ -1586,7 +1588,7 @@ export class IrDeviceSettingsDialog extends LitElement {
              * the hysteresis band is just as live as one past a
              * threshold. */
             .readout-live {
-                background: #66bb6a;
+                background: ${ONLINE_VAR};
             }
             .readout-unknown {
                 background: var(--disabled-text-color, #999);
