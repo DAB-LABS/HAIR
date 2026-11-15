@@ -3962,7 +3962,11 @@ async def ws_get_triggers(
         return
     store = data["store"]
     triggers = store.get_all_triggers_ordered()
-    connection.send_result(msg["id"], [t.to_dict() for t in triggers])
+    rows = [t.to_dict() for t in triggers]
+    # A radio trigger's family label, for the Remotes page pill (a label
+    # only, never stored; guarded per row).
+    _augment_rf_family(rows)
+    connection.send_result(msg["id"], rows)
 
 
 

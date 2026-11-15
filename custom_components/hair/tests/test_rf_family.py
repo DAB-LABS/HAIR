@@ -371,6 +371,73 @@ class TestWhereItTravels:
         assert pushed[-1]["medium"] == "rf"
 
     @pytest.mark.asyncio
+    async def test_a_radio_trigger_carries_it_on_the_trigger_list(self, fake_hass):
+        """The Remotes page's trigger row pill reads it from hair/triggers."""
+        from unittest.mock import MagicMock
+
+        from custom_components.hair.websocket_api import ws_get_triggers
+
+        from .test_websocket_api import _make_connection, _wire_triggers
+
+        store = _wire_triggers(fake_hass)
+        radio, infrared = MagicMock(), MagicMock()
+        radio.to_dict.return_value = {
+            "id": "t1", "medium": "rf", "raw_timings": _frame(0x950E49),
+        }
+        infrared.to_dict.return_value = {"id": "t2", "protocol": "NEC"}
+        store.get_all_triggers_ordered = MagicMock(return_value=[radio, infrared])
+        conn = _make_connection()
+        await ws_get_triggers(fake_hass, conn, {"id": 1, "type": "hair/triggers"})
+        rows = conn.send_result.call_args[0][1]
+        assert rows[0]["rf_family"]["label"] == LABEL_EV1527
+        assert "rf_family" not in rows[1]
+
+    def test_a_radio_command_carries_it_on_the_wig_save_plan(self):
+        from custom_components.hair.models import IRDevice
+        from custom_components.hair.wig_save import build_save_plan
+
+        from .test_candy_radio import _command
+
+        device = IRDevice(id="d1", name="Bench Plug", device_type="switch",
+                          commands=[_command(_frame(0x950E4B))])
+        plan = build_save_plan(device)
+        assert plan.rows[0].rf_family["label"] == LABEL_EV1527
+        assert plan.as_dict()["rows"][0]["rf_family"]["fields"][1] == {
+            "name": "data", "value": "B",
+        }
+
+    def test_a_failing_decoder_costs_the_save_plan_nothing(self, monkeypatch):
+        from custom_components.hair import rf_family
+        from custom_components.hair.models import IRDevice
+        from custom_components.hair.wig_save import build_save_plan
+
+        from .test_candy_radio import _command
+
+        def payload(frame):
+            raise ZeroDivisionError
+
+        monkeypatch.setattr(rf_family, "family_payload", payload)
+        device = IRDevice(id="d1", name="Bench Plug", device_type="switch",
+                          commands=[_command(_frame(0x950E4B))])
+        plan = build_save_plan(device)
+        assert [row.alias for row in plan.rows] == ["On"]
+        assert plan.rows[0].rf_family is None
+
+    def test_an_infrared_row_on_the_save_plan_has_none(self):
+        """By the medium, not by whether the timings happen to fit: an
+        infrared command is never labelled, whatever its timings."""
+        from custom_components.hair.const import MEDIUM_IR
+        from custom_components.hair.models import IRDevice
+        from custom_components.hair.wig_save import _rf_family_of
+
+        from .test_candy_radio import _command
+
+        command = _command(_frame(0x950E4B))
+        command.medium = MEDIUM_IR
+        device = IRDevice(id="d1", name="TV", device_type="tv", commands=[command])
+        assert _rf_family_of(device, "c1") is None
+
+    @pytest.mark.asyncio
     async def test_a_devices_radio_command_carries_it(self, fake_hass):
         from unittest.mock import patch
 

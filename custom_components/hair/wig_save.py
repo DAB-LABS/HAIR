@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from .models import IRDevice
+from .models import IRDevice, is_rf
 from .wig_claims import (
     MatchRow,
     RenameProposal,
@@ -115,6 +115,10 @@ class PlanRow:
     #: tooltip material, never a verdict of its own. Attesting or
     #: repairing the row is the only thing that resolves it.
     comb_finding: str | None = None
+    #: A radio row's family label for the pill (``rf_family.family_payload``
+    #: of the command's timings), or None: infrared, no family, or a
+    #: decoder failure. A label only, never part of the plan's identity.
+    rf_family: dict[str, Any] | None = None
 
     @property
     def matched(self) -> bool:
@@ -259,6 +263,7 @@ class SavePlan:
                     "ditto_count": row.ditto_count,
                     "bypass": row.bypass,
                     "protocol": row.protocol,
+                    "rf_family": row.rf_family,
                     "wig_index": row.wig_index,
                     "wig_alias": row.wig_alias,
                     "matched": row.matched,
@@ -323,6 +328,24 @@ def _protocol_of(device: IRDevice, command_id: str) -> str | None:
     for command in device.commands:
         if command.id == command_id:
             return command.decoded_protocol
+    return None
+
+
+def _rf_family_of(device: IRDevice, command_id: str) -> dict[str, Any] | None:
+    """A radio command's family label for its plan row. A label never
+    costs the dialog: a decoder failure is logged at debug and the row
+    goes out with no label."""
+    from .rf_family import family_payload
+
+    for command in device.commands:
+        if command.id == command_id:
+            if not is_rf(command):
+                return None
+            try:
+                return family_payload(command.raw_timings)
+            except Exception:
+                _LOGGER.debug("Radio family label failed", exc_info=True)
+                return None
     return None
 
 
@@ -547,6 +570,7 @@ def build_save_plan(
             protocol=_protocol_of(device, build.sources[i]),
             comb_suspect=comb_suspect,
             comb_finding=comb_finding,
+            rf_family=_rf_family_of(device, build.sources[i]),
         ))
     if matrix is not None:
         # The lattice first, then the depth-0 extras beside it. A
