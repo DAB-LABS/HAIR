@@ -8,7 +8,7 @@ import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
-import { unknownKind } from "./media-kind.js";
+import { mediaFor, unknownKind } from "./media-kind.js";
 import type { Medium } from "./types.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
@@ -1640,6 +1640,7 @@ export class IrSignalMonitor extends LitElement {
                           .hass=${this.hass}
                           .suggestedName=${this._promoteTarget.label ?? ""}
                           .sourceUnknownId=${this._promoteTarget.id}
+                          .media=${mediaFor(unknownKind(this._promoteTarget.medium))}
                           @device-created=${this._onDevicePromoted}
                           @closed=${this._closePromote}
                       ></ir-promote-dialog>

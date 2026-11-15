@@ -138,6 +138,29 @@ class TestMakeARemote:
         ) in attrs
 
 
+class TestMakeADevice:
+    @pytest.mark.parametrize("name", ["ir-signal-monitor.ts", "ir-pluck.ts", "ir-clips.ts"])
+    def test_a_sniffer_clipper_or_plucker_row_passes_its_kind(self, name):
+        # The owner's look at #270: Use, then Make Device, on a radio
+        # Sniffer row listed every emitter.
+        blocks = [
+            b.split("</ir-promote-dialog>", 1)[0]
+            for b in _flat(name).split("<ir-promote-dialog")[1:]
+        ]
+        rows = [b for b in blocks if ".sourceUnknownId=${this._promoteTarget.id}" in b]
+        assert len(rows) == 1, name
+        assert ".media=${mediaFor(unknownKind(this._promoteTarget.medium))}" in rows[0]
+
+    def test_the_dialog_saves_only_its_kind(self):
+        flat = _flat("ir-promote-dialog.ts")
+        create = flat.split("private async _create", 1)[1].split("private _renderNeedsPress", 1)[0]
+        assert (
+            "const emitterIds = keepKind(this._emitterIds, soleKind(this.media), emitterMedium);"
+        ) in create
+        assert "if (emitterIds.length === 0) {" in create
+        assert "this._emitterIds" not in create.split("const emitterIds", 1)[1].split(";", 1)[1]
+
+
 class TestTheOtherDialogs:
     def test_duplicate_a_remote(self):
         flat = _flat("ir-duplicate-trigger-remote-dialog.ts")

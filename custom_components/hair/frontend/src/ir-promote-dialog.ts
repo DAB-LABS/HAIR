@@ -37,6 +37,8 @@ import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { emitterRequiredKey } from "./assign-new-device.js";
 import "./ir-emitter-picker.js";
+import { emitterMedium } from "./emitter-options.js";
+import { keepKind, soleKind } from "./media-kind.js";
 import type { HairApi } from "./api.js";
 import type { DeviceTypeId, IRDevice, Medium, RemoteNeedsPress } from "./types.js";
 
@@ -76,8 +78,9 @@ export class IrPromoteDialog extends LitElement {
      * Air Conditioner. The backend refuses anything else, so the lock
      * is honest UI, not a suggestion (owner ruling 2026-07-28). */
     @property({ type: Boolean }) public isMatrix = false;
-    /** The Remote door's media (its triggers' kinds), handed to the
-     *  emitter picker; null for both, as every other door is. */
+    /** The kinds the emitter picker offers: a Remote's triggers' kinds,
+     *  or a Sniffer, Clipper or Plucker row's kind (media-kind.ts); null
+     *  for both, as a wig or a codebook is. */
     @property({ attribute: false }) public media: Medium[] | null = null;
 
     @state() private _name = "";
@@ -154,7 +157,9 @@ export class IrPromoteDialog extends LitElement {
             this._error = t("promote.device_name_required");
             return;
         }
-        if (this._emitterIds.length === 0) {
+        // An emitter of the other kind is hidden, so it is not saved.
+        const emitterIds = keepKind(this._emitterIds, soleKind(this.media), emitterMedium);
+        if (emitterIds.length === 0) {
             // A radio Remote's picker offers radio transmitters only, so
             // the refusal names one (owner, 2026-11-14); the Assign
             // dialog's New Device tab already asks this way.
@@ -180,7 +185,7 @@ export class IrPromoteDialog extends LitElement {
                     this.sourceRemoteId,
                     name,
                     this._type,
-                    this._emitterIds,
+                    emitterIds,
                 );
                 if (made.needs_press?.length) {
                     this._minted = made;
@@ -195,13 +200,13 @@ export class IrPromoteDialog extends LitElement {
                         : { codebookId: this.codebookId },
                     name,
                     this._type,
-                    this._emitterIds,
+                    emitterIds,
                 );
             } else {
                 minted = await this.api.createDevice({
                     name,
                     device_type: this._type,
-                    emitter_entity_ids: this._emitterIds,
+                    emitter_entity_ids: emitterIds,
                     promoted_from_unknown_id: this.sourceUnknownId || null,
                 });
             }
