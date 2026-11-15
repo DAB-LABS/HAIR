@@ -21,6 +21,7 @@ from custom_components.hair.tests.test_rf_family import _frame as _pt_frame
 
 ADDRESS = "10100011"
 DATA = "1110"
+CODE = f"{int(ADDRESS + DATA, 2):03X}"
 
 
 def _sf_frame(
@@ -69,17 +70,17 @@ class TestDatasheetFrames:
         assert result.label == "HT12E"
         assert result.family == "ht12e"
         # 333 us is also CAME's unit: CAME is held off but still fits, so
-        # the word is ambiguous (ruling 2026-11-14, answer 1).
+        # the word is ambiguous (ruling 2026-11-14, answer 1) and carries
+        # the shape's shared fields, not HT12E's address/data split
+        # (ruling 2026-11-15).
         assert result.certainty == CERTAINTY_AMBIGUOUS
-        assert _fields(result) == {
-            "address": ADDRESS, "data": DATA, "code": f"{int(ADDRESS + DATA, 2):03X}",
-        }
+        assert _fields(result) == {"bits": ADDRESS + DATA, "code": CODE}
         assert result.unit_us == 333
 
     def test_an_open_pin_is_a_one(self):
         """Pins pull high: no address switch set, and the pressed data
         button pulls its pin low."""
-        result = family_of(_sf_frame("1" * 8 + "0111"))
+        result = family_of(_sf_frame("1" * 8 + "0111", unit=1000.0))
         assert _fields(result)["address"] == "11111111"
         assert _fields(result)["data"] == "0111"
 
@@ -94,19 +95,19 @@ class TestDatasheetFrames:
 
     def test_no_measured_gap(self):
         result = family_of(_sf_frame(ADDRESS + DATA, gap_units=None))
-        assert _fields(result)["address"] == ADDRESS
+        assert _fields(result)["code"] == CODE
 
 
 class TestMeasuredReceivers:
     @pytest.mark.parametrize("seed", range(5))
     def test_the_rm4_pros_mark_widening(self, seed):
         frame = _sf_frame(ADDRESS + DATA, mark_widening=60, seed=seed)
-        assert _fields(family_of(frame))["data"] == DATA
+        assert _fields(family_of(frame))["code"] == CODE
 
     @pytest.mark.parametrize("seed", range(20))
     def test_the_athoms_spread(self, seed):
         frame = _sf_frame(ADDRESS + DATA, short_spread=0.3, long_spread=0.1, seed=seed)
-        assert _fields(family_of(frame))["address"] == ADDRESS
+        assert _fields(family_of(frame))["code"] == CODE
 
     def test_widening_at_a_fast_oscillator(self):
         frame = _sf_frame(ADDRESS + DATA, unit=150, mark_widening=60)
@@ -272,9 +273,11 @@ class TestCAME:
         assert _fields(family_of(frame))["code"] == f"{int(CAME_24, 2):06X}"
 
     def test_an_ht12e_outside_both_brands_is_decoded(self):
+        """Decoded, so HT12E's own address/data split (ruling 2026-11-15)."""
         result = family_of(_sf_frame(ADDRESS + DATA, unit=1000.0))
         assert result.label == "HT12E"
         assert result.certainty == CERTAINTY_DECODED
+        assert _fields(result) == {"address": ADDRESS, "data": DATA, "code": CODE}
 
     @pytest.mark.parametrize("seed", range(5))
     def test_a_24_bit_word_is_not_a_1_3_frame(self, seed):

@@ -74,33 +74,47 @@ class TestHeldOff:
         assert result.label == "PT2262 or EV1527 or Nexa"
 
 
+def _nexa_fit(frame: list[int]) -> dict[str, str]:
+    """Old Nexa's own fields, read from the shape's fit. PT2262 always fits
+    beside it, so a label shows the shape's shared fields instead (ruling
+    2026-11-15); the decoder's reading is held here."""
+    read = rf_family._pt2262_ev1527(tuple(frame))
+    fits = {fit.key: dict(fit.fields) for fit in read.fits}
+    return fits["nexa_old"]
+
+
 class TestTheFields:
     @pytest.mark.parametrize("house,unit,on", [
         ("A", 1, False), ("B", 3, True), ("C", 2, True), ("H", 8, False),
         ("I", 9, True), ("M", 13, False), ("P", 16, True),
     ])
-    def test_house_unit_and_state(self, only, house, unit, on):
-        only("nexa_old")
-        result = family_of(_nexa(_tri(house, unit, on)))
-        assert result.label == "Nexa"
-        assert result.certainty == CERTAINTY_AMBIGUOUS  # PT2262 also fits
-        assert _fields(result) == {
+    def test_house_unit_and_state(self, house, unit, on):
+        assert _nexa_fit(_nexa(_tri(house, unit, on))) == {
             "house": house, "unit": str(unit), "state": "on" if on else "off",
         }
 
-    def test_the_pages_own_table(self, only):
-        """B is X000 and 2 is X000: b0 is the lowest."""
+    def test_shown_alone_it_is_ambiguous_with_the_shared_fields(self, only):
+        """PT2262 also fits, so even shown alone the label is ambiguous and
+        carries the shape's tri-state and code (ruling 2026-11-15)."""
         only("nexa_old")
+        tri = _tri("B", 3, True)
+        result = family_of(_nexa(tri))
+        assert result.label == "Nexa"
+        assert result.certainty == CERTAINTY_AMBIGUOUS
+        assert [name for name, _ in result.fields] == ["tri-state", "code"]
+        assert _fields(result)["tri-state"] == tri
+
+    def test_the_pages_own_table(self):
+        """B is X000 and 2 is X000: b0 is the lowest."""
         tri = "F000" + "F000" + "0FF" + "F"
-        assert _fields(family_of(_nexa(tri))) == {"house": "B", "unit": "2", "state": "on"}
+        assert _nexa_fit(_nexa(tri)) == {"house": "B", "unit": "2", "state": "on"}
 
     @pytest.mark.parametrize("seed", range(10))
-    def test_both_receivers(self, only, seed):
-        only("nexa_old")
+    def test_both_receivers(self, seed):
         tri = _tri("D", 5, True)
-        assert _fields(family_of(_nexa(tri, mark_widening=60, seed=seed)))["house"] == "D"
+        assert _nexa_fit(_nexa(tri, mark_widening=60, seed=seed))["house"] == "D"
         frame = _nexa(tri, short_spread=0.3, long_spread=0.1, seed=seed)
-        assert _fields(family_of(frame))["unit"] == "5"
+        assert _nexa_fit(frame)["unit"] == "5"
 
 
 class TestRefusals:

@@ -348,20 +348,24 @@ class TestWhereItTravels:
     async def test_a_failing_decoder_never_costs_a_press_its_event(
         self, fake_hass, monkeypatch
     ):
-        """The ruling: a decoder bug must never cost a press its event."""
+        """The ruling: a decoder bug must never cost a press its event, nor
+        the Candy Drawer its line. The decoder itself raises, so every door
+        that reads a label meets the failure."""
         from custom_components.hair import rf_family
+        from custom_components.hair.candy_feed import STAGE_PRESS
         from custom_components.hair.const import EVENT_SIGNAL_DETECTED
 
-        from .test_candy_radio import _hear, _monitor
+        from .test_candy_radio import _hear, _monitor, _subscribe
 
-        def payload(frame):
+        def broken(frame, include_hidden):
             raise ZeroDivisionError
 
-        monkeypatch.setattr(rf_family, "family_payload", payload)
+        monkeypatch.setattr(rf_family, "_family_of", broken)
         data = json.loads((FIXTURES / "it104-keyfob-433.json").read_text())
         pulses = data["captures"][0]["pulses"]
         capture = [v if i % 2 == 0 else -v for i, v in enumerate(pulses)]
         monitor, _store, _ = _monitor(fake_hass)
+        drawer = _subscribe(monitor)
         await _hear(fake_hass, monitor, [capture])
         pushed = [
             c.args[1] for c in fake_hass.bus.async_fire.call_args_list
@@ -369,22 +373,28 @@ class TestWhereItTravels:
         ]
         assert pushed and pushed[-1]["rf_family"] is None
         assert pushed[-1]["medium"] == "rf"
+        presses = [e for e in drawer if e.get("stage") == STAGE_PRESS]
+        assert presses
+        assert presses[-1]["protocol"] is None
+        assert presses[-1]["family_fields"] is None
 
     @pytest.mark.asyncio
     async def test_a_radio_trigger_carries_it_on_the_trigger_list(self, fake_hass):
         """The Remotes page's trigger row pill reads it from hair/triggers."""
         from unittest.mock import MagicMock
 
+        from custom_components.hair.const import RF_PROTOCOL
+        from custom_components.hair.models import IRTrigger
         from custom_components.hair.websocket_api import ws_get_triggers
 
         from .test_websocket_api import _make_connection, _wire_triggers
 
         store = _wire_triggers(fake_hass)
-        radio, infrared = MagicMock(), MagicMock()
-        radio.to_dict.return_value = {
-            "id": "t1", "medium": "rf", "raw_timings": _frame(0x950E49),
-        }
-        infrared.to_dict.return_value = {"id": "t2", "protocol": "NEC"}
+        # Real triggers: a radio one by its protocol (``__post_init__``
+        # sets the medium) with its timings, and an infrared one.
+        radio = IRTrigger(id="t1", name="On", protocol=RF_PROTOCOL)
+        radio.raw_timings = _frame(0x950E49)
+        infrared = IRTrigger(id="t2", name="Power", protocol="NEC", code="0x20DF10EF")
         store.get_all_triggers_ordered = MagicMock(return_value=[radio, infrared])
         conn = _make_connection()
         await ws_get_triggers(fake_hass, conn, {"id": 1, "type": "hair/triggers"})

@@ -52,8 +52,10 @@ SHOWN = {
         "aliases": [],
     },
     "ht12e_ambiguous": {
+        # As the server sends it: a hidden family (CAME) also fits, so the
+        # shape's shared fields, not HT12E's split (ruling 2026-11-15).
         "label": "HT12E", "family": "ht12e", "certainty": "ambiguous", "unit_us": 320,
-        "fields": [_f("address", "10110010"), _f("data", "0110"), _f("code", "B26")],
+        "fields": [_f("bits", "101100100110"), _f("code", "B26")],
         "aliases": [],
     },
     "ht6p20": {
@@ -179,9 +181,13 @@ class TestTooltip:
                 assert alias not in view["editor"]
 
     def test_certainty_is_not_spelled_out(self, run):
-        # Ambiguous HT12E reads as the decoded one: the label never
-        # names a hidden family, and no word is added to translate.
-        assert run["shown"]["ht12e_ambiguous"]["title"] == run["shown"]["ht12e"]["title"]
+        # An ambiguous HT12E has the same label as a decoded one: the
+        # label never names a hidden family, and no word is added to
+        # translate. Only its fields differ (the shared bits and code).
+        assert run["shown"]["ht12e_ambiguous"]["short"] == run["shown"]["ht12e"]["short"]
+        assert run["shown"]["ht12e_ambiguous"]["title"] == (
+            "HT12E · bits 101100100110 · code B26"
+        )
 
 
 class TestEditorLine:

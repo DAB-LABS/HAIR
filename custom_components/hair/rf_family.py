@@ -431,12 +431,15 @@ sources number units differently.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from functools import lru_cache
 from statistics import median
 from typing import Any
 
 from .identity import canonical_edges
+
+_LOGGER = logging.getLogger(__name__)
 
 LABEL_EV1527 = "EV1527"
 LABEL_PT2262_OR_EV1527 = "PT2262 or EV1527"
@@ -608,8 +611,16 @@ def family_payload(frame: list[int] | tuple[int, ...] | None) -> dict[str, Any] 
 
 def family_slots(frame: list[int] | tuple[int, ...] | None) -> dict[str, Any]:
     """The Candy Drawer's two keys for a radio event: ``protocol`` (the
-    label) and ``family_fields`` (the fields as name and value)."""
-    result = family_of(frame)
+    label) and ``family_fields`` (the fields as name and value).
+
+    A label never costs the drawer its line: a decoder failure is logged
+    at debug and the event goes out with no label.
+    """
+    try:
+        result = family_of(frame)
+    except Exception:
+        _LOGGER.debug("Radio family label failed", exc_info=True)
+        result = None
     if result is None:
         return {"protocol": None, "family_fields": None}
     return {
@@ -663,7 +674,11 @@ def _label(read: _ShapeRead, include_hidden: bool) -> RfFamily | None:
         family="_".join(fit.key for fit in shown),
         certainty=CERTAINTY_DECODED if len(read.fits) == 1 else CERTAINTY_AMBIGUOUS,
         unit_us=read.unit_us,
-        fields=shown[0].fields if len(shown) == 1 else read.shared,
+        # One family alone gets its own fields. When more than one fits,
+        # shown or hidden, the fields are the shape's shared ones, so an
+        # HT12E that CAME also fits never shows an address/data split the
+        # frame does not prove (ruling 2026-11-15).
+        fields=shown[0].fields if len(read.fits) == 1 else (read.shared or shown[0].fields),
         aliases=aliases,
     )
 
