@@ -6599,11 +6599,12 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
            and a scrollbar never share a corner. */
         padding-top: 24px;
         border-radius: 4px;
-        border: 1px solid var(--divider-color);
+        /* Copper, steady, focused or not (owner, 2026-11-16): the code
+           box reads the same in both editors whether or not it has the
+           cursor. Only a held repair box steps back to the divider
+           (ir-signal-editor.ts). */
+        border: 1px solid ${r`#b87333`};
         background: var(--card-background-color);
-    }
-    .code-wrap:focus-within {
-        border-color: ${r`#b87333`};
     }
     .code-wrap textarea {
         display: block;
@@ -7710,8 +7711,15 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                 align-items: center;
                 gap: 4px;
             }
+            /* As tall as the band pills beside it, and narrower (owner,
+               2026-11-16): the pills' padding, type size and rounding. */
             .other input {
-                width: 7.5em;
+                width: 6em;
+                box-sizing: border-box;
+                padding: 5px 10px;
+                border-radius: 14px;
+                font-size: 0.85rem;
+                line-height: normal;
             }
             .other input.invalid {
                 border-color: var(--error-color, #db4437);

@@ -132,13 +132,15 @@ class TestTheSharedCodeBox:
 
     def test_the_icon_has_its_own_strip(self):
         css = _read("ir-code-box-styles.ts")
-        wrap = css.split(".code-wrap {", 1)[1].split("}", 1)[0]
+        wrap = css.split(".code-wrap {", 1)[1].split("\n    }", 1)[0]
         assert "padding-top: 24px;" in wrap
-        assert "border: 1px solid var(--divider-color);" in wrap
+        # Copper, steady, focused or not (owner, 2026-11-16).
+        assert "border: 1px solid ${CODE_FOCUS};" in wrap
         box = css.split(".code-wrap textarea {", 1)[1].split("}", 1)[0]
         assert "border: none;" in box and "overflow-y: auto;" in box
         assert "padding: 0 8px 8px;" in box
-        assert ".code-wrap:focus-within {" in css
+        assert ":focus-within" not in css
+        assert "const CODE_FOCUS = css`#b87333`;" in css
 
     def test_the_editors_carry_no_copy_of_it(self):
         for name in ("ir-signal-editor.ts", "ir-rf-editor.ts"):
@@ -152,6 +154,25 @@ class TestTheSharedCodeBox:
         text = _read("ir-signal-editor.ts")
         assert ".code-wrap:has(> textarea.held) {" in text
         assert ".code-wrap:has(> textarea.snap-flash) {" in text
+
+
+class TestTheOwnersSecondLookAsks:
+    """Owner, 12:29 PT on 11-16 (rf-2026-11-16-owner-1229-radio-editor-asks.md)."""
+
+    def test_only_the_held_repair_box_steps_back(self):
+        text = _read("ir-signal-editor.ts")
+        held = text.split(".code-wrap:has(> textarea.held) {", 1)[1].split("}", 1)[0]
+        assert "border-color: var(--divider-color);" in held
+        assert ".code-wrap" not in _read("ir-rf-editor.ts").split("static styles", 1)[1]
+
+    def test_the_other_field_is_as_tall_as_the_band_pills(self):
+        text = _read("ir-rf-editor.ts")
+        field = text.split("            .other input {", 1)[1].split("}", 1)[0]
+        pill = text.split("            .preset {", 1)[1].split("}", 1)[0]
+        for rule in ("border-radius: 14px;", "font-size: 0.85rem;"):
+            assert rule in field and rule in pill, rule
+        assert "padding: 5px 10px;" in field and "padding: 5px 12px;" in pill
+        assert "width: 6em;" in field
 
 
 class TestTheRadioOrder:

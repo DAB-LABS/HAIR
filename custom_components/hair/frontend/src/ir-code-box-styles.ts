@@ -9,7 +9,7 @@
  * and the frequency ladder on the other. What they share is how the
  * code reads on screen, and that lives here, once:
  *
- *   codeBoxStyles   the box: monospace, the copper focus edge, the
+ *   codeBoxStyles   the box: monospace, the steady copper edge, the
  *                   corner copy icon and its "Copied" hint. The border
  *                   is on the wrapper, and the icon sits in a 24 px strip
  *                   above the text, so a box long enough to scroll draws
@@ -34,8 +34,9 @@ import { css } from "lit";
 import { t } from "./localize.js";
 import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR, EMBER_VAR, DEEP_GREEN_VAR } from "./ir-header-chip-styles.js";
 
-/** The copper the code box wears in focus, as the infrared box always
- *  has. */
+/** The code box's copper stroke: the infrared box wore it in focus, and
+ *  it opened focused, so it read as copper; now both boxes wear it
+ *  always. */
 const CODE_FOCUS = css`#b87333`;
 
 export const codeBoxStyles = css`
@@ -46,11 +47,12 @@ export const codeBoxStyles = css`
            and a scrollbar never share a corner. */
         padding-top: 24px;
         border-radius: 4px;
-        border: 1px solid var(--divider-color);
+        /* Copper, steady, focused or not (owner, 2026-11-16): the code
+           box reads the same in both editors whether or not it has the
+           cursor. Only a held repair box steps back to the divider
+           (ir-signal-editor.ts). */
+        border: 1px solid ${CODE_FOCUS};
         background: var(--card-background-color);
-    }
-    .code-wrap:focus-within {
-        border-color: ${CODE_FOCUS};
     }
     .code-wrap textarea {
         display: block;

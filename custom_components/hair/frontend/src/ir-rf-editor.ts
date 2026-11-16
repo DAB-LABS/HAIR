@@ -602,8 +602,15 @@ export class IrRfEditor extends LitElement {
                 align-items: center;
                 gap: 4px;
             }
+            /* As tall as the band pills beside it, and narrower (owner,
+               2026-11-16): the pills' padding, type size and rounding. */
             .other input {
-                width: 7.5em;
+                width: 6em;
+                box-sizing: border-box;
+                padding: 5px 10px;
+                border-radius: 14px;
+                font-size: 0.85rem;
+                line-height: normal;
             }
             .other input.invalid {
                 border-color: var(--error-color, #db4437);
