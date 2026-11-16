@@ -309,7 +309,8 @@ def _media(rows: Any, *, matrix: bool = False) -> list[str]:
 def _augment_rf_family(rows: Any) -> None:
     """Give each radio row its family label and its diamonds, worked out
     from the row's own timings for the panel (never stored, never part
-    of the identity). Infrared rows are left as they are.
+    of the identity), and ``rf_rolling``: the rolling family it reads
+    as, or None. Infrared rows are left as they are.
 
     The diamonds (``sl_pattern``, owner 2026-11-15: radio rows get them
     wherever infrared rows do) are the fingerprint's own S/L reading of
@@ -320,10 +321,15 @@ def _augment_rf_family(rows: Any) -> None:
     ``rf_frames``, so the two cannot share one reading; each is cached
     per frame.
     """
-    from .rf_family import family_payload
+    from .rf_family import family_payload, rolling_family
 
     for row in rows or []:
         if isinstance(row, dict) and row.get("medium") == MEDIUM_RF:
+            # Whether the row is a rolling code HAIR will not send, so a
+            # door can say so before it is pressed. Guarded inside: a
+            # decoder failure gives None, and the row stays sendable, as
+            # at the send path.
+            row["rf_rolling"] = rolling_family(row.get("raw_timings"))
             # A label never costs the page: a decoder failure on one row
             # is logged at debug and that row goes out with no label.
             try:

@@ -274,6 +274,7 @@ class TestTheExport:
         assert [s.alias for s in build.wig.signals] == ["On"]
         assert build.skipped == 1
         assert any(n.startswith("Open is a rolling code") for n in build.notes)
+        assert not any("trigger" in n for n in build.notes)
 
 
 class TestTriggersStayAllowed:
@@ -289,10 +290,47 @@ class TestTriggersStayAllowed:
             assert "rolling" not in inspect.getsource(getattr(module, name))
 
 
-def test_the_message_says_why_and_what_is_left():
-    """The message is plain words, for the log; the panel says it from
-    the code."""
+def test_the_message_says_why_and_promises_nothing():
+    """The message is plain words, for the log and until the panel's own
+    line; it makes no trigger promise until rolling triggers ship."""
     from custom_components.hair.const import RF_ROLLING_CODE_MESSAGE
 
-    assert "rolling-code" in RF_ROLLING_CODE_MESSAGE
-    assert "trigger" in RF_ROLLING_CODE_MESSAGE
+    assert "rolling code" in RF_ROLLING_CODE_MESSAGE
+    assert "never sends" in RF_ROLLING_CODE_MESSAGE
+    assert "trigger" not in RF_ROLLING_CODE_MESSAGE
+
+
+class TestThePanelIsToldFirst:
+    """``rf_rolling`` on every radio row the panel gets, so a door can
+    say it before the press (Gertrude, HARF, 2026-11-16)."""
+
+    def _rows(self, keyfob):  # noqa: F811
+        from custom_components.hair.websocket_api import _augment_rf_family
+
+        rows = [
+            {"medium": MEDIUM_RF, "raw_timings": list(KEELOQ)},
+            {"medium": MEDIUM_RF, "raw_timings": list(SOMFY)},
+            {"medium": MEDIUM_RF, "raw_timings": list(keyfob.frame)},
+            {"medium": MEDIUM_IR, "raw_timings": list(KEELOQ)},
+        ]
+        _augment_rf_family(rows)
+        return rows
+
+    def test_each_radio_row_says_whether_it_is_rolling(self, keyfob):  # noqa: F811
+        rows = self._rows(keyfob)
+        assert [r.get("rf_rolling") for r in rows[:3]] == ["keeloq", "somfy_rts", None]
+        assert "rf_rolling" not in rows[3]
+
+    def test_a_decoder_that_raises_leaves_the_row_sendable(self, keyfob):  # noqa: F811
+        def broken(_frame):
+            raise ZeroDivisionError
+
+        with patch.object(rf_family, "_SHAPES", (broken,)):
+            rows = self._rows(keyfob)
+        assert [r.get("rf_rolling") for r in rows[:3]] == [None, None, None]
+
+    def test_the_detected_push_carries_it(self):
+        from custom_components.hair import signal_monitor
+
+        source = inspect.getsource(signal_monitor)
+        assert 'summary["rf_rolling"] = rolling_family(signal.raw_timings)' in source

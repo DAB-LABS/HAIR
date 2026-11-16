@@ -203,8 +203,8 @@ def build_wig_from_device(
             if rolling_row(command) is not None:
                 skipped += 1
                 notes.append(
-                    f"{alias} is a rolling code and was left out. HAIR never "
-                    "sends a rolling code; it stays a trigger."
+                    f"{alias} is a rolling code and was left out: HAIR "
+                    "never sends a rolling code."
                 )
                 continue
             rf = wig_rf_of(command)

@@ -2713,8 +2713,10 @@ class SignalMonitor:
             # panel's patch keeps the label it already holds). A label
             # never costs a press its event: a decoder failure is logged
             # at debug and the event goes out with no label.
-            from .rf_family import family_payload
+            from .rf_family import family_payload, rolling_family
 
+            # Guarded inside, as at the send path (rolling-code guard).
+            summary["rf_rolling"] = rolling_family(signal.raw_timings)
             try:
                 summary["rf_family"] = family_payload(signal.raw_timings)
             except Exception:
