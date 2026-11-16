@@ -45,7 +45,8 @@ import "./ir-listen-row.js";
 import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR, headerChipStyles } from "./ir-header-chip-styles.js";
 import { protoGlyphStyles, protoLabel, renderProtoGlyph } from "./ir-proto-glyph.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
-import { browserStorage, loadMediaShow, saveMediaShow } from "./media-filter.js";
+import { browserStorage, hiddenMedium, loadMediaShow, saveMediaShow } from "./media-filter.js";
+import { HiddenActivity, hiddenActivityStyles } from "./hidden-activity.js";
 import {
     SNIFFER_SHOW_DEFAULT,
     carrierParts,
@@ -293,28 +294,19 @@ export class IrSignalMonitor extends LitElement {
     @state() private _testDialog: { signal: UnknownSignal } | null = null;
     @state() private _testEmitters: string[] = [];
 
-    // Hidden-activity surface (the Hidden chip).
-    // ``_hiddenGlow`` drives the transient blue glow on the chip -- it
-    // flips true on every hidden-activity bus event (a hidden remote
-    // was heard) and clears after a hold timer (slightly longer than
-    // the hit-flash so it stays discoverable).
-    // ``_hiddenDot`` is the persistent dot indicator -- it sticks from
-    // the first hidden-activity event after panel mount until the user
-    // presses the Hidden chip (the click-through that owns restoring
-    // those remotes).
-    @state() private _hiddenGlow = false;
-    @state() private _hiddenDot = false;
+    // Something hidden is still arriving (hidden-activity.ts): the eye
+    // rings and keeps a dot when a hidden remote is heard, and the IR
+    // and RF glyphs do the same when a signal of a switched-off medium
+    // is heard (owner, 2026-11-16 13:08 PT). One behaviour, three holders.
+    private readonly _hiddenRemotes = new HiddenActivity(this);
+    private readonly _hiddenMedia = {
+        ir: new HiddenActivity(this),
+        rf: new HiddenActivity(this),
+    };
 
     private _unsubLive: (() => Promise<void>) | null = null;
     private _unsubRemoved: (() => Promise<void>) | null = null;
     private _unsubHidden: (() => Promise<void>) | null = null;
-    private _hiddenGlowTimer: ReturnType<typeof setTimeout> | null = null;
-    /**
-     * Glow hold duration in ms. Hit-flash is ~2500ms; the hidden-activity
-     * glow holds ~3800ms so it sits 1-1.5 seconds longer than a hit-flash,
-     * per the v0.2.0 plan decision: discoverable, not loud.
-     */
-    private static readonly HIDDEN_GLOW_HOLD_MS = 3800;
 
     // Drag-to-reorder (remotes + signals-within-a-remote).
     @state() private _remotesVersion = 0;
@@ -377,10 +369,6 @@ export class IrSignalMonitor extends LitElement {
         void this._unsubscribeHiddenActivity();
         void this._unsubscribeUpdated();
         this._removePopoverDismiss();
-        if (this._hiddenGlowTimer !== null) {
-            clearTimeout(this._hiddenGlowTimer);
-            this._hiddenGlowTimer = null;
-        }
         this._remotesSortable?.destroy();
         this._remotesSortable = null;
         this._signalsSortable?.destroy();
@@ -656,26 +644,7 @@ export class IrSignalMonitor extends LitElement {
      * and sets the persistent dot until the user clicks through.
      */
     private _onHiddenActivity(): void {
-        this._hiddenDot = true;
-        if (this._hiddenGlowTimer !== null) {
-            clearTimeout(this._hiddenGlowTimer);
-            this._hiddenGlowTimer = null;
-        }
-        // Every press glows again (owner bench, 19:35): the class comes
-        // off and goes back on two frames later, so the browser sees a
-        // real remove-then-add and restarts the animation, the way the
-        // card blooms do (BloomTracker). Left on, a second press while it
-        // was still glowing did nothing.
-        this._hiddenGlow = false;
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                this._hiddenGlow = true;
-                this._hiddenGlowTimer = setTimeout(() => {
-                    this._hiddenGlow = false;
-                    this._hiddenGlowTimer = null;
-                }, IrSignalMonitor.HIDDEN_GLOW_HOLD_MS);
-            });
-        });
+        this._hiddenRemotes.ping();
     }
 
     // --- Inline rename ---
@@ -1261,6 +1230,12 @@ export class IrSignalMonitor extends LitElement {
         // renders them. Without this guard every HAIR send would look like
         // an unknown device and trigger a full list reload.
         if (ev.device_fingerprint === MIRROR_DEVICE_FP) return;
+        // A signal of a switched-off medium: its glyph rings and keeps a
+        // dot, as the eye does for a hidden remote. A hidden remote's
+        // press never comes this way (the server drops it from the live
+        // feed and sends dismiss activity), so it rings the eye only.
+        const hidden = hiddenMedium(this._show, ev.medium);
+        if (hidden) this._hiddenMedia[hidden].ping();
         const now = new Date().toISOString();
 
         // Update the matching device in our local list, or add a new one.
@@ -1485,6 +1460,8 @@ export class IrSignalMonitor extends LitElement {
     private _toggleShow(kind: keyof SnifferShow): void {
         this._show = { ...this._show, [kind]: !this._show[kind] };
         if (kind !== "hidden") {
+            // Showing a medium again is the look that clears its dot.
+            if (this._show[kind]) this._hiddenMedia[kind].clearDot();
             saveMediaShow(browserStorage(), "sniffer", this._show);
             return;
         }
@@ -1492,7 +1469,7 @@ export class IrSignalMonitor extends LitElement {
         // the hidden remotes where they are; turning it on fetches them
         // while the rows on screen stay until the new set lands.
         if (this._show.hidden) {
-            this._hiddenDot = false;
+            this._hiddenRemotes.clearDot();
             void this._load();
         } else {
             this._devices = this._devices.filter((d) => !d.dismissed);
@@ -1518,20 +1495,19 @@ export class IrSignalMonitor extends LitElement {
             },
         ];
         return html`<div class="show-glyphs" role="group" aria-label=${t("sniffer.filter.label")}>
-            ${glyphs.map(
-                (g) => html`<button
-                    class="show-glyph ${this._show[g.kind] ? "on" : ""} ${g.kind === "hidden" && this._hiddenGlow ? "hidden-glow" : ""}"
+            ${glyphs.map((g) => {
+                const activity = g.kind === "hidden" ? this._hiddenRemotes : this._hiddenMedia[g.kind];
+                return html`<button
+                    class="show-glyph ${this._show[g.kind] ? "on" : ""} ${activity.glow ? "hidden-glow" : ""}"
                     aria-pressed=${this._show[g.kind] ? "true" : "false"}
                     aria-label=${g.label}
                     title=${g.label}
                     @click=${() => this._toggleShow(g.kind)}
                 >
                     ${g.icon}
-                    ${g.kind === "hidden" && this._hiddenDot
-                        ? html`<span class="hidden-dot" aria-hidden="true"></span>`
-                        : nothing}
-                </button>`,
-            )}
+                    ${activity.dot ? html`<span class="hidden-dot" aria-hidden="true"></span>` : nothing}
+                </button>`;
+            })}
         </div>`;
     }
 
@@ -2237,7 +2213,7 @@ export class IrSignalMonitor extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bloomStyles, headerChipStyles, protoGlyphStyles, bottomToastStyles, filterGlyphStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, bloomStyles, headerChipStyles, protoGlyphStyles, bottomToastStyles, filterGlyphStyles, hiddenActivityStyles, css`
         /* Edit + trash sit as one unit, hover boxes butted with zero
            gap -- same pairing ir-command-row.ts's device-detail rows
            use (edit-and-actions bench passes, 2026-08-11), rolled out
@@ -3126,57 +3102,8 @@ export class IrSignalMonitor extends LitElement {
             font-size: 0.85rem;
         }
 
-        /* Transient blue pulse on the Hidden chip when a signal arrives
-           from a hidden remote. Reuses the same --primary-color blue
-           users associate with "a signal just arrived", held ~3.8s so it
-           sits about 1.3s longer than the hit-flash and stays
-           discoverable. */
-        /* A press from a hidden remote: the ring around the button and
-           the eye itself lit in the Sniffer's blue with a halo, every
-           press (owner bench, 19:35). */
-        .show-glyph.hidden-glow {
-            animation: hidden-pulse 3.8s ease-out;
-        }
-        .show-glyph.hidden-glow ha-svg-icon {
-            animation: hidden-eye 3.8s ease-out;
-        }
-        @keyframes hidden-eye {
-            0% { color: var(--primary-color); filter: drop-shadow(0 0 0 rgba(33, 150, 243, 0)); }
-            12% { color: var(--primary-color); filter: drop-shadow(0 0 6px rgba(33, 150, 243, 0.95)) drop-shadow(0 0 2px rgba(33, 150, 243, 0.9)); }
-            60% { color: var(--primary-color); filter: drop-shadow(0 0 4px rgba(33, 150, 243, 0.6)); }
-            100% { filter: drop-shadow(0 0 0 rgba(33, 150, 243, 0)); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-            .show-glyph.hidden-glow,
-            .show-glyph.hidden-glow ha-svg-icon {
-                animation: none;
-                color: var(--primary-color);
-            }
-        }
-        @keyframes hidden-pulse {
-            0% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.0); }
-            12% { box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.85), 0 0 12px 4px rgba(33, 150, 243, 0.55); }
-            70% { box-shadow: 0 0 0 1px rgba(33, 150, 243, 0.4), 0 0 6px 2px rgba(33, 150, 243, 0.3); }
-            100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.0); }
-        }
-
-        /* Persistent dot on the Hidden chip's top-right. Stays from the
-           first hidden-activity event after panel mount until the user
-           presses the chip (the click-through that owns restoring hidden
-           remotes). */
-        /* On the eye's upper right, not off in the button's corner
-           (owner bench, 19:35). */
-        .hidden-dot {
-            position: absolute;
-            top: 2px;
-            right: 4px;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--primary-color);
-            box-shadow: 0 0 4px rgba(33, 150, 243, 0.55);
-            pointer-events: none;
-        }
+        /* The ring and the dot on the eye and the IR and RF glyphs:
+           hiddenActivityStyles (hidden-activity.ts). */
 
         /* Latest signal: deep green fill (AA contrast with the white
            label) with a mint rim that previews the hit ring. Locked

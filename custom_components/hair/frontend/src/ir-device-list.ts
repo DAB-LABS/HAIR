@@ -57,9 +57,11 @@ import { receiverIdMedium } from "./receiver-medium.js";
 import { PROTO_SIGNAL, PROTO_SOURCE, protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
 import { captureSignature, cardCaptureState } from "./ir-listen-state.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
+import { HiddenActivity, hiddenActivityStyles } from "./hidden-activity.js";
 import {
     browserStorage,
     loadMediaShow,
+    hiddenMedium,
     mediaShows,
     mediaShowsEverything,
     saveMediaShow,
@@ -263,6 +265,15 @@ export class IrDeviceList extends LitElement {
     @state() private _pluckedStores: PluckedStoreRecord[] = [];
     @state() private _expandedDevice: IRDevice | null = null;
     @state() private _triggers: IRTrigger[] = [];
+    /** A press on a Remote whose medium is switched off in the Remotes
+     *  header: that medium's glyph rings and keeps a dot, as the
+     *  Sniffer's eye does for a hidden remote (owner, 2026-11-16 13:08 PT;
+     *  hidden-activity.ts). The Devices header does not: a device is not
+     *  heard (owner, 13:40 PT). */
+    private readonly _hiddenRemoteMedia = {
+        ir: new HiddenActivity(this),
+        rf: new HiddenActivity(this),
+    };
     @state() private _glowTriggerIds = new Set<string>();
     @state() private _editTrigger: IRTrigger | null = null;
     // Signpost 4, Track M: the create-mode trigger dialog, opened
@@ -1646,6 +1657,7 @@ export class IrDeviceList extends LitElement {
                         return;
                     }
                     if (ev.kind) return;
+                    this._ringHiddenRemoteMedium(ev.trigger_id);
                     // Glow the collapsed drawer card and the fired row alike
                     // (BloomTracker's sequence numbering is what fixes the
                     // v0.7.2 repeat-fire-cut-short bug -- see
@@ -1690,6 +1702,16 @@ export class IrDeviceList extends LitElement {
             // Non-fatal, and it lets a later attempt try again.
             this._triggerFiredSub = null;
         }
+    }
+
+    /** A fire on a Remote's trigger whose medium the Remotes header has
+     *  switched off. A loose trigger (no Remote) is not under that
+     *  filter. A HAIR send heard back is an echo, never a fire. */
+    private _ringHiddenRemoteMedium(triggerId: string): void {
+        const trigger = this._triggers.find((t) => t.id === triggerId);
+        if (!trigger?.trigger_remote_id) return;
+        const hidden = hiddenMedium(this._mediaShow.remotes, trigger.medium);
+        if (hidden) this._hiddenRemoteMedia[hidden].ping();
     }
 
     private async _unsubscribeTriggerFired(): Promise<void> {
@@ -2118,6 +2140,8 @@ export class IrDeviceList extends LitElement {
     private _toggleMedia(section: HomeSection, kind: keyof MediaShow): void {
         const show = { ...this._mediaShow[section], [kind]: !this._mediaShow[section][kind] };
         this._mediaShow = { ...this._mediaShow, [section]: show };
+        // Showing a medium again is the look that clears its dot.
+        if (section === "remotes" && show[kind]) this._hiddenRemoteMedia[kind].clearDot();
         saveMediaShow(browserStorage(), section, show);
     }
 
@@ -2130,17 +2154,19 @@ export class IrDeviceList extends LitElement {
             { kind: "rf", label: t("sniffer.filter.radio"), medium: "rf" },
         ];
         return html`<div class="show-glyphs" role="group" aria-label=${t("sniffer.filter.label")}>
-            ${glyphs.map(
-                (g) => html`<button
-                    class="show-glyph ${show[g.kind] ? "on" : ""}"
+            ${glyphs.map((g) => {
+                const activity = section === "remotes" ? this._hiddenRemoteMedia[g.kind] : null;
+                return html`<button
+                    class="show-glyph ${show[g.kind] ? "on" : ""} ${activity?.glow ? "hidden-glow" : ""}"
                     aria-pressed=${show[g.kind] ? "true" : "false"}
                     aria-label=${g.label}
                     title=${g.label}
                     @click=${() => this._toggleMedia(section, g.kind)}
                 >
                     ${renderProtoGlyph(g.medium, 18)}
-                </button>`,
-            )}
+                    ${activity?.dot ? html`<span class="hidden-dot" aria-hidden="true"></span>` : nothing}
+                </button>`;
+            })}
         </div>`;
     }
 
@@ -3151,6 +3177,7 @@ export class IrDeviceList extends LitElement {
         bloomStyles,
         protoGlyphStyles,
         filterGlyphStyles,
+        hiddenActivityStyles,
         css`
         /* Punch list item 17. A .trh-header .settings-btn rule setting
            margin-right 2px used to live here, from the header this one
