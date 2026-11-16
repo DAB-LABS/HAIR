@@ -20,7 +20,14 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { rfRefusal } from "./rf-errors.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
-import { codeBoxStyles, diamondStyles, feedbackStyles, fitCodeBox } from "./ir-code-box-styles.js";
+import {
+    codeBoxStyles,
+    deleteStyles,
+    diamondStyles,
+    feedbackStyles,
+    fitCodeBox,
+    recognizedAs,
+} from "./ir-code-box-styles.js";
 import type { HairApi } from "./api.js";
 import {
     LAST_RECEIVER_KEY,
@@ -307,6 +314,15 @@ export class IrSignalEditor extends LitElement {
 
     private get _isEdit(): boolean {
         return this.signalId !== null || this.commandId !== null;
+    }
+
+    /** Delete, bottom left, as the radio editor has it (owner,
+     *  2026-11-16: the same in both editors). Only on a saved command or
+     *  signal, never when creating, and never in a repair. The host
+     *  closes the editor and opens the confirmation the row's own delete
+     *  opens, so trigger warnings and clean-up run the one path. */
+    private _requestDelete(): void {
+        this.dispatchEvent(new CustomEvent("delete-requested"));
     }
 
     private get _dirty(): boolean {
@@ -1734,8 +1750,10 @@ export class IrSignalEditor extends LitElement {
 
     /**
      * The code's identity, once, inside the box's info line (owner,
-     * 2026-11-16, at #274's look): the pill, where "Recognized as ..."
-     * and a second pill under the box used to say it twice.
+     * 2026-11-16, at #274's look): "Recognized as", then the pill, where
+     * the sentence and a second pill under the box used to say it twice.
+     * The pill takes the protocol's place in the sentence, so recognition
+     * reads the same way everywhere in HAIR.
      *
      * Same component as every other home, so the choice reads the same
      * here as on the row. In command mode it is live, because this is
@@ -1747,19 +1765,17 @@ export class IrSignalEditor extends LitElement {
      *
      * The protocol shown is the LIVE decode when there is one, so a
      * capture that has not been saved yet still names itself; a command
-     * falls back to its saved decode, as the pill under the box did. A
-     * screen reader hears the old sentence as the pill's group label.
+     * falls back to its saved decode, as the pill under the box did. The
+     * words are visible text, so a screen reader reads the sentence too.
      */
     private _renderIdentity(v: ProntoValidation) {
         const protocol = this._isCommand
             ? (v.recognized_protocol ?? this.initialDecodedProtocol)
             : v.recognized_protocol;
         if (!protocol) return "";
-        return html`<span
-            class="identity"
-            role="group"
-            aria-label=${t("editor.recognized_as", { protocol })}
-        >
+        const [before, after] = recognizedAs();
+        return html`<span class="identity">
+            ${before ? html`<span class="recognized">${before}</span>` : ""}
             <ir-protocol-chip
                 .protocol=${protocol}
                 ?bypass=${this._isCommand && this._bypass}
@@ -1771,6 +1787,7 @@ export class IrSignalEditor extends LitElement {
                     void this._refreshSpacingInfo();
                 }}
             ></ir-protocol-chip>
+            ${after ? html`<span class="recognized">${after}</span>` : ""}
         </span>`;
     }
 
@@ -2061,6 +2078,15 @@ export class IrSignalEditor extends LitElement {
                      decisions are made: Listen at the far left, the
                      spacer, then Cancel and the primary. -->
                 <div class="dialog-actions">
+                    ${this._isEdit && !this._isTangle
+                        ? html`<button
+                              class="action-btn delete-btn"
+                              @click=${this._requestDelete}
+                              ?disabled=${this._busy}
+                          >
+                              ${t("common.delete")}
+                          </button>`
+                        : ""}
                     ${this._renderTangleListenButton()}
                     <span class="spacer"></span>
                     <button
@@ -2097,6 +2123,7 @@ export class IrSignalEditor extends LitElement {
         codeBoxStyles,
         feedbackStyles,
         diamondStyles,
+        deleteStyles,
         css`
             /* The press flow's own line, on the press road. It sits
                where the block that used to hold both it and the button

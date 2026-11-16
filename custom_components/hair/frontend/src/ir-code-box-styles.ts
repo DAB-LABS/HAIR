@@ -20,6 +20,9 @@
  *                   pill), the messages.
  *   diamondStyles   the S/L diamonds, long and short, in
  *                   the --hair-diamond-* tokens (hair-colors.ts).
+ *   recognizedAs    the words around the pill: "Recognized as", then
+ *                   the pill, read the same way everywhere in HAIR.
+ *   deleteStyles    Delete, bottom left, outlined ember, in both editors.
  *   fitCodeBox      the box's height: its content, between a floor and
  *                   a ceiling the caller passes (the infrared editor's
  *                   64 px to 45% of the viewport, or its held repair box).
@@ -28,6 +31,7 @@
  * (a held repair box, a snap flash) still wins on order.
  */
 import { css } from "lit";
+import { t } from "./localize.js";
 import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR, EMBER_VAR, DEEP_GREEN_VAR } from "./ir-header-chip-styles.js";
 
 /** The copper the code box wears in focus, as the infrared box always
@@ -145,7 +149,7 @@ export const feedbackStyles = css`
         display: inline-flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 4px 8px;
+        gap: 4px 6px;
         min-width: 0;
     }
     .msg {
@@ -175,6 +179,33 @@ export const diamondStyles = css`
     }
     .diamond.short {
         color: ${DIAMOND_SHORT_VAR};
+    }
+`;
+
+/** The recognition sentence around the pill (owner, 2026-11-16: "Recognized
+ *  as", then the pill, so recognition reads the same way everywhere in
+ *  HAIR). The pill takes the protocol's place in the sentence, so a
+ *  language that puts the name first ("{protocol} として認識") keeps its
+ *  order: the words before the name, then the words after it. */
+export function recognizedAs(): [string, string] {
+    const MARK = "\u0000";
+    const sentence = t("editor.recognized_as", { protocol: MARK });
+    const at = sentence.indexOf(MARK);
+    if (at < 0) return [sentence, ""];
+    return [sentence.slice(0, at).trimEnd(), sentence.slice(at + MARK.length).trimStart()];
+}
+
+/** Delete, bottom left in both editors (owner, 2026-11-16): outlined
+ *  ember, as the other dialogs' Delete. The host opens the same
+ *  confirmation the row's own delete opens. */
+export const deleteStyles = css`
+    .delete-btn {
+        background: none;
+        border-color: ${EMBER_VAR};
+        color: ${EMBER_VAR};
+    }
+    .delete-btn:hover:not(:disabled) {
+        background: color-mix(in srgb, ${EMBER_VAR} 14%, transparent);
     }
 `;
 

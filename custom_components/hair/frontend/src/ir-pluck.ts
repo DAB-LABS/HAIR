@@ -1429,6 +1429,11 @@ export class IrPluck extends LitElement {
                           .observed_repeat_count ?? 0}
                       .hasTrigger=${this._hasTrigger(this._editSignal.signal)}
                       @signal-edited=${this._onSignalEdited}
+                      @delete-requested=${() => {
+                          const { deviceId, signal } = this._editSignal!;
+                          this._editSignal = null;
+                          this._openDelete(deviceId, signal);
+                      }}
                       @closed=${() => (this._editSignal = null)}
                   ></ir-signal-editor>`
                 : ""}

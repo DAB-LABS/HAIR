@@ -10,11 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Radio commands and triggers show the short and long diamonds that infrared ones show, read the same way HAIR tells radio codes apart.
+- The infrared code editor has Delete, as the radio one does: bottom left, only for a saved command or signal, with the same confirmation as deleting from the row.
 
 ### Changed
 
 - The radio code editor now looks like the infrared one: the code box, then a line with the code's frequency, how many frames agree and its family pill, then its diamonds.
-- In both code editors the code's identity shows once, as its pill on that line, instead of a "Recognized as" sentence and a second pill under the box.
+- In both code editors the code's identity shows once, in the box, as "Recognized as" and its pill.
 
 ### Fixed
 

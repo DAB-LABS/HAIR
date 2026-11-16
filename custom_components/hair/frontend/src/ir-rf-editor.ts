@@ -30,10 +30,16 @@ import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
-import { codeBoxStyles, diamondStyles, feedbackStyles, fitCodeBox } from "./ir-code-box-styles.js";
+import {
+    codeBoxStyles,
+    deleteStyles,
+    diamondStyles,
+    feedbackStyles,
+    fitCodeBox,
+    recognizedAs,
+} from "./ir-code-box-styles.js";
 import { sendRefusal } from "./rf-errors.js";
 import { sendTimesHint } from "./rf-send-count.js";
-import { EMBER_VAR } from "./ir-header-chip-styles.js";
 import {
     RF_PRESETS_HZ,
     hzToMhz,
@@ -445,13 +451,16 @@ export class IrRfEditor extends LitElement {
 
     /** The code's identity, inside the strip's info line (owner,
      *  2026-11-16, at #274's look: once, in the box, as the infrared
-     *  editor shows it): the family's pill, then its fields as plain
-     *  text. Read-only. It describes the saved code, so it goes as soon
+     *  editor shows it): "Recognized as", the family's pill, then its
+     *  fields as plain text. Read-only. It describes the saved code, so it goes as soon
      *  as the code in the box changes. */
     private _renderFamily() {
         if (this._creating || this._codeChanged || !this.initialFamily) return nothing;
+        const [before, after] = recognizedAs();
         return html`<span class="identity">
+            ${before ? html`<span class="recognized">${before}</span>` : nothing}
             <ir-protocol-chip .family=${this.initialFamily}></ir-protocol-chip>
+            ${after ? html`<span class="recognized">${after}</span>` : nothing}
             <span class="family-fields">${familyEditorText(this.initialFamily)}</span>
         </span>`;
     }
@@ -552,6 +561,7 @@ export class IrRfEditor extends LitElement {
         codeBoxStyles,
         feedbackStyles,
         diamondStyles,
+        deleteStyles,
         css`
             .count-hint {
                 margin-top: 6px;
@@ -566,15 +576,7 @@ export class IrRfEditor extends LitElement {
             }
             /* The code box, its copy icon, the strip and the diamonds are
                the infrared editor's (ir-code-box-styles.ts), loaded above. */
-            /* Delete: outlined ember, as the other dialogs' Delete. */
-            .delete-btn {
-                background: none;
-                border-color: ${EMBER_VAR};
-                color: ${EMBER_VAR};
-            }
-            .delete-btn:hover:not(:disabled) {
-                background: color-mix(in srgb, ${EMBER_VAR} 14%, transparent);
-            }
+            /* Delete's look is shared with the infrared editor (deleteStyles). */
             .freq-row {
                 display: flex;
                 flex-wrap: wrap;

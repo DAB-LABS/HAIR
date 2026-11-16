@@ -38,6 +38,10 @@ def _read(name: str) -> str:
     return (SRC / name).read_text(encoding="utf-8")
 
 
+def _locale(lang: str) -> dict:
+    return json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
+
+
 def _flat(name: str) -> str:
     return " ".join(_read(name).split())
 
@@ -70,6 +74,44 @@ def heights(tmp_path_factory):
     return json.loads(result.stdout)
 
 
+@pytest.fixture(scope="module")
+def recognized(tmp_path_factory):
+    """recognizedAs() under node, against the real locale strings."""
+    if TOOLCHAIN_MISSING:
+        pytest.skip("frontend toolchain not installed (node_modules / node)")
+    out = tmp_path_factory.mktemp("recognized")
+    src = _read("ir-code-box-styles.ts")
+    fn = src[src.index("export function recognizedAs()"):]
+    fn = fn[:fn.index("\n}\n") + 3]
+    rule = "declare function t(key: string, subs: Record<string, string>): string;\n" + fn
+    (out / "rule.ts").write_text(rule, encoding="utf-8")
+    subprocess.run(
+        [str(TSC), str(out / "rule.ts"), "--module", "esnext", "--target", "es2022",
+         "--skipLibCheck", "--outDir", str(out)],
+        cwd=FRONTEND, check=True, capture_output=True, timeout=180,
+    )
+    js = (out / "rule.js").read_text(encoding="utf-8")
+    sentences = {
+        lang: _locale(lang)["editor.recognized_as"]
+        for lang in ("en", "de", "ja", "zh")
+    }
+    driver = (
+        f"const SENTENCES = {json.dumps(sentences, ensure_ascii=False)};\n"
+        "let LANG = 'en';\n"
+        "function t(key, subs) {\n"
+        "  return SENTENCES[LANG].split('{protocol}').join(subs.protocol);\n"
+        "}\n"
+        + js.replace("export function", "function")
+        + "\nconst out = {};\n"
+        "for (const lang of Object.keys(SENTENCES)) { LANG = lang; out[lang] = recognizedAs(); }\n"
+        "console.log(JSON.stringify(out));\n"
+    )
+    (out / "driver.mjs").write_text(driver, encoding="utf-8")
+    result = subprocess.run(["node", str(out / "driver.mjs")], check=True,
+                            capture_output=True, text=True, timeout=60)
+    return json.loads(result.stdout)
+
+
 class TestTheSharedCodeBox:
     def test_the_fit_is_the_infrared_rule(self, heights):
         # The whole box (strip and border included) between the floor and
@@ -79,7 +121,7 @@ class TestTheSharedCodeBox:
     def test_both_editors_load_it_first(self):
         for name in ("ir-signal-editor.ts", "ir-rf-editor.ts"):
             flat = _flat(name)
-            assert "codeBoxStyles, feedbackStyles, diamondStyles, css`" in flat, name
+            assert "codeBoxStyles, feedbackStyles, diamondStyles, deleteStyles, css`" in flat, name
             assert "fitCodeBox(ta," in flat, name
 
     def test_the_infrared_sizing_keeps_its_clamp(self):
@@ -198,8 +240,9 @@ def _identity(text: str) -> str:
 
 class TestTheIdentityInTheBox:
     """Owner, 2026-11-16, at #274's look on VM999: the code's identity
-    lives inside the validation box, once, in both editors. No "Recognized
-    as" sentence and no second pill under the box."""
+    lives inside the validation box, once, in both editors, as "Recognized
+    as" and then the pill (his 12:07 PT correction: recognition reads the
+    same way everywhere in HAIR). No second pill under the box."""
 
     def _ir(self) -> str:
         return _read("ir-signal-editor.ts")
@@ -211,9 +254,8 @@ class TestTheIdentityInTheBox:
         metrics = metrics[:metrics.index("</div>")]
         assert "${this._renderIdentity(v)}" in metrics
 
-    def test_no_sentence_and_no_second_pill(self):
+    def test_no_second_pill(self):
         text = self._ir()
-        assert 'class="recognized"' not in text
         assert "_renderPill" not in text
         assert 'class="pill-row"' not in text
         # One pill in the whole editor: the one inside the box.
@@ -231,11 +273,27 @@ class TestTheIdentityInTheBox:
         assert "void this._refreshSpacingInfo();" in body
         assert "(v.recognized_protocol ?? this.initialDecodedProtocol)" in body
 
-    def test_a_screen_reader_still_hears_the_sentence(self):
-        text = self._ir()
-        body = _identity(text)
-        assert 'role="group"' in body
-        assert 'aria-label=${t("editor.recognized_as", { protocol })}' in body
+    def test_recognized_as_then_the_pill_in_both_editors(self):
+        # Visible words, so a screen reader reads the sentence too.
+        ir = _identity(self._ir())
+        assert "const [before, after] = recognizedAs();" in ir
+        before = '<span class="recognized">${before}</span>'
+        assert ir.index(before) < ir.index("<ir-protocol-chip")
+        assert ir.index("<ir-protocol-chip") < ir.index('<span class="recognized">${after}</span>')
+        rf = _read("ir-rf-editor.ts").split("private _renderFamily() {", 1)[1]
+        rf = rf.split("\n    }", 1)[0]
+        assert "const [before, after] = recognizedAs();" in rf
+        assert rf.index("${before}") < rf.index("<ir-protocol-chip") < rf.index("familyEditorText")
+
+    def test_the_sentence_splits_around_the_name(self, recognized):
+        # English and German put the words first; Japanese and Chinese
+        # put the name first. The pill takes the name's place either way.
+        assert recognized == {
+            "en": ["Recognized as", ""],
+            "de": ["Erkannt als", ""],
+            "ja": ["", "として認識"],
+            "zh": ["识别为", ""],
+        }
 
     def test_unrecognized_shows_no_pill(self):
         text = self._ir()
@@ -253,6 +311,54 @@ class TestTheIdentityInTheBox:
         assert "flex-wrap: wrap;" in metrics and "align-items: center;" in metrics
         identity = css.split("    .identity {", 1)[1].split("}", 1)[0]
         assert "display: inline-flex;" in identity and "flex-wrap: wrap;" in identity
+
+
+class TestDeleteInBothEditors:
+    """Owner, 2026-11-16 at 12:08 PT: Delete in both editors, bottom left,
+    the same look, only where there is a saved thing to delete, and the
+    same confirmation and result as the row's own delete."""
+
+    def test_the_infrared_editor_has_it_on_a_saved_row_only(self):
+        text = _read("ir-signal-editor.ts")
+        actions = text.split('<div class="dialog-actions">', 1)[1].split("</div>", 1)[0]
+        assert "${this._isEdit && !this._isTangle" in actions
+        assert 'class="action-btn delete-btn"' in actions
+        assert "@click=${this._requestDelete}" in actions
+        # Bottom left: before the spacer that pushes Cancel and Save right.
+        assert actions.index("delete-btn") < actions.index('<span class="spacer">')
+        assert 'this.dispatchEvent(new CustomEvent("delete-requested"));' in text
+
+    def test_the_radio_editor_keeps_its_rule(self):
+        text = _read("ir-rf-editor.ts")
+        actions = text.split('<div class="dialog-actions">', 1)[1]
+        assert actions.index("${this._creating") < actions.index("delete-btn")
+        assert "return this.signalId === null && this.commandId === null;" in text
+
+    def test_one_look(self):
+        for name in ("ir-signal-editor.ts", "ir-rf-editor.ts"):
+            text = _read(name)
+            assert "deleteStyles," in text.split("static styles", 1)[1], name
+            assert ".delete-btn {" not in text, name
+
+    @pytest.mark.parametrize(
+        ("name", "handler"),
+        [
+            ("ir-clips.ts", "this._openDelete(deviceId, signal);"),
+            ("ir-signal-monitor.ts", "this._openDelete(deviceId, signal);"),
+            ("ir-pluck.ts", "this._openDelete(deviceId, signal);"),
+            ("ir-mirror.ts", "this._deleteSignal = sig;"),
+            ("ir-device-detail.ts", "this._commandToDelete = command;"),
+        ],
+    )
+    def test_every_host_opens_the_rows_own_confirmation(self, name, handler):
+        text = _read(name)
+        parts = text.split("<ir-signal-editor")[1:]
+        editors = [part.split("></ir-signal-editor>", 1)[0] for part in parts]
+        editing = [e for e in editors if ".signalId=" in e or ".commandId=" in e]
+        assert editing, name
+        for block in editing:
+            assert "@delete-requested=" in block, name
+            assert handler in block, name
 
 
 class TestTheDiamondsEverywhere:

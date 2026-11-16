@@ -1419,6 +1419,11 @@ export class IrMirror extends LitElement {
                           .observed_repeat_count ?? 0}
                       .hasTrigger=${this._triggerCountFor(this._editSignal) > 0}
                       @signal-edited=${this._onSignalEdited}
+                      @delete-requested=${() => {
+                          const sig = this._editSignal;
+                          this._editSignal = null;
+                          this._deleteSignal = sig;
+                      }}
                       @closed=${() => (this._editSignal = null)}
                   ></ir-signal-editor>`
                 : ""}
