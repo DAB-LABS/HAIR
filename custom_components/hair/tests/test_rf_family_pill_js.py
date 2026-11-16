@@ -284,7 +284,7 @@ class TestPlaces:
 
 
 class TestEditor:
-    def test_the_pill_row_reads_the_saved_family(self):
+    def test_the_identity_reads_the_saved_family(self):
         editor = _read("ir-rf-editor.ts")
         assert "public initialFamily: RfFamily | null = null;" in editor
         body = editor[editor.index("private _renderFamily()"):editor.index("render() {")]
@@ -292,13 +292,20 @@ class TestEditor:
         assert "<ir-protocol-chip .family=${this.initialFamily}>" in body
         assert "familyEditorText(this.initialFamily)" in body
 
-    def test_the_pill_row_sits_under_the_strip(self):
-        # The infrared editor's order (owner, 2026-11-15): the box, the
-        # strip, then the pill row.
+    def test_the_identity_sits_inside_the_strip(self):
+        # Owner, 2026-11-16 (#274's look): the identity lives inside the
+        # validation box, once, on the line with the MHz and the frames.
+        # Nothing is left between the box and Frequency.
         editor = _read("ir-rf-editor.ts")
+        strip = editor[
+            editor.index("private _renderFeedback() {"):editor.index("private _renderFrequency()")
+        ]
+        metrics = strip[strip.index('<div class="metrics">', strip.index("status ok")):]
+        metrics = metrics[:metrics.index("</div>")]
+        assert "${this._renderFamily()}" in metrics
         render = editor[editor.index("    render() {"):]
-        assert render.index('id="rf-code"') < render.index("this._renderFeedback()")
-        assert render.index("this._renderFeedback()") < render.index("this._renderFamily()")
+        assert "this._renderFamily()" not in render
+        assert 'class="pill-row"' not in editor
 
     @pytest.mark.parametrize(
         ("name", "row"),

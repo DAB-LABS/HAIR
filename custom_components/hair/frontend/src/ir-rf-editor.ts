@@ -352,8 +352,9 @@ export class IrRfEditor extends LitElement {
 
     /** The strip under the box, as the infrared editor's (owner,
      *  2026-11-15): always shown once there is a code, the saved one read
-     *  on open. Valid: the check mark, "Valid radio code", the code's
-     *  frequency, how many frames agree, and the diamonds. Refused: the
+     *  on open. Valid: the check mark, "Valid radio code", then one line
+     *  with the code's frequency, how many frames agree and its identity
+     *  (the family pill and its fields), then the diamonds. Refused: the
      *  reason, in place of all of that. */
     private _renderFeedback() {
         if (this._validating) {
@@ -379,6 +380,7 @@ export class IrRfEditor extends LitElement {
                         ? t("rfedit.one_frame")
                         : t("rfedit.frames_agree", { agreeing: String(agreeing), found: String(found) })}</span
                 >
+                ${this._renderFamily()}
             </div>
             ${v.sl_pattern
                 ? html`<div class="diamonds">
@@ -441,15 +443,17 @@ export class IrRfEditor extends LitElement {
             : nothing;
     }
 
-    /** The infrared editor's pill row, for radio (owner 2026-11-14, ruling
-     *  3): the family's pill, then its fields as plain text. It describes
-     *  the saved code, so it goes as soon as the code in the box changes. */
+    /** The code's identity, inside the strip's info line (owner,
+     *  2026-11-16, at #274's look: once, in the box, as the infrared
+     *  editor shows it): the family's pill, then its fields as plain
+     *  text. Read-only. It describes the saved code, so it goes as soon
+     *  as the code in the box changes. */
     private _renderFamily() {
         if (this._creating || this._codeChanged || !this.initialFamily) return nothing;
-        return html`<div class="pill-row">
+        return html`<span class="identity">
             <ir-protocol-chip .family=${this.initialFamily}></ir-protocol-chip>
             <span class="family-fields">${familyEditorText(this.initialFamily)}</span>
-        </div>`;
+        </span>`;
     }
 
     render() {
@@ -485,7 +489,7 @@ export class IrRfEditor extends LitElement {
                               </button>`
                         : nothing}
                 </div>
-                ${this._renderFeedback()} ${this._renderFamily()}
+                ${this._renderFeedback()}
             </div>
 
             ${this._renderFrequency()}
@@ -553,14 +557,6 @@ export class IrRfEditor extends LitElement {
                 margin-top: 6px;
                 font-size: 0.78rem;
                 color: var(--secondary-text-color);
-            }
-            /* The pill row: the same spacing as the infrared editor's. */
-            .pill-row {
-                display: flex;
-                align-items: center;
-                flex-wrap: wrap;
-                gap: 8px;
-                margin: 2px 0 10px;
             }
             .family-fields {
                 font-family: var(--code-font-family, monospace);

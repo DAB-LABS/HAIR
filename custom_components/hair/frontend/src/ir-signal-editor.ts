@@ -1733,39 +1733,45 @@ export class IrSignalEditor extends LitElement {
     }
 
     /**
-     * The standard one-pill, live, in command mode.
+     * The code's identity, once, inside the box's info line (owner,
+     * 2026-11-16, at #274's look): the pill, where "Recognized as ..."
+     * and a second pill under the box used to say it twice.
      *
      * Same component as every other home, so the choice reads the same
-     * here as on the row. It is live because this is where a replaced
-     * code most often needs pinning: a rough capture that will not
-     * re-encode cleanly is exactly what BYPASS is for, and making the
-     * person save, close, and toggle from the row would put two steps
-     * between the problem and its fix.
+     * here as on the row. In command mode it is live, because this is
+     * where a replaced code most often needs pinning: a rough capture
+     * that will not re-encode cleanly is exactly what BYPASS is for, and
+     * making the person save, close, and toggle from the row would put
+     * two steps between the problem and its fix. Elsewhere it only
+     * describes.
      *
      * The protocol shown is the LIVE decode when there is one, so a
-     * capture that has not been saved yet still names itself.
+     * capture that has not been saved yet still names itself; a command
+     * falls back to its saved decode, as the pill under the box did. A
+     * screen reader hears the old sentence as the pill's group label.
      */
-    private _renderPill() {
-        if (!this._isCommand) return "";
-        const protocol =
-            this._validation?.recognized_protocol ??
-            this.initialDecodedProtocol;
+    private _renderIdentity(v: ProntoValidation) {
+        const protocol = this._isCommand
+            ? (v.recognized_protocol ?? this.initialDecodedProtocol)
+            : v.recognized_protocol;
         if (!protocol) return "";
-        return html`
-            <div class="pill-row">
-                <ir-protocol-chip
-                    .protocol=${protocol}
-                    ?bypass=${this._bypass}
-                    interactive
-                    ?disabled=${this._busy}
-                    @toggle-bypass=${(e: CustomEvent) => {
-                        this._bypass = e.detail.bypass;
-                        // Replay and rebuild are different lengths.
-                        void this._refreshSpacingInfo();
-                    }}
-                ></ir-protocol-chip>
-            </div>
-        `;
+        return html`<span
+            class="identity"
+            role="group"
+            aria-label=${t("editor.recognized_as", { protocol })}
+        >
+            <ir-protocol-chip
+                .protocol=${protocol}
+                ?bypass=${this._isCommand && this._bypass}
+                ?interactive=${this._isCommand}
+                ?disabled=${this._busy}
+                @toggle-bypass=${(e: CustomEvent) => {
+                    this._bypass = e.detail.bypass;
+                    // Replay and rebuild are different lengths.
+                    void this._refreshSpacingInfo();
+                }}
+            ></ir-protocol-chip>
+        </span>`;
     }
 
     private _renderFeedback() {
@@ -1789,11 +1795,7 @@ export class IrSignalEditor extends LitElement {
                                         >${tp("editor.burst_pair", v.burst_pair_count)}</span
                                     >`
                                   : ""}
-                              ${v.recognized_protocol
-                                  ? html`<span class="recognized"
-                                        >${t("editor.recognized_as", { protocol: v.recognized_protocol })}</span
-                                    >`
-                                  : ""}
+                              ${this._renderIdentity(v)}
                           </div>
                           ${this._convertedFrom
                               ? html`<div class="converted">
@@ -1949,12 +1951,12 @@ export class IrSignalEditor extends LitElement {
                      is downstairs in the footer and the reason is
                      upstairs in the header, so what is left here is
                      only what has to be read on the way. Everywhere
-                     else the code box leads, and the validation, pill
-                     and snap keep following the box they describe either
-                     way. In the command editor "Replace this code" and
+                     else the code box leads, and the validation (the
+                     pill inside it) and snap keep following the box they
+                     describe either way. In the command editor "Replace this code" and
                      its Listen sit ABOVE the box (windowed receivers,
-                     round 3), so the box, its validation, its pill and
-                     its snap read together; the repair's order is
+                     round 3), so the box, its validation and its snap
+                     read together; the repair's order is
                      unchanged. -->
                 ${this._isTangle
                     ? html`${this._renderTangleIntro()}
@@ -1962,8 +1964,7 @@ export class IrSignalEditor extends LitElement {
                     : this._isCommand
                       ? html`${this._renderReplace()} ${this._renderCodeBox()}`
                       : html`${this._renderCodeBox()}`}
-                ${this._renderFeedback()}
-                ${this._renderPill()} ${this._renderSnap()}
+                ${this._renderFeedback()} ${this._renderSnap()}
 
                 ${this._isTangle
                     ? ""
@@ -2492,11 +2493,6 @@ export class IrSignalEditor extends LitElement {
             border-color: var(--primary-color);
             color: var(--primary-color);
             background: rgba(255, 255, 255, 0.06);
-        }
-        .pill-row {
-            display: flex;
-            align-items: center;
-            margin: 2px 0 10px;
         }
         .hint {
             margin-top: 6px;

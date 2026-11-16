@@ -113,18 +113,23 @@ class TestTheSharedCodeBox:
 
 
 class TestTheRadioOrder:
-    def test_box_strip_pill_then_frequency_name_count(self):
+    def test_box_strip_then_frequency_name_count(self):
+        # The pill is inside the strip now (owner, 2026-11-16), so the
+        # strip is followed directly by Frequency.
         render = _read("ir-rf-editor.ts").split("    render() {", 1)[1]
         order = [
             'id="rf-code"',
             "this._renderFeedback()",
-            "this._renderFamily()",
             "this._renderFrequency()",
             'id="rf-name"',
             'id="rf-count"',
         ]
         at = [render.index(mark) for mark in order]
         assert at == sorted(at)
+        between = render[
+            render.index("this._renderFeedback()"):render.index("this._renderFrequency()")
+        ]
+        assert "_renderFamily" not in between and "pill" not in between
 
     def test_the_radio_glyph_line_is_gone(self):
         text = _read("ir-rf-editor.ts")
@@ -184,6 +189,70 @@ class TestTheStrip:
         assert 't("rfedit.mhz", { mhz: hzToMhz(v.frequency_hz) })' in strip
         assert 't("rfedit.one_frame")' in strip and 't("rfedit.frames_agree"' in strip
         assert "v.sl_pattern" in strip and 'class="diamond long"' in strip
+
+
+def _identity(text: str) -> str:
+    start = text.index("private _renderIdentity(v: ProntoValidation)")
+    return text[start:text.index("private _renderFeedback()")]
+
+
+class TestTheIdentityInTheBox:
+    """Owner, 2026-11-16, at #274's look on VM999: the code's identity
+    lives inside the validation box, once, in both editors. No "Recognized
+    as" sentence and no second pill under the box."""
+
+    def _ir(self) -> str:
+        return _read("ir-signal-editor.ts")
+
+    def test_the_infrared_pill_is_on_the_info_line(self):
+        text = self._ir()
+        feedback = text[text.index("private _renderFeedback() {"):]
+        metrics = feedback[feedback.index('<div class="metrics">'):]
+        metrics = metrics[:metrics.index("</div>")]
+        assert "${this._renderIdentity(v)}" in metrics
+
+    def test_no_sentence_and_no_second_pill(self):
+        text = self._ir()
+        assert 'class="recognized"' not in text
+        assert "_renderPill" not in text
+        assert 'class="pill-row"' not in text
+        # One pill in the whole editor: the one inside the box.
+        assert text.count("<ir-protocol-chip") == 1
+
+    def test_the_command_pill_stays_live(self):
+        # The NEC/PRONTO send toggle on a device command keeps working,
+        # with the chip's own tooltip.
+        text = self._ir()
+        body = _identity(text)
+        assert "?interactive=${this._isCommand}" in body
+        assert "?bypass=${this._isCommand && this._bypass}" in body
+        assert "@toggle-bypass=" in body
+        assert "this._bypass = e.detail.bypass;" in body
+        assert "void this._refreshSpacingInfo();" in body
+        assert "(v.recognized_protocol ?? this.initialDecodedProtocol)" in body
+
+    def test_a_screen_reader_still_hears_the_sentence(self):
+        text = self._ir()
+        body = _identity(text)
+        assert 'role="group"' in body
+        assert 'aria-label=${t("editor.recognized_as", { protocol })}' in body
+
+    def test_unrecognized_shows_no_pill(self):
+        text = self._ir()
+        body = _identity(text)
+        assert 'if (!protocol) return "";' in body
+
+    def test_the_radio_pill_stays_read_only(self):
+        rf = _read("ir-rf-editor.ts")
+        body = rf.split("private _renderFamily() {", 1)[1].split("\n    }", 1)[0]
+        assert "interactive" not in body
+
+    def test_the_line_wraps_as_one_piece(self):
+        css = _read("ir-code-box-styles.ts")
+        metrics = css.split("    .metrics {", 1)[1].split("}", 1)[0]
+        assert "flex-wrap: wrap;" in metrics and "align-items: center;" in metrics
+        identity = css.split("    .identity {", 1)[1].split("}", 1)[0]
+        assert "display: inline-flex;" in identity and "flex-wrap: wrap;" in identity
 
 
 class TestTheDiamondsEverywhere:

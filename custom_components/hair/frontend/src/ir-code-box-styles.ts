@@ -16,8 +16,9 @@
  *                   its scrollbar below the icon, never under it. With no
  *                   scrollbar it looks as the infrared box always has.
  *   feedbackStyles  the filled strip under the box: the check mark and
- *                   status line, the facts, the messages.
- *   diamondStyles   one diamond per mark/space pair, long and short, in
+ *                   status line, the facts with the code's identity (its
+ *                   pill), the messages.
+ *   diamondStyles   the S/L diamonds, long and short, in
  *                   the --hair-diamond-* tokens (hair-colors.ts).
  *   fitCodeBox      the box's height: its content, between a floor and
  *                   a ceiling the caller passes (the infrared editor's
@@ -131,13 +132,21 @@ export const feedbackStyles = css`
     .metrics {
         display: flex;
         flex-wrap: wrap;
+        align-items: center;
         gap: 4px 14px;
         margin-top: 6px;
         font-size: 0.8rem;
         color: var(--secondary-text-color);
     }
-    .recognized {
-        color: ${DEEP_GREEN_VAR};
+    /* The code's identity, once, on the info line (owner, 2026-11-16):
+       the pill, and for radio its fields beside it. It wraps as one
+       piece at phone width. */
+    .identity {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 8px;
+        min-width: 0;
     }
     .msg {
         margin-top: 6px;

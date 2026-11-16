@@ -6687,13 +6687,21 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
     .metrics {
         display: flex;
         flex-wrap: wrap;
+        align-items: center;
         gap: 4px 14px;
         margin-top: 6px;
         font-size: 0.8rem;
         color: var(--secondary-text-color);
     }
-    .recognized {
-        color: ${an};
+    /* The code's identity, once, on the info line (owner, 2026-11-16):
+       the pill, and for radio its fields beside it. It wraps as one
+       piece at phone width. */
+    .identity {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 8px;
+        min-width: 0;
     }
     .msg {
         margin-top: 6px;
@@ -6827,17 +6835,19 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
             <div class="repeat-notice">
                 ${De("comb.capture_repeats",{frames:String(e.frames),readings:String(e.readings)})}
             </div>
-        `:""}_capturedLine(){const e=this._captured;if(!e)return"";const t=e.receiver?` · ${e.receiver}`:"";return e.decoded?`${De("editor.heard_clean")}${e.protocol?` · ${e.protocol}`:""}${t}`:`${De("editor.heard_rough")}${t}`}_renderPill(){if(!this._isCommand)return"";const e=this._validation?.recognized_protocol??this.initialDecodedProtocol;return e?V`
-            <div class="pill-row">
-                <ir-protocol-chip
-                    .protocol=${e}
-                    ?bypass=${this._bypass}
-                    interactive
-                    ?disabled=${this._busy}
-                    @toggle-bypass=${e=>{this._bypass=e.detail.bypass,this._refreshSpacingInfo()}}
-                ></ir-protocol-chip>
-            </div>
-        `:""}_renderFeedback(){const e=this._validation;if(!e)return"";const t=this._slPreview();return V`
+        `:""}_capturedLine(){const e=this._captured;if(!e)return"";const t=e.receiver?` · ${e.receiver}`:"";return e.decoded?`${De("editor.heard_clean")}${e.protocol?` · ${e.protocol}`:""}${t}`:`${De("editor.heard_rough")}${t}`}_renderIdentity(e){const t=this._isCommand?e.recognized_protocol??this.initialDecodedProtocol:e.recognized_protocol;return t?V`<span
+            class="identity"
+            role="group"
+            aria-label=${De("editor.recognized_as",{protocol:t})}
+        >
+            <ir-protocol-chip
+                .protocol=${t}
+                ?bypass=${this._isCommand&&this._bypass}
+                ?interactive=${this._isCommand}
+                ?disabled=${this._busy}
+                @toggle-bypass=${e=>{this._bypass=e.detail.bypass,this._refreshSpacingInfo()}}
+            ></ir-protocol-chip>
+        </span>`:""}_renderFeedback(){const e=this._validation;if(!e)return"";const t=this._slPreview();return V`
             <div class="feedback">
                 <div class="status ${e.valid?"ok":"bad"}">
                     <span class="mark">${e.valid?"✓":"✗"}</span>
@@ -6849,9 +6859,7 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                               ${null!==e.burst_pair_count?V`<span
                                         >${Pe("editor.burst_pair",e.burst_pair_count)}</span
                                     >`:""}
-                              ${e.recognized_protocol?V`<span class="recognized"
-                                        >${De("editor.recognized_as",{protocol:e.recognized_protocol})}</span
-                                    >`:""}
+                              ${this._renderIdentity(e)}
                           </div>
                           ${this._convertedFrom?V`<div class="converted">
                                     ${De(this._repaired?"editor.converted_repaired":Cs[this._convertedFrom])}
@@ -6904,17 +6912,16 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                      is downstairs in the footer and the reason is
                      upstairs in the header, so what is left here is
                      only what has to be read on the way. Everywhere
-                     else the code box leads, and the validation, pill
-                     and snap keep following the box they describe either
-                     way. In the command editor "Replace this code" and
+                     else the code box leads, and the validation (the
+                     pill inside it) and snap keep following the box they
+                     describe either way. In the command editor "Replace this code" and
                      its Listen sit ABOVE the box (windowed receivers,
-                     round 3), so the box, its validation, its pill and
-                     its snap read together; the repair's order is
+                     round 3), so the box, its validation and its snap
+                     read together; the repair's order is
                      unchanged. -->
                 ${this._isTangle?V`${this._renderTangleIntro()}
                       ${this._renderTangleStatus()} ${this._renderCodeBox()}`:this._isCommand?V`${this._renderReplace()} ${this._renderCodeBox()}`:V`${this._renderCodeBox()}`}
-                ${this._renderFeedback()}
-                ${this._renderPill()} ${this._renderSnap()}
+                ${this._renderFeedback()} ${this._renderSnap()}
 
                 ${this._isTangle?"":V`<div class="field">
                           <label>${n}</label>
@@ -7411,11 +7418,6 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
             color: var(--primary-color);
             background: rgba(255, 255, 255, 0.06);
         }
-        .pill-row {
-            display: flex;
-            align-items: center;
-            margin: 2px 0 10px;
-        }
         .hint {
             margin-top: 6px;
             font-size: 0.78rem;
@@ -7547,6 +7549,7 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                 <span
                     >${t<=1?De("rfedit.one_frame"):De("rfedit.frames_agree",{agreeing:String(i),found:String(t)})}</span
                 >
+                ${this._renderFamily()}
             </div>
             ${e.sl_pattern?V`<div class="diamonds">
                       ${[...e.sl_pattern].map(e=>"L"===e?V`<span class="diamond long">◆</span>`:V`<span class="diamond short">◇</span>`)}
@@ -7577,10 +7580,10 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
             <div class="freq-note ${this._frequencyHz?"":"missing"}">
                 ${this._typedInvalid?De("rfedit.frequency_invalid"):this._frequencyHz?t?De(t):"":De("rfedit.frequency_missing")}
             </div>
-        </div>`}_countHint(){const e=Ps(0,this.repeatsObserved,this._sendCount);return e?V`<div class="count-hint">${De(e.key,{count:String(e.count)})}</div>`:K}_renderFamily(){return this._creating||this._codeChanged||!this.initialFamily?K:V`<div class="pill-row">
+        </div>`}_countHint(){const e=Ps(0,this.repeatsObserved,this._sendCount);return e?V`<div class="count-hint">${De(e.key,{count:String(e.count)})}</div>`:K}_renderFamily(){return this._creating||this._codeChanged||!this.initialFamily?K:V`<span class="identity">
             <ir-protocol-chip .family=${this.initialFamily}></ir-protocol-chip>
             <span class="family-fields">${function(e){if(!e)return"";const t=function(e){return e?(e.fields??[]).map(e=>`${e.name} ${e.value}`).join(" "):""}(e);return mn(e)===e.label?t:t?`${e.label} · ${t}`:e.label}(this.initialFamily)}</span>
-        </div>`}render(){const e=this._creating?De("rfedit.new_signal"):null!==this.commandId?De("rfedit.edit_command"):De("rfedit.edit_signal");return V`<ha-dialog open heading=${e} scrimClickAction="" @closed=${this._close}>
+        </span>`}render(){const e=this._creating?De("rfedit.new_signal"):null!==this.commandId?De("rfedit.edit_command"):De("rfedit.edit_signal");return V`<ha-dialog open heading=${e} scrimClickAction="" @closed=${this._close}>
             ${this._error?V`<ha-alert alert-type="error">${this._error}</ha-alert>`:K}
             <div class="field">
                 <label for="rf-code">${De("rfedit.code")}</label>
@@ -7603,7 +7606,7 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                                   <ha-svg-icon .path=${"M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"}></ha-svg-icon>
                               </button>`:K}
                 </div>
-                ${this._renderFeedback()} ${this._renderFamily()}
+                ${this._renderFeedback()}
             </div>
 
             ${this._renderFrequency()}
@@ -7656,14 +7659,6 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                 margin-top: 6px;
                 font-size: 0.78rem;
                 color: var(--secondary-text-color);
-            }
-            /* The pill row: the same spacing as the infrared editor's. */
-            .pill-row {
-                display: flex;
-                align-items: center;
-                flex-wrap: wrap;
-                gap: 8px;
-                margin: 2px 0 10px;
             }
             .family-fields {
                 font-family: var(--code-font-family, monospace);
