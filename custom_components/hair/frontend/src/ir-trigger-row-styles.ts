@@ -23,6 +23,7 @@
  * and one four-line pure function does not earn a module of its own.
  */
 import { css } from "lit";
+import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR } from "./ir-header-chip-styles.js";
 import { t } from "./localize.js";
 
 export const triggerRowStyles = css`
@@ -78,10 +79,10 @@ export const triggerRowStyles = css`
         font-size: 0.7rem;
     }
     .diamond.long {
-        color: var(--primary-color);
+        color: ${DIAMOND_LONG_VAR};
     }
     .diamond.short {
-        color: var(--warning-color, #ff9800);
+        color: ${DIAMOND_SHORT_VAR};
     }
 `;
 

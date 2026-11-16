@@ -95,6 +95,9 @@ export interface IRCommand {
      *  the frame, or null when no shown family fits (rf-family-label.ts).
      *  Infrared rows carry no key. */
     rf_family?: RfFamily | null;
+    /** Radio rows only: the diamonds, S and L over the frame's body, by
+     *  the fingerprint's own rule. Derived at read time, never stored. */
+    sl_pattern?: string | null;
     frequency: number;
     repeat_count: number;
     // Whole-frame send count (v0.4.x): transmit the built signal this many
@@ -1095,6 +1098,10 @@ export interface RfValidation {
     repeats_observed?: number;
     fingerprint?: string;
     frame_hash?: string;
+    /** The diamonds: S and L over the frame's body, the fingerprint's own
+     *  reading (rf_frames.identity_of_frame). Absent when the frame has
+     *  no body. */
+    sl_pattern?: string;
     sub_text?: string;
 }
 
@@ -1644,6 +1651,9 @@ export interface IRTrigger {
      *  the frame, or null when no shown family fits (rf-family-label.ts).
      *  Infrared rows carry no key. */
     rf_family?: RfFamily | null;
+    /** Radio rows only: the diamonds, S and L over the frame's body, by
+     *  the fingerprint's own rule. Derived at read time, never stored. */
+    sl_pattern?: string | null;
     code: string | null;
     min_hits: number;
     enabled: boolean;

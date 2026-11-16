@@ -178,7 +178,16 @@ export class IrTriggerRow extends LitElement {
     }
 
     private _renderDiamonds() {
-        const { protocol, code } = this.trigger;
+        const { protocol, code, sl_pattern } = this.trigger;
+        // A radio trigger: the server's diamonds, the fingerprint's own
+        // S/L reading (owner, 2026-11-15). Infrared reads its Pronto.
+        if (sl_pattern) {
+            return html`<span class="diamonds">${[...sl_pattern].map((c) =>
+                c === "L"
+                    ? html`<span class="diamond long">&#9670;</span>`
+                    : html`<span class="diamond short">&#9671;</span>`
+            )}</span>`;
+        }
         if (protocol?.toUpperCase() !== "PRONTO" || !code) return nothing;
         const arr = this._prontoSlArray(code);
         if (!arr) return nothing;

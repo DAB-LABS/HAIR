@@ -42,7 +42,7 @@ import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
 import "./ir-tx-knobs.js";
 import "./ir-listen-row.js";
-import { headerChipStyles } from "./ir-header-chip-styles.js";
+import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR, headerChipStyles } from "./ir-header-chip-styles.js";
 import { protoGlyphStyles, protoLabel, renderProtoGlyph } from "./ir-proto-glyph.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
 import { browserStorage, loadMediaShow, saveMediaShow } from "./media-filter.js";
@@ -3029,10 +3029,10 @@ export class IrSignalMonitor extends LitElement {
             font-size: 0.7rem;
         }
         .diamond.long {
-            color: var(--primary-color);
+            color: ${DIAMOND_LONG_VAR};
         }
         .diamond.short {
-            color: var(--warning-color, #ff9800);
+            color: ${DIAMOND_SHORT_VAR};
         }
         /* Fixed, centred cells for the same reason the chip and hits
            columns are fixed (owner ruling 2026-08-01). The relative time

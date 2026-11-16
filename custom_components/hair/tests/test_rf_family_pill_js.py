@@ -292,10 +292,13 @@ class TestEditor:
         assert "<ir-protocol-chip .family=${this.initialFamily}>" in body
         assert "familyEditorText(this.initialFamily)" in body
 
-    def test_the_pill_row_sits_above_the_code(self):
+    def test_the_pill_row_sits_under_the_strip(self):
+        # The infrared editor's order (owner, 2026-11-15): the box, the
+        # strip, then the pill row.
         editor = _read("ir-rf-editor.ts")
         render = editor[editor.index("    render() {"):]
-        assert render.index("this._renderFamily()") < render.index('id="rf-code"')
+        assert render.index('id="rf-code"') < render.index("this._renderFeedback()")
+        assert render.index("this._renderFeedback()") < render.index("this._renderFamily()")
 
     @pytest.mark.parametrize(
         ("name", "row"),

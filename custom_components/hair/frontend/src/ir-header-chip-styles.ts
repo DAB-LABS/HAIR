@@ -18,6 +18,8 @@
 import { css, unsafeCSS } from "lit";
 import {
     DEEP_GREEN,
+    DIAMOND_LONG,
+    DIAMOND_SHORT,
     DULL_GRAY,
     EMBER,
     EMBER_RGB,
@@ -44,6 +46,8 @@ export const PICKED_VAR = css`var(--hair-picked, ${unsafeCSS(PICKED_GREEN)})`;
 export const GREY_VAR = css`var(--hair-grey, ${unsafeCSS(REST_GREY)})`;
 export const GOLD_VAR = css`var(--hair-gold, ${unsafeCSS(HAIR_GOLD)})`;
 export const DEEP_GREEN_VAR = css`var(--hair-deep-green, ${unsafeCSS(DEEP_GREEN)})`;
+export const DIAMOND_LONG_VAR = css`var(--hair-diamond-long, ${unsafeCSS(DIAMOND_LONG)})`;
+export const DIAMOND_SHORT_VAR = css`var(--hair-diamond-short, ${unsafeCSS(DIAMOND_SHORT)})`;
 
 /** HAIR's colours as custom properties (hair-colors.ts). The panel
  *  host (ha-panel-ir-devices.ts) declares them, so every surface under
@@ -58,6 +62,8 @@ export const hairTokens = css`
         --hair-picked: ${unsafeCSS(PICKED_GREEN)};
         --hair-deep-green: ${unsafeCSS(DEEP_GREEN)};
         --hair-gold: ${unsafeCSS(HAIR_GOLD)};
+        --hair-diamond-long: ${unsafeCSS(DIAMOND_LONG)};
+        --hair-diamond-short: ${unsafeCSS(DIAMOND_SHORT)};
     }
 `;
 /** The name the health round gave it. */

@@ -11,6 +11,7 @@
  * its local model, and ``alias-error`` (message) on failure.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
+import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
@@ -203,10 +204,10 @@ export class IrSignalAlias extends LitElement {
             font-size: 0.7rem;
         }
         .diamond.long {
-            color: var(--primary-color);
+            color: ${DIAMOND_LONG_VAR};
         }
         .diamond.short {
-            color: var(--warning-color, #ff9800);
+            color: ${DIAMOND_SHORT_VAR};
         }
         .signal-short-label {
             font-size: 0.82rem;

@@ -20,6 +20,7 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { rfRefusal } from "./rf-errors.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import { codeBoxStyles, diamondStyles, feedbackStyles, fitCodeBox } from "./ir-code-box-styles.js";
 import type { HairApi } from "./api.js";
 import {
     LAST_RECEIVER_KEY,
@@ -584,9 +585,7 @@ export class IrSignalEditor extends LitElement {
         const held = this._isTangle && !this._codeFocused;
         const minPx = held ? 40 : 64;
         const maxPx = held ? 96 : Math.round(window.innerHeight * 0.45);
-        ta.style.height = "0px";
-        const fit = Math.min(Math.max(ta.scrollHeight + 2, minPx), maxPx);
-        ta.style.height = `${fit}px`;
+        fitCodeBox(ta, minPx, maxPx);
     }
 
     disconnectedCallback(): void {
@@ -2094,6 +2093,9 @@ export class IrSignalEditor extends LitElement {
 
     static styles = [
         dialogStyles,
+        codeBoxStyles,
+        feedbackStyles,
+        diamondStyles,
         css`
             /* The press flow's own line, on the press road. It sits
                where the block that used to hold both it and the button
@@ -2129,6 +2131,12 @@ export class IrSignalEditor extends LitElement {
             }
             textarea.held:focus {
                 opacity: 1;
+            }
+            /* The border and the ground are the wrapper's now (the shared
+               code box), so the held look reaches it too. */
+            .code-wrap:has(> textarea.held) {
+                border-color: var(--divider-color);
+                background: var(--secondary-background-color);
             }
             /* THE CORNER BUTTON (owner ruled 2026-09-03, restyled
                2026-09-04). Listen keeps the amber it has worn on this
@@ -2240,54 +2248,9 @@ export class IrSignalEditor extends LitElement {
             font-family: inherit;
             box-sizing: border-box;
         }
-        textarea {
-            font-family: monospace;
-            resize: vertical;
-            /* Extra top padding keeps the first line of code clear of the
-               corner copy icon. */
-            padding-top: 24px;
-            /* updated() sizes the height to fit the code (clamped in JS), so
-               a long Pronto scrolls instead of overflowing the dialog. */
-            overflow-y: auto;
-        }
-        .code-wrap {
-            position: relative;
-        }
-        .copy-icon {
-            position: absolute;
-            top: 6px;
-            right: 8px;
-            z-index: 2;
-            display: inline-flex;
-            align-items: center;
-            padding: 2px;
-            border: none;
-            background: none;
-            color: var(--secondary-text-color);
-            cursor: pointer;
-            opacity: 0.55;
-            transition: opacity 150ms ease;
-        }
-        .copy-icon:hover {
-            opacity: 0.9;
-        }
-        .copy-icon ha-svg-icon {
-            --mdc-icon-size: 12px;
-        }
-        .copy-flash {
-            position: absolute;
-            top: 7px;
-            right: 34px;
-            z-index: 2;
-            font-size: 0.72rem;
-            white-space: nowrap;
-            color: var(--secondary-text-color);
-            background: var(--card-background-color);
-            border: 1px solid var(--divider-color);
-            border-radius: 4px;
-            padding: 1px 6px;
-            pointer-events: none;
-        }
+        /* The code box, its copy icon and the strip under it are the
+           shared ones (ir-code-box-styles.ts), loaded above, so the
+           radio editor reads the same. */
         input[type="text"]:focus,
         textarea:focus {
             outline: none;
@@ -2550,7 +2513,9 @@ export class IrSignalEditor extends LitElement {
                 background: var(--card-background-color);
             }
         }
-        textarea.snap-flash {
+        /* The flash is the box's, so it plays on the wrapper, which
+           holds the border (the shared code box). */
+        .code-wrap:has(> textarea.snap-flash) {
             animation: snap-flash 700ms ease-out;
         }
         .snap-notice {
@@ -2596,65 +2561,10 @@ export class IrSignalEditor extends LitElement {
             display: block;
             margin: 8px 0;
         }
-        .feedback {
-            margin: 4px 0 12px;
-            padding: 10px 12px;
-            border-radius: 6px;
-            background: var(--secondary-background-color);
-        }
-        .status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.9rem;
-            font-weight: 500;
-        }
-        .status .mark {
-            font-size: 1rem;
-        }
-        .status.ok {
-            color: #2e7d32;
-        }
-        .status.bad {
-            color: #e65100;
-        }
-        .metrics {
-            display: flex;
-            gap: 14px;
-            margin-top: 6px;
-            font-size: 0.8rem;
-            color: var(--secondary-text-color);
-        }
-        .recognized {
-            color: #2e7d32;
-        }
         .converted {
             margin-top: 4px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
-        }
-        .diamonds {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1px;
-            margin-top: 8px;
-            line-height: 1;
-        }
-        .diamond {
-            font-size: 0.7rem;
-        }
-        .diamond.long {
-            color: var(--primary-color);
-        }
-        .diamond.short {
-            color: var(--warning-color, #ff9800);
-        }
-        .msg {
-            margin-top: 6px;
-            font-size: 0.8rem;
-        }
-        .msg.err {
-            color: #e65100;
         }
         .msg.warn {
             color: #b89930;

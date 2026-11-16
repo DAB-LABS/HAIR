@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Radio commands and triggers show the short and long diamonds that infrared ones show, read the same way HAIR tells radio codes apart.
+
+### Changed
+
+- The radio code editor now looks like the infrared one: the code box, then a line with the code's frequency, how many frames agree and its diamonds, then the family pill.
+
+### Fixed
+
+- In both code editors, the copy icon no longer sits under the scrollbar of a long code.
+
 ## [1.3.0] - 2026-11-15 -- HARFing
 
 ### Added
