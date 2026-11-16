@@ -523,7 +523,6 @@
     "rfedit.valid": "Geldige radiocode",
     "rfedit.code_placeholder": "Plak een Flipper-.sub, een lijst met tijden of een Broadlink-code",
     "rfedit.reading": "Code wordt gelezen",
-    "rfedit.one_frame": "Eén frame, gelezen als de code.",
     "rfedit.frames_agree": "{agreeing} van {found} frames komen overeen.",
     "rfedit.paste_empty": "Plak een radiocode.",
     "rfedit.paste_unreadable": "HAIR kan dit niet als radiocode lezen. Plak een als RAW opgeslagen Flipper-.sub, een lijst met tijden of een Broadlink-radiocode.",

@@ -358,10 +358,12 @@ export class IrRfEditor extends LitElement {
 
     /** The strip under the box, as the infrared editor's (owner,
      *  2026-11-15): always shown once there is a code, the saved one read
-     *  on open. Valid: the check mark, "Valid radio code", then one line
-     *  with the code's frequency, how many frames agree and its identity
-     *  (the family pill and its fields), then the diamonds. Refused: the
-     *  reason, in place of all of that. */
+     *  on open. Valid, in three lines (owner, 2026-11-16, second look):
+     *  the frequency and "Recognized as" with the pill; the address and
+     *  data under it; the diamonds. Frames that all agree go unsaid; only
+     *  when some disagree does "N of M frames agree." stay, on its own
+     *  line, as a plain warning. Refused: the reason, in place of all of
+     *  that. */
     private _renderFeedback() {
         if (this._validating) {
             return html`<div class="feedback"><div class="metrics">${t("rfedit.reading")}</div></div>`;
@@ -377,17 +379,19 @@ export class IrRfEditor extends LitElement {
         }
         const found = v.frames_found ?? 1;
         const agreeing = v.frames_agreeing ?? 1;
+        const family = this._shownFamily();
         return html`<div class="feedback">
             <div class="status ok"><span class="mark">✓</span>${t("rfedit.valid")}</div>
             <div class="metrics">
                 ${v.frequency_hz ? html`<span>${t("rfedit.mhz", { mhz: hzToMhz(v.frequency_hz) })}</span>` : nothing}
-                <span
-                    >${found <= 1
-                        ? t("rfedit.one_frame")
-                        : t("rfedit.frames_agree", { agreeing: String(agreeing), found: String(found) })}</span
-                >
-                ${this._renderFamily()}
+                ${family ? this._renderRecognized(family) : nothing}
             </div>
+            ${family ? html`<div class="family-fields">${familyEditorText(family)}</div>` : nothing}
+            ${agreeing < found
+                ? html`<div class="msg warn frames-warn">
+                      ${t("rfedit.frames_agree", { agreeing: String(agreeing), found: String(found) })}
+                  </div>`
+                : nothing}
             ${v.sl_pattern
                 ? html`<div class="diamonds">
                       ${[...v.sl_pattern].map((c) =>
@@ -449,19 +453,22 @@ export class IrRfEditor extends LitElement {
             : nothing;
     }
 
-    /** The code's identity, inside the strip's info line (owner,
-     *  2026-11-16, at #274's look: once, in the box, as the infrared
-     *  editor shows it): "Recognized as", the family's pill, then its
-     *  fields as plain text. Read-only. It describes the saved code, so it goes as soon
-     *  as the code in the box changes. */
-    private _renderFamily() {
-        if (this._creating || this._codeChanged || !this.initialFamily) return nothing;
+    /** The family the strip names: the saved row's, while the box is
+     *  untouched. It describes the saved code, so it goes as soon as the
+     *  code in the box changes (the live read is rf/live-pill's). */
+    private _shownFamily(): RfFamily | null {
+        if (this._creating || this._codeChanged) return null;
+        return this.initialFamily ?? null;
+    }
+
+    /** "Recognized as" and the family's pill, ending the strip's first
+     *  line (owner, 2026-11-16: the same words as infrared). Read-only. */
+    private _renderRecognized(family: RfFamily) {
         const [before, after] = recognizedAs();
         return html`<span class="identity">
             ${before ? html`<span class="recognized">${before}</span>` : nothing}
-            <ir-protocol-chip .family=${this.initialFamily}></ir-protocol-chip>
+            <ir-protocol-chip .family=${family}></ir-protocol-chip>
             ${after ? html`<span class="recognized">${after}</span>` : nothing}
-            <span class="family-fields">${familyEditorText(this.initialFamily)}</span>
         </span>`;
     }
 
@@ -568,7 +575,10 @@ export class IrRfEditor extends LitElement {
                 font-size: 0.78rem;
                 color: var(--secondary-text-color);
             }
+            /* The strip's second line: the address and data, under the
+               frequency and the pill (owner, 2026-11-16). */
             .family-fields {
+                margin-top: 4px;
                 font-family: var(--code-font-family, monospace);
                 font-size: 0.78rem;
                 color: var(--secondary-text-color);

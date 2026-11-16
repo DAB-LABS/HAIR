@@ -557,7 +557,6 @@
     "rfedit.valid": "Prawidłowy kod radiowy",
     "rfedit.code_placeholder": "Wklej plik .sub z Flippera, listę czasów lub kod Broadlink",
     "rfedit.reading": "Odczytywanie kodu",
-    "rfedit.one_frame": "Jedna ramka, odczytana jako kod.",
     "rfedit.frames_agree": "Zgodnych ramek: {agreeing} z {found}.",
     "rfedit.paste_empty": "Wklej kod radiowy.",
     "rfedit.paste_unreadable": "HAIR nie może odczytać tego jako kodu radiowego. Wklej plik .sub z Flippera zapisany jako RAW, listę czasów lub kod radiowy Broadlink.",

@@ -2589,9 +2589,6 @@ export class IrSignalEditor extends LitElement {
             font-size: 0.8rem;
             color: var(--secondary-text-color);
         }
-        .msg.warn {
-            color: #b89930;
-        }
         .note {
             margin: 4px 0 12px;
             padding: 8px 10px;

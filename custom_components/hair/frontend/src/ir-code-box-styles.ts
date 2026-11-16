@@ -161,6 +161,11 @@ export const feedbackStyles = css`
     .msg.err {
         color: ${EMBER_VAR};
     }
+    /* A notice, not a refusal: the code is read, but say what to watch
+       (infrared's warnings; radio's frames that did not all agree). */
+    .msg.warn {
+        color: #b89930;
+    }
 `;
 
 export const diamondStyles = css`

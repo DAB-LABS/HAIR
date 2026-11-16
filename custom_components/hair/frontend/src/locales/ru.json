@@ -558,7 +558,6 @@
     "rfedit.valid": "Корректный радиокод",
     "rfedit.code_placeholder": "Вставьте .sub из Flipper, список длительностей или код Broadlink",
     "rfedit.reading": "Чтение кода",
-    "rfedit.one_frame": "Один кадр, прочитан как код.",
     "rfedit.frames_agree": "Совпадают кадров: {agreeing} из {found}.",
     "rfedit.paste_empty": "Вставьте радиокод.",
     "rfedit.paste_unreadable": "HAIR не может прочитать это как радиокод. Вставьте .sub из Flipper, сохранённый как RAW, список длительностей или радиокод Broadlink.",

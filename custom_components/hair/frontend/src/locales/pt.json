@@ -523,7 +523,6 @@
     "rfedit.valid": "Código de rádio válido",
     "rfedit.code_placeholder": "Cole um .sub do Flipper, uma lista de tempos ou um código Broadlink",
     "rfedit.reading": "A ler o código",
-    "rfedit.one_frame": "Uma trama, lida como o código.",
     "rfedit.frames_agree": "{agreeing} de {found} tramas coincidem.",
     "rfedit.paste_empty": "Cole um código de rádio.",
     "rfedit.paste_unreadable": "O HAIR não consegue ler isto como código de rádio. Cole um .sub do Flipper guardado como RAW, uma lista de tempos ou um código de rádio Broadlink.",

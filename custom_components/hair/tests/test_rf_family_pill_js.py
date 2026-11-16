@@ -287,24 +287,32 @@ class TestEditor:
     def test_the_identity_reads_the_saved_family(self):
         editor = _read("ir-rf-editor.ts")
         assert "public initialFamily: RfFamily | null = null;" in editor
-        body = editor[editor.index("private _renderFamily()"):editor.index("render() {")]
-        assert "this._creating || this._codeChanged || !this.initialFamily" in body
-        assert "<ir-protocol-chip .family=${this.initialFamily}>" in body
-        assert "familyEditorText(this.initialFamily)" in body
+        start = editor.index("private _shownFamily()")
+        shown = editor[start:editor.index("private _renderRecognized(")]
+        assert "if (this._creating || this._codeChanged) return null;" in shown
+        assert "return this.initialFamily ?? null;" in shown
+        pill = editor[editor.index("private _renderRecognized("):editor.index("render() {")]
+        assert "<ir-protocol-chip .family=${family}>" in pill
 
-    def test_the_identity_sits_inside_the_strip(self):
-        # Owner, 2026-11-16 (#274's look): the identity lives inside the
-        # validation box, once, on the line with the MHz and the frames.
-        # Nothing is left between the box and Frequency.
+    def test_the_strip_is_three_lines(self):
+        # Owner, 2026-11-16 (second look): line 1 the frequency, then
+        # "Recognized as" and the pill, ending with the pill; line 2 the
+        # address and data; line 3 the diamonds. Nothing is left between
+        # the box and Frequency.
         editor = _read("ir-rf-editor.ts")
         strip = editor[
             editor.index("private _renderFeedback() {"):editor.index("private _renderFrequency()")
         ]
-        metrics = strip[strip.index('<div class="metrics">', strip.index("status ok")):]
+        ok = strip[strip.index("status ok"):]
+        metrics = ok[ok.index('<div class="metrics">'):]
         metrics = metrics[:metrics.index("</div>")]
-        assert "${this._renderFamily()}" in metrics
-        render = editor[editor.index("    render() {"):]
-        assert "this._renderFamily()" not in render
+        assert metrics.index("rfedit.mhz") < metrics.index("this._renderRecognized(family)")
+        assert "familyEditorText" not in metrics
+        line2 = '<div class="family-fields">${familyEditorText(family)}</div>'
+        assert ok.index("</div>", ok.index('<div class="metrics">')) < ok.index(line2)
+        assert ok.index(line2) < ok.index('<div class="diamonds">')
+        render = editor[editor.index("    render() {"):editor.index("static styles")]
+        assert "_renderRecognized" not in render and "family-fields" not in render
         assert 'class="pill-row"' not in editor
 
     @pytest.mark.parametrize(

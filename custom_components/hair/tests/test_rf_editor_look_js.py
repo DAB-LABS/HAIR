@@ -192,7 +192,7 @@ class TestTheRadioOrder:
         between = render[
             render.index("this._renderFeedback()"):render.index("this._renderFrequency()")
         ]
-        assert "_renderFamily" not in between and "pill" not in between
+        assert "_renderRecognized" not in between and "pill" not in between
 
     def test_the_radio_glyph_line_is_gone(self):
         text = _read("ir-rf-editor.ts")
@@ -250,7 +250,11 @@ class TestTheStrip:
         bad = '<div class="status bad"><span class="mark">✗</span>${t("editor.not_valid")}</div>'
         assert ok in strip and bad in strip
         assert 't("rfedit.mhz", { mhz: hzToMhz(v.frequency_hz) })' in strip
-        assert 't("rfedit.one_frame")' in strip and 't("rfedit.frames_agree"' in strip
+        # Frames that all agree go unsaid (owner, 2026-11-16); only a
+        # partial agreement stays, as a plain warning on its own line.
+        assert "rfedit.one_frame" not in strip
+        assert '${agreeing < found ? html`<div class="msg warn frames-warn">' in strip
+        assert 't("rfedit.frames_agree"' in strip
         assert "v.sl_pattern" in strip and 'class="diamond long"' in strip
 
 
@@ -301,10 +305,12 @@ class TestTheIdentityInTheBox:
         before = '<span class="recognized">${before}</span>'
         assert ir.index(before) < ir.index("<ir-protocol-chip")
         assert ir.index("<ir-protocol-chip") < ir.index('<span class="recognized">${after}</span>')
-        rf = _read("ir-rf-editor.ts").split("private _renderFamily() {", 1)[1]
+        rf = _read("ir-rf-editor.ts").split("private _renderRecognized(family: RfFamily) {", 1)[1]
         rf = rf.split("\n    }", 1)[0]
         assert "const [before, after] = recognizedAs();" in rf
-        assert rf.index("${before}") < rf.index("<ir-protocol-chip") < rf.index("familyEditorText")
+        assert rf.index("${before}") < rf.index("<ir-protocol-chip") < rf.index("${after}")
+        # The pill ends the line: the address and data are on line 2.
+        assert "familyEditorText" not in rf
 
     def test_the_sentence_splits_around_the_name(self, recognized):
         # English and German put the words first; Japanese and Chinese
@@ -323,8 +329,8 @@ class TestTheIdentityInTheBox:
 
     def test_the_radio_pill_stays_read_only(self):
         rf = _read("ir-rf-editor.ts")
-        body = rf.split("private _renderFamily() {", 1)[1].split("\n    }", 1)[0]
-        assert "interactive" not in body
+        body = rf.split("private _renderRecognized(family: RfFamily) {", 1)[1]
+        assert "interactive" not in body.split("\n    }", 1)[0]
 
     def test_the_line_wraps_as_one_piece(self):
         css = _read("ir-code-box-styles.ts")
