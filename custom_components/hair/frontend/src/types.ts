@@ -1260,6 +1260,10 @@ export interface UnknownSignal {
      *  the frame, or null when no shown family fits (rf-family-label.ts).
      *  Infrared rows carry no key. */
     rf_family?: RfFamily | null;
+    /** The rolling family this row reads as ("keeloq", "somfy_rts"), or
+     *  null. HAIR never sends a rolling code, so such a row cannot be a
+     *  device command. Infrared rows carry no key. */
+    rf_rolling?: "keeloq" | "somfy_rts" | null;
     rf_frame_gap_us?: number | null;
     rf_frame_gap_source?: string | null;
     /** How many agreeing frames one press carried (RF hear round 1);
