@@ -414,12 +414,15 @@ export class IrRfEditor extends LitElement {
             : nothing;
     }
 
-    /** The family the strip names: the saved row's, while the box is
-     *  untouched. It describes the saved code, so it goes as soon as the
-     *  code in the box changes (the live read is rf/live-pill's). */
+    /** The family the strip names, as you paste, the same as infrared.
+     *  While the box is untouched, the saved row's own; once it is
+     *  edited, or for a new code, the one
+     *  the server read off the pasted code (validate's ``rf_family``,
+     *  the same reader the saved row uses, so it does not change on
+     *  Save). A refused or unread paste names nothing. */
     private _shownFamily(): RfFamily | null {
-        if (this._creating || this._codeChanged) return null;
-        return this.initialFamily ?? null;
+        if (!this._creating && !this._codeChanged) return this.initialFamily ?? null;
+        return this._validation?.ok ? (this._validation.rf_family ?? null) : null;
     }
 
     /** "Recognized as" and the family's pill, ending the strip's first

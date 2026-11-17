@@ -1,11 +1,10 @@
-"""The rolling-code guard's panel half (owner ruling 2026-11-16 09:45 PT:
-HAIR never sends a rolling code; ir-2026-11-16-go-rolling-guard.md).
+"""The rolling-code guard's panel half: HAIR never sends a rolling code.
 
 - The server's refusal code has a sentence, in every language.
 - The Assign dialog says a rolling row can't be a command before the
   press, from the row's ``rf_rolling``, and keeps Assign off.
-- The wording promises nothing about triggers until rolling-code triggers
-  ship (HARF's option C, matching the server's own message).
+- The wording promises nothing about triggers, matching the server's own
+  message.
 
 Source pins and locale checks; the server half is test_rf_rolling_guard.py.
 """

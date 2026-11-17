@@ -1184,9 +1184,9 @@ _SHAPES = (
 # Rolling codes: never sent
 # ---------------------------------------------------------------------------
 
-# The families whose code changes on every press. HAIR never sends one
-# (owner ruling 2026-11-16 09:45 PT): a receiver ignores a code it has
-# seen, or the remote falls out of step with it. They stay triggers.
+# The families whose code changes on every press. HAIR never sends one:
+# a receiver ignores a code it has seen, or the remote falls out of step
+# with it.
 ROLLING_FAMILIES = frozenset({"keeloq", "somfy_rts"})
 
 

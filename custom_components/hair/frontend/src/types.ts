@@ -1103,6 +1103,9 @@ export interface RfValidation {
      *  no body. */
     sl_pattern?: string;
     sub_text?: string;
+    /** The family the pasted code reads as, by the same reader the saved
+     *  row's pill uses, or null; absent on a refusal. */
+    rf_family?: RfFamily | null;
 }
 
 /** One radio transmitter (``hair/rf/transmitters``). */

@@ -274,11 +274,10 @@ export class IrAssignSignalDialog extends LitElement {
         }
     }
 
-    /** A rolling code (KeeLoq, Somfy RTS) is never a device command
-     *  (owner ruling 2026-11-16 09:45 PT). The server refuses it at both
-     *  tabs; the dialog says so before the press, from the row's
-     *  `rf_rolling`, and Assign stays off. No trigger sentence until
-     *  rolling-code triggers ship (HARF's option C). */
+    /** A rolling code (KeeLoq, Somfy RTS) is never a device command.
+     *  The server refuses it at both tabs; the dialog says so before the
+     *  press, from the row's `rf_rolling`, and Assign stays off. It makes
+     *  no promise about triggers, which cannot match a rolling code yet. */
     private get _rolling(): boolean {
         return !!this.signal?.rf_rolling;
     }

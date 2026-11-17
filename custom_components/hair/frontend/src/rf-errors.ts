@@ -29,8 +29,8 @@ export const INVALID_EMITTER = "invalid_emitter";
  *  review N10): only a stale panel or a crafted request reaches it. */
 export const WRONG_MEDIUM_CODE = "wrong_medium_code";
 /** A rolling code (KeeLoq, Somfy RTS): HAIR never sends one, at any
- *  door (owner ruling 2026-11-16 09:45 PT). The receiver would ignore a
- *  replayed press or fall out of step with its remote. */
+ *  door. The receiver would ignore a replayed press or fall out of step
+ *  with its remote. */
 export const RF_ROLLING_CODE = "rf_rolling_code";
 
 const SENTENCES: Record<string, string> = {
