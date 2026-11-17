@@ -158,7 +158,8 @@ class TestTheRadioEditorRules:
         locale = json.loads((SRC / "locales" / "en.json").read_text(encoding="utf-8"))
         assert run["t3"]["source"] == [
             "rfedit.source_signal", "rfedit.source_receiver", "rfedit.source_window",
-            "rfedit.source_user", "rfedit.source_assumed", None, None,
+            # Picked or typed by the person: no line (owner, 2026-11-16).
+            None, "rfedit.source_assumed", None, None,
         ]
         refusals = run["t3"]["refusal"]
         assert refusals[-2:] == [None, None]
