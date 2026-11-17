@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- When infrared or radio is switched off in the Sniffer or the Remotes header, its glyph glows and keeps a blue dot as signals of that kind arrive, the way the hidden-remotes eye does.
 - Radio commands and triggers show the short and long diamonds that infrared ones show, read the same way HAIR tells radio codes apart.
 - The infrared code editor has Delete, as the radio one does: bottom left, only for a saved command or signal, with the same confirmation as deleting from the row.
 
