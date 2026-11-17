@@ -224,14 +224,15 @@ class TestTheCodeBoxFollowsTheBand:
         assert run["sub"]["rounds"] == "Frequency: 303875000\nFrequency: 2"
 
     def test_both_buttons_and_the_typed_band_move_the_code(self):
+        # Both pills and the Other field are the shared control now
+        # (rf-frequency-control.ts); its one change event moves the code.
         flat = _flat("ir-rf-editor.ts")
-        pick = flat.split("private _pick(hz: number): void {", 1)[1].split("}", 1)[0]
-        assert "this._codeFollows(hz);" in pick
-        typed = flat.split("private _onTyped(e: Event): void {", 1)[1]
-        typed = typed.split("private _codeFollows(", 1)[0]
-        assert "this._codeFollows(hz);" in typed
+        on = flat.split("private _onFrequency(hz: number): void {", 1)[1].split("}", 1)[0]
+        assert "this._codeFollows(hz);" in on
+        handler = "this._onFrequency(e.detail.hz)"
+        assert "@frequency-changed=${(e: CustomEvent<{ hz: number }>) => " + handler + "}" in flat
         follows = flat.split("private _codeFollows(hz: number): void {", 1)[1]
-        follows = follows.split("private get _typedInvalid()", 1)[0]
+        follows = follows.split("private get _canSave()", 1)[0]
         # The row's own .sub stays unchanged, so Save sends the frequency
         # alone; a pasted .sub is read again.
         assert "this._initialCode = withSubFrequency(this._initialCode, hz);" in follows
@@ -297,10 +298,12 @@ class TestTheRadioEditorMatchesTheInfraredOne:
     def test_the_source_words(self):
         for path in (SRC / "locales").glob("*.json"):
             data = json.loads(path.read_text(encoding="utf-8"))
-            for key in ("signal", "window", "receiver", "user"):
+            for key in ("signal", "window", "receiver"):
                 assert data.get(f"rfedit.source_{key}"), (path.name, key)
+            # "Set by you." is gone (owner, 2026-11-16 14:33 PT).
+            assert "rfedit.source_user" not in data, path.name
             assert "rfedit.copy_sub" not in data and "rfedit.copied" not in data, path.name
         en = json.loads((SRC / "locales" / "en.json").read_text(encoding="utf-8"))
-        assert [en[f"rfedit.source_{k}"] for k in ("user", "signal", "window", "receiver")] == [
-            "Set by you.", "From the signal.", "From the window.", "From the receiver.",
+        assert [en[f"rfedit.source_{k}"] for k in ("signal", "window", "receiver")] == [
+            "From the signal.", "From the window.", "From the receiver.",
         ]
