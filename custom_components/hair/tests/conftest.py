@@ -96,6 +96,22 @@ def _reset_tx_gate():
     tx_gate.reset_for_test()
 
 
+@pytest.fixture(autouse=True)
+def _clear_rf_reading_caches():
+    """Two radio readings are cached per frame for the life of the
+    process: the family label (rf_family._family_of) and the diamonds
+    (websocket_api._rf_sl_pattern_of). Clear both per test, so a test
+    that patches a reader and reaches a door cannot leave its result
+    for the next one."""
+    from custom_components.hair import rf_family, websocket_api
+
+    rf_family._family_of.cache_clear()
+    websocket_api._rf_sl_pattern_of.cache_clear()
+    yield
+    rf_family._family_of.cache_clear()
+    websocket_api._rf_sl_pattern_of.cache_clear()
+
+
 # ---------------------------------------------------------------------------
 # The real-air harness cannot be switched off in CI
 # ---------------------------------------------------------------------------

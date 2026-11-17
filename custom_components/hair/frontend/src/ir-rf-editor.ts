@@ -30,10 +30,16 @@ import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
-import { renderProtoGlyph, protoGlyphStyles } from "./ir-proto-glyph.js";
+import {
+    codeBoxStyles,
+    deleteStyles,
+    diamondStyles,
+    feedbackStyles,
+    fitCodeBox,
+    recognizedAs,
+} from "./ir-code-box-styles.js";
 import { sendRefusal } from "./rf-errors.js";
 import { sendTimesHint } from "./rf-send-count.js";
-import { EMBER_VAR } from "./ir-header-chip-styles.js";
 import {
     RF_PRESETS_HZ,
     hzToMhz,
@@ -92,6 +98,9 @@ export class IrRfEditor extends LitElement {
     @state() private _copyHint: string | null = null;
 
     private _initialCode = "";
+    /** What the saved code read as when the dialog opened, so the strip
+     *  comes back as it was when an edit is undone. */
+    private _initialValidation: RfValidation | null = null;
     private _timer: ReturnType<typeof setTimeout> | null = null;
     private _asked = 0;
 
@@ -108,6 +117,22 @@ export class IrRfEditor extends LitElement {
         this._frequencySource = this.initialFrequencySource;
         this._typed =
             this._frequencyHz && presetOf(this._frequencyHz) === null ? hzToMhz(this._frequencyHz) : "";
+    }
+
+    /** The strip is always shown, as the infrared editor's is: the saved
+     *  code is read once when the dialog opens. */
+    firstUpdated(): void {
+        if (!this._creating && this._code.trim()) {
+            this._validating = true;
+            void this._validate();
+        }
+    }
+
+    /** The box fits its code, as the infrared box does: 64 px up to 45%
+     *  of the viewport, then it scrolls below the copy icon's strip. */
+    updated(): void {
+        const ta = this.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea");
+        if (ta) fitCodeBox(ta, 64, Math.round(window.innerHeight * 0.45));
     }
 
     disconnectedCallback(): void {
@@ -128,8 +153,19 @@ export class IrRfEditor extends LitElement {
         this._code = (e.target as HTMLTextAreaElement).value;
         this._validation = null;
         if (this._timer !== null) clearTimeout(this._timer);
+        // Any read still in flight is for a code that is no longer in the
+        // box, the open-read included.
+        this._asked++;
         if (!this._codeChanged) {
-            this._validating = false;
+            // Back to the saved code: its own reading, as it opened, or a
+            // fresh one if the open-read had not come back yet.
+            if (this._initialValidation) {
+                this._validating = false;
+                this._validation = this._initialValidation;
+            } else {
+                this._validating = true;
+                void this._validate();
+            }
             return;
         }
         this._validating = true;
@@ -145,6 +181,12 @@ export class IrRfEditor extends LitElement {
             );
             if (asked !== this._asked) return;
             this._validation = result;
+            if (!this._codeChanged) {
+                // The saved code, read on open: nothing to bring over, its
+                // frequency and where it came from are the row's own.
+                this._initialValidation = result;
+                return;
+            }
             // A paste that says its own frequency brings it, unless the
             // user has set one here.
             if (result.ok && result.frequency_hz && !this._frequencyChanged) {
@@ -190,8 +232,21 @@ export class IrRfEditor extends LitElement {
         this._code = code;
         if (!pasted) {
             this._initialCode = withSubFrequency(this._initialCode, hz);
+            // The strip follows the band too: the saved code's reading,
+            // with the new frequency. A read still in flight was for the
+            // old one, so it is asked again.
+            if (this._validating) {
+                this._asked++;
+                void this._validate();
+            } else {
+                if (this._validation?.ok) this._validation = { ...this._validation, frequency_hz: hz };
+                if (this._initialValidation?.ok) {
+                    this._initialValidation = { ...this._initialValidation, frequency_hz: hz };
+                }
+            }
             return;
         }
+        this._asked++;
         this._validation = null;
         this._validating = true;
         if (this._timer !== null) clearTimeout(this._timer);
@@ -301,21 +356,51 @@ export class IrRfEditor extends LitElement {
         this._fire("closed", null);
     }
 
+    /** The strip under the box, as the infrared editor's (owner,
+     *  2026-11-15): always shown once there is a code, the saved one read
+     *  on open. Valid, in three lines (owner, 2026-11-16, second look):
+     *  the frequency and "Recognized as" with the pill; the address and
+     *  data under it; the diamonds. Frames that all agree go unsaid; only
+     *  when some disagree does "N of M frames agree." stay, on its own
+     *  line, as a plain warning. Refused: the reason, in place of all of
+     *  that. */
     private _renderFeedback() {
-        if (!this._codeChanged) return nothing;
-        if (this._validating) return html`<div class="feedback">${t("rfedit.reading")}</div>`;
+        if (this._validating) {
+            return html`<div class="feedback"><div class="metrics">${t("rfedit.reading")}</div></div>`;
+        }
         const v = this._validation;
         if (!v) return nothing;
         if (!v.ok) {
             const key = pasteRefusalKey(v.code);
-            return html`<div class="feedback bad" role="alert">${key ? t(key) : (v.error ?? "")}</div>`;
+            return html`<div class="feedback" role="alert">
+                <div class="status bad"><span class="mark">✗</span>${t("editor.not_valid")}</div>
+                <div class="msg err">${key ? t(key) : (v.error ?? "")}</div>
+            </div>`;
         }
         const found = v.frames_found ?? 1;
         const agreeing = v.frames_agreeing ?? 1;
-        return html`<div class="feedback good">
-            ${found <= 1
-                ? t("rfedit.one_frame")
-                : t("rfedit.frames_agree", { agreeing: String(agreeing), found: String(found) })}
+        const family = this._shownFamily();
+        return html`<div class="feedback">
+            <div class="status ok"><span class="mark">✓</span>${t("rfedit.valid")}</div>
+            <div class="metrics">
+                ${v.frequency_hz ? html`<span>${t("rfedit.mhz", { mhz: hzToMhz(v.frequency_hz) })}</span>` : nothing}
+                ${family ? this._renderRecognized(family) : nothing}
+            </div>
+            ${family ? html`<div class="family-fields">${familyEditorText(family)}</div>` : nothing}
+            ${agreeing < found
+                ? html`<div class="msg warn frames-warn">
+                      ${t("rfedit.frames_agree", { agreeing: String(agreeing), found: String(found) })}
+                  </div>`
+                : nothing}
+            ${v.sl_pattern
+                ? html`<div class="diamonds">
+                      ${[...v.sl_pattern].map((c) =>
+                          c === "L"
+                              ? html`<span class="diamond long">◆</span>`
+                              : html`<span class="diamond short">◇</span>`,
+                      )}
+                  </div>`
+                : nothing}
         </div>`;
     }
 
@@ -368,15 +453,23 @@ export class IrRfEditor extends LitElement {
             : nothing;
     }
 
-    /** The infrared editor's pill row, for radio (owner 2026-11-14, ruling
-     *  3): the family's pill, then its fields as plain text. It describes
-     *  the saved code, so it goes as soon as the code in the box changes. */
-    private _renderFamily() {
-        if (this._creating || this._codeChanged || !this.initialFamily) return nothing;
-        return html`<div class="pill-row">
-            <ir-protocol-chip .family=${this.initialFamily}></ir-protocol-chip>
-            <span class="family-fields">${familyEditorText(this.initialFamily)}</span>
-        </div>`;
+    /** The family the strip names: the saved row's, while the box is
+     *  untouched. It describes the saved code, so it goes as soon as the
+     *  code in the box changes (the live read is rf/live-pill's). */
+    private _shownFamily(): RfFamily | null {
+        if (this._creating || this._codeChanged) return null;
+        return this.initialFamily ?? null;
+    }
+
+    /** "Recognized as" and the family's pill, ending the strip's first
+     *  line (owner, 2026-11-16: the same words as infrared). Read-only. */
+    private _renderRecognized(family: RfFamily) {
+        const [before, after] = recognizedAs();
+        return html`<span class="identity">
+            ${before ? html`<span class="recognized">${before}</span>` : nothing}
+            <ir-protocol-chip .family=${family}></ir-protocol-chip>
+            ${after ? html`<span class="recognized">${after}</span>` : nothing}
+        </span>`;
     }
 
     render() {
@@ -387,15 +480,12 @@ export class IrRfEditor extends LitElement {
               : t("rfedit.edit_signal");
         return html`<ha-dialog open heading=${heading} scrimClickAction="" @closed=${this._close}>
             ${this._error ? html`<ha-alert alert-type="error">${this._error}</ha-alert>` : nothing}
-            <div class="medium">${renderProtoGlyph("rf", 16)}<span>${t("rfedit.radio")}</span></div>
-            ${this._renderFamily()}
-
             <div class="field">
                 <label for="rf-code">${t("rfedit.code")}</label>
                 <div class="code-wrap">
                     <textarea
                         id="rf-code"
-                        rows="6"
+                        rows="4"
                         spellcheck="false"
                         placeholder=${t("rfedit.code_placeholder")}
                         .value=${this._code}
@@ -475,116 +565,28 @@ export class IrRfEditor extends LitElement {
 
     static styles = [
         dialogStyles,
-        protoGlyphStyles,
+        codeBoxStyles,
+        feedbackStyles,
+        diamondStyles,
+        deleteStyles,
         css`
             .count-hint {
                 margin-top: 6px;
                 font-size: 0.78rem;
                 color: var(--secondary-text-color);
             }
-            /* The pill row: the same spacing as the infrared editor's. */
-            .pill-row {
-                display: flex;
-                align-items: center;
-                flex-wrap: wrap;
-                gap: 8px;
-                margin: 2px 0 10px;
-            }
+            /* The strip's second line: the address and data, under the
+               frequency and the pill (owner, 2026-11-16). */
             .family-fields {
+                margin-top: 4px;
                 font-family: var(--code-font-family, monospace);
                 font-size: 0.78rem;
                 color: var(--secondary-text-color);
                 overflow-wrap: anywhere;
             }
-            .medium {
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                font-size: 0.8rem;
-                color: var(--secondary-text-color);
-                margin-bottom: 4px;
-            }
-            textarea {
-                width: 100%;
-                box-sizing: border-box;
-                padding: 8px;
-                border-radius: 4px;
-                border: 1px solid var(--divider-color);
-                background: var(--card-background-color);
-                color: var(--primary-text-color);
-                font-family: monospace;
-                font-size: 0.8rem;
-                resize: vertical;
-                overflow-y: auto;
-                max-height: 40vh;
-            }
-            textarea:focus {
-                outline: none;
-                border-color: var(--primary-color);
-            }
-            /* The infrared code window's corner copy icon and its hint
-               (ir-signal-editor), so the two editors read as one. */
-            .code-wrap {
-                position: relative;
-            }
-            .code-wrap textarea {
-                padding-top: 24px;
-            }
-            .copy-icon {
-                position: absolute;
-                top: 6px;
-                right: 8px;
-                z-index: 2;
-                display: inline-flex;
-                align-items: center;
-                padding: 2px;
-                border: none;
-                background: none;
-                color: var(--secondary-text-color);
-                cursor: pointer;
-                opacity: 0.55;
-                transition: opacity 150ms ease;
-            }
-            .copy-icon:hover {
-                opacity: 0.9;
-            }
-            .copy-icon ha-svg-icon {
-                --mdc-icon-size: 12px;
-            }
-            .copy-flash {
-                position: absolute;
-                top: 7px;
-                right: 34px;
-                z-index: 2;
-                font-size: 0.72rem;
-                white-space: nowrap;
-                color: var(--secondary-text-color);
-                background: var(--card-background-color);
-                border: 1px solid var(--divider-color);
-                border-radius: 4px;
-                padding: 1px 6px;
-                pointer-events: none;
-            }
-            /* Delete: outlined ember, as the other dialogs' Delete. */
-            .delete-btn {
-                background: none;
-                border-color: ${EMBER_VAR};
-                color: ${EMBER_VAR};
-            }
-            .delete-btn:hover:not(:disabled) {
-                background: color-mix(in srgb, ${EMBER_VAR} 14%, transparent);
-            }
-            .feedback {
-                font-size: 0.8rem;
-                margin-top: 4px;
-                color: var(--secondary-text-color);
-            }
-            .feedback.good {
-                color: #2e7d32;
-            }
-            .feedback.bad {
-                color: var(--error-color, #db4437);
-            }
+            /* The code box, its copy icon, the strip and the diamonds are
+               the infrared editor's (ir-code-box-styles.ts), loaded above. */
+            /* Delete's look is shared with the infrared editor (deleteStyles). */
             .freq-row {
                 display: flex;
                 flex-wrap: wrap;
@@ -610,8 +612,15 @@ export class IrRfEditor extends LitElement {
                 align-items: center;
                 gap: 4px;
             }
+            /* As tall as the band pills beside it, and narrower (owner,
+               2026-11-16): the pills' padding, type size and rounding. */
             .other input {
-                width: 7.5em;
+                width: 6em;
+                box-sizing: border-box;
+                padding: 5px 10px;
+                border-radius: 14px;
+                font-size: 0.85rem;
+                line-height: normal;
             }
             .other input.invalid {
                 border-color: var(--error-color, #db4437);

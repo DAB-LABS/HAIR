@@ -45,6 +45,13 @@ export const DEEP_GREEN = "#2e7d32";
  *  Remote and trigger origin. */
 export const HAIR_GOLD = "#f5a623";
 
+/** The S/L diamonds (owner, 2026-11-15 13:53 PT): long in HA's primary
+ *  colour, short in its warning colour, as the infrared rows have always
+ *  drawn them. Radio uses the same two for now; a radio variant later is
+ *  a change here. */
+export const DIAMOND_LONG = "var(--primary-color)";
+export const DIAMOND_SHORT = "var(--warning-color, #ff9800)";
+
 /** The class a health dot wears outside a picker chip:
  *    "online" / "offline"                 dull: unpicked, or no picking
  *    "online bright" / "offline bright"   full: the one in use

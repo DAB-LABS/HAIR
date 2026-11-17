@@ -1,6 +1,7 @@
 """WebSocket API for HAIR frontend communication."""
 from __future__ import annotations
 
+import functools
 import logging
 import uuid
 from types import SimpleNamespace
@@ -305,9 +306,19 @@ def _media(rows: Any, *, matrix: bool = False) -> list[str]:
 
 
 def _augment_rf_family(rows: Any) -> None:
-    """Give each radio row its family label, worked out from the row's
-    own timings for the panel (a label only: never stored, never part of
-    the identity). Infrared rows are left as they are."""
+    """Give each radio row its family label and its diamonds, worked out
+    from the row's own timings for the panel (never stored, never part
+    of the identity). Infrared rows are left as they are.
+
+    The diamonds (``sl_pattern``, owner 2026-11-15: radio rows get them
+    wherever infrared rows do) are the fingerprint's own S/L reading of
+    the stored frame, ``rf_frames.identity_of_frame``, the call a Sniffer
+    row's ``to_dict`` already makes, so the diamonds and HAIR's identity
+    never disagree. A row that already carries them keeps its own. The
+    family decoders read the frame by their own shapes, not through
+    ``rf_frames``, so the two cannot share one reading; each is cached
+    per frame.
+    """
     from .rf_family import family_payload
 
     for row in rows or []:
@@ -319,6 +330,29 @@ def _augment_rf_family(rows: Any) -> None:
             except Exception:
                 _LOGGER.debug("Radio family label failed", exc_info=True)
                 row["rf_family"] = None
+            # The same rule for the diamonds: a failure costs this row its
+            # diamonds, never the page.
+            if row.get("sl_pattern") is None:
+                try:
+                    row["sl_pattern"] = _rf_sl_pattern(row.get("raw_timings"))
+                except Exception:
+                    _LOGGER.debug("Radio diamonds failed", exc_info=True)
+                    row["sl_pattern"] = None
+
+
+def _rf_sl_pattern(timings: Any) -> str | None:
+    """A stored radio frame's diamonds, or None when it has no body."""
+    if not timings:
+        return None
+    return _rf_sl_pattern_of(tuple(int(v) for v in timings))
+
+
+@functools.lru_cache(maxsize=1024)
+def _rf_sl_pattern_of(frame: tuple[int, ...]) -> str | None:
+    from .rf_frames import identity_of_frame
+
+    identity = identity_of_frame(list(frame))
+    return identity.sl_pattern if identity is not None else None
 
 
 async def _device_full(

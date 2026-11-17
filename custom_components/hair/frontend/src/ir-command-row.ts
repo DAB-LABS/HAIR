@@ -100,6 +100,7 @@
  * dialog.
  */
 import { LitElement, html, css } from "lit";
+import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import {
@@ -299,7 +300,17 @@ export class IrCommandRow extends LitElement {
 
     private _renderDiamonds() {
         const cmd = this.command;
-        if (!cmd || cmd.protocol?.toUpperCase() !== "PRONTO" || !cmd.code)
+        if (!cmd) return null;
+        // A radio command: the server's diamonds, the fingerprint's own
+        // S/L reading (owner, 2026-11-15). Infrared reads its Pronto.
+        if (cmd.sl_pattern) {
+            return html`<span class="diamonds">${[...cmd.sl_pattern].map((c) =>
+                c === "L"
+                    ? html`<span class="diamond long">◆</span>`
+                    : html`<span class="diamond short">◇</span>`
+            )}</span>`;
+        }
+        if (cmd.protocol?.toUpperCase() !== "PRONTO" || !cmd.code)
             return null;
         const arr = this._prontoSlArray(cmd.code);
         if (!arr) return null;
@@ -775,10 +786,10 @@ export class IrCommandRow extends LitElement {
             font-size: 0.7rem;
         }
         .diamond.long {
-            color: var(--primary-color);
+            color: ${DIAMOND_LONG_VAR};
         }
         .diamond.short {
-            color: var(--warning-color, #ff9800);
+            color: ${DIAMOND_SHORT_VAR};
         }
         /* The protocol chip sits in its own fixed cell to the left of the
            edit glyph (owner ruling, 2026-08-01), matching the Sniffer and

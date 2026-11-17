@@ -20,6 +20,14 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { rfRefusal } from "./rf-errors.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import {
+    codeBoxStyles,
+    deleteStyles,
+    diamondStyles,
+    feedbackStyles,
+    fitCodeBox,
+    recognizedAs,
+} from "./ir-code-box-styles.js";
 import type { HairApi } from "./api.js";
 import {
     LAST_RECEIVER_KEY,
@@ -308,6 +316,15 @@ export class IrSignalEditor extends LitElement {
         return this.signalId !== null || this.commandId !== null;
     }
 
+    /** Delete, bottom left, as the radio editor has it (owner,
+     *  2026-11-16: the same in both editors). Only on a saved command or
+     *  signal, never when creating, and never in a repair. The host
+     *  closes the editor and opens the confirmation the row's own delete
+     *  opens, so trigger warnings and clean-up run the one path. */
+    private _requestDelete(): void {
+        this.dispatchEvent(new CustomEvent("delete-requested"));
+    }
+
     private get _dirty(): boolean {
         return (
             this._pronto !== this.initialPronto ||
@@ -584,9 +601,7 @@ export class IrSignalEditor extends LitElement {
         const held = this._isTangle && !this._codeFocused;
         const minPx = held ? 40 : 64;
         const maxPx = held ? 96 : Math.round(window.innerHeight * 0.45);
-        ta.style.height = "0px";
-        const fit = Math.min(Math.max(ta.scrollHeight + 2, minPx), maxPx);
-        ta.style.height = `${fit}px`;
+        fitCodeBox(ta, minPx, maxPx);
     }
 
     disconnectedCallback(): void {
@@ -1734,39 +1749,46 @@ export class IrSignalEditor extends LitElement {
     }
 
     /**
-     * The standard one-pill, live, in command mode.
+     * The code's identity, once, inside the box's info line (owner,
+     * 2026-11-16, at #274's look): "Recognized as", then the pill, where
+     * the sentence and a second pill under the box used to say it twice.
+     * The pill takes the protocol's place in the sentence, so recognition
+     * reads the same way everywhere in HAIR.
      *
      * Same component as every other home, so the choice reads the same
-     * here as on the row. It is live because this is where a replaced
-     * code most often needs pinning: a rough capture that will not
-     * re-encode cleanly is exactly what BYPASS is for, and making the
-     * person save, close, and toggle from the row would put two steps
-     * between the problem and its fix.
+     * here as on the row. In command mode it is live, because this is
+     * where a replaced code most often needs pinning: a rough capture
+     * that will not re-encode cleanly is exactly what BYPASS is for, and
+     * making the person save, close, and toggle from the row would put
+     * two steps between the problem and its fix. Elsewhere it only
+     * describes.
      *
      * The protocol shown is the LIVE decode when there is one, so a
-     * capture that has not been saved yet still names itself.
+     * capture that has not been saved yet still names itself; a command
+     * falls back to its saved decode, as the pill under the box did. The
+     * words are visible text, so a screen reader reads the sentence too.
      */
-    private _renderPill() {
-        if (!this._isCommand) return "";
-        const protocol =
-            this._validation?.recognized_protocol ??
-            this.initialDecodedProtocol;
+    private _renderIdentity(v: ProntoValidation) {
+        const protocol = this._isCommand
+            ? (v.recognized_protocol ?? this.initialDecodedProtocol)
+            : v.recognized_protocol;
         if (!protocol) return "";
-        return html`
-            <div class="pill-row">
-                <ir-protocol-chip
-                    .protocol=${protocol}
-                    ?bypass=${this._bypass}
-                    interactive
-                    ?disabled=${this._busy}
-                    @toggle-bypass=${(e: CustomEvent) => {
-                        this._bypass = e.detail.bypass;
-                        // Replay and rebuild are different lengths.
-                        void this._refreshSpacingInfo();
-                    }}
-                ></ir-protocol-chip>
-            </div>
-        `;
+        const [before, after] = recognizedAs();
+        return html`<span class="identity">
+            ${before ? html`<span class="recognized">${before}</span>` : ""}
+            <ir-protocol-chip
+                .protocol=${protocol}
+                ?bypass=${this._isCommand && this._bypass}
+                ?interactive=${this._isCommand}
+                ?disabled=${this._busy}
+                @toggle-bypass=${(e: CustomEvent) => {
+                    this._bypass = e.detail.bypass;
+                    // Replay and rebuild are different lengths.
+                    void this._refreshSpacingInfo();
+                }}
+            ></ir-protocol-chip>
+            ${after ? html`<span class="recognized">${after}</span>` : ""}
+        </span>`;
     }
 
     private _renderFeedback() {
@@ -1790,11 +1812,7 @@ export class IrSignalEditor extends LitElement {
                                         >${tp("editor.burst_pair", v.burst_pair_count)}</span
                                     >`
                                   : ""}
-                              ${v.recognized_protocol
-                                  ? html`<span class="recognized"
-                                        >${t("editor.recognized_as", { protocol: v.recognized_protocol })}</span
-                                    >`
-                                  : ""}
+                              ${this._renderIdentity(v)}
                           </div>
                           ${this._convertedFrom
                               ? html`<div class="converted">
@@ -1950,12 +1968,12 @@ export class IrSignalEditor extends LitElement {
                      is downstairs in the footer and the reason is
                      upstairs in the header, so what is left here is
                      only what has to be read on the way. Everywhere
-                     else the code box leads, and the validation, pill
-                     and snap keep following the box they describe either
-                     way. In the command editor "Replace this code" and
+                     else the code box leads, and the validation (the
+                     pill inside it) and snap keep following the box they
+                     describe either way. In the command editor "Replace this code" and
                      its Listen sit ABOVE the box (windowed receivers,
-                     round 3), so the box, its validation, its pill and
-                     its snap read together; the repair's order is
+                     round 3), so the box, its validation and its snap
+                     read together; the repair's order is
                      unchanged. -->
                 ${this._isTangle
                     ? html`${this._renderTangleIntro()}
@@ -1963,8 +1981,7 @@ export class IrSignalEditor extends LitElement {
                     : this._isCommand
                       ? html`${this._renderReplace()} ${this._renderCodeBox()}`
                       : html`${this._renderCodeBox()}`}
-                ${this._renderFeedback()}
-                ${this._renderPill()} ${this._renderSnap()}
+                ${this._renderFeedback()} ${this._renderSnap()}
 
                 ${this._isTangle
                     ? ""
@@ -2061,6 +2078,15 @@ export class IrSignalEditor extends LitElement {
                      decisions are made: Listen at the far left, the
                      spacer, then Cancel and the primary. -->
                 <div class="dialog-actions">
+                    ${this._isEdit && !this._isTangle
+                        ? html`<button
+                              class="action-btn delete-btn"
+                              @click=${this._requestDelete}
+                              ?disabled=${this._busy}
+                          >
+                              ${t("common.delete")}
+                          </button>`
+                        : ""}
                     ${this._renderTangleListenButton()}
                     <span class="spacer"></span>
                     <button
@@ -2094,6 +2120,10 @@ export class IrSignalEditor extends LitElement {
 
     static styles = [
         dialogStyles,
+        codeBoxStyles,
+        feedbackStyles,
+        diamondStyles,
+        deleteStyles,
         css`
             /* The press flow's own line, on the press road. It sits
                where the block that used to hold both it and the button
@@ -2129,6 +2159,12 @@ export class IrSignalEditor extends LitElement {
             }
             textarea.held:focus {
                 opacity: 1;
+            }
+            /* The border and the ground are the wrapper's now (the shared
+               code box), so the held look reaches it too. */
+            .code-wrap:has(> textarea.held) {
+                border-color: var(--divider-color);
+                background: var(--secondary-background-color);
             }
             /* THE CORNER BUTTON (owner ruled 2026-09-03, restyled
                2026-09-04). Listen keeps the amber it has worn on this
@@ -2240,54 +2276,9 @@ export class IrSignalEditor extends LitElement {
             font-family: inherit;
             box-sizing: border-box;
         }
-        textarea {
-            font-family: monospace;
-            resize: vertical;
-            /* Extra top padding keeps the first line of code clear of the
-               corner copy icon. */
-            padding-top: 24px;
-            /* updated() sizes the height to fit the code (clamped in JS), so
-               a long Pronto scrolls instead of overflowing the dialog. */
-            overflow-y: auto;
-        }
-        .code-wrap {
-            position: relative;
-        }
-        .copy-icon {
-            position: absolute;
-            top: 6px;
-            right: 8px;
-            z-index: 2;
-            display: inline-flex;
-            align-items: center;
-            padding: 2px;
-            border: none;
-            background: none;
-            color: var(--secondary-text-color);
-            cursor: pointer;
-            opacity: 0.55;
-            transition: opacity 150ms ease;
-        }
-        .copy-icon:hover {
-            opacity: 0.9;
-        }
-        .copy-icon ha-svg-icon {
-            --mdc-icon-size: 12px;
-        }
-        .copy-flash {
-            position: absolute;
-            top: 7px;
-            right: 34px;
-            z-index: 2;
-            font-size: 0.72rem;
-            white-space: nowrap;
-            color: var(--secondary-text-color);
-            background: var(--card-background-color);
-            border: 1px solid var(--divider-color);
-            border-radius: 4px;
-            padding: 1px 6px;
-            pointer-events: none;
-        }
+        /* The code box, its copy icon and the strip under it are the
+           shared ones (ir-code-box-styles.ts), loaded above, so the
+           radio editor reads the same. */
         input[type="text"]:focus,
         textarea:focus {
             outline: none;
@@ -2530,11 +2521,6 @@ export class IrSignalEditor extends LitElement {
             color: var(--primary-color);
             background: rgba(255, 255, 255, 0.06);
         }
-        .pill-row {
-            display: flex;
-            align-items: center;
-            margin: 2px 0 10px;
-        }
         .hint {
             margin-top: 6px;
             font-size: 0.78rem;
@@ -2550,7 +2536,9 @@ export class IrSignalEditor extends LitElement {
                 background: var(--card-background-color);
             }
         }
-        textarea.snap-flash {
+        /* The flash is the box's, so it plays on the wrapper, which
+           holds the border (the shared code box). */
+        .code-wrap:has(> textarea.snap-flash) {
             animation: snap-flash 700ms ease-out;
         }
         .snap-notice {
@@ -2596,68 +2584,10 @@ export class IrSignalEditor extends LitElement {
             display: block;
             margin: 8px 0;
         }
-        .feedback {
-            margin: 4px 0 12px;
-            padding: 10px 12px;
-            border-radius: 6px;
-            background: var(--secondary-background-color);
-        }
-        .status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.9rem;
-            font-weight: 500;
-        }
-        .status .mark {
-            font-size: 1rem;
-        }
-        .status.ok {
-            color: #2e7d32;
-        }
-        .status.bad {
-            color: #e65100;
-        }
-        .metrics {
-            display: flex;
-            gap: 14px;
-            margin-top: 6px;
-            font-size: 0.8rem;
-            color: var(--secondary-text-color);
-        }
-        .recognized {
-            color: #2e7d32;
-        }
         .converted {
             margin-top: 4px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
-        }
-        .diamonds {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1px;
-            margin-top: 8px;
-            line-height: 1;
-        }
-        .diamond {
-            font-size: 0.7rem;
-        }
-        .diamond.long {
-            color: var(--primary-color);
-        }
-        .diamond.short {
-            color: var(--warning-color, #ff9800);
-        }
-        .msg {
-            margin-top: 6px;
-            font-size: 0.8rem;
-        }
-        .msg.err {
-            color: #e65100;
-        }
-        .msg.warn {
-            color: #b89930;
         }
         .note {
             margin: 4px 0 12px;

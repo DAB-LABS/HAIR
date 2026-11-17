@@ -368,6 +368,9 @@ def validate(text: str, frequency_hz: int | None = None) -> dict[str, Any]:
         "fingerprint": stored.fingerprint,
         "frame_hash": stored.frame_hash,
         "header_shape": stored.header_shape,
+        # The diamonds, by the fingerprint's own reading of the frame
+        # that will be stored, so the editor draws what the row will.
+        "sl_pattern": stored.sl_pattern,
         "sub_text": to_sub(frame, frequency, gap_us),
     }
 

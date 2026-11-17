@@ -8,6 +8,7 @@
  * Fires `signal-assigned` on success (detail: AssignResult).
  */
 import { LitElement, html, css } from "lit";
+import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tv } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
@@ -624,10 +625,10 @@ export class IrAssignSignalDialog extends LitElement {
             line-height: 1;
         }
         .diamond.long {
-            color: var(--primary-color);
+            color: ${DIAMOND_LONG_VAR};
         }
         .diamond.short {
-            color: var(--warning-color, #ff9800);
+            color: ${DIAMOND_SHORT_VAR};
         }
         .proto-label {
             font-size: 0.82rem;

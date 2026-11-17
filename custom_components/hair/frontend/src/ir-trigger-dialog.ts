@@ -24,6 +24,7 @@
  *   closed         -- dialog dismissed
  */
 import { LitElement, html, css } from "lit";
+import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
@@ -303,8 +304,9 @@ export class IrTriggerDialog extends LitElement {
             >`;
         }
 
-        // Try S/L pattern string first (from sniffer create mode).
-        const patternStr = isEdit ? null : this.slPattern;
+        // Try S/L pattern string first: the Sniffer row's in create mode,
+        // a radio trigger's own (server-derived) in edit mode.
+        const patternStr = isEdit ? (this.trigger!.sl_pattern ?? null) : this.slPattern;
         if (patternStr) {
             return html`<span class="diamonds">${[...patternStr].map((ch) =>
                 ch === "L"
@@ -555,10 +557,10 @@ export class IrTriggerDialog extends LitElement {
             font-size: 0.7rem;
         }
         .diamond.long {
-            color: var(--primary-color);
+            color: ${DIAMOND_LONG_VAR};
         }
         .diamond.short {
-            color: var(--warning-color, #ff9800);
+            color: ${DIAMOND_SHORT_VAR};
         }
         .field-label {
             display: block;
