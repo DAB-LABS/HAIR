@@ -235,7 +235,7 @@ class TestNexa:
 
     Once refused by the strict body rule (both polarities need two
     levels); now a pulse-distance body (one mark width, spaces 4 to 7
-    apart, at least 40 pairs; ruling 2026-11-14 and 2026-11-15), so it is
+    apart, at least 40 pairs), so it is
     heard. test_rf_one_level_marks.py holds the rule to the noise hours
     and the bench.
     """

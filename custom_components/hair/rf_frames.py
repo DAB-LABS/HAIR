@@ -18,8 +18,8 @@ last edge.
 WHOLE FRAMES. A piece is a frame only if it has a BODY: its marks form
 at least two width levels and so do its spaces, or it is a long
 pulse-distance body (one mark width, two space widths 4 to 7 apart, at
-least 40 pairs; Nexa self-learning and KlikAanKlikUit send these, ruling
-2026-11-14). Receiver noise repeats
+least 40 pairs; Nexa self-learning and KlikAanKlikUit send these).
+Receiver noise repeats
 itself only in pieces of a handful of edges with no body, so a body is
 what separates a press from noise (measured: about 12,000 noise
 captures an hour, none with a remote-length body ever repeating). Of the pieces
@@ -203,7 +203,7 @@ def _polarities(parts: FrameParts) -> tuple[list[int], list[int]]:
 # A pulse-distance body (one mark width): at least this many mark-space
 # pairs. Both recorded Athom noise hours (33,366 pieces, window open and
 # closed) hold none at any length; 40 keeps a real frame with edges
-# missing (ruling 2026-11-14).
+# missing.
 RF_DISTANCE_MIN_PAIRS = 40
 # Its two most populated space levels: this far apart (Nexa's 1 T and
 # 5 T), and holding this share of the spaces (the start space sits inside
@@ -211,8 +211,8 @@ RF_DISTANCE_MIN_PAIRS = 40
 # a long space under about 3.2 T the fingerprint's short/long cut falls
 # between the long spaces and the start space, so a remote's buttons
 # share one fingerprint and the burst assembler can merge two of them
-# into a frame neither sent. A 3 to 3.4 T remote stays dropped, as before
-# (ruling 2026-11-15).
+# into a frame neither sent. A 3 to 3.4 T remote stays dropped, as
+# before.
 RF_DISTANCE_SPACE_RATIO = (4.0, 7.0)
 RF_DISTANCE_SPACE_SHARE = 0.9
 

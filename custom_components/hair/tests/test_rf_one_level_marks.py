@@ -1,5 +1,4 @@
-"""A pulse-distance body: one mark width over two space widths (ruling
-2026-11-14).
+"""A pulse-distance body: one mark width over two space widths.
 
 Nexa self-learning and KlikAanKlikUit send every mark one width and
 carry the code in the spaces (1 T or 5 T). Without this, ``has_body``
@@ -87,8 +86,8 @@ class TestAPressVotes:
         """RFLink-ESP says 3 T and 3.4 T long spaces also work. Below
         about 3.2 T the 10 T start space takes the fingerprint's
         short/long cut and a remote's buttons share one fingerprint, so
-        such a remote stays dropped, as it was before (ruling
-        2026-11-15). A real capture of one decides an identity change."""
+        such a remote stays dropped, as it was before. A real capture of
+        one decides an identity change."""
         assert rf_frames.analyze(_word(long_t=long_t) * 4) is None
 
     def test_every_button_keeps_its_own_fingerprint(self):

@@ -6,7 +6,7 @@ wire short then long, a 1 long then short; the start is T high and 10 T
 low, the stop T high and about 40 T low; 26-bit id, group, on/off, a
 4-bit unit; the dim variant puts two short wire bits in the on/off slot
 and adds 4 dim bits. Every mark is one width; HAIR's receive path hears
-such a frame as a pulse-distance body (rf_frames, ruling 2026-11-15).
+such a frame as a pulse-distance body (rf_frames).
 """
 from __future__ import annotations
 
