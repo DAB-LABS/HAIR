@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from .const import MAX_DITTO_COUNT, RF_GAP_MEASURED
 from .ir_command import carrier_or_default, raw_to_pronto
 from .models import IRDevice, is_rf
+from .rf_send import rolling_row
 from .wig_format import (
     RF_FREQUENCY_MAX_HZ,
     RF_FREQUENCY_MIN_HZ,
@@ -196,6 +197,15 @@ def build_wig_from_device(
                 # (radio trigger fix): say that, not "no frequency".
                 skipped += 1
                 notes.append(f"{alias}: no code yet; press the button once")
+                continue
+            # A rolling code is never sent, so it never leaves as a
+            # sendable row either (owner ruling 2026-11-16 09:45 PT).
+            if rolling_row(command) is not None:
+                skipped += 1
+                notes.append(
+                    f"{alias} is a rolling code and was left out: HAIR "
+                    "never sends a rolling code."
+                )
                 continue
             rf = wig_rf_of(command)
             if rf is None:

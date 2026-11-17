@@ -1178,3 +1178,51 @@ _SHAPES = (
     _pt2262_ev1527, _space_first_1_2, _mark_first_1_2, _manchester_somfy,
     _header_mark_first_1_2, _distance_1_5,
 )
+
+
+# ---------------------------------------------------------------------------
+# Rolling codes: never sent
+# ---------------------------------------------------------------------------
+
+# The families whose code changes on every press. HAIR never sends one
+# (owner ruling 2026-11-16 09:45 PT): a receiver ignores a code it has
+# seen, or the remote falls out of step with it. They stay triggers.
+ROLLING_FAMILIES = frozenset({"keeloq", "somfy_rts"})
+
+
+def rolling_family(frame: list[int] | tuple[int, ...] | None) -> str | None:
+    """The rolling family a frame reads as, or None.
+
+    Hidden families count: a frame is refused for what it is, not for
+    what the pill shows, so Somfy RTS is caught while its label is off.
+    A frame that is not a clean read of one (a partial KeeLoq word, a
+    Somfy frame whose checksum fails) is not caught, and is sent as any
+    other radio code.
+
+    A decoder that raises gives None, logged at warning: a bug here must
+    not stop every radio send, and None is how HAIR sent before this
+    check existed.
+    """
+    if not frame:
+        return None
+    try:
+        return _rolling_family(tuple(int(v) for v in frame))
+    except Exception:
+        _LOGGER.warning(
+            "Radio rolling-code check failed; the code is treated as fixed",
+            exc_info=True,
+        )
+        return None
+
+
+@lru_cache(maxsize=1024)
+def _rolling_family(frame: tuple[int, ...]) -> str | None:
+    # The same walk as ``_family_of``: the first shape that fits decides.
+    for decode in _SHAPES:
+        read = decode(frame)
+        if read is not None and read.fits:
+            return next(
+                (fit.key for fit in read.fits if fit.key in ROLLING_FAMILIES),
+                None,
+            )
+    return None

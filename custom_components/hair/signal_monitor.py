@@ -73,6 +73,8 @@ from .const import (
     RF_GAP_MEASURED,
     RF_MIN_BODY_EDGES,
     RF_PROTOCOL,
+    RF_ROLLING_CODE,
+    RF_ROLLING_CODE_MESSAGE,
     SEND_REPEAT_GAP,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
@@ -366,6 +368,20 @@ def _sl_fuzzy_substring_ratio(needle: str, haystack: str) -> float:
             )
         prev = cur
     return min(prev) / n  # free end
+
+
+def _rolling_refusal(signal: Any) -> dict[str, Any] | None:
+    """The assign doors' refusal for a rolling-code row, or None.
+
+    The send path refuses it anyway (``rf_send.plan_radio_send``); this
+    says so before a command exists that could never be sent.
+    """
+    from .rf_send import rolling_row
+
+    if rolling_row(signal) is None:
+        return None
+    return {"success": False, "code": RF_ROLLING_CODE,
+            "error": RF_ROLLING_CODE_MESSAGE}
 
 
 def _apply_signal_provenance(
@@ -2697,8 +2713,10 @@ class SignalMonitor:
             # panel's patch keeps the label it already holds). A label
             # never costs a press its event: a decoder failure is logged
             # at debug and the event goes out with no label.
-            from .rf_family import family_payload
+            from .rf_family import family_payload, rolling_family
 
+            # Guarded inside, as at the send path (rolling-code guard).
+            summary["rf_rolling"] = rolling_family(signal.raw_timings)
             try:
                 summary["rf_family"] = family_payload(signal.raw_timings)
             except Exception:
@@ -3301,6 +3319,9 @@ class SignalMonitor:
             if signal is None:
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found on device"}
+            refused = _rolling_refusal(signal)
+            if refused is not None:
+                return refused
 
             # Validate target.
             hair_device = self._hair_store.get_device(hair_device_id)
@@ -3390,6 +3411,9 @@ class SignalMonitor:
             if signal is None:
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found on device"}
+            refused = _rolling_refusal(signal)
+            if refused is not None:
+                return refused
 
             # Validate device type.
             try:
@@ -4829,7 +4853,14 @@ class SignalMonitor:
                 return {"success": False, "code": "target_not_found",
                         "error": "Target HAIR device not found"}
             copied = 0
+            rolling = 0
             for i, signal in enumerate(unknown.signals, start=1):
+                # A rolling code is never a command (owner ruling
+                # 2026-11-16 09:45 PT): the device is made without it,
+                # and the count says how many were left out.
+                if _rolling_refusal(signal) is not None:
+                    rolling += 1
+                    continue
                 name = (
                     (signal.alias or "").strip()
                     or (signal.plucked_command_name or "").strip()
@@ -4850,7 +4881,7 @@ class SignalMonitor:
                 copied += 1
             if copied:
                 await self._hair_store.async_save()
-        return {"success": True, "copied": copied}
+        return {"success": True, "copied": copied, "rolling_left_out": rolling}
 
     async def mark_promoted(self, device_id: str, hair_device_id: str) -> None:
         """Stamp a catalog remote with the HAIR device it was promoted

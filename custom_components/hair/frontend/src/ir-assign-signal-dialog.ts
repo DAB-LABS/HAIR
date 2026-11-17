@@ -14,6 +14,7 @@ import { formatLanguage, t, tv } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { assignSendCount, sendTimesHint } from "./rf-send-count.js";
 import { newDeviceRefusalKey } from "./assign-new-device.js";
+import { sendRefusal } from "./rf-errors.js";
 import { carrierParts } from "./sniffer-filter.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-alias.js";
@@ -265,10 +266,21 @@ export class IrAssignSignalDialog extends LitElement {
                 this._error = t("assign.failed_duplicate");
             }
         } catch (err) {
-            this._error = (err as Error).message;
+            // A refusal with a code (a rolling code, say) reads in the
+            // person's language; anything else keeps the server's words.
+            this._error = sendRefusal(err) ?? (err as Error).message;
         } finally {
             this._busy = false;
         }
+    }
+
+    /** A rolling code (KeeLoq, Somfy RTS) is never a device command
+     *  (owner ruling 2026-11-16 09:45 PT). The server refuses it at both
+     *  tabs; the dialog says so before the press, from the row's
+     *  `rf_rolling`, and Assign stays off. No trigger sentence until
+     *  rolling-code triggers ship (HARF's option C). */
+    private get _rolling(): boolean {
+        return !!this.signal?.rf_rolling;
     }
 
     private _fmtTime(iso: string): string {
@@ -357,6 +369,12 @@ export class IrAssignSignalDialog extends LitElement {
                     ${this._renderRepeatNotice()}
                 </div>
 
+                ${this._rolling
+                    ? html`<ha-alert alert-type="info" class="rolling-note">
+                          ${t("assign.rolling_code")}
+                      </ha-alert>`
+                    : ""}
+
                 <!-- Mode tabs -->
                 <div class="mode-tabs">
                     <button
@@ -424,7 +442,7 @@ export class IrAssignSignalDialog extends LitElement {
                     <button
                         class="action-btn wide assign-btn"
                         @click=${this._assign}
-                        ?disabled=${this._busy}
+                        ?disabled=${this._busy || this._rolling}
                     >
                         ${this._busy ? t("assign.assigning") : this._mode === "new" ? t("assign.create_assign") : t("assign.assign")}
                     </button>

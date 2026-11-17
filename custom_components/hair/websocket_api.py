@@ -78,6 +78,7 @@ from .receiver_window import (
     capture_receivers,
     set_choice,
 )
+from .rf_send import rolling_row
 from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
 from .trigger_manager import TriggerManager
@@ -308,7 +309,8 @@ def _media(rows: Any, *, matrix: bool = False) -> list[str]:
 def _augment_rf_family(rows: Any) -> None:
     """Give each radio row its family label and its diamonds, worked out
     from the row's own timings for the panel (never stored, never part
-    of the identity). Infrared rows are left as they are.
+    of the identity), and ``rf_rolling``: the rolling family it reads
+    as, or None. Infrared rows are left as they are.
 
     The diamonds (``sl_pattern``, owner 2026-11-15: radio rows get them
     wherever infrared rows do) are the fingerprint's own S/L reading of
@@ -319,10 +321,15 @@ def _augment_rf_family(rows: Any) -> None:
     ``rf_frames``, so the two cannot share one reading; each is cached
     per frame.
     """
-    from .rf_family import family_payload
+    from .rf_family import family_payload, rolling_family
 
     for row in rows or []:
         if isinstance(row, dict) and row.get("medium") == MEDIUM_RF:
+            # Whether the row is a rolling code HAIR will not send, so a
+            # door can say so before it is pressed. Guarded inside: a
+            # decoder failure gives None, and the row stays sendable, as
+            # at the send path.
+            row["rf_rolling"] = rolling_family(row.get("raw_timings"))
             # A label never costs the page: a decoder failure on one row
             # is logged at debug and that row goes out with no label.
             try:
@@ -800,6 +807,7 @@ async def ws_create_device(
     # features light up, and stamp the identity link so the linked chip
     # survives renames on either side.
     source_unknown = msg.get("promoted_from_unknown_id")
+    rolling_left_out = 0
     if source_unknown:
         monitor: SignalMonitor = data["signal_monitor"]
         copy = await monitor.copy_signals_to_device(
@@ -809,9 +817,14 @@ async def ws_create_device(
             for command in device.commands:
                 manager._auto_map_command(device, command)
             await manager.async_update_device(device)
+        rolling_left_out = copy.get("rolling_left_out", 0)
         await monitor.mark_promoted(source_unknown, device.id)
 
-    connection.send_result(msg["id"], await _device_full(hass, device))
+    result = await _device_full(hass, device)
+    # Rolling-code rows are never commands (owner ruling 2026-11-16
+    # 09:45 PT): the panel says how many the new device was made without.
+    result["rolling_left_out"] = rolling_left_out
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.require_admin
@@ -6214,6 +6227,9 @@ async def ws_wigs_supersede(
                 command = _command_from_wig_signal(
                     sig, ident, suspects, findings, i
                 )
+                # Never a rolling code (owner ruling 2026-11-16 09:45 PT).
+                if rolling_row(command) is not None:
+                    continue
                 device.add_command(command)
                 manager._auto_map_command(device, command)
                 added += 1
@@ -7900,6 +7916,7 @@ async def ws_wig_make_device(
 
     copied = 0
     skipped = 0
+    rolling_left_out = 0
     for i, (sig, ident) in enumerate(
         zip(wig.signals, identities, strict=True), start=1
     ):
@@ -7907,6 +7924,11 @@ async def ws_wig_make_device(
             skipped += 1
             continue
         command = _command_from_wig_signal(sig, ident, suspects, findings, i)
+        # A rolling code is never a command (owner ruling 2026-11-16
+        # 09:45 PT): the device is made without it, and counted.
+        if rolling_row(command) is not None:
+            rolling_left_out += 1
+            continue
         device.add_command(command)
         manager._auto_map_command(device, command)
         copied += 1
@@ -7933,6 +7955,7 @@ async def ws_wig_make_device(
     result = await _device_full(hass, device)
     result["copied"] = copied
     result["skipped"] = skipped
+    result["rolling_left_out"] = rolling_left_out
     result["cell_rows"] = cell_rows
     result["matrix_cells"] = len(matrix.cells) if matrix is not None else 0
     connection.send_result(msg["id"], result)
@@ -8057,6 +8080,7 @@ async def ws_trigger_remote_make_device(
     # they keep their place and their mapping, and listed so the dialog
     # can say which to press once (radio trigger fix, answer 2).
     needs_press: list[dict[str, str]] = []
+    rolling_left_out = 0
     triggers = store.get_triggers_for_remote(remote.id)
     # Make a Device from a typed Remote copies its button mapping to the
     # new Device when the Device takes the Remote's type (owner ruling
@@ -8099,6 +8123,12 @@ async def ws_trigger_remote_make_device(
                 byte_hash=trig.byte_hash,
             )
             copy_rf_signal(trig, command)
+            # A rolling code is never a command (owner ruling 2026-11-16
+            # 09:45 PT): it stays a trigger on the Remote, and the new
+            # Device is made without it.
+            if rolling_row(command) is not None:
+                rolling_left_out += 1
+                continue
             if rf_needs_press(command):
                 needs_press.append({"command_id": command.id, "name": command.name})
         else:
@@ -8130,6 +8160,7 @@ async def ws_trigger_remote_make_device(
     result["matrix_copied"] = matrix_copied
     result["forced_ac"] = forced_ac
     result["needs_press"] = needs_press
+    result["rolling_left_out"] = rolling_left_out
     connection.send_result(msg["id"], result)
 
 
