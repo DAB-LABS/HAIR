@@ -199,7 +199,7 @@ def build_wig_from_device(
                 notes.append(f"{alias}: no code yet; press the button once")
                 continue
             # A rolling code is never sent, so it never leaves as a
-            # sendable row either (owner ruling 2026-11-16 09:45 PT).
+            # sendable row either.
             if rolling_row(command) is not None:
                 skipped += 1
                 notes.append(

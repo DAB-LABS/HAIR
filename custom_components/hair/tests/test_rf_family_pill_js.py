@@ -289,10 +289,22 @@ class TestEditor:
         assert "public initialFamily: RfFamily | null = null;" in editor
         start = editor.index("private _shownFamily()")
         shown = editor[start:editor.index("private _renderRecognized(")]
-        assert "if (this._creating || this._codeChanged) return null;" in shown
-        assert "return this.initialFamily ?? null;" in shown
+        untouched = "if (!this._creating && !this._codeChanged) "
+        assert untouched + "return this.initialFamily ?? null;" in shown
+        # Edited or new: the server's read of the pasted code.
+        live = "return this._validation?.ok ? (this._validation.rf_family ?? null) : null;"
+        assert live in shown
         pill = editor[editor.index("private _renderRecognized("):editor.index("render() {")]
         assert "<ir-protocol-chip .family=${family}>" in pill
+
+    def test_the_live_family_comes_from_validate(self):
+        types = _read("types.ts")
+        validation = types.split("export interface RfValidation {", 1)[1].split("\n}", 1)[0]
+        assert "rf_family?: RfFamily | null;" in validation
+        editor = _read("ir-rf-editor.ts")
+        strip = editor.split("private _renderFeedback() {", 1)[1]
+        strip = strip.split("private _renderFrequency()", 1)[0]
+        assert "const family = this._shownFamily();" in strip
 
     def test_the_strip_is_three_lines(self):
         # Owner, 2026-11-16 (second look): line 1 the frequency, then

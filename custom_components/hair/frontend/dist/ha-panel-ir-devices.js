@@ -7666,7 +7666,7 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
             <div class="freq-note ${this._frequencyHz?"":"missing"}">
                 ${this._typedInvalid?De("rfedit.frequency_invalid"):this._frequencyHz?e?De(e):"":De("rfedit.frequency_missing")}
             </div>
-        </div>`}_countHint(){const e=Ms(0,this.repeatsObserved,this._sendCount);return e?V`<div class="count-hint">${De(e.key,{count:String(e.count)})}</div>`:K}_shownFamily(){return this._creating||this._codeChanged?null:this.initialFamily??null}_renderRecognized(e){const[t,i]=vs();return V`<span class="identity">
+        </div>`}_countHint(){const e=Ms(0,this.repeatsObserved,this._sendCount);return e?V`<div class="count-hint">${De(e.key,{count:String(e.count)})}</div>`:K}_shownFamily(){return this._creating||this._codeChanged?this._validation?.ok?this._validation.rf_family??null:null:this.initialFamily??null}_renderRecognized(e){const[t,i]=vs();return V`<span class="identity">
             ${t?V`<span class="recognized">${t}</span>`:K}
             <ir-protocol-chip .family=${e}></ir-protocol-chip>
             ${i?V`<span class="recognized">${i}</span>`:K}
