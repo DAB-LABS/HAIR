@@ -1,8 +1,6 @@
-"""Listening PR 1, the panel half: where a radio receiver listens, on its
-Sniffer pill (owner, 2026-11-16 13:50 PT: in the Sniffer, on the
-receiver's chip, per receiver, only there; the "did not change" and
-"can't tune" lines; where a capture's frequency came from in the row's
-tooltip, kept simple).
+"""The listening panel: where a radio receiver listens, on its Sniffer
+pill (per receiver, only there); the "did not change" and "can't tune"
+lines; and where a capture's frequency came from, in the row's tooltip.
 
 The server half is test_rf_tune.py. The rules run under node (skipped
 without the toolchain); the source pins run everywhere.
@@ -111,7 +109,7 @@ class TestTheBox:
 class TestWhereItLives:
     def test_only_on_a_radio_pill_without_its_own_frequency_picker(self):
         chip = _read("ir-listen-chip.ts")
-        block = chip.split("// Where a radio receiver listens (listening PR 1)", 1)[1]
+        block = chip.split("// Where a radio receiver listens", 1)[1]
         block = block.split("const lengths = lengthChoices(", 1)[0]
         assert 'if (row.medium === "rf" && freqs.length === 0 && this.tuning) {' in block
         assert "<ir-listen-tune" in block

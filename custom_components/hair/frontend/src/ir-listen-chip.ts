@@ -293,7 +293,7 @@ export class IrListenChip extends LitElement {
             ></ir-pill-picker>`);
         }
 
-        // Where a radio receiver listens (listening PR 1), on every radio
+        // Where a radio receiver listens, on every radio
         // receiver that has no frequency picker of its own: a capture
         // device that declares a frequency select keeps that picker.
         if (row.medium === "rf" && freqs.length === 0 && this.tuning) {

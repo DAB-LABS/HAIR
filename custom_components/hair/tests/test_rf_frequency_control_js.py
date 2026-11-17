@@ -1,5 +1,4 @@
-"""The shared radio frequency control (owner, 2026-11-16 13:46, 14:33 and
-20:09 PT; gertrude-2026-11-16-frequency-control-plan.md).
+"""The shared radio frequency control.
 
 - One control for every place HAIR asks for a radio frequency: the band
   pills, then an Other field with "e.g. 433.92" and a list of common

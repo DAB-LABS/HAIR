@@ -1,7 +1,6 @@
 /**
- * Where a radio receiver listens, on its Sniffer pill (listening PR 1;
- * owner, 2026-11-16 13:50 PT: in the Sniffer, on the receiver's chip,
- * per receiver, and only there).
+ * Where a radio receiver listens, on its Sniffer pill: per receiver,
+ * and only there.
  *
  * A small box at the pill's end, the same as the other pill pickers,
  * reading the frequency the receiver holds now ("433.92"), "setting
@@ -12,14 +11,13 @@
  *
  *   outside the receiver's limits  "Outside what this receiver
  *                                   supports; trying anyway." (HAIR
- *                                   still tries: owner, 11-15 ruling)
+ *                                   still tries)
  *   it did not take                "This receiver did not change; it
  *                                   is still listening at {mhz} MHz."
  *   it cannot be tuned             "HAIR can't tune this receiver; it
  *                                   listens where its hardware does."
  *
- * Offered on every radio receiver (owner, 13:04 PT: do not start by
- * hiding it). The server says what happened; nothing here guesses.
+ * Offered on every radio receiver; nothing hides it up front. The server says what happened; nothing here guesses.
  * Every click and keydown stops here, because the pill around it is
  * the press.
  */

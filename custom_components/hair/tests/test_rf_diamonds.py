@@ -1,5 +1,4 @@
-"""Radio rows get the S/L diamonds wherever infrared rows have them
-(owner, 2026-11-15; ir-2026-11-15-radio-diamonds-everywhere.md).
+"""Radio rows get the S/L diamonds wherever infrared rows have them.
 
 One rule: the fingerprint's. A radio frame's diamonds are ``body_labels``
 over its body, one per edge (mark and space alike), the same two-level
@@ -120,8 +119,8 @@ class TestTheDoors:
         websocket_api._rf_sl_pattern_of.cache_clear()
 
     def test_each_test_starts_with_empty_caches(self):
-        # The conftest clears both per-frame readings around every test
-        # (Shaq's read): the doors above filled them, this one sees none.
+        # The conftest clears both per-frame readings around every test:
+        # the doors above filled them, this one sees none.
         from custom_components.hair import rf_family
 
         assert websocket_api._rf_sl_pattern_of.cache_info().currsize == 0

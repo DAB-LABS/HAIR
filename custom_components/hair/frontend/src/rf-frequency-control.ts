@@ -15,8 +15,8 @@
  *
  * It fires `frequency-changed` with `{ hz }` only when the frequency
  * really changes: a click on the band already picked, or typing the
- * value it already holds, is not a change (the "Set by you" finding,
- * gertrude-2026-11-16-frequency-control-plan.md section 1). It fires
+ * value it already holds, is not a change, so a saved row's frequency
+ * is never marked as the user's when nothing changed. It fires
  * `frequency-invalid` with `{ invalid }` whenever what is typed stops or
  * starts being a frequency, so the host can hold Save.
  *
@@ -28,8 +28,8 @@ import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { RF_PRESETS_HZ, hzToMhz, mhzToHz, presetOf } from "./rf-code.js";
 
-/** The bands the Other field offers on a click (owner, 13:46 PT: HARF's
- *  list). Typing any other frequency still works. */
+/** The bands the Other field offers on a click: the common bands for
+ *  remote controls. Typing any other frequency still works. */
 export const RF_SUGGESTIONS_MHZ = [
     "300", "303.875", "310", "315", "390", "418", "433.42", "433.92", "868.35", "915",
 ] as const;
