@@ -267,7 +267,10 @@ class TestTheRadioEditorMatchesTheInfraredOne:
         assert "copy_sub" not in flat and "_copied" not in flat
         copy = flat.split("private async _copy(): Promise<void> {", 1)[1]
         copy = copy.split("private _requestDelete", 1)[0]
-        assert "this._validation.sub_text" in copy and "ta.select();" in copy
+        # The copying itself is the shared piece's (copy-text.ts), which
+        # selects the box when the browser allows no copy at all.
+        assert "this._validation.sub_text" in copy
+        assert "const copied = await copyCodeBox(text, ta);" in copy
         assert 't("editor.copied") : t("editor.press_copy")' in copy
 
     def test_delete_takes_the_slot_and_asks_the_host(self):

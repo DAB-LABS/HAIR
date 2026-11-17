@@ -58,6 +58,7 @@ import type {
 import { isDittoable } from "./ir-tx-knobs.js";
 import { claimedFor, fieldWords, sameReading } from "./ir-tangle-copy.js";
 import { keepConversionNotes } from "./converted-notes.js";
+import { copyCodeBox } from "./copy-text.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
 
 // The note under a code the server converted from another format, one
@@ -1377,27 +1378,12 @@ export class IrSignalEditor extends LitElement {
         }
     }
 
-    private async _selectCode(): Promise<void> {
-        // HA custom panels run in an iframe that is not granted
-        // clipboard-write, so neither navigator.clipboard nor execCommand
-        // reaches the system clipboard. The reliable path is to select the
-        // code so the user copies it with their own keyboard gesture. We
-        // still try the real clipboard silently in case a future HA build
-        // allows it.
-        const ta = this.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea");
-        if (ta) {
-            ta.focus();
-            ta.select();
-        }
-        let copied = false;
-        try {
-            if (window.isSecureContext && navigator.clipboard) {
-                await navigator.clipboard.writeText(this._pronto);
-                copied = true;
-            }
-        } catch {
-            copied = false;
-        }
+    /** The corner copy icon: one click copies the code (copy-text.ts).
+     *  When the browser allows no copy at all, the code is selected and
+     *  the hint says to press copy. */
+    private async _copyCode(): Promise<void> {
+        const ta = this.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea") ?? null;
+        const copied = await copyCodeBox(this._pronto, ta);
         this._copyHint = copied ? t("editor.copied") : t("editor.press_copy");
         setTimeout(() => {
             this._copyHint = null;
@@ -1669,8 +1655,9 @@ export class IrSignalEditor extends LitElement {
                                   : ""}
                               <button
                                   class="copy-icon"
-                                  title=${t("editor.select_all")}
-                                  @click=${this._selectCode}
+                                  title=${t("editor.copy_code")}
+                                  aria-label=${t("editor.copy_code")}
+                                  @click=${this._copyCode}
                               >
                                   <ha-svg-icon .path=${ICON_COPY}></ha-svg-icon>
                               </button>

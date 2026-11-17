@@ -4,8 +4,8 @@
   the row's band cell, and the remote's band, in place.
 - N19: a device command's refused send names the code, its medium and
   the device.
-- N20: under a radio code's send count, the Assign dialog and the radio
-  editor say what the count starts at and why.
+- N20: beside a radio code's send count (under it in the Assign
+  dialog), a short note says where the count came from.
 
 The rules run under node with the repo's TypeScript and a stub
 localizer (skipped without the toolchain); the source and locale pins
@@ -161,11 +161,11 @@ class TestN19TheRefusal:
 
 class TestN20TheCountLine:
     def test_a_measured_press(self, run):
-        assert run["hint"]["measured"] == {"key": "rfedit.send_times_measured", "count": 6}
+        assert run["hint"]["measured"] == "rfedit.send_times_note_measured"
 
     def test_a_clamped_count_is_not_what_the_remote_sent(self, run):
-        assert run["hint"]["clampedHigh"] == {"key": "rfedit.send_times_usual", "count": 10}
-        assert run["hint"]["clampedLow"] == {"key": "rfedit.send_times_usual", "count": 2}
+        assert run["hint"]["clampedHigh"] == "rfedit.send_times_note_usual"
+        assert run["hint"]["clampedLow"] == "rfedit.send_times_note_usual"
 
     def test_no_line_unless_the_field_holds_the_seed(self, run):
         # A minted Sniffer row's stored 1, a count the user chose, a
@@ -176,7 +176,7 @@ class TestN20TheCountLine:
         assert run["hint"]["pasteField"] is None
 
     def test_an_unmeasured_press(self, run):
-        assert run["hint"]["unmeasured"] == {"key": "rfedit.send_times_usual", "count": 4}
+        assert run["hint"]["unmeasured"] == "rfedit.send_times_note_usual"
         assert run["hint"]["zero"] == run["hint"]["unmeasured"]
 
     def test_infrared_keeps_its_sentence(self, run):
@@ -187,8 +187,9 @@ class TestN20TheCountLine:
         flat = _flat("ir-assign-signal-dialog.ts")
         assert '<div class="hint">${this._sendTimesHint()}</div>' in flat
         assert (
-            'const hint = sendTimesHint("rf", this.signal.rf_repeats_observed, this._sendCount);'
+            'const key = sendTimesHint("rf", this.signal.rf_repeats_observed, this._sendCount);'
         ) in flat
+        assert 'return key ? t(key) : "";' in flat
         assert 'if (this.signal?.medium !== "rf") return t("assign.send_times_hint");' in flat
 
     def test_the_radio_editor(self):
@@ -196,8 +197,11 @@ class TestN20TheCountLine:
         assert (
             "@property({ attribute: false }) public repeatsObserved: number | null = null;"
         ) in flat
-        assert 'const hint = sendTimesHint("rf", this.repeatsObserved, this._sendCount);' in flat
-        assert "/> ${this._countHint()} </div>" in flat
+        assert 'const key = sendTimesHint("rf", this.repeatsObserved, this._sendCount);' in flat
+        # Beside the field, on the field's row, as the infrared editor's
+        # sentence sits beside its knobs.
+        assert '/> </div> ${this._countNote()} </div> </div>' in flat
+        assert 'html`<span class="count-note">${t(key)}</span>`' in flat
 
     @pytest.mark.parametrize(
         ("name", "expr"),
@@ -268,8 +272,8 @@ KEYS = {
     "errors.no_radio_transmitter": ("{command}", "{device}"),
     "errors.no_infrared_emitter": ("{command}", "{device}"),
     "errors.no_transmitter_for_band": ("{device}", "{band}"),
-    "rfedit.send_times_measured": ("{count}",),
-    "rfedit.send_times_usual": ("{count}",),
+    "rfedit.send_times_note_measured": (),
+    "rfedit.send_times_note_usual": (),
 }
 
 
@@ -287,12 +291,8 @@ class TestTheSentences:
         assert en["errors.no_transmitter_for_band"] == (
             "{device} has no radio transmitter that can send {band} MHz."
         )
-        assert en["rfedit.send_times_measured"] == (
-            "{count}, as the remote sent it when captured. Change it if the device needs more."
-        )
-        assert en["rfedit.send_times_usual"] == (
-            "{count}, a usual count for a remote like this. Change it if the device needs more."
-        )
+        assert en["rfedit.send_times_note_measured"] == "As the remote sent it"
+        assert en["rfedit.send_times_note_usual"] == "Usual for this kind of remote"
 
     @pytest.mark.parametrize("path", sorted(LOCALES.glob("*.json")), ids=lambda p: p.stem)
     def test_every_locale_has_them_with_their_values(self, path):

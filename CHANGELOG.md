@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The radio editor no longer says "Set by you." under the frequency, and clicking the band that is already picked no longer counts as a change.
 - HAIR never sends a rolling code. A radio code from a KeeLoq or Somfy RTS remote cannot be a device command: Assign says so and stays off, and Make a Device, Adopt and wig export leave it out.
 - The radio code editor names a pasted code's protocol as you edit it, the same as the infrared editor.
+- When some frames of a pasted radio code do not match, the radio editor says which ones the code was read from: "6 of 8 frames agree; the code was read from those 6."
+- A radio code's Send times has a short note, beside the field in the radio editor and under it in the Assign dialog: "As the remote sent it" or "Usual for this kind of remote". The note goes once the number is changed.
+- The copy icon in both code editors copies the code in one click and shows "Copied", on plain http as well as https. Where the browser allows no copy at all, it selects the code as before.
 
 ### Fixed
 

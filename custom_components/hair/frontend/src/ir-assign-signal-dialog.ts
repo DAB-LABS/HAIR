@@ -317,13 +317,13 @@ export class IrAssignSignalDialog extends LitElement {
         `;
     }
 
-    /** The line under Send times: a radio row says why its count is
-     *  what it is while it holds the seed (N20), and nothing once the
-     *  user changes it; an infrared row keeps its sentence. */
+    /** The line under Send times: a radio row says where its count came
+     *  from while it holds the seed, and nothing once the user changes
+     *  it; an infrared row keeps its sentence. */
     private _sendTimesHint(): string {
         if (this.signal?.medium !== "rf") return t("assign.send_times_hint");
-        const hint = sendTimesHint("rf", this.signal.rf_repeats_observed, this._sendCount);
-        return hint ? t(hint.key, { count: String(hint.count) }) : "";
+        const key = sendTimesHint("rf", this.signal.rf_repeats_observed, this._sendCount);
+        return key ? t(key) : "";
     }
 
     render() {
