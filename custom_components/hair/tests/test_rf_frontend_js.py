@@ -234,7 +234,8 @@ class TestTheSources:
         monitor = _src("ir-signal-monitor.ts")
         assert "_toggleDismissed" not in monitor and "_showDismissed" not in monitor
         assert "include_dismissed: this._show.hidden," in monitor
-        assert '${g.kind === "hidden" && this._hiddenDot' in monitor
+        assert 'const activity = g.kind === "hidden" ? this._hiddenRemotes' in monitor
+        assert "${activity.dot ? html`<span class=\"hidden-dot\"" in monitor
         assert 'class="show-glyph ${this._show[g.kind] ? "on" : ""}' in monitor
 
     def test_reordering_only_with_every_remote_shown(self):

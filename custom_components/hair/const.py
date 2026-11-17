@@ -589,6 +589,15 @@ RF_NO_FRAME_MESSAGE = (
     "once while HAIR is listening, or paste the code in the code editor."
 )
 RF_FREQUENCY_UNSUPPORTED = "rf_frequency_unsupported"
+# A rolling-code row (KeeLoq, Somfy RTS): HAIR never sends one (owner
+# ruling 2026-11-16 09:45 PT). A receiver ignores or desyncs on a code it
+# has already seen. The message makes no trigger promise until rolling
+# triggers ship (HARF's option C, 2026-11-16).
+RF_ROLLING_CODE = "rf_rolling_code"
+RF_ROLLING_CODE_MESSAGE = (
+    "This is a rolling code: the remote changes it on every press, so HAIR "
+    "never sends it."
+)
 RF_PLATFORM_NOT_LOADED = "rf_platform_not_loaded"
 # A transmitter that declares no frequency ((0, 0) or nothing): the
 # picker's reason, never a send.

@@ -152,29 +152,37 @@ class TestTheHiddenGlyph:
     """Owner bench, 19:35: the hidden glyph glowed once and never again,
     and its dot sat off in the button's corner."""
 
-    def _flat(self):
+    def _flat(self, name: str = "hidden-activity.ts"):
+        # Since 2026-11-16 the eye's ring and dot live in
+        # hidden-activity.ts, shared with the IR and RF glyphs.
         from pathlib import Path
 
-        src = (
-            Path(__file__).parent.parent / "frontend" / "src" / "ir-signal-monitor.ts"
-        ).read_text(encoding="utf-8")
+        src = (Path(__file__).parent.parent / "frontend" / "src" / name).read_text(
+            encoding="utf-8"
+        )
         return " ".join(src.split())
 
     def test_every_press_restarts_the_glow(self):
-        body = self._flat().split("private _onHiddenActivity(): void {", 1)[1]
-        body = body.split("// --- Inline rename ---", 1)[0]
-        assert body.index("this._hiddenGlow = false;") < body.index("requestAnimationFrame(")
+        monitor = self._flat("ir-signal-monitor.ts")
+        handler = monitor.split("private _onHiddenActivity(): void {", 1)[1].split("}", 1)[0]
+        assert "this._hiddenRemotes.ping();" in handler
+        body = self._flat().split("ping(): void {", 1)[1].split("clearDot(): void {", 1)[0]
+        assert body.index("this.glow = false;") < body.index("requestAnimationFrame(")
         assert body.count("requestAnimationFrame(") == 2
-        assert "this._hiddenGlow = true;" in body
+        assert "this.glow = true;" in body
 
     def test_the_eye_itself_glows_and_the_dot_sits_on_it(self):
         flat = self._flat()
         assert (
-            ".show-glyph.hidden-glow ha-svg-icon { animation: hidden-eye 3.8s ease-out; }"
+            ".show-glyph.hidden-glow ha-svg-icon, .show-glyph.hidden-glow .hair-proto"
+            " { animation: hidden-eye 3.8s ease-out; }"
         ) in flat
         assert "@keyframes hidden-eye" in flat and "drop-shadow(0 0 6px" in flat
         dot = flat.split(".hidden-dot {", 1)[1].split("}", 1)[0]
-        assert "top: 2px;" in dot and "right: 4px;" in dot
+        # Beside the glyph's corner, about 10% smaller (owner, 2026-11-17
+        # 08:07 PT): in the button's top right, inside its hit area.
+        assert "top: 0;" in dot and "right: 0;" in dot
+        assert "width: 7px;" in dot and "height: 7px;" in dot
         # The glyph's own look moved to filter-glyph-styles.ts (item 14).
         from pathlib import Path
 

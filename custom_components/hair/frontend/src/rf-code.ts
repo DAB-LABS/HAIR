@@ -75,7 +75,9 @@ export function sourceKey(source: string | null | undefined): string | null {
         case "receiver":
             return "rfedit.source_receiver";
         case "user":
-            return "rfedit.source_user";
+            // Picked or typed by the person: nothing to say (owner,
+            // 2026-11-16 14:33 PT, "Set by you." goes).
+            return null;
         case "assumed":
             return "rfedit.source_assumed";
         default:

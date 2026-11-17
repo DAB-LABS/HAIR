@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- When infrared or radio is switched off in the Sniffer or the Remotes header, its glyph glows and keeps a blue dot as signals of that kind arrive, the way the hidden-remotes eye does.
 - Radio commands and triggers show the short and long diamonds that infrared ones show, read the same way HAIR tells radio codes apart.
 - The infrared code editor has Delete, as the radio one does: bottom left, only for a saved command or signal, with the same confirmation as deleting from the row.
 
@@ -16,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The radio code editor now looks like the infrared one: the code box, then the code's frequency with "Recognized as" and its pill, its address and data under that, then its diamonds.
 - In both code editors the code's identity shows once, in the box, as "Recognized as" and its pill.
+- The radio editor's Other frequency field shows "e.g. 433.92", offers common bands when clicked, and turns blue like a band button when it holds the frequency.
+- The radio editor no longer says "Set by you." under the frequency, and clicking the band that is already picked no longer counts as a change.
+- HAIR never sends a rolling code. A radio code from a KeeLoq or Somfy RTS remote cannot be a device command: Assign says so and stays off, and Make a Device, Adopt and wig export leave it out.
 - The radio code editor names a pasted code's protocol as you edit it, the same as the infrared editor.
 
 ### Fixed

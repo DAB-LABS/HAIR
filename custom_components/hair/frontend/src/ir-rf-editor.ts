@@ -40,16 +40,8 @@ import {
 } from "./ir-code-box-styles.js";
 import { sendRefusal } from "./rf-errors.js";
 import { sendTimesHint } from "./rf-send-count.js";
-import {
-    RF_PRESETS_HZ,
-    hzToMhz,
-    mhzToHz,
-    pasteRefusalKey,
-    presetOf,
-    sourceKey,
-    toSub,
-    withSubFrequency,
-} from "./rf-code.js";
+import { hzToMhz, pasteRefusalKey, sourceKey, toSub, withSubFrequency } from "./rf-code.js";
+import "./rf-frequency-control.js";
 import type { HairApi } from "./api.js";
 import type { RfValidation } from "./types.js";
 import "./ir-protocol-chip.js";
@@ -90,7 +82,9 @@ export class IrRfEditor extends LitElement {
     @state() private _frequencyHz: number | null = null;
     @state() private _frequencySource: string | null = null;
     @state() private _frequencyChanged = false;
-    @state() private _typed = "";
+    /** The Other field holds text that is not a frequency, so Save waits
+     *  (rf-frequency-control.ts tells). */
+    @state() private _typedInvalid = false;
     @state() private _validation: RfValidation | null = null;
     @state() private _validating = false;
     @state() private _busy = false;
@@ -115,8 +109,6 @@ export class IrRfEditor extends LitElement {
         this._sendCount = Math.max(1, this.initialSendCount || 1);
         this._frequencyHz = this.initialFrequencyHz;
         this._frequencySource = this.initialFrequencySource;
-        this._typed =
-            this._frequencyHz && presetOf(this._frequencyHz) === null ? hzToMhz(this._frequencyHz) : "";
     }
 
     /** The strip is always shown, as the infrared editor's is: the saved
@@ -192,7 +184,6 @@ export class IrRfEditor extends LitElement {
             if (result.ok && result.frequency_hz && !this._frequencyChanged) {
                 this._frequencyHz = result.frequency_hz;
                 this._frequencySource = result.frequency_source ?? null;
-                this._typed = presetOf(this._frequencyHz) === null ? hzToMhz(this._frequencyHz) : "";
             }
         } catch (err) {
             if (asked !== this._asked) return;
@@ -202,23 +193,14 @@ export class IrRfEditor extends LitElement {
         }
     }
 
-    private _pick(hz: number): void {
+    /** A band pill or the Other field set a new frequency. The control
+     *  only says so when it really changed, so a click on the band
+     *  already picked leaves the row's frequency and its source alone. */
+    private _onFrequency(hz: number): void {
         this._frequencyHz = hz;
         this._frequencySource = "user";
         this._frequencyChanged = true;
-        this._typed = "";
         this._codeFollows(hz);
-    }
-
-    private _onTyped(e: Event): void {
-        this._typed = (e.target as HTMLInputElement).value;
-        const hz = mhzToHz(this._typed);
-        if (hz !== null) {
-            this._frequencyHz = hz;
-            this._frequencySource = "user";
-            this._frequencyChanged = true;
-            this._codeFollows(hz);
-        }
     }
 
     /** The Code box follows the frequency buttons (N15): a .sub's
@@ -251,10 +233,6 @@ export class IrRfEditor extends LitElement {
         this._validating = true;
         if (this._timer !== null) clearTimeout(this._timer);
         this._timer = setTimeout(() => void this._validate(), VALIDATE_DELAY_MS);
-    }
-
-    private get _typedInvalid(): boolean {
-        return this._typed.trim() !== "" && mhzToHz(this._typed) === null;
     }
 
     private get _canSave(): boolean {
@@ -405,33 +383,16 @@ export class IrRfEditor extends LitElement {
     }
 
     private _renderFrequency() {
-        const preset = presetOf(this._frequencyHz);
         const source = sourceKey(this._frequencySource);
         return html`<div class="field">
             <label id="freq-label">${t("rfedit.frequency")}</label>
-            <div class="freq-row" role="group" aria-labelledby="freq-label">
-                ${RF_PRESETS_HZ.map(
-                    (hz) => html`<button
-                        class="preset ${preset === hz ? "on" : ""}"
-                        aria-pressed=${preset === hz ? "true" : "false"}
-                        @click=${() => this._pick(hz)}
-                    >
-                        ${t("rfedit.mhz", { mhz: hzToMhz(hz) })}
-                    </button>`,
-                )}
-                <span class="other">
-                    <input
-                        type="text"
-                        inputmode="decimal"
-                        class=${this._typedInvalid ? "invalid" : ""}
-                        placeholder=${t("rfedit.other_mhz")}
-                        aria-label=${t("rfedit.other_mhz")}
-                        .value=${this._typed}
-                        @input=${this._onTyped}
-                    />
-                    <span class="unit">MHz</span>
-                </span>
-            </div>
+            <hair-frequency-control
+                .valueHz=${this._frequencyHz}
+                .label=${t("rfedit.frequency")}
+                @frequency-changed=${(e: CustomEvent<{ hz: number }>) => this._onFrequency(e.detail.hz)}
+                @frequency-invalid=${(e: CustomEvent<{ invalid: boolean }>) =>
+                    (this._typedInvalid = e.detail.invalid)}
+            ></hair-frequency-control>
             <div class="freq-note ${this._frequencyHz ? "" : "missing"}">
                 ${this._typedInvalid
                     ? t("rfedit.frequency_invalid")
@@ -590,48 +551,7 @@ export class IrRfEditor extends LitElement {
             /* The code box, its copy icon, the strip and the diamonds are
                the infrared editor's (ir-code-box-styles.ts), loaded above. */
             /* Delete's look is shared with the infrared editor (deleteStyles). */
-            .freq-row {
-                display: flex;
-                flex-wrap: wrap;
-                align-items: center;
-                gap: 6px;
-            }
-            .preset {
-                padding: 5px 12px;
-                border-radius: 14px;
-                border: 1px solid var(--divider-color);
-                background: none;
-                color: var(--primary-text-color);
-                font: inherit;
-                font-size: 0.85rem;
-                cursor: pointer;
-            }
-            .preset.on {
-                border-color: #03a9f4;
-                background: color-mix(in srgb, #03a9f4 14%, transparent);
-            }
-            .other {
-                display: inline-flex;
-                align-items: center;
-                gap: 4px;
-            }
-            /* As tall as the band pills beside it, and narrower (owner,
-               2026-11-16): the pills' padding, type size and rounding. */
-            .other input {
-                width: 6em;
-                box-sizing: border-box;
-                padding: 5px 10px;
-                border-radius: 14px;
-                font-size: 0.85rem;
-                line-height: normal;
-            }
-            .other input.invalid {
-                border-color: var(--error-color, #db4437);
-            }
-            .unit {
-                font-size: 0.8rem;
-                color: var(--secondary-text-color);
-            }
+            /* The band pills and the Other field: rf-frequency-control.ts. */
             .freq-note {
                 font-size: 0.75rem;
                 color: var(--secondary-text-color);

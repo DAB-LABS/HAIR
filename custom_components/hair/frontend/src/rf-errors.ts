@@ -28,6 +28,10 @@ export const INVALID_EMITTER = "invalid_emitter";
 /** An infrared code sent to the radio editor, or the reverse (send
  *  review N10): only a stale panel or a crafted request reaches it. */
 export const WRONG_MEDIUM_CODE = "wrong_medium_code";
+/** A rolling code (KeeLoq, Somfy RTS): HAIR never sends one, at any
+ *  door (owner ruling 2026-11-16 09:45 PT). The receiver would ignore a
+ *  replayed press or fall out of step with its remote. */
+export const RF_ROLLING_CODE = "rf_rolling_code";
 
 const SENTENCES: Record<string, string> = {
     [RF_SEND_UNSUPPORTED]: "errors.rf_send_unsupported",
@@ -40,6 +44,7 @@ const SENTENCES: Record<string, string> = {
     [EMITTER_WRONG_MEDIUM]: "errors.emitter_wrong_medium",
     [INVALID_EMITTER]: "errors.invalid_emitter",
     [WRONG_MEDIUM_CODE]: "errors.wrong_medium_code",
+    [RF_ROLLING_CODE]: "errors.rf_rolling_code",
 };
 
 /** The locale key for a refusal code, or null for any other error.

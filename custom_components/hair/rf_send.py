@@ -40,6 +40,7 @@ from typing import Any
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
     MAX_SEND_COUNT,
+    MEDIUM_RF,
     RF_ASSUMED_FRAME_GAP_US,
     RF_DEFAULT_SEND_COUNT,
     RF_FREQUENCY_UNSUPPORTED,
@@ -49,6 +50,8 @@ from .const import (
     RF_NO_FREQUENCY,
     RF_NO_RANGES,
     RF_PLATFORM_NOT_LOADED,
+    RF_ROLLING_CODE,
+    RF_ROLLING_CODE_MESSAGE,
     RF_SEND_SUBSTITUTE_TOLERANCE_HZ,
     SEND_AIR_TIME_MAX_MS,
 )
@@ -93,6 +96,20 @@ class TransmitterFit:
 # ---------------------------------------------------------------------------
 # Pure rules
 # ---------------------------------------------------------------------------
+
+
+def rolling_row(row: Any) -> str | None:
+    """The rolling family a row's frame reads as, or None.
+
+    The one test every door uses (``rf_family.rolling_family``), so the
+    send path and the doors that refuse up front cannot disagree.
+    Infrared rows and rows with no frame are never rolling.
+    """
+    from .rf_family import rolling_family
+
+    if getattr(row, "medium", MEDIUM_RF) != MEDIUM_RF:
+        return None
+    return rolling_family(getattr(row, "raw_timings", None))
 
 
 def is_radio_entity(entity_id: str | None) -> bool:
@@ -311,6 +328,11 @@ def plan_radio_send(
         # frequency" is the wrong thing to tell someone whose code is
         # missing (radio trigger fix).
         raise SendRefusedError(RF_NO_FRAME, RF_NO_FRAME_MESSAGE)
+    # Second: a rolling code is never sent, by any door (owner ruling
+    # 2026-11-16 09:45 PT). Every radio send passes through here, so a
+    # door that forgets its own refusal still cannot put one on the air.
+    if rolling_row(row) is not None:
+        raise SendRefusedError(RF_ROLLING_CODE, RF_ROLLING_CODE_MESSAGE)
     radio_ids = [e for e in transmitter_ids if is_radio_entity(e)]
     if not radio_ids:
         raise SendRefusedError(
