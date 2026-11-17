@@ -426,9 +426,8 @@ the remote says on its case (ruling 2026-11-14).
 
 What follows (derived): HAIR's frame is the start pair, 64 wire bits (72
 with dim) and the stop mark, the stop's low as the gap. Every mark is
-one width, so HAIR drops the capture as noise today: this decoder reads
-nothing on the air until the receive-path change (ruling 2026-11-14,
-its own branch). Both sources agree on which wire pair is 1. They
+one width; the receive path hears it as a pulse-distance body. Both
+sources agree on which wire pair is 1. They
 disagree on the on/off bit; the state follows elektronikforumet (0 is
 on), recorded as such, until a real capture of a known press (plan
 answer 2026-11-14). The unit is shown as its 4-bit number, since the
@@ -559,8 +558,7 @@ FAMILIES: dict[str, FamilySpec] = {
             aliases=("Proove", "KlikAanKlikUit", "COCO"),
             shown=False,
             evidence="elektronikforumet wiki and RFLink-ESP descriptions; "
-                     "held off until the receive-path change and a real "
-                     "capture (ruling 2026-11-14)",
+                     "held off until a real capture",
         ),
     )
 }

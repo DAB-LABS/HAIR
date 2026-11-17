@@ -5,9 +5,8 @@ to 275 us; a wire bit is 1 T high then 1 T or 5 T low; a logical 0 is
 wire short then long, a 1 long then short; the start is T high and 10 T
 low, the stop T high and about 40 T low; 26-bit id, group, on/off, a
 4-bit unit; the dim variant puts two short wire bits in the on/off slot
-and adds 4 dim bits. Every mark is one width, so HAIR drops such a
-capture today: these frames reach the decoder only directly, until the
-receive-path change.
+and adds 4 dim bits. Every mark is one width; HAIR's receive path hears
+such a frame as a pulse-distance body (rf_frames).
 """
 from __future__ import annotations
 
@@ -159,11 +158,45 @@ class TestMeasuredReceivers:
         assert _fields(family_of(_frame(spread=0.15, seed=seed)))["id"] == "0E1C502"
 
 
-class TestHairDropsItToday:
-    def test_a_whole_press_gives_no_frame_today(self, shown):
-        """One mark width: HAIR's receive path drops it as noise. The
-        receive-path change (its own branch) changes this test."""
-        assert rf_frames.analyze(_frame() * 4) is None
+class TestHairHearsIt:
+    def test_a_whole_press_votes_a_frame_the_decoder_reads(self, shown):
+        """One mark width, heard as a pulse-distance body: a whole press
+        votes, and the voted frame is read as self-learning Nexa."""
+        capture = rf_frames.analyze(_frame() * 4)
+        assert capture is not None
+        assert _fields(family_of(capture.frame))["id"] == "0E1C502"
+
+    def test_held_off_it_shows_no_label(self):
+        rf_family._family_of.cache_clear()
+        capture = rf_frames.analyze(_frame() * 4)
+        assert capture is not None
+        assert family_of(capture.frame) is None
+
+
+class TestItsDiamonds:
+    """The diamonds of a one-mark-width code (radio diamonds, item 5): every
+    mark reads S, and only the spaces carry the code. The 10 T start space
+    sits inside the body and reads L."""
+
+    def test_marks_are_all_short_and_the_spaces_carry_the_code(self):
+        word = _frame()
+        read = rf_frames.identity_of_frame(word)
+        assert read is not None
+        parts = rf_frames.split_body(max(rf_frames.split_frames(word), key=lambda p: len(p.edges)))
+        assert parts.body_starts_on_mark
+        marks, spaces = read.sl_pattern[0::2], read.sl_pattern[1::2]
+        assert set(marks) == {"S"}
+        wire = []
+        for bit in _logical():
+            wire += [0, 0] if bit is None else ([1, 0] if bit else [0, 1])
+        assert spaces == "L" + "".join("L" if w else "S" for w in wire)
+
+    def test_a_voted_press_draws_the_same_diamonds(self):
+        """What the Sniffer row draws (the vote) and what a stored row
+        draws (``identity_of_frame``) agree."""
+        capture = rf_frames.analyze(_frame() * 4)
+        assert capture is not None
+        assert capture.sl_pattern == rf_frames.identity_of_frame(capture.frame).sl_pattern
 
 
 class TestRefusals:
