@@ -264,7 +264,7 @@ class TestNoFalseConversions:
         assert got.source is None
         assert got.error is not None
         assert "Broadlink RF code" in got.error and band in got.error
-        assert "Add it as a radio code instead" in got.error
+        assert "Add it to a remote with Add Signal instead" in got.error
 
 
 class TestOneCode:
@@ -581,9 +581,11 @@ class TestValidateDoor:
     async def test_pronto_responses_are_unchanged(self, fake_hass, text):
         payload = await _validate(fake_hass, text)
         expected = validate_pronto(text)
+        # "medium" joined the answer for the add window (paste_medium);
+        # the rest is unchanged.
         assert set(payload) == {
             "valid", "errors", "warnings", "frequency_khz",
-            "burst_pair_count", "normalized", "recognized_protocol",
+            "burst_pair_count", "normalized", "recognized_protocol", "medium",
         }
         assert payload["valid"] == expected.valid
         assert payload["errors"] == expected.errors

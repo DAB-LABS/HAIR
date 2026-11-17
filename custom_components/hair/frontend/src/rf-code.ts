@@ -93,6 +93,9 @@ export function pasteRefusalKey(code: string | null | undefined): string | null 
         case "rf_paste_no_frame":
         case "rf_paste_frames_disagree":
             return `rfedit.${code.replace("rf_", "")}`;
+        // A Pronto pasted into a radio code's box.
+        case "wrong_medium_code":
+            return "errors.wrong_medium_code";
         default:
             return null;
     }

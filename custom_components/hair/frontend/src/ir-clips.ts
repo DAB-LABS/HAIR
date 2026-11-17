@@ -60,6 +60,8 @@ import type {
 import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import { singleOppositeLink } from "./ir-pin-link-match.js";
 import "./ir-rf-editor.js";
+import "./ir-add-code-dialog.js";
+import { formatLines } from "./paste-formats.js";
 import { carrierParts } from "./sniffer-filter.js";
 import { substitutedHz, testRefusal } from "./rf-errors.js";
 import { BOTTOM_TOAST_MS, bottomToastStyles } from "./bottom-toast-styles.js";
@@ -144,9 +146,8 @@ export class IrClips extends LitElement {
 
     // Dialog state
     @state() private _createRemoteOpen = false;
+    // The add window (ir-add-code-dialog), infrared or radio.
     @state() private _createSignalDeviceId: string | null = null;
-    // A pasted radio code (RF send, T6): its own editor, ir-rf-editor.
-    @state() private _createRfDeviceId: string | null = null;
     @state() private _editSignal: {
         deviceId: string;
         signal: UnknownSignal;
@@ -476,14 +477,8 @@ export class IrClips extends LitElement {
         this._createSignalDeviceId = deviceId;
     }
 
-    private _openCreateRfSignal(deviceId: string, e: Event): void {
-        e.stopPropagation();
-        this._createRfDeviceId = deviceId;
-    }
-
     private async _onSignalCreated(): Promise<void> {
         this._createSignalDeviceId = null;
-        this._createRfDeviceId = null;
         await this._refreshExpanded();
         await this._load();
     }
@@ -1409,19 +1404,15 @@ export class IrClips extends LitElement {
                     >
                         ${t("clips.add_signal")}
                     </button>
-                    <button
-                        class="create-signal-btn"
-                        title=${t("clips.add_rf_signal_title")}
-                        @click=${(e: Event) => this._openCreateRfSignal(device.id, e)}
-                    >
-                        ${t("clips.add_rf_signal")}
-                    </button>
                 </div>
                 ${device.signals.length === 0
                     ? html`<div class="no-signals-row">
-                          <span class="no-signals"
-                              >${t("clips.no_signals")}</span
-                          >
+                          <div class="no-signals">
+                              <div>${t("clips.no_signals")}</div>
+                              ${formatLines(t).map(
+                                  (line) => html`<div class="no-signals-format">${line}</div>`,
+                              )}
+                          </div>
                       </div>`
                     : html`
                           <div class="signal-list">
@@ -1577,21 +1568,12 @@ export class IrClips extends LitElement {
                 : ""}
 
             ${this._createSignalDeviceId
-                ? html`<ir-signal-editor
+                ? html`<ir-add-code-dialog
                       .api=${this.api}
                       .deviceId=${this._createSignalDeviceId}
                       @signal-created=${this._onSignalCreated}
                       @closed=${() => (this._createSignalDeviceId = null)}
-                  ></ir-signal-editor>`
-                : ""}
-
-            ${this._createRfDeviceId
-                ? html`<ir-rf-editor
-                      .api=${this.api}
-                      .deviceId=${this._createRfDeviceId}
-                      @signal-created=${this._onSignalCreated}
-                      @closed=${() => (this._createRfDeviceId = null)}
-                  ></ir-rf-editor>`
+                  ></ir-add-code-dialog>`
                 : ""}
 
             ${this._editSignal?.signal.medium === "rf"
@@ -2353,6 +2335,11 @@ export class IrClips extends LitElement {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
             font-style: italic;
+        }
+        /* The formats, as the add window's hint lists them. */
+        .no-signals-format {
+            font-style: normal;
+            margin-top: 2px;
         }
         .signal-list {
             display: flex;

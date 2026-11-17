@@ -47,6 +47,9 @@ PASTE_EMPTY = "rf_paste_empty"
 PASTE_UNREADABLE = "rf_paste_unreadable"
 PASTE_NO_FRAME = "rf_paste_no_frame"
 PASTE_FRAMES_DISAGREE = "rf_paste_frames_disagree"
+# Infrared text pasted into a radio box: the code the edit doors already
+# answer for a code of the other kind.
+PASTE_INFRARED = "wrong_medium_code"
 
 SOURCE_SIGNAL = "signal"
 SOURCE_ASSUMED = "assumed"
@@ -85,6 +88,10 @@ _SUB_PRESET = "FuriHalSubGhzPresetOok650Async"
 _SUB_LINE_VALUES = 512
 
 _INT_LIST = re.compile(r"^[\s\[\](),;+\-\d]*$")
+# Hex digits and spaces: a Pronto code. Its digits are also base64, and
+# read as a Broadlink packet a Pronto starts with a radio type byte, so
+# it is refused before the Broadlink reader sees it.
+_HEX_TEXT = re.compile(r"^[0-9A-Fa-f\s]+$")
 
 
 @dataclass(frozen=True)
@@ -113,7 +120,8 @@ class PasteError(ValueError):
 def read_paste(text: str) -> PasteRead:
     """The format, timings and frequency a pasted text holds.
 
-    Raises PasteError with ``rf_paste_empty`` or ``rf_paste_unreadable``.
+    Raises PasteError with ``rf_paste_empty``, ``rf_paste_unreadable`` or,
+    for a Pronto code, ``wrong_medium_code``.
     """
     text = (text or "").strip()
     if not text:
@@ -123,6 +131,8 @@ def read_paste(text: str) -> PasteRead:
     if _INT_LIST.match(text) and re.search(r"\d", text):
         values = [int(v) for v in re.findall(r"[+-]?\d+", text)]
         return _checked(PasteRead(FORMAT_TIMINGS, normalise(values), None, None))
+    if _HEX_TEXT.match(text):
+        raise PasteError(PASTE_INFRARED, "A Pronto code is infrared, not a radio code")
     return _checked(_read_broadlink(text))
 
 
