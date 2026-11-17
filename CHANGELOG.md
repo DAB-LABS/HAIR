@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The radio code editor now looks like the infrared one: the code box, then the code's frequency with "Recognized as" and its pill, its address and data under that, then its diamonds.
 - In both code editors the code's identity shows once, in the box, as "Recognized as" and its pill.
+- The radio code editor names a pasted code's protocol as you edit it, the same as the infrared editor.
 
 ### Fixed
 
