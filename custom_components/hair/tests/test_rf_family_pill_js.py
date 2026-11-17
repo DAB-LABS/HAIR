@@ -291,8 +291,7 @@ class TestEditor:
         shown = editor[start:editor.index("private _renderRecognized(")]
         untouched = "if (!this._creating && !this._codeChanged) "
         assert untouched + "return this.initialFamily ?? null;" in shown
-        # Edited or new: the server's read of the pasted code (owner,
-        # 2026-11-16 12:18 PT; rf/live-pill).
+        # Edited or new: the server's read of the pasted code.
         live = "return this._validation?.ok ? (this._validation.rf_family ?? null) : null;"
         assert live in shown
         pill = editor[editor.index("private _renderRecognized("):editor.index("render() {")]

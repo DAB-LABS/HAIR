@@ -414,9 +414,9 @@ export class IrRfEditor extends LitElement {
             : nothing;
     }
 
-    /** The family the strip names (owner, 2026-11-16 12:18 PT: as you
-     *  paste, the same as infrared). While the box is untouched, the
-     *  saved row's own; once it is edited, or for a new code, the one
+    /** The family the strip names, as you paste, the same as infrared.
+     *  While the box is untouched, the saved row's own; once it is
+     *  edited, or for a new code, the one
      *  the server read off the pasted code (validate's ``rf_family``,
      *  the same reader the saved row uses, so it does not change on
      *  Save). A refused or unread paste names nothing. */
