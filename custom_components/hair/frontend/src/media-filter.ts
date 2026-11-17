@@ -46,6 +46,18 @@ export function mediaShows(show: MediaShow, media: readonly Medium[] | undefined
     return media.some((m) => (m === "rf" ? show.rf : show.ir));
 }
 
+/** The medium a just-arrived signal belongs to when that medium is
+ *  switched off here, or null when it shows (owner, 2026-11-16 13:08 PT:
+ *  that medium's glyph then rings and keeps a dot, as the eye does for a
+ *  hidden remote). A signal with no medium is infrared, as everywhere. */
+export function hiddenMedium(
+    show: Pick<MediaShow, "ir" | "rf">,
+    medium: Medium | null | undefined,
+): Medium | null {
+    const m: Medium = medium === "rf" ? "rf" : "ir";
+    return show[m] ? null : m;
+}
+
 /** Whether every card shows, which is when the device grid can be
  *  reordered. */
 export function mediaShowsEverything(show: MediaShow): boolean {

@@ -186,7 +186,11 @@ class TestTheSnifferRemembers:
         toggle = flat.split("private _toggleShow(kind: keyof SnifferShow): void {", 1)[1]
         toggle = toggle.split('if (this._show.hidden) {', 1)[0]
         save = 'saveMediaShow(browserStorage(), "sniffer", this._show);'
-        assert f'if (kind !== "hidden") {{ {save} return; }}' in toggle
+        # Showing a medium again also clears its dot (2026-11-16, the
+        # hidden-medium glow), before the choice is saved.
+        clear = "if (this._show[kind]) this._hiddenMedia[kind].clearDot();"
+        assert 'if (kind !== "hidden") {' in toggle and f"{save} return; }}" in toggle
+        assert toggle.index(clear) < toggle.index(save)
         assert flat.count("saveMediaShow(") == 1
 
 
@@ -222,7 +226,11 @@ class TestTheWiring:
         head = "private _renderMediaGlyphs(section: HomeSection) {"
         body = _flat("ir-device-list.ts").split(head, 1)[1]
         body = body.split("private _renderProtoGlyphs(", 1)[0]
-        assert "hidden" not in body
+        # No eye on the homepage: only the IR and RF glyphs. They may
+        # ring and keep a dot (hidden-activity.ts), but there is no
+        # hidden-remotes glyph.
+        assert 'kind: "hidden"' not in body
+        assert body.count("{ kind: \"") == 2
 
     def test_one_look_everywhere(self):
         for name in ("ir-device-list.ts", "ir-signal-monitor.ts"):

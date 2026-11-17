@@ -5890,9 +5890,11 @@ class TestTheSnifferRowCornerControls:
         """The transient pulse and the sticky dot around new
         hidden-remote activity are a separate mechanism, and moved with
         the button onto the Hidden chip (RF hear round 1, ruling Q1)."""
+        # Since 2026-11-16 the eye's ring and dot live in
+        # hidden-activity.ts, shared with the IR and RF glyphs.
         text = _read("ir-signal-monitor.ts")
         assert '"hidden-glow"' in text
-        assert "this._hiddenDot" in text
+        assert "private readonly _hiddenRemotes = new HiddenActivity(this);" in text
         assert '<span class="hidden-dot"' in text
 
     def test_the_clipper_and_the_plucker_got_the_same_corner_delete(self):
