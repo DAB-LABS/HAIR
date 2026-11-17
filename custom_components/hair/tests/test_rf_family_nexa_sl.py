@@ -173,6 +173,32 @@ class TestHairHearsIt:
         assert family_of(capture.frame) is None
 
 
+class TestItsDiamonds:
+    """The diamonds of a one-mark-width code (radio diamonds, item 5): every
+    mark reads S, and only the spaces carry the code. The 10 T start space
+    sits inside the body and reads L."""
+
+    def test_marks_are_all_short_and_the_spaces_carry_the_code(self):
+        word = _frame()
+        read = rf_frames.identity_of_frame(word)
+        assert read is not None
+        parts = rf_frames.split_body(max(rf_frames.split_frames(word), key=lambda p: len(p.edges)))
+        assert parts.body_starts_on_mark
+        marks, spaces = read.sl_pattern[0::2], read.sl_pattern[1::2]
+        assert set(marks) == {"S"}
+        wire = []
+        for bit in _logical():
+            wire += [0, 0] if bit is None else ([1, 0] if bit else [0, 1])
+        assert spaces == "L" + "".join("L" if w else "S" for w in wire)
+
+    def test_a_voted_press_draws_the_same_diamonds(self):
+        """What the Sniffer row draws (the vote) and what a stored row
+        draws (``identity_of_frame``) agree."""
+        capture = rf_frames.analyze(_frame() * 4)
+        assert capture is not None
+        assert capture.sl_pattern == rf_frames.identity_of_frame(capture.frame).sl_pattern
+
+
 class TestRefusals:
     @pytest.mark.parametrize("n", [31, 33])
     def test_another_length(self, shown, n):
