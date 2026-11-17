@@ -1,15 +1,13 @@
-"""Listening PR 1, the server half: tuning a radio receiver.
+"""Tuning a radio receiver from HAIR.
 
 HAIR finds the frequency number on a receiver's own device, stamps each
 capture with the band the number held when the capture arrived
-(``tuned``), and sets the number from the Sniffer. The plan is HARF's
-(``rf-2026-11-16-listen-picker-pr1-build-plan.md``) with Shaq's fixes,
-taken: the reading of a burst's first frame stamps the press; captures
-in the first 2 s after HAIR's own set are band unknown; a set is
-compared after rounding to the number's step; MHz, kHz and Hz all read.
-The facts are the owner's CC1101 (Proxie, 2026-11-16): a ``number`` in
-MHz, step 0.005, that refuses a value in the chip's gaps by keeping its
-old one.
+(``tuned``), and sets the number from the Sniffer. The reading of a
+burst's first frame stamps the press; captures in the first 2 s after
+HAIR's own set are band unknown; a set is compared after rounding to the
+number's step; MHz, kHz and Hz all read. The fake number behaves like a
+CC1101 board's: a ``number`` in MHz, step 0.005, that refuses a value in
+the chip's gaps by keeping its old one.
 """
 from __future__ import annotations
 

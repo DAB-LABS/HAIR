@@ -158,8 +158,7 @@ export function signalCarrier(sig: { medium?: string; rf_frequency_hz?: number |
 }
 
 /** Where a radio row's frequency came from, as one short phrase for its
- *  tooltip (owner, 2026-11-16 13:50 PT: kept simple, the tooltip and
- *  nothing more). A radio row HAIR cannot vouch for reads "band
+ *  tooltip, kept simple. A radio row HAIR cannot vouch for reads "band
  *  unknown", never 433.92. Infrared rows have no phrase. */
 export function carrierSourceKey(sig: { medium?: string; rf_frequency_hz?: number | null; rf_frequency_source?: string | null }): string | null {
     if (sig.medium !== "rf") return null;

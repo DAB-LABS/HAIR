@@ -1,6 +1,6 @@
-"""Tuning a radio receiver's listening frequency (listening PR 1).
+"""Tuning a radio receiver's listening frequency.
 
-A receiver that can be retuned, the owner's CC1101 among them, has a
+A receiver that can be retuned, a CC1101 board among them, has a
 ``number`` entity on its own Home Assistant device that holds the
 frequency it listens at, in MHz. HAIR finds that number, reads it when a
 capture arrives so the code is stamped with the band it was really heard
@@ -21,8 +21,8 @@ tuning number that is unavailable gives "band unknown", never the
 declared value: the declared value is what mislabelled every capture
 before this. So does a reading in the first ``RF_TUNE_SETTLE_S`` after
 HAIR itself set the number: a receiver can deliver a capture heard on the
-old frequency after the new one is set, and every set makes a stray
-pulse of its own (Proxie, 2026-11-16).
+old frequency after the new one is set, and a set can make a stray
+pulse of its own.
 
 SETTING IT. ``number.set_value`` in the number's own unit, then a wait
 of up to ``RF_TUNE_CONFIRM_S`` for the number's state to read the asked
