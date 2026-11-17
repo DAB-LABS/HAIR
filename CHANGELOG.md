@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In both code editors the code's identity shows once, in the box, as "Recognized as" and its pill.
 - The radio editor's Other frequency field shows "e.g. 433.92", offers common bands when clicked, and turns blue like a band button when it holds the frequency.
 - The radio editor no longer says "Set by you." under the frequency, and clicking the band that is already picked no longer counts as a change.
+- HAIR never sends a rolling code. A radio code from a KeeLoq or Somfy RTS remote cannot be a device command: Assign says so and stays off, and Make a Device, Adopt and wig export leave it out.
 
 ### Fixed
 
