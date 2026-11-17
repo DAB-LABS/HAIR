@@ -526,6 +526,7 @@
     "rfedit.code_placeholder": "Pega un .sub de Flipper, una lista de tiempos o un código Broadlink",
     "rfedit.reading": "Leyendo el código",
     "rfedit.frames_agree": "{agreeing} de {found} tramas coinciden.",
+    "rfedit.rolling_code": "Código variable: HAIR lo guarda, pero nunca lo envía.",
     "rfedit.paste_empty": "Pega un código de radio.",
     "rfedit.paste_unreadable": "HAIR no puede leer esto como código de radio. Pega un .sub de Flipper guardado como RAW, una lista de tiempos o un código de radio Broadlink.",
     "rfedit.paste_no_frame": "No se encontró ninguna trama completa en este código.",

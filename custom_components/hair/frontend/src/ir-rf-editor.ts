@@ -334,14 +334,15 @@ export class IrRfEditor extends LitElement {
         this._fire("closed", null);
     }
 
-    /** The strip under the box, as the infrared editor's (owner,
-     *  2026-11-15): always shown once there is a code, the saved one read
-     *  on open. Valid, in three lines (owner, 2026-11-16, second look):
-     *  the frequency and "Recognized as" with the pill; the address and
-     *  data under it; the diamonds. Frames that all agree go unsaid; only
-     *  when some disagree does "N of M frames agree." stay, on its own
-     *  line, as a plain warning. Refused: the reason, in place of all of
-     *  that. */
+    /** The strip under the box, as the infrared editor's: always shown
+     *  once there is a code, the saved one read on open. Valid, in three
+     *  lines: the frequency and "Recognized as" with the pill; the
+     *  address and data under it; the diamonds. A rolling code (validate's
+     *  ``rf_rolling``) says so right under the pill, before Save, since
+     *  HAIR keeps it but never sends it; null says nothing. Frames that
+     *  all agree go unsaid; only when some disagree does "N of M frames
+     *  agree." stay, on its own line, as a plain warning. Refused: the
+     *  reason, in place of all of that. */
     private _renderFeedback() {
         if (this._validating) {
             return html`<div class="feedback"><div class="metrics">${t("rfedit.reading")}</div></div>`;
@@ -364,6 +365,9 @@ export class IrRfEditor extends LitElement {
                 ${v.frequency_hz ? html`<span>${t("rfedit.mhz", { mhz: hzToMhz(v.frequency_hz) })}</span>` : nothing}
                 ${family ? this._renderRecognized(family) : nothing}
             </div>
+            ${v.rf_rolling
+                ? html`<div class="msg warn rolling">${t("rfedit.rolling_code")}</div>`
+                : nothing}
             ${family ? html`<div class="family-fields">${familyEditorText(family)}</div>` : nothing}
             ${agreeing < found
                 ? html`<div class="msg warn frames-warn">

@@ -1106,6 +1106,10 @@ export interface RfValidation {
     /** The family the pasted code reads as, by the same reader the saved
      *  row's pill uses, or null; absent on a refusal. */
     rf_family?: RfFamily | null;
+    /** The rolling family the pasted code reads as ("keeloq",
+     *  "somfy_rts"), a code HAIR keeps but never sends, or null. The
+     *  check fails open to null; absent on a refusal. */
+    rf_rolling?: "keeloq" | "somfy_rts" | null;
 }
 
 /** One radio transmitter (``hair/rf/transmitters``). */
