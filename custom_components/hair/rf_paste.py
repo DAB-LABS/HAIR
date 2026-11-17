@@ -30,11 +30,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
 
 from .const import MEDIUM_RF, RF_GAP_MEASURED, RF_MIN_BODY_EDGES, RF_PROTOCOL
+
+_LOGGER = logging.getLogger(__name__)
 
 FORMAT_SUB = "sub"
 FORMAT_TIMINGS = "timings"
@@ -371,8 +374,25 @@ def validate(text: str, frequency_hz: int | None = None) -> dict[str, Any]:
         # The diamonds, by the fingerprint's own reading of the frame
         # that will be stored, so the editor draws what the row will.
         "sl_pattern": stored.sl_pattern,
+        # The pill, live (owner 2026-11-16 12:18 PT): the family of the
+        # frame that will be stored, by the reader the saved row's pill
+        # uses, so "Recognized as" while typing and after Save agree.
+        "rf_family": _family_of_stored(frame),
         "sub_text": to_sub(frame, frequency, gap_us),
     }
+
+
+def _family_of_stored(frame: list[int]) -> dict[str, Any] | None:
+    """The pill a stored frame gets, or None. A label never costs the
+    paste its answer: a decoder failure is logged and gives no pill, as
+    it does on a saved row."""
+    from .rf_family import family_payload
+
+    try:
+        return family_payload(frame)
+    except Exception:
+        _LOGGER.debug("Radio family label failed", exc_info=True)
+        return None
 
 
 def result_of_frame(
