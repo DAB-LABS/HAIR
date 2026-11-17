@@ -97,4 +97,4 @@ The Candy Drawer, at the top right of the Mirror, shows radio as well as infrare
 - **Fixed-code remotes** work best: one button sends the same code every time. Most plugs, fans, doorbells and cheap keyfobs are fixed-code, as are garage-door openers from before the mid-1990s.
 - **Rolling-code remotes**, such as most car keys, modern garage doors and gates, and Somfy blinds, send a different code each press, by design. HAIR files each press as a new row and cannot recognize the button.
 - **Some remotes appear as several cards.** A remote whose code length changes with the button pressed can spread over several cards in the Sniffer.
-- **Some remotes are not recognized yet.** Remotes that carry every bit in the gaps, with marks all one length, such as Nexa and KAKU, are not filed yet.
+- **Remotes whose marks are all one length**, such as self-learning Nexa and KAKU (KlikAanKlikUit), are filed like any other radio code. For now they all share one card in the Sniffer, with a row for each button. A few with unusual timing are still not filed.
