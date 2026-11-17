@@ -166,7 +166,8 @@ class TestTheOwnersSecondLookAsks:
         assert ".code-wrap" not in _read("ir-rf-editor.ts").split("static styles", 1)[1]
 
     def test_the_other_field_is_as_tall_as_the_band_pills(self):
-        text = _read("ir-rf-editor.ts")
+        # The pills and the field moved into the shared control.
+        text = _read("rf-frequency-control.ts").replace("\n        ", "\n            ")
         field = text.split("            .other input {", 1)[1].split("}", 1)[0]
         pill = text.split("            .preset {", 1)[1].split("}", 1)[0]
         for rule in ("border-radius: 14px;", "font-size: 0.85rem;"):
