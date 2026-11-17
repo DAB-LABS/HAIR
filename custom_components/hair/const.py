@@ -570,6 +570,9 @@ RF_ADDRESS_HEAD_EDGES = 32
 RF_FREQUENCY_SOURCE_SIGNAL = "signal"
 RF_FREQUENCY_SOURCE_WINDOW = "window"
 RF_FREQUENCY_SOURCE_RECEIVER = "receiver"
+# The receiver's own tuning number, read when the capture arrived
+# (listening PR 1, ``rf_tune``).
+RF_FREQUENCY_SOURCE_TUNED = "tuned"
 # Whether an RF row's inter-frame gap was measured inside a capture.
 RF_GAP_MEASURED = "measured"
 RF_GAP_ASSUMED = "assumed"

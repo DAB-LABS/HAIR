@@ -53,6 +53,10 @@ class _Burst:
     # The last signal that fed the burst: what the frequency ladder reads
     # when the burst is handed on.
     signal: Any = None
+    # The tuning reading of the burst's FIRST frame (``rf_tune``): the
+    # press is stamped with the band it began on, so a retune during the
+    # hold does not move it.
+    tuned: Any = None
 
     @property
     def deadline(self) -> float:
@@ -109,6 +113,7 @@ class BurstAssembler:
             if len(self._open) >= RF_PENDING_MAX:
                 self._end(min(self._open.values(), key=lambda b: b.opened_at))
             burst = _Burst(fingerprint, now, now)
+            burst.tuned = getattr(signal, "hair_tuned", None)
             self._open[fingerprint] = burst
         burst.frames.append(frame)
         burst.last_at = now
@@ -134,8 +139,11 @@ class BurstAssembler:
         if analysis is None:
             self._on_lone(burst.fingerprint)
         else:
+            from .rf_tune import restamp
+
             self._on_burst(
-                analysis, burst.signal, len(burst.frames), burst.fingerprint
+                analysis, restamp(burst.signal, burst.tuned),
+                len(burst.frames), burst.fingerprint,
             )
 
     def _cancel(self) -> None:

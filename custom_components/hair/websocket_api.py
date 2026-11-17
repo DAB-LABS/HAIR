@@ -119,6 +119,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_hardware_facts)
     websocket_api.async_register_command(hass, ws_rf_transmitters)
     websocket_api.async_register_command(hass, ws_rf_validate)
+    websocket_api.async_register_command(hass, ws_rf_receiver_tuning)
+    websocket_api.async_register_command(hass, ws_rf_receiver_tune)
     websocket_api.async_register_command(hass, ws_unknown_signal_edit_rf)
     websocket_api.async_register_command(hass, ws_rf_subscribe)
     websocket_api.async_register_command(hass, ws_set_capture_switch)
@@ -3571,6 +3573,61 @@ def ws_rf_validate(
     connection.send_result(
         msg["id"], rf_paste.validate(msg["text"], msg.get("frequency_hz"))
     )
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/rf/receiver_tuning",
+})
+@callback
+def ws_rf_receiver_tuning(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Every radio receiver's tuning, for the Sniffer's receiver chip
+    (listening PR 1): whether HAIR can tune it, through which number,
+    where it listens now, the number's limits and the declared ranges."""
+    from .rf_receive import rf_receiver_ids
+    from .rf_tune import describe
+
+    connection.send_result(msg["id"], {
+        "receivers": [describe(hass, rid) for rid in rf_receiver_ids(hass)],
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/rf/receiver_tune",
+    vol.Required("receiver_entity_id"): str,
+    vol.Required("frequency_hz"): vol.All(int, vol.Range(min=1_000_000, max=10_000_000_000)),
+})
+@websocket_api.async_response
+async def ws_rf_receiver_tune(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Set a radio receiver's listening frequency (listening PR 1).
+
+    The answer is a result, not an error, so the chip can say it:
+    ``confirmed`` with the value now held, ``did_not_change`` with the
+    value the receiver still holds, or ``cannot_tune`` when HAIR has no
+    number to set. A value outside the number's limits is still tried.
+    """
+    from .rf_receive import is_rf_receiver_state
+    from .rf_tune import async_tune
+
+    receiver = msg["receiver_entity_id"]
+    if not is_rf_receiver_state(hass.states.get(receiver)):
+        connection.send_error(msg["id"], "not_found", f"{receiver} is not a radio receiver")
+        return
+    try:
+        result = await async_tune(hass, receiver, msg["frequency_hz"])
+    except Exception as err:  # the number's service refused
+        _LOGGER.debug("Tuning %s failed", receiver, exc_info=True)
+        connection.send_error(msg["id"], "tune_failed", str(err))
+        return
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.require_admin
