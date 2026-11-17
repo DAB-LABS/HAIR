@@ -19,6 +19,10 @@
  * subscribe``) its software-window pills read their window from, and
  * hands each pill its receiver's latest item.
  *
+ * It also reads every radio receiver's tuning once (``hair/rf/
+ * receiver_tuning``, listening PR 1) and hands each radio pill its own,
+ * reading it again after a pill sets where its receiver listens.
+ *
  * The look is the device pages' header chip group, from the shared
  * ir-header-chip-styles module, except for the label (round 2, owner):
  * here it sits flush with the section title's left edge and the pills
@@ -30,7 +34,7 @@ import { headerChipStyles } from "./ir-header-chip-styles.js";
 import "./ir-listen-chip.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
-import type { CaptureReceiverRow, RfReceiverItem } from "./types.js";
+import type { CaptureReceiverRow, ReceiverTuning, RfReceiverItem } from "./types.js";
 import { pillLive, pillShown } from "./ir-listen-state.js";
 
 @customElement("ir-listen-row")
@@ -44,6 +48,10 @@ export class IrListenRow extends LitElement {
     /** Each software window's latest item, by receiver. */
     @state() private _items: Record<string, RfReceiverItem> = {};
     private _sub: Promise<() => void> | null = null;
+    /** Each radio receiver's tuning, by receiver; empty until read, and
+     *  if the read fails (an older server), so no tune box shows. */
+    @state() private _tuning: Record<string, ReceiverTuning> = {};
+    private _tuningAsked = false;
 
     disconnectedCallback(): void {
         super.disconnectedCallback();
@@ -52,9 +60,22 @@ export class IrListenRow extends LitElement {
 
     protected updated(changed: PropertyValues): void {
         if (!changed.has("rows") && !changed.has("api")) return;
+        if (this.api && !this._tuningAsked && this.rows.some((r) => r.medium === "rf")) {
+            this._tuningAsked = true;
+            void this._readTuning();
+        }
         const wanted = this.api && this.rows.some((r) => r.software_window);
         if (wanted && this._sub === null) this._subscribe();
         else if (!wanted && this._sub !== null) this._unsubscribe();
+    }
+
+    private async _readTuning(): Promise<void> {
+        try {
+            const { receivers } = await this.api.receiverTuning();
+            this._tuning = Object.fromEntries(receivers.map((r) => [r.receiver_entity_id, r]));
+        } catch {
+            // Best effort: without it, the pills show no tune box.
+        }
     }
 
     private _subscribe(): void {
@@ -91,6 +112,8 @@ export class IrListenRow extends LitElement {
                             .api=${this.api}
                             .row=${row}
                             .item=${this._items[row.receiver_entity_id] ?? null}
+                            .tuning=${this._tuning[row.receiver_entity_id] ?? null}
+                            @tuned=${() => void this._readTuning()}
                         ></ir-listen-chip>`,
                     )}
                 </div>

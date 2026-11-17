@@ -591,7 +591,9 @@ class TestTheListenChip:
         ) in state
         chip = _flat("ir-listen-chip.ts")
         assert "const active = pickersActive(look) && !this._busy;" in chip
-        assert chip.count("?inactive=${!active}") == 3
+        # Frequency, length, type, and (listening PR 1) where a radio
+        # receiver listens: all four follow the one rule.
+        assert chip.count("?inactive=${!active}") == 4
 
 
 class TestTheHardwareCards:

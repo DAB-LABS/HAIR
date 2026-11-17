@@ -21,6 +21,8 @@ import type {
     RfTransmitter,
     RfValidation,
     RfReceiverItem,
+    ReceiverTuneResult,
+    ReceiverTuning,
     WindowMode,
     ClaimsLedger,
     CodeBrand,
@@ -314,6 +316,22 @@ export class HairApi {
             type: "hair/receivers/listen",
             receiver_entity_id: receiverEntityId,
             on,
+        });
+    }
+
+    /** Each radio receiver's tuning: whether HAIR can set where it
+     *  listens, what it holds now and its limits (listening PR 1). */
+    receiverTuning(): Promise<{ receivers: ReceiverTuning[] }> {
+        return this.hass.connection.sendMessagePromise({ type: "hair/rf/receiver_tuning" });
+    }
+
+    /** Set where a radio receiver listens. The answer says whether it
+     *  took: confirmed, did not change, or cannot be tuned. */
+    receiverTune(receiverEntityId: string, frequencyHz: number): Promise<ReceiverTuneResult> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/rf/receiver_tune",
+            receiver_entity_id: receiverEntityId,
+            frequency_hz: frequencyHz,
         });
     }
 
