@@ -1,4 +1,4 @@
-"""The radio pill, live (owner ruling 2026-11-16 12:18 PT).
+"""The radio pill, live.
 
 ``hair/rf/validate`` names a pasted code's family while it is being
 edited, as infrared does: ``rf_family``, the object the saved row's pill
@@ -111,3 +111,23 @@ class TestADecoderFailure:
         assert result["ok"] is True
         assert result["rf_family"] is None
         assert result["fingerprint"]
+
+
+class TestARollingCode:
+    """The editor is told before Save that a pasted code is a rolling
+    code, which HAIR never sends."""
+
+    def test_a_keeloq_press_says_so(self):
+        rf_family._rolling_family.cache_clear()
+        result = rf_paste.validate(PASTES["a KeeLoq press"], 433_920_000)
+        assert result["ok"] is True
+        assert result["rf_rolling"] == "keeloq"
+
+    def test_a_fixed_code_does_not(self):
+        rf_family._rolling_family.cache_clear()
+        result = rf_paste.validate(IT104_B64)
+        assert result["rf_rolling"] is None
+
+    def test_a_refused_paste_has_no_key(self):
+        assert "rf_rolling" not in rf_paste.validate("350 -1050")
+

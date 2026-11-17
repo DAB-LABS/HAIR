@@ -1,4 +1,4 @@
-"""Rolling codes are never sent (owner ruling 2026-11-16 09:45 PT).
+"""Rolling codes are never sent.
 
 A row whose frame reads as a rolling-code family (KeeLoq, Somfy RTS) is
 refused at the air, by ``rf_send.plan_radio_send``, so no door can put
@@ -85,7 +85,7 @@ class TestWhatIsRolling:
         assert rf_family.rolling_family(_somfy_frame(_somfy_plain(good_check=False))) is None
 
     def test_a_partial_keeloq_word_is_neither_labelled_nor_refused(self):
-        """The Athom cannot hold a whole word (HARF, 11-16): a partial word
+        """A short-buffer receiver cannot hold a whole word: a partial word
         is not a clean read, and it cannot open anything either."""
         partial = _kl_word(_kl_bits()[:40])
         assert rf_family.family_of(partial) is None
@@ -302,7 +302,7 @@ def test_the_message_says_why_and_promises_nothing():
 
 class TestThePanelIsToldFirst:
     """``rf_rolling`` on every radio row the panel gets, so a door can
-    say it before the press (Gertrude, HARF, 2026-11-16)."""
+    say it before the press."""
 
     def _rows(self, keyfob):  # noqa: F811
         from custom_components.hair.websocket_api import _augment_rf_family

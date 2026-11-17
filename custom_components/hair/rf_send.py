@@ -328,8 +328,8 @@ def plan_radio_send(
         # frequency" is the wrong thing to tell someone whose code is
         # missing (radio trigger fix).
         raise SendRefusedError(RF_NO_FRAME, RF_NO_FRAME_MESSAGE)
-    # Second: a rolling code is never sent, by any door (owner ruling
-    # 2026-11-16 09:45 PT). Every radio send passes through here, so a
+    # Second: a rolling code is never sent, by any door. Every radio
+    # send passes through here, so a
     # door that forgets its own refusal still cannot put one on the air.
     if rolling_row(row) is not None:
         raise SendRefusedError(RF_ROLLING_CODE, RF_ROLLING_CODE_MESSAGE)

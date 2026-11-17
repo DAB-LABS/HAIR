@@ -821,8 +821,8 @@ async def ws_create_device(
         await monitor.mark_promoted(source_unknown, device.id)
 
     result = await _device_full(hass, device)
-    # Rolling-code rows are never commands (owner ruling 2026-11-16
-    # 09:45 PT): the panel says how many the new device was made without.
+    # Rolling-code rows are never commands: the panel says how many the
+    # new device was made without.
     result["rolling_left_out"] = rolling_left_out
     connection.send_result(msg["id"], result)
 
@@ -6227,7 +6227,7 @@ async def ws_wigs_supersede(
                 command = _command_from_wig_signal(
                     sig, ident, suspects, findings, i
                 )
-                # Never a rolling code (owner ruling 2026-11-16 09:45 PT).
+                # Never a rolling code: HAIR never sends one.
                 if rolling_row(command) is not None:
                     continue
                 device.add_command(command)
@@ -7924,8 +7924,8 @@ async def ws_wig_make_device(
             skipped += 1
             continue
         command = _command_from_wig_signal(sig, ident, suspects, findings, i)
-        # A rolling code is never a command (owner ruling 2026-11-16
-        # 09:45 PT): the device is made without it, and counted.
+        # A rolling code is never a command: the device is made without
+        # it, and counted.
         if rolling_row(command) is not None:
             rolling_left_out += 1
             continue
@@ -8123,9 +8123,8 @@ async def ws_trigger_remote_make_device(
                 byte_hash=trig.byte_hash,
             )
             copy_rf_signal(trig, command)
-            # A rolling code is never a command (owner ruling 2026-11-16
-            # 09:45 PT): it stays a trigger on the Remote, and the new
-            # Device is made without it.
+            # A rolling code is never a command: it stays a trigger on the
+            # Remote, and the new Device is made without it.
             if rolling_row(command) is not None:
                 rolling_left_out += 1
                 continue

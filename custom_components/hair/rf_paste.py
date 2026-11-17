@@ -374,12 +374,22 @@ def validate(text: str, frequency_hz: int | None = None) -> dict[str, Any]:
         # The diamonds, by the fingerprint's own reading of the frame
         # that will be stored, so the editor draws what the row will.
         "sl_pattern": stored.sl_pattern,
-        # The pill, live (owner 2026-11-16 12:18 PT): the family of the
+        # The pill, live: the family of the
         # frame that will be stored, by the reader the saved row's pill
         # uses, so "Recognized as" while typing and after Save agree.
         "rf_family": _family_of_stored(frame),
+        # Whether it is a rolling code HAIR will never send, so the editor
+        # can say so before Save; the check fails open to None.
+        "rf_rolling": rolling_family(frame),
         "sub_text": to_sub(frame, frequency, gap_us),
     }
+
+
+def rolling_family(frame: list[int]) -> str | None:
+    """The rolling family a stored frame reads as (``rf_family``), or None."""
+    from .rf_family import rolling_family as _rolling
+
+    return _rolling(frame)
 
 
 def _family_of_stored(frame: list[int]) -> dict[str, Any] | None:

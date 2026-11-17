@@ -4855,8 +4855,8 @@ class SignalMonitor:
             copied = 0
             rolling = 0
             for i, signal in enumerate(unknown.signals, start=1):
-                # A rolling code is never a command (owner ruling
-                # 2026-11-16 09:45 PT): the device is made without it,
+                # A rolling code is never a command: the device is made
+                # without it,
                 # and the count says how many were left out.
                 if _rolling_refusal(signal) is not None:
                     rolling += 1
