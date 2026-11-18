@@ -48,7 +48,8 @@ import type { HairApi } from "./api.js";
 import type { RfValidation } from "./types.js";
 import "./ir-protocol-chip.js";
 import { familyEditorText, type RfFamily } from "./rf-family-label.js";
-import { editorFor } from "./paste-formats.js";
+import { editorFor, type Medium } from "./paste-formats.js";
+import { mediumChipStyles, renderMediumChips } from "./medium-chips.js";
 
 const VALIDATE_DELAY_MS = 300;
 
@@ -87,6 +88,9 @@ export class IrRfEditor extends LitElement {
     @property({ attribute: false }) public initialCode = "";
     /** The empty box's hint, a line each, in the add window. */
     @property({ attribute: false }) public hint: string[] | null = null;
+    /** Raw timings only: the kind the person picked with the add
+     *  window's chips, which wins over the server's guess. */
+    @property({ attribute: false }) public pick: Medium | null = null;
 
     @state() private _code = "";
     @state() private _alias = "";
@@ -195,10 +199,18 @@ export class IrRfEditor extends LitElement {
             this._validation = result;
             // In the add window, a paste of the other medium goes to the
             // other editor; nothing has changed the box since it was asked.
-            if (this.embedded && editorFor("rf", result.medium) !== "rf") {
+            if (
+                this.embedded &&
+                editorFor("rf", result.medium, result.guess, this.pick) !== "rf"
+            ) {
                 this.dispatchEvent(
                     new CustomEvent("medium-changed", {
-                        detail: { medium: result.medium, text: this._code, alias: this._alias },
+                        detail: {
+                            medium: result.medium,
+                            guess: result.guess,
+                            text: this._code,
+                            alias: this._alias,
+                        },
                     }),
                 );
                 return;
@@ -383,6 +395,9 @@ export class IrRfEditor extends LitElement {
         const agreeing = v.frames_agreeing ?? 1;
         const family = this._shownFamily();
         return html`<div class="feedback">
+            ${this.embedded && v.medium === "either"
+                ? renderMediumChips("rf", (medium) => this._handTimingsTo(medium))
+                : nothing}
             <div class="status ok">
                 <span class="mark">✓</span>${t(this.embedded ? "addcode.valid_rf" : "rfedit.valid")}
             </div>
@@ -409,6 +424,16 @@ export class IrRfEditor extends LitElement {
                   </div>`
                 : nothing}
         </div>`;
+    }
+
+    /** The Infrared chip: the raw timings go to the infrared editor,
+     *  and the pick stays with the window. */
+    private _handTimingsTo(medium: Medium): void {
+        this.dispatchEvent(
+            new CustomEvent("medium-changed", {
+                detail: { medium: "either", pick: medium, text: this._code, alias: this._alias },
+            }),
+        );
     }
 
     private _renderFrequency() {
@@ -649,6 +674,7 @@ export class IrRfEditor extends LitElement {
                 opacity: 0.9;
             }
         `,
+        mediumChipStyles,
     ];
 }
 

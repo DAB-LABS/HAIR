@@ -9,6 +9,11 @@
  * back with `medium-changed`, and this window shows the other editor
  * with the same text.
  *
+ * Raw timings can be either medium. The server's `guess` picks the
+ * editor shown first, and both editors show two chips for them
+ * (medium-chips.ts). A chip's pick holds while the paste stays raw
+ * timings, and goes as soon as a paste names its medium.
+ *
  * Everything else is the editors' own: validation, "Recognized as" and
  * the pill, repairs, the rolling-code line, the duplicate refusal, and
  * the `signal-created` event the Clipper already listens for.
@@ -36,16 +41,27 @@ export class IrAddCodeDialog extends LitElement {
     @state() private _alias = "";
     /** Bumped on each hand-over, so the new editor starts fresh. */
     @state() private _turn = 0;
+    /** Raw timings only: the chip the person clicked. It wins over the
+     *  server's guess until a paste says which medium it is. */
+    @state() private _pick: Medium | null = null;
 
     private _onMediumChanged(
-        e: CustomEvent<{ medium: string | null; text: string; alias: string }>,
+        e: CustomEvent<{
+            medium: string | null;
+            guess?: string | null;
+            pick?: Medium;
+            text: string;
+            alias: string;
+        }>,
     ): void {
         e.stopPropagation();
         // Only the editor shown now: one already swapped out may still
         // have an answer on its way.
         const shown = this.shadowRoot?.querySelector("ir-signal-editor, ir-rf-editor");
         if (e.target !== shown) return;
-        const next = editorFor(this._medium, e.detail.medium);
+        if (e.detail.pick) this._pick = e.detail.pick;
+        else if (e.detail.medium !== "either") this._pick = null;
+        const next = editorFor(this._medium, e.detail.medium, e.detail.guess, this._pick);
         if (next === this._medium) return;
         this._text = e.detail.text;
         this._alias = e.detail.alias;
@@ -68,6 +84,7 @@ export class IrAddCodeDialog extends LitElement {
                       .initialPronto=${this._text}
                       .initialAlias=${this._alias}
                       .hint=${hint}
+                      .pick=${this._pick}
                       @medium-changed=${this._onMediumChanged}
                   ></ir-signal-editor>`
                 : html`<ir-rf-editor
@@ -77,6 +94,7 @@ export class IrAddCodeDialog extends LitElement {
                       .initialCode=${this._text}
                       .initialAlias=${this._alias}
                       .hint=${hint}
+                      .pick=${this._pick}
                       @medium-changed=${this._onMediumChanged}
                   ></ir-rf-editor>`;
         // The dialog's own child never changes: only what is inside it.

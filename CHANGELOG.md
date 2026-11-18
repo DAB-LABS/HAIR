@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A radio code's Send times has a short note, beside the field in the radio editor and under it in the Assign dialog: "As the remote sent it" or "Usual for this kind of remote". The note goes once the number is changed.
 - The copy icon in both code editors copies the code in one click and shows "Copied", on plain http as well as https. Where the browser allows no copy at all, it selects the code as before.
 - The Clipper has one Add Signal button for infrared and radio. Paste any code HAIR reads and the window shows the right fields for it; Add Radio Code is gone. A remote with no signals yet points at Add Signal and lists what can be pasted.
+- Raw timings pasted into Add Signal show two chips, "Infrared, 38 kHz" and "Radio". HAIR picks one by trying to decode the timings as infrared; click the other to switch. Infrared reads them at 38 kHz.
 
 ### Fixed
 

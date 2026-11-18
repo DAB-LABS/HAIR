@@ -14,6 +14,11 @@ bare list of numbers says nothing, and is ``either``, once it reads as a
 code: a Pronto being typed by hand starts as digits, and must not be
 sent to the radio editor on its way to becoming one.
 
+For ``either`` the add window still shows one editor first, picked by
+``timings_guess``: infrared when the timings, at 38 kHz, decode as an
+infrared protocol (the decode the "Recognized as" pill shows), radio
+otherwise. The person can switch it.
+
 ``PASTE_FORMATS`` lists the formats per medium, for the add window's
 hint. ``frontend/src/paste-formats.ts`` holds the same table for the
 panel, and a test checks that the two agree.
@@ -22,7 +27,7 @@ from __future__ import annotations
 
 import re
 
-from .pasted_code import coerce_pasted_code
+from .pasted_code import coerce_pasted_code, read_raw_timings
 from .pronto_validator import validate_pronto
 
 MEDIUM_IR = "ir"
@@ -74,6 +79,27 @@ def medium_of(text: str | None) -> str | None:
         # (several codes, an unusable Tasmota or sendir code).
         return MEDIUM_IR
     return None
+
+
+def timings_guess(text: str | None) -> str:
+    """``"ir"`` or ``"rf"``: which kind raw timings most likely are.
+
+    Infrared when they decode as an infrared protocol at 38 kHz, radio
+    otherwise, radio included when they do not read at all. Infrared
+    wins when a radio family could claim the same timings too.
+    """
+    from .ir_command import ProntoCommand
+    from .protocol_decode import decode_to_fields
+
+    pasted = read_raw_timings(text if isinstance(text, str) else "")
+    if pasted is None:
+        return MEDIUM_RF
+    try:
+        raw = ProntoCommand(pasted.pronto).get_raw_timings()
+    except Exception:
+        # A guess never fails the door.
+        return MEDIUM_RF
+    return MEDIUM_IR if decode_to_fields(raw)[0] is not None else MEDIUM_RF
 
 
 def _radio_reads(text: str) -> bool:

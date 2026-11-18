@@ -54,13 +54,17 @@ export function hintLines(t: Translate): string[] {
 }
 
 /** The editor a paste belongs in, from the medium the server named for
- *  it (`paste_medium`). A list of timings is radio until the window can
- *  ask; text that is no code stays where it is. */
+ *  it (`paste_medium`). Raw timings ("either") go where the person
+ *  picked, else to the server's guess, else to radio; text that is no
+ *  code stays where it is. */
 export function editorFor(
     current: Medium,
     medium: string | null | undefined,
+    guess?: string | null,
+    pick?: Medium | null,
 ): Medium {
     if (medium === "ir") return "ir";
-    if (medium === "rf" || medium === "either") return "rf";
+    if (medium === "rf") return "rf";
+    if (medium === "either") return pick ?? (guess === "ir" ? "ir" : "rf");
     return current;
 }
