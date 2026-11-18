@@ -560,6 +560,7 @@
     "rfedit.code_placeholder": "Wklej plik .sub z Flippera, listę czasów lub kod Broadlink",
     "rfedit.reading": "Odczytywanie kodu",
     "rfedit.frames_agree": "Zgodnych ramek: {agreeing} z {found}.",
+    "rfedit.rolling_code": "Kod zmienny: HAIR go zachowuje, ale nigdy nie wysyła.",
     "rfedit.paste_empty": "Wklej kod radiowy.",
     "rfedit.paste_unreadable": "HAIR nie może odczytać tego jako kodu radiowego. Wklej plik .sub z Flippera zapisany jako RAW, listę czasów lub kod radiowy Broadlink.",
     "rfedit.paste_no_frame": "W tym kodzie nie znaleziono pełnej ramki.",

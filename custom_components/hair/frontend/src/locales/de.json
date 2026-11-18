@@ -526,6 +526,7 @@
     "rfedit.code_placeholder": "Flipper-.sub, eine Liste von Zeiten oder einen Broadlink-Code einfügen",
     "rfedit.reading": "Code wird gelesen",
     "rfedit.frames_agree": "{agreeing} von {found} Frames stimmen überein.",
+    "rfedit.rolling_code": "Rolling Code: HAIR speichert ihn, sendet ihn aber nie.",
     "rfedit.paste_empty": "Füge einen Funkcode ein.",
     "rfedit.paste_unreadable": "HAIR kann das nicht als Funkcode lesen. Füge eine als RAW gespeicherte Flipper-.sub, eine Liste von Zeiten oder einen Broadlink-Funkcode ein.",
     "rfedit.paste_no_frame": "In diesem Code wurde kein vollständiger Frame gefunden.",
