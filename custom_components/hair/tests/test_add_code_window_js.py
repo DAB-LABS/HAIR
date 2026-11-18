@@ -9,6 +9,8 @@
   holds; test_paste_medium.py checks the two agree.
 - The empty clipped remote points at that button and lists the same
   format lines (``formatLines``), so a new format shows in both.
+- Raw timings ("either") go to HAIR's guess (``guess``), or to the
+  chip the person clicked; both editors show the two chips for them.
 - In the window the editors use its words: "Code: Infrared or Radio",
   "Valid IR" and "Valid RF", "Not a code HAIR reads.", and
   their medium's fields only once the code is read.
@@ -68,6 +70,12 @@ def rules(tmp_path_factory):
         "    editorFor('ir', null), editorFor('rf', 'ir'), editorFor('rf', null),\n"
         "    editorFor('rf', undefined), editorFor('rf', 'either'),\n"
         "  ],\n"
+        "  timings: [\n"
+        "    editorFor('rf', 'either', 'ir'), editorFor('ir', 'either', 'rf'),\n"
+        "    editorFor('ir', 'either', 'ir', 'rf'), editorFor('rf', 'either', 'rf', 'ir'),\n"
+        "    editorFor('rf', 'ir', 'rf', 'rf'), editorFor('ir', 'rf', 'ir', 'ir'),\n"
+        "    editorFor('rf', null, 'ir', 'ir'),\n"
+        "  ],\n"
         "  en: hintLines(tr('en')),\n"
         "  fr: hintLines(tr('fr')),\n"
         "  lines: formatLines(tr('en')),\n"
@@ -84,6 +92,11 @@ class TestTheRules:
         # Radio for "rf" and for a list of timings; infrared for "ir";
         # text that is no code stays where it is.
         assert rules["editor"] == ["rf", "rf", "ir", "ir", "ir", "rf", "rf", "rf"]
+
+    def test_raw_timings_go_to_the_guess_or_the_pick(self, rules):
+        # The guess, then the pick over the guess; a medium the paste
+        # names wins over both, and text that is no code stays put.
+        assert rules["timings"] == ["ir", "rf", "rf", "ir", "ir", "rf", "rf"]
 
     def test_the_hint_is_one_line_per_medium(self, rules):
         assert rules["en"] == [
@@ -122,7 +135,13 @@ class TestTheWiring:
 
     def test_the_window_swaps_on_the_servers_word(self):
         window = _flat("ir-add-code-dialog.ts")
-        assert "const next = editorFor(this._medium, e.detail.medium);" in window
+        assert (
+            "const next = editorFor(this._medium, e.detail.medium, e.detail.guess, this._pick);"
+        ) in window
+        # A chip's pick sticks until a paste names its medium.
+        assert "if (e.detail.pick) this._pick = e.detail.pick;" in window
+        assert 'else if (e.detail.medium !== "either") this._pick = null;' in window
+        assert window.count(".pick=${this._pick}") == 2
         assert "html`<ir-signal-editor embedded" in window
         assert "html`<ir-rf-editor embedded" in window
         assert ".initialPronto=${this._text}" in window
@@ -139,8 +158,8 @@ class TestTheWiring:
         ) in window
 
     @pytest.mark.parametrize("name,reader", [
-        ("ir-signal-editor.ts", 'editorFor("ir", v?.medium) !== "ir"'),
-        ("ir-rf-editor.ts", 'editorFor("rf", result.medium) !== "rf"'),
+        ("ir-signal-editor.ts", 'editorFor("ir", v?.medium, v?.guess, this.pick) !== "ir"'),
+        ("ir-rf-editor.ts", 'editorFor("rf", result.medium, result.guess, this.pick) !== "rf"'),
     ])
     def test_each_editor_hands_the_other_medium_back(self, name, reader):
         editor = _flat(name)
@@ -148,6 +167,32 @@ class TestTheWiring:
         assert 'new CustomEvent("medium-changed"' in editor
         assert "alias: this._alias }" in editor
         assert "if (this.embedded) return body;" in editor
+
+    def test_both_editors_ask_about_raw_timings(self):
+        ir = _flat("ir-signal-editor.ts")
+        rf = _flat("ir-rf-editor.ts")
+        # Infrared: once the timings were read as infrared, and the Radio
+        # chip hands over the timings as pasted, not the Pronto.
+        assert (
+            'this.embedded && this._convertedFrom === "timings" && this._rawTimings'
+        ) in ir
+        assert 'renderMediumChips("ir", () => this._handTimingsTo("rf"))' in ir
+        assert 'this._rawTimings = v.source_format === "timings" ? sent : null;' in ir
+        assert "this.api.validatePronto(sent, repair, this.embedded)" in ir
+        assert 'timings: "editor.converted_from_timings"' in ir
+        # Radio: while the paste is raw timings.
+        assert 'this.embedded && v.medium === "either"' in rf
+        assert 'renderMediumChips("rf", (medium) => this._handTimingsTo(medium))' in rf
+        for editor in (ir, rf):
+            assert 'detail: { medium: "either", pick: medium,' in editor
+            assert "mediumChipStyles," in editor
+        chips = _flat("medium-chips.ts")
+        assert 'aria-pressed=${picked === medium ? "true" : "false"}' in chips
+        assert 'chip("ir", "addcode.as_ir")} ${chip("rf", "addcode.as_rf")}' in chips
+
+    def test_the_infrared_door_is_asked_only_from_the_window(self):
+        api = _flat("api.ts")
+        assert "...(asInfrared ? { as_infrared: true } : {})," in api
 
     def test_the_windows_words(self):
         ir = _flat("ir-signal-editor.ts")
@@ -165,6 +210,8 @@ class TestTheStrings:
         "addcode.unreadable", "addcode.hint_lead", "addcode.hint_line",
         "addcode.medium_ir", "addcode.medium_rf",
         "clips.add_signal", "clips.add_signal_title", "clips.no_signals",
+        "addcode.which", "addcode.as_ir", "addcode.as_rf",
+        "editor.converted_from_timings",
     )
 
     def test_the_english_words(self):
@@ -175,6 +222,8 @@ class TestTheStrings:
         )
         assert en["addcode.unreadable"] == "Not a code HAIR reads."
         assert en["clips.add_signal"] == "+ Add Signal"
+        assert en["addcode.which"] == "Raw timings can be either:"
+        assert (en["addcode.as_ir"], en["addcode.as_rf"]) == ("Infrared, 38 kHz", "Radio")
 
     def test_in_every_language_and_the_radio_button_is_gone(self):
         for path in LOCALES.glob("*.json"):
@@ -186,4 +235,8 @@ class TestTheStrings:
             assert "{formats}" in words["addcode.hint_line"], path.name
             assert "clips.add_rf_signal" not in words, path.name
             assert "addcode.format_timings" not in words, path.name
+            # "raw timings" is a format's name, as in the hint.
+            assert "raw timings" in words["addcode.which"].lower(), path.name
+            assert "raw timings" in words["editor.converted_from_timings"], path.name
+            assert "38" in words["addcode.as_ir"], path.name
             assert "clips.add_rf_signal_title" not in words, path.name

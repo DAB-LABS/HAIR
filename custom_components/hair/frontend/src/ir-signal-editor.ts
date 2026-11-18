@@ -60,7 +60,8 @@ import { claimedFor, fieldWords, sameReading } from "./ir-tangle-copy.js";
 import { keepConversionNotes } from "./converted-notes.js";
 import { copyCodeBox } from "./copy-text.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
-import { editorFor } from "./paste-formats.js";
+import { editorFor, type Medium } from "./paste-formats.js";
+import { mediumChipStyles, renderMediumChips } from "./medium-chips.js";
 
 // The note under a code the server converted from another format, one
 // per source (pasted_code.CARRIER_NOTE says the same in English).
@@ -70,6 +71,7 @@ const CONVERTED_NOTE: Record<PasteSource, string> = {
     globalcache: "editor.converted_from_globalcache",
     tasmota: "editor.converted_from_tasmota",
     tasmota_raw: "editor.converted_from_tasmota_raw",
+    timings: "editor.converted_from_timings",
 };
 
 // Mirrors PRONTO_SL_THRESHOLD / PRONTO_GAP_THRESHOLD in const.py. Used only
@@ -207,6 +209,9 @@ export class IrSignalEditor extends LitElement {
     @property({ type: Boolean }) public embedded = false;
     /** The empty box's hint, a line each, in the add window. */
     @property({ attribute: false }) public hint: string[] | null = null;
+    /** Raw timings only: the kind the person picked with the add
+     *  window's chips, which wins over the server's guess. */
+    @property({ attribute: false }) public pick: Medium | null = null;
 
     /** For installUnit, and for the capture window's deadline while
      *  Listen holds one open (``window_ends_at`` on the receiver). */
@@ -249,6 +254,10 @@ export class IrSignalEditor extends LitElement {
      *  repair the person accepted (the repair's id), so the converted
      *  line says the code was corrected. Clears with it. */
     @state() private _repaired: string | null = null;
+    /** The raw timings a conversion read (``_convertedFrom`` is
+     *  "timings"), so the Radio chip can hand them, not the Pronto made
+     *  of them, to the radio editor. Clears with the conversion. */
+    @state() private _rawTimings: string | null = null;
     /** A repair request is in flight; the offer's button waits for it. */
     @state() private _repairing = false;
     @state() private _alias = "";
@@ -830,7 +839,8 @@ export class IrSignalEditor extends LitElement {
         const before = this._validation?.normalized ?? null;
         const sent = this._pronto;
         try {
-            this._validation = await this.api.validatePronto(sent, repair);
+            // In the add window, raw timings may be infrared too.
+            this._validation = await this.api.validatePronto(sent, repair, this.embedded);
         } catch {
             this._validation = null;
         }
@@ -840,11 +850,11 @@ export class IrSignalEditor extends LitElement {
         if (
             this.embedded &&
             this._pronto === sent &&
-            editorFor("ir", v?.medium) !== "ir"
+            editorFor("ir", v?.medium, v?.guess, this.pick) !== "ir"
         ) {
             this.dispatchEvent(
                 new CustomEvent("medium-changed", {
-                    detail: { medium: v?.medium, text: sent, alias: this._alias },
+                    detail: { medium: v?.medium, guess: v?.guess, text: sent, alias: this._alias },
                 }),
             );
             return;
@@ -857,6 +867,7 @@ export class IrSignalEditor extends LitElement {
         if (v?.valid && v.source_format && this._pronto === sent) {
             this._convertedFrom = v.source_format;
             this._repaired = v.repaired ?? null;
+            this._rawTimings = v.source_format === "timings" ? sent : null;
             this._pronto = v.normalized;
             this._syncPinToPronto();
             // The server's first warning is the same carrier note the
@@ -1828,12 +1839,25 @@ export class IrSignalEditor extends LitElement {
         </span>`;
     }
 
+    /** The Radio chip: the raw timings, as pasted, go to the radio
+     *  editor, and the pick stays with the window. */
+    private _handTimingsTo(medium: Medium): void {
+        this.dispatchEvent(
+            new CustomEvent("medium-changed", {
+                detail: { medium: "either", pick: medium, text: this._rawTimings, alias: this._alias },
+            }),
+        );
+    }
+
     private _renderFeedback() {
         const v = this._validation;
         if (!v) return "";
         const sl = this._slPreview();
         return html`
             <div class="feedback">
+                ${this.embedded && this._convertedFrom === "timings" && this._rawTimings
+                    ? renderMediumChips("ir", () => this._handTimingsTo("rf"))
+                    : ""}
                 <div class="status ${v.valid ? "ok" : "bad"}">
                     <span class="mark">${v.valid ? "✓" : "✗"}</span>
                     ${v.valid
@@ -2688,6 +2712,7 @@ export class IrSignalEditor extends LitElement {
             border-color: #2e7d32;
         }
     `,
+        mediumChipStyles,
         healthDotStyles,
     ];
 }

@@ -55,6 +55,13 @@ two lists, and a new entry has to say which list it joins.
   considered for one code at a time (``_read_one``), never on the
   several-codes paths. The list is ``PASTE_REPAIRS``.
 
+RAW TIMINGS ONLY WHEN ASKED. A bare list of numbers says nothing about
+its medium, so it is read as infrared only when the caller passes
+``as_infrared`` (the Clipper's add window, once the person picks
+Infrared or HAIR guesses it, ``paste_medium.timings_guess``). The radio
+reader's own parse reads the list, and ``raw_to_pronto`` makes it Pronto
+at 38 kHz, the carrier the note names.
+
 A repair fixes damage, not a format. It hands corrected text to the
 readers above, so NO NEW READERS stays true; a new code format is a new
 reader, not a repair.
@@ -82,6 +89,8 @@ SOURCE_GLOBALCACHE = "globalcache"
 # a raw list sent at frequency 0 (or a bare compressed string) does not.
 SOURCE_TASMOTA = "tasmota"
 SOURCE_TASMOTA_RAW = "tasmota_raw"
+# Raw timings read as infrared on request (``as_infrared``).
+SOURCE_TIMINGS = "timings"
 
 # Shorter than this is a word, a name or a typo, not a code. The shortest
 # real Broadlink IR packet is a few dozen characters and a Tuya container
@@ -131,6 +140,10 @@ CARRIER_NOTE = {
         "Converted from a Tasmota raw code; 38 kHz assumed (the code does "
         "not record a carrier)."
     ),
+    SOURCE_TIMINGS: (
+        "Converted from raw timings; 38 kHz assumed (the timings do not "
+        "record a carrier)."
+    ),
 }
 
 
@@ -160,13 +173,17 @@ class PastedCode:
 
 
 def coerce_pasted_code(
-    text: str | None, *, apply_repair: str | None = None
+    text: str | None,
+    *,
+    apply_repair: str | None = None,
+    as_infrared: bool = False,
 ) -> PastedCode:
     """Read one pasted code. See the module docstring for the rules.
 
     ``apply_repair`` names a repair the person accepted. It is applied
     only if that repair still matches the paste; otherwise the answer is
-    the one the paste gets without it.
+    the one the paste gets without it. ``as_infrared`` reads raw timings
+    as an infrared code at 38 kHz; nothing else changes with it.
     """
     text = text if isinstance(text, str) else ""
     if validate_pronto(text).valid:
@@ -179,6 +196,11 @@ def coerce_pasted_code(
     text_code = _read_text_code(text)
     if text_code is not None:
         return text_code
+
+    if as_infrared:
+        timings = read_raw_timings(text)
+        if timings is not None:
+            return timings
 
     # Several Pronto codes, one per line: each line is valid on its own.
     pronto_lines = [
@@ -223,6 +245,24 @@ def coerce_pasted_code(
         hits = [hit for hit in read if hit is not None]
         return PastedCode(text, error=_several(len(hits), _kinds(hits)))
     return _read_one(text, "".join(tokens), apply_repair=apply_repair)
+
+
+def read_raw_timings(text: str) -> PastedCode | None:
+    """Raw timings as an infrared code at 38 kHz, or None when the text
+    is not a list of timings the radio reader takes."""
+    from . import rf_paste
+    from .ir_command import raw_to_pronto
+
+    try:
+        read = rf_paste.read_paste(text)
+    except rf_paste.PasteError:
+        return None
+    if read.format != rf_paste.FORMAT_TIMINGS or not read.timings:
+        return None
+    pronto = raw_to_pronto(read.timings, 38000)
+    if not validate_pronto(pronto).valid:
+        return None
+    return PastedCode(pronto, SOURCE_TIMINGS)
 
 
 # -- internals ---------------------------------------------------------

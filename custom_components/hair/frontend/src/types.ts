@@ -1113,6 +1113,8 @@ export interface RfValidation {
     /** Which medium the text is (``paste_medium``), as the infrared
      *  door says too. */
     medium?: PasteMedium;
+    /** For raw timings ("either"): the kind the add window shows first. */
+    guess?: "ir" | "rf";
 }
 
 /** One radio transmitter (``hair/rf/transmitters``). */
@@ -1605,6 +1607,8 @@ export interface ProntoValidation {
     /** Which medium the text is (``paste_medium``), whatever this door
      *  made of it: the add window shows the radio editor for "rf". */
     medium?: PasteMedium;
+    /** For raw timings ("either"): the kind the add window shows first. */
+    guess?: "ir" | "rf";
 }
 
 /** Which medium a pasted text is: a list of timings is "either". */
@@ -1616,7 +1620,8 @@ export type PasteSource =
     | "broadlink"
     | "globalcache"
     | "tasmota"
-    | "tasmota_raw";
+    | "tasmota_raw"
+    | "timings";
 
 export interface UnknownSignalEvent {
     device_id: string;

@@ -506,7 +506,7 @@ class TestEditorSource:
         assert "ha-dialog" not in block
 
     def test_button_asks_again_with_the_repair_id(self):
-        assert "this.api.validatePronto(sent, repair)" in self.SRC
+        assert "this.api.validatePronto(sent, repair, this.embedded)" in self.SRC
         assert "await this._validate(id)" in self.SRC
 
     def test_repaired_note_and_its_reset_points(self):

@@ -64,7 +64,7 @@ from .models import (
     max_power_settle_s,
     valid_fan_speed_steps,
 )
-from .paste_medium import medium_of
+from .paste_medium import MEDIUM_EITHER, medium_of, timings_guess
 from .pasted_code import (
     CARRIER_NOTE,
     coerce_pasted_code,
@@ -3335,6 +3335,8 @@ async def ws_unknown_signal_edit_pronto(
     vol.Required("type"): f"{WS_PREFIX}/clip/validate-pronto",
     vol.Required("pronto"): str,
     vol.Optional("repair"): str,
+    # Raw timings, read as infrared at 38 kHz (the add window's pick).
+    vol.Optional("as_infrared"): bool,
 })
 @websocket_api.async_response
 async def ws_clip_validate_pronto(
@@ -3359,7 +3361,11 @@ async def ws_clip_validate_pronto(
     repaired Broadlink code gets the same carrier warning as any other.
     Nothing is saved here, and the save doors never repair.
     """
-    pasted = coerce_pasted_code(msg["pronto"], apply_repair=msg.get("repair"))
+    pasted = coerce_pasted_code(
+        msg["pronto"],
+        apply_repair=msg.get("repair"),
+        as_infrared=msg.get("as_infrared", False),
+    )
     result = validate_pronto(pasted.pronto)
     if pasted.error:
         result.valid = False
@@ -3398,8 +3404,17 @@ async def ws_clip_validate_pronto(
         # Which medium the text is (paste_medium), whatever this door made
         # of it: the Clipper's add window shows the other editor when the
         # paste is radio.
-        "medium": medium_of(msg["pronto"]),
+        **_medium_answer(msg["pronto"]),
     })
+
+
+def _medium_answer(text: str) -> dict[str, str | None]:
+    """``medium`` for a validate answer, and for raw timings, which can
+    be either, ``guess``: the kind the add window shows first."""
+    medium = medium_of(text)
+    if medium == MEDIUM_EITHER:
+        return {"medium": medium, "guess": timings_guess(text)}
+    return {"medium": medium}
 
 
 def _coerce_paste(
@@ -3581,7 +3596,7 @@ def ws_rf_validate(
             **rf_paste.validate(msg["text"], msg.get("frequency_hz")),
             # Which medium the text is (paste_medium), as the infrared
             # door says too, so the add window follows one answer.
-            "medium": medium_of(msg["text"]),
+            **_medium_answer(msg["text"]),
         },
     )
 

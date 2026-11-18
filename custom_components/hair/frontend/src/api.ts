@@ -1214,11 +1214,17 @@ export class HairApi {
 
     /** ``repair`` applies a repair the server offered (``repair_offer``);
      *  it is sent only when given. */
-    validatePronto(pronto: string, repair?: string): Promise<ProntoValidation> {
+    validatePronto(
+        pronto: string,
+        repair?: string,
+        asInfrared = false,
+    ): Promise<ProntoValidation> {
         return this.hass.connection.sendMessagePromise<ProntoValidation>({
             type: "hair/clip/validate-pronto",
             pronto,
             ...(repair ? { repair } : {}),
+            // Raw timings read as infrared (the add window only).
+            ...(asInfrared ? { as_infrared: true } : {}),
         });
     }
 
