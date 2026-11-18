@@ -40,6 +40,7 @@ import {
 } from "./ir-code-box-styles.js";
 import { sendRefusal } from "./rf-errors.js";
 import { sendTimesHint } from "./rf-send-count.js";
+import { copyCodeBox } from "./copy-text.js";
 import { hzToMhz, pasteRefusalKey, sourceKey, toSub, withSubFrequency } from "./rf-code.js";
 import "./rf-frequency-control.js";
 import type { HairApi } from "./api.js";
@@ -242,28 +243,16 @@ export class IrRfEditor extends LitElement {
         return true;
     }
 
-    /** The corner copy icon, as the infrared code window has it (N17):
-     *  selects the code and copies the .sub, Frequency line and all.
-     *  Without a clipboard (an insecure origin) the selection stands and
+    /** The corner copy icon, as the infrared code window has it: one
+     *  click copies the .sub, Frequency line and all (copy-text.ts).
+     *  When the browser allows no copy at all, the code is selected and
      *  the hint says to press copy. */
     private async _copy(): Promise<void> {
         const text = this._codeChanged && this._validation?.ok && this._validation.sub_text
             ? this._validation.sub_text
             : this._code;
-        const ta = this.shadowRoot?.querySelector("textarea");
-        if (ta) {
-            ta.focus();
-            ta.select();
-        }
-        let copied = false;
-        try {
-            if (window.isSecureContext && navigator.clipboard) {
-                await navigator.clipboard.writeText(text);
-                copied = true;
-            }
-        } catch {
-            copied = false;
-        }
+        const ta = this.shadowRoot?.querySelector("textarea") ?? null;
+        const copied = await copyCodeBox(text, ta);
         this._copyHint = copied ? t("editor.copied") : t("editor.press_copy");
         setTimeout(() => (this._copyHint = null), 2000);
     }
@@ -341,8 +330,8 @@ export class IrRfEditor extends LitElement {
      *  ``rf_rolling``) says so right under the pill, before Save, since
      *  HAIR keeps it but never sends it; null says nothing. Frames that
      *  all agree go unsaid; only when some disagree does "N of M frames
-     *  agree." stay, on its own line, as a plain warning. Refused: the
-     *  reason, in place of all of that. */
+     *  agree; the code was read from those N." stay, on its own line,
+     *  as a plain warning. Refused: the reason, in place of all of that. */
     private _renderFeedback() {
         if (this._validating) {
             return html`<div class="feedback"><div class="metrics">${t("rfedit.reading")}</div></div>`;
@@ -409,13 +398,12 @@ export class IrRfEditor extends LitElement {
         </div>`;
     }
 
-    /** The line under the count (N20): what one press carried, or the
-     *  usual count when it was not measured, while the field holds it. */
-    private _countHint() {
-        const hint = sendTimesHint("rf", this.repeatsObserved, this._sendCount);
-        return hint
-            ? html`<div class="count-hint">${t(hint.key, { count: String(hint.count) })}</div>`
-            : nothing;
+    /** The note beside the count: where it came from, while the field
+     *  holds it, as the infrared editor's sentence sits beside its
+     *  fields. */
+    private _countNote() {
+        const key = sendTimesHint("rf", this.repeatsObserved, this._sendCount);
+        return key ? html`<span class="count-note">${t(key)}</span>` : nothing;
     }
 
     /** The family the strip names, as you paste, the same as infrared.
@@ -465,8 +453,8 @@ export class IrRfEditor extends LitElement {
                                   : nothing}
                               <button
                                   class="copy-icon"
-                                  title=${t("editor.select_all")}
-                                  aria-label=${t("editor.select_all")}
+                                  title=${t("editor.copy_code")}
+                                  aria-label=${t("editor.copy_code")}
                                   @click=${() => void this._copy()}
                               >
                                   <ha-svg-icon .path=${ICON_COPY}></ha-svg-icon>
@@ -488,22 +476,26 @@ export class IrRfEditor extends LitElement {
                 />
             </div>
 
-            <div class="field knob">
-                <label for="rf-count">${t("assign.send_times")}</label>
-                <input
-                    id="rf-count"
-                    class="num-input"
-                    type="number"
-                    min="1"
-                    max=${MAX_SEND_COUNT}
-                    .value=${String(this._sendCount)}
-                    title=${t("rfedit.send_times_title")}
-                    @input=${(e: Event) => {
-                        const n = parseInt((e.target as HTMLInputElement).value, 10);
-                        if (Number.isFinite(n)) this._sendCount = Math.min(MAX_SEND_COUNT, Math.max(1, n));
-                    }}
-                />
-                ${this._countHint()}
+            <div class="field">
+                <div class="knob-row">
+                    <div class="knob">
+                        <label for="rf-count">${t("assign.send_times")}</label>
+                        <input
+                            id="rf-count"
+                            class="num-input"
+                            type="number"
+                            min="1"
+                            max=${MAX_SEND_COUNT}
+                            .value=${String(this._sendCount)}
+                            title=${t("rfedit.send_times_title")}
+                            @input=${(e: Event) => {
+                                const n = parseInt((e.target as HTMLInputElement).value, 10);
+                                if (Number.isFinite(n)) this._sendCount = Math.min(MAX_SEND_COUNT, Math.max(1, n));
+                            }}
+                        />
+                    </div>
+                    ${this._countNote()}
+                </div>
             </div>
 
             ${this.hasTrigger && this._codeChanged
@@ -538,9 +530,22 @@ export class IrRfEditor extends LitElement {
         diamondStyles,
         deleteStyles,
         css`
-            .count-hint {
-                margin-top: 6px;
-                font-size: 0.78rem;
+            /* Send times and its note on one row, as the infrared
+               editor lays out its send knobs; the note drops under the
+               field when the row is too narrow. */
+            .knob-row {
+                display: flex;
+                gap: 16px;
+                align-items: flex-end;
+                flex-wrap: wrap;
+            }
+            .knob {
+                display: flex;
+                flex-direction: column;
+            }
+            .count-note {
+                padding-bottom: 8px;
+                font-size: 0.82rem;
                 color: var(--secondary-text-color);
             }
             /* The strip's second line: the address and data, under the
