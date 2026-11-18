@@ -64,6 +64,7 @@ from .models import (
     max_power_settle_s,
     valid_fan_speed_steps,
 )
+from .paste_medium import medium_of
 from .pasted_code import (
     CARRIER_NOTE,
     coerce_pasted_code,
@@ -3394,6 +3395,10 @@ async def ws_clip_validate_pronto(
         **({"source_format": pasted.source} if converted else {}),
         **({"repaired": pasted.repaired} if converted and pasted.repaired else {}),
         **({"repair_offer": pasted.repair_offer} if pasted.repair_offer else {}),
+        # Which medium the text is (paste_medium), whatever this door made
+        # of it: the Clipper's add window shows the other editor when the
+        # paste is radio.
+        "medium": medium_of(msg["pronto"]),
     })
 
 
@@ -3571,7 +3576,13 @@ def ws_rf_validate(
     from . import rf_paste
 
     connection.send_result(
-        msg["id"], rf_paste.validate(msg["text"], msg.get("frequency_hz"))
+        msg["id"],
+        {
+            **rf_paste.validate(msg["text"], msg.get("frequency_hz")),
+            # Which medium the text is (paste_medium), as the infrared
+            # door says too, so the add window follows one answer.
+            "medium": medium_of(msg["text"]),
+        },
     )
 
 

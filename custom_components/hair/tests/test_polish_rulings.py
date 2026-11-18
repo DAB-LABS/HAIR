@@ -5190,7 +5190,11 @@ class TestThePopupLeadsWithThePressRoad:
     def _dialog(self) -> str:
         text = _read("ir-signal-editor.ts")
         squashed = " ".join(text.split())
-        return squashed.split("<ha-dialog", 1)[1].split("</ha-dialog>", 1)[0]
+        # The window's body is built once and wrapped in <ha-dialog>, or
+        # handed whole to the Clipper's add window when embedded.
+        return squashed.split("const body = html`", 1)[1].split(
+            "if (this.embedded) return body;", 1
+        )[0]
 
     def test_the_tangle_context_renders_in_the_ruled_order(self):
         """The reason left the body for the window's header and the
@@ -5245,7 +5249,7 @@ class TestThePopupLeadsWithThePressRoad:
             "\n    private", 1
         )[0]
         assert "tangles.popup_code_label" not in box
-        assert 't("editor.pronto_code")' in box
+        assert 't(this.embedded ? "addcode.code_label" : "editor.pronto_code")' in box
         assert '${this._isTangle\n                    ? ""' in box
         data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
         assert "tangles.popup_code_label" not in data
@@ -5364,7 +5368,11 @@ class TestTheFixWindowRedesign:
     def _dialog(self) -> str:
         text = _read("ir-signal-editor.ts")
         squashed = " ".join(text.split())
-        return squashed.split("<ha-dialog", 1)[1].split("</ha-dialog>", 1)[0]
+        # The window's body is built once and wrapped in <ha-dialog>, or
+        # handed whole to the Clipper's add window when embedded.
+        return squashed.split("const body = html`", 1)[1].split(
+            "if (this.embedded) return body;", 1
+        )[0]
 
     def test_the_reason_is_the_windows_header(self):
         """It was a light gray line inside the body under a title that
@@ -5480,7 +5488,12 @@ class TestTheFixWindowRedesign:
         box = text.split("private _renderCodeBox()", 1)[1].split(
             "\n    private", 1
         )[0]
-        assert 'html`<label>${t("editor.pronto_code")}</label>`' in box
+        # Its own label; the Clipper's add window gives the box its own.
+        flat_box = " ".join(box.split())
+        assert (
+            'html`<label >${t(this.embedded ? "addcode.code_label" '
+            ': "editor.pronto_code")}</label >`'
+        ) in flat_box
         ordinary = text.split("private _renderReplace()", 1)[1].split(
             "\n    /**", 1
         )[0]

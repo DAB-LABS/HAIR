@@ -242,10 +242,10 @@ class TestN20TheCountLine:
             text,
         ))
         assert passes == count
-        # Every radio editor that edits a stored code gets them; the
-        # Clipper's create editor (a paste) has none, and no other
-        # element is handed them.
-        assert passes == editors - (1 if name == "ir-clips.ts" else 0)
+        # Every radio editor that edits a stored code gets them, and no
+        # other element is handed them. A new code is pasted in the add
+        # window (ir-add-code-dialog.ts), which hands none.
+        assert passes == editors
         # Each binding sits on a radio editor, not the infrared one.
         for at in [m.start() for m in re.finditer(r"\.repeatsObserved=", text)]:
             assert text.rfind("<ir-", 0, at) == text.rfind("<ir-rf-editor", 0, at)

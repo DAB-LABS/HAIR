@@ -962,7 +962,8 @@ class TestTheEditor:
             "Point the remote at a receiver and listen, or paste a code below."
         )
         editor = _src("ir-signal-editor.ts")
-        assert 'placeholder=${t("editor.code_placeholder")}' in editor
+        # The add window puts its hint over the box instead (one add window).
+        assert ': t("editor.code_placeholder")}' in editor
         assert 'placeholder="0000 006D ..."' not in editor
 
     def test_listen_is_split_with_its_receiver_in_both_places(self):

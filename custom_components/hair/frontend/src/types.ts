@@ -1110,6 +1110,9 @@ export interface RfValidation {
      *  "somfy_rts"), a code HAIR keeps but never sends, or null. The
      *  check fails open to null; absent on a refusal. */
     rf_rolling?: "keeloq" | "somfy_rts" | null;
+    /** Which medium the text is (``paste_medium``), as the infrared
+     *  door says too. */
+    medium?: PasteMedium;
 }
 
 /** One radio transmitter (``hair/rf/transmitters``). */
@@ -1599,7 +1602,13 @@ export interface ProntoValidation {
     /** Present with ``source_format`` when the code was read through a
      *  repair the person accepted: that repair's id. */
     repaired?: string;
+    /** Which medium the text is (``paste_medium``), whatever this door
+     *  made of it: the add window shows the radio editor for "rf". */
+    medium?: PasteMedium;
 }
+
+/** Which medium a pasted text is: a list of timings is "either". */
+export type PasteMedium = "ir" | "rf" | "either" | null;
 
 /** The formats the paste box converts into Pronto. */
 export type PasteSource =

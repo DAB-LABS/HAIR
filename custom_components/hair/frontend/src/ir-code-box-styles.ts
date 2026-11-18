@@ -74,6 +74,19 @@ export const codeBoxStyles = css`
     .code-wrap textarea:focus {
         outline: none;
     }
+    /* The add window's hint in the empty box, a line per medium: a
+       placeholder cannot be relied on to keep its line breaks, so it
+       sits over the textarea until the first character. */
+    .code-hint {
+        position: absolute;
+        top: 24px;
+        left: 8px;
+        right: 8px;
+        pointer-events: none;
+        color: var(--secondary-text-color);
+        font-size: 0.85rem;
+        line-height: 1.4;
+    }
     .copy-icon {
         position: absolute;
         top: 4px;

@@ -60,6 +60,7 @@ import { claimedFor, fieldWords, sameReading } from "./ir-tangle-copy.js";
 import { keepConversionNotes } from "./converted-notes.js";
 import { copyCodeBox } from "./copy-text.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
+import { editorFor } from "./paste-formats.js";
 
 // The note under a code the server converted from another format, one
 // per source (pasted_code.CARRIER_NOTE says the same in English).
@@ -199,6 +200,13 @@ export class IrSignalEditor extends LitElement {
     /** The matrix's native unit, so a quoted reading is spoken in the
      * unit the panel is showing (T5) rather than the lattice's own. */
     @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
+    /** Inside the Clipper's add window (ir-add-code-dialog.ts): no
+     *  dialog of its own, the window's words, the infrared fields only
+     *  once the code is read, and a paste of the other medium handed to
+     *  the window (`medium-changed`). */
+    @property({ type: Boolean }) public embedded = false;
+    /** The empty box's hint, a line each, in the add window. */
+    @property({ attribute: false }) public hint: string[] | null = null;
 
     /** For installUnit, and for the capture window's deadline while
      *  Listen holds one open (``window_ends_at`` on the receiver). */
@@ -506,6 +514,7 @@ export class IrSignalEditor extends LitElement {
         if (this._pronto.trim()) {
             void this._validate();
         }
+        if (this.embedded && this._pronto) this._focusEnd();
         void this._refreshSpacingInfo();
         if (this._isCommand || this._isTangle) void this._loadReceivers();
     }
@@ -600,7 +609,9 @@ export class IrSignalEditor extends LitElement {
         // it is focused it gets a low ceiling; touching it hands back
         // the ordinary fit-to-content behaviour.
         const held = this._isTangle && !this._codeFocused;
-        const minPx = held ? 40 : 64;
+        // The add window's empty box holds its three-line hint.
+        const hinted = this.embedded && !!this.hint && !this._pronto;
+        const minPx = held ? 40 : hinted ? 104 : 64;
         const maxPx = held ? 96 : Math.round(window.innerHeight * 0.45);
         fitCodeBox(ta, minPx, maxPx);
     }
@@ -624,6 +635,22 @@ export class IrSignalEditor extends LitElement {
         this.dispatchEvent(
             new CustomEvent("closed", { bubbles: true, composed: true }),
         );
+    }
+
+    /** The add window handed this editor a paste: the caret goes after
+     *  it, as if it had been pasted here. */
+    private _focusEnd(): void {
+        void this.updateComplete.then(() => {
+            const ta = this.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea");
+            if (!ta) return;
+            ta.focus();
+            ta.setSelectionRange(ta.value.length, ta.value.length);
+        });
+    }
+
+    /** In the add window, the infrared fields wait for a code that reads. */
+    private get _fieldsWait(): boolean {
+        return this.embedded && this._validation?.valid !== true;
     }
 
     private _onSendCountInput(e: Event): void {
@@ -808,6 +835,20 @@ export class IrSignalEditor extends LitElement {
             this._validation = null;
         }
         const v = this._validation;
+        // In the add window, a paste of the other medium goes to the other
+        // editor, if the box still holds the text that was asked about.
+        if (
+            this.embedded &&
+            this._pronto === sent &&
+            editorFor("ir", v?.medium) !== "ir"
+        ) {
+            this.dispatchEvent(
+                new CustomEvent("medium-changed", {
+                    detail: { medium: v?.medium, text: sent, alias: this._alias },
+                }),
+            );
+            return;
+        }
         // A pasted Tuya or Broadlink base64 code comes back as Pronto.
         // Put that Pronto in the box once, so what is shown is what will
         // be saved, and keep the note about where it came from. Only if
@@ -1630,7 +1671,9 @@ export class IrSignalEditor extends LitElement {
                      was a third line saying the same one thing. -->
                 ${this._isTangle
                     ? ""
-                    : html`<label>${t("editor.pronto_code")}</label>`}
+                    : html`<label
+                          >${t(this.embedded ? "addcode.code_label" : "editor.pronto_code")}</label
+                      >`}
                 <div class="code-wrap">
                     <textarea
                         class="${this._snapFlash ? "snap-flash" : ""} ${held
@@ -1638,7 +1681,9 @@ export class IrSignalEditor extends LitElement {
                             : ""}"
                         rows="4"
                         .value=${this._pronto}
-                        placeholder=${t("editor.code_placeholder")}
+                        placeholder=${this.embedded && this.hint
+                            ? ""
+                            : t("editor.code_placeholder")}
                         ?autofocus=${!this._isTangle}
                         spellcheck="false"
                         @focus=${() => (this._codeFocused = true)}
@@ -1646,6 +1691,11 @@ export class IrSignalEditor extends LitElement {
                         @input=${this._onProntoInput}
                         @keydown=${this._onKeydown}
                     ></textarea>
+                    ${this.embedded && this.hint && !this._pronto
+                        ? html`<div class="code-hint" aria-hidden="true">
+                              ${this.hint.map((line) => html`<div>${line}</div>`)}
+                          </div>`
+                        : ""}
                     ${this._pronto.trim()
                         ? html`
                               ${this._copyHint
@@ -1786,7 +1836,9 @@ export class IrSignalEditor extends LitElement {
             <div class="feedback">
                 <div class="status ${v.valid ? "ok" : "bad"}">
                     <span class="mark">${v.valid ? "✓" : "✗"}</span>
-                    ${v.valid ? t("editor.valid") : t("editor.not_valid")}
+                    ${v.valid
+                        ? t(this.embedded ? "addcode.valid_ir" : "editor.valid")
+                        : t("editor.not_valid")}
                 </div>
                 ${v.valid
                     ? html`
@@ -1821,7 +1873,9 @@ export class IrSignalEditor extends LitElement {
                               : ""}
                       `
                     : ""}
-                ${v.errors.map((msg) => html`<div class="msg err">${msg}</div>`)}
+                ${this.embedded && !v.valid && v.medium == null && !v.repair_offer
+                    ? html`<div class="msg err">${t("addcode.unreadable")}</div>`
+                    : v.errors.map((msg) => html`<div class="msg err">${msg}</div>`)}
                 ${!v.valid && v.repair_offer ? this._renderRepairOffer(v.repair_offer) : ""}
                 ${v.warnings.map((msg) => html`<div class="msg warn">${msg}</div>`)}
             </div>
@@ -1937,13 +1991,7 @@ export class IrSignalEditor extends LitElement {
             : this._isEdit
               ? t("editor.alias_label")
               : t("editor.alias_optional");
-        return html`
-            <ha-dialog
-                open
-                heading=${heading}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
+        const body = html`
                 ${this._error
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
@@ -1986,7 +2034,9 @@ export class IrSignalEditor extends LitElement {
                           />
                       </div>`}
 
-                <div class="field tx-knobs" ?hidden=${this._isTangle}>
+                ${this._fieldsWait
+                    ? ""
+                    : html`<div class="field tx-knobs" ?hidden=${this._isTangle}>
                     <div class="knob-row">
                         <div class="knob">
                             <label>${t("assign.send_times")}</label>
@@ -2049,8 +2099,8 @@ export class IrSignalEditor extends LitElement {
                                   @keydown=${this._onKeydown}
                               />
                           </div>`}
-                </div>
-                ${this.initialObservedRepeatCount > 0 && !this._isTangle
+                </div>`}
+                ${this.initialObservedRepeatCount > 0 && !this._isTangle && !this._fieldsWait
                     ? html`<div class="observed-hint">
                           ${tp("editor.observed", this.initialObservedRepeatCount)}
                       </div>`
@@ -2101,6 +2151,17 @@ export class IrSignalEditor extends LitElement {
                               ${primaryLabel}
                           </button>`}
                 </div>
+        `;
+        // In the add window the window is the dialog (ir-add-code-dialog).
+        if (this.embedded) return body;
+        return html`
+            <ha-dialog
+                open
+                heading=${heading}
+                scrimClickAction=""
+                @closed=${this._close}
+            >
+                ${body}
             </ha-dialog>
         `;
     }
