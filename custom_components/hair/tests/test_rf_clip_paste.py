@@ -159,13 +159,18 @@ class TestThePanel:
     def _flat(self, name: str) -> str:
         return " ".join((SRC / name).read_text(encoding="utf-8").split())
 
-    def test_the_clipper_opens_the_radio_editor_empty(self):
+    def test_the_clipper_opens_one_add_window(self):
+        """One Add Signal button for infrared and radio: the add window
+        shows the radio editor when the paste is radio."""
         clips = self._flat("ir-clips.ts")
-        assert '@click=${(e: Event) => this._openCreateRfSignal(device.id, e)}' in clips
+        assert '@click=${(e: Event) => this._openCreateSignal(device.id, e)}' in clips
+        assert "_openCreateRfSignal" not in clips
         assert (
-            "${this._createRfDeviceId ? html`<ir-rf-editor .api=${this.api} "
-            ".deviceId=${this._createRfDeviceId} @signal-created=${this._onSignalCreated}"
+            "${this._createSignalDeviceId ? html`<ir-add-code-dialog .api=${this.api} "
+            ".deviceId=${this._createSignalDeviceId} @signal-created=${this._onSignalCreated}"
         ) in clips
+        window = self._flat("ir-add-code-dialog.ts")
+        assert "html`<ir-rf-editor embedded" in window
 
     def test_a_radio_clipper_row_is_edited_and_tested_as_radio(self):
         clips = self._flat("ir-clips.ts")
@@ -186,7 +191,7 @@ class TestThePanel:
 
     def test_every_new_string_is_in_every_language(self):
         keys = (
-            "clips.add_rf_signal", "clips.add_rf_signal_title", "rfedit.new_signal",
+            "clips.add_signal", "clips.add_signal_title", "rfedit.new_signal",
             "panel.tagline.clips",
         )
         en = json.loads((SRC / "locales" / "en.json").read_text(encoding="utf-8"))

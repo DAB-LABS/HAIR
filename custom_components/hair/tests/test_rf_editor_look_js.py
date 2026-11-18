@@ -202,14 +202,17 @@ class TestTheRadioOrder:
         assert "renderProtoGlyph" not in text
 
     def test_the_label(self):
-        assert 't("rfedit.code")' in _read("ir-rf-editor.ts")
+        # The add window's own label in it (one add window).
+        label = 't(this.embedded ? "addcode.code_label" : "rfedit.code")'
+        assert label in _read("ir-rf-editor.ts")
 
 
 class TestTheStrip:
     def test_the_saved_code_is_read_on_open(self):
         text = _read("ir-rf-editor.ts")
         first = text.split("firstUpdated(): void {", 1)[1].split("\n    }", 1)[0]
-        assert "if (!this._creating && this._code.trim()) {" in first
+        # A new code the add window hands over is read on open too.
+        assert "if (this._code.trim()) {" in first
         assert "void this._validate();" in first
 
     def test_reading_on_open_changes_nothing_of_the_row(self):
@@ -247,7 +250,11 @@ class TestTheStrip:
         flat = _flat("ir-rf-editor.ts")
         strip = flat.split("private _renderFeedback() {", 1)[1]
         strip = strip.split("private _renderFrequency()", 1)[0]
-        ok = '<div class="status ok"><span class="mark">✓</span>${t("rfedit.valid")}</div>'
+        # "Valid RF code" in the add window (one add window).
+        ok = (
+            '<div class="status ok"> <span class="mark">✓</span>'
+            '${t(this.embedded ? "addcode.valid_rf" : "rfedit.valid")} </div>'
+        )
         bad = '<div class="status bad"><span class="mark">✗</span>${t("editor.not_valid")}</div>'
         assert ok in strip and bad in strip
         assert 't("rfedit.mhz", { mhz: hzToMhz(v.frequency_hz) })' in strip

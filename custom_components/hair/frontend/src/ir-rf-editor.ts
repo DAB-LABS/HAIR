@@ -17,8 +17,9 @@
  * times. No snap, no ditto, no spacing: those are infrared settings.
  *
  * With neither a signal nor a command it CREATES (T6): the Clipper's
- * "Add radio code" opens it empty on a clipped remote, and Save adds the
- * paste as a new row (`signal-created`).
+ * add window (ir-add-code-dialog.ts) shows it, `embedded`, once a paste
+ * reads as radio, and Create adds the paste as a new row
+ * (`signal-created`).
  *
  * A separate dialog from ir-signal-editor rather than a mode inside it:
  * that editor's Pronto, snap, ditto and repair paths do not apply to a
@@ -47,6 +48,7 @@ import type { HairApi } from "./api.js";
 import type { RfValidation } from "./types.js";
 import "./ir-protocol-chip.js";
 import { familyEditorText, type RfFamily } from "./rf-family-label.js";
+import { editorFor } from "./paste-formats.js";
 
 const VALIDATE_DELAY_MS = 300;
 
@@ -76,6 +78,15 @@ export class IrRfEditor extends LitElement {
     /** The saved row's family (`rf_family`), for the pill row; null for
      *  a paste, a new code or a frame no shown family reads. */
     @property({ attribute: false }) public initialFamily: RfFamily | null = null;
+    /** Inside the Clipper's add window (ir-add-code-dialog.ts): no
+     *  dialog of its own, the window's words, Frequency and Send times
+     *  only once the code is read, and a paste of the other medium
+     *  handed to the window (`medium-changed`). */
+    @property({ type: Boolean }) public embedded = false;
+    /** A new code's text, when the add window hands one over. */
+    @property({ attribute: false }) public initialCode = "";
+    /** The empty box's hint, a line each, in the add window. */
+    @property({ attribute: false }) public hint: string[] | null = null;
 
     @state() private _code = "";
     @state() private _alias = "";
@@ -105,7 +116,7 @@ export class IrRfEditor extends LitElement {
         this._initialCode = this._creating
             ? ""
             : toSub(this.initialFrame, this.initialFrequencyHz, this.initialGapUs);
-        this._code = this._initialCode;
+        this._code = this._creating ? this.initialCode : this._initialCode;
         this._alias = this.initialAlias;
         this._sendCount = Math.max(1, this.initialSendCount || 1);
         this._frequencyHz = this.initialFrequencyHz;
@@ -115,9 +126,15 @@ export class IrRfEditor extends LitElement {
     /** The strip is always shown, as the infrared editor's is: the saved
      *  code is read once when the dialog opens. */
     firstUpdated(): void {
-        if (!this._creating && this._code.trim()) {
+        if (this._code.trim()) {
             this._validating = true;
             void this._validate();
+        }
+        if (this.embedded && this._code) {
+            // Handed a paste: the caret goes after it.
+            const ta = this.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea");
+            ta?.focus();
+            ta?.setSelectionRange(ta.value.length, ta.value.length);
         }
     }
 
@@ -125,7 +142,9 @@ export class IrRfEditor extends LitElement {
      *  of the viewport, then it scrolls below the copy icon's strip. */
     updated(): void {
         const ta = this.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea");
-        if (ta) fitCodeBox(ta, 64, Math.round(window.innerHeight * 0.45));
+        // The add window's empty box holds its three-line hint.
+        const hinted = this.embedded && !!this.hint && !this._code;
+        if (ta) fitCodeBox(ta, hinted ? 104 : 64, Math.round(window.innerHeight * 0.45));
     }
 
     disconnectedCallback(): void {
@@ -174,6 +193,16 @@ export class IrRfEditor extends LitElement {
             );
             if (asked !== this._asked) return;
             this._validation = result;
+            // In the add window, a paste of the other medium goes to the
+            // other editor; nothing has changed the box since it was asked.
+            if (this.embedded && editorFor("rf", result.medium) !== "rf") {
+                this.dispatchEvent(
+                    new CustomEvent("medium-changed", {
+                        detail: { medium: result.medium, text: this._code, alias: this._alias },
+                    }),
+                );
+                return;
+            }
             if (!this._codeChanged) {
                 // The saved code, read on open: nothing to bring over, its
                 // frequency and where it came from are the row's own.
@@ -338,18 +367,25 @@ export class IrRfEditor extends LitElement {
         }
         const v = this._validation;
         if (!v) return nothing;
+        // A new code's empty box says nothing yet; its hint is enough.
+        if (this._creating && !this._code.trim()) return nothing;
         if (!v.ok) {
             const key = pasteRefusalKey(v.code);
+            const unreadable = this.embedded && v.medium == null;
             return html`<div class="feedback" role="alert">
                 <div class="status bad"><span class="mark">✗</span>${t("editor.not_valid")}</div>
-                <div class="msg err">${key ? t(key) : (v.error ?? "")}</div>
+                <div class="msg err">
+                    ${unreadable ? t("addcode.unreadable") : key ? t(key) : (v.error ?? "")}
+                </div>
             </div>`;
         }
         const found = v.frames_found ?? 1;
         const agreeing = v.frames_agreeing ?? 1;
         const family = this._shownFamily();
         return html`<div class="feedback">
-            <div class="status ok"><span class="mark">✓</span>${t("rfedit.valid")}</div>
+            <div class="status ok">
+                <span class="mark">✓</span>${t(this.embedded ? "addcode.valid_rf" : "rfedit.valid")}
+            </div>
             <div class="metrics">
                 ${v.frequency_hz ? html`<span>${t("rfedit.mhz", { mhz: hzToMhz(v.frequency_hz) })}</span>` : nothing}
                 ${family ? this._renderRecognized(family) : nothing}
@@ -434,19 +470,27 @@ export class IrRfEditor extends LitElement {
             : this.commandId !== null
               ? t("rfedit.edit_command")
               : t("rfedit.edit_signal");
-        return html`<ha-dialog open heading=${heading} scrimClickAction="" @closed=${this._close}>
+        // In the add window, Frequency and Send times wait for a code
+        // that reads.
+        const fieldsWait = this.embedded && this._validation?.ok !== true;
+        const body = html`
             ${this._error ? html`<ha-alert alert-type="error">${this._error}</ha-alert>` : nothing}
             <div class="field">
-                <label for="rf-code">${t("rfedit.code")}</label>
+                <label for="rf-code">${t(this.embedded ? "addcode.code_label" : "rfedit.code")}</label>
                 <div class="code-wrap">
                     <textarea
                         id="rf-code"
                         rows="4"
                         spellcheck="false"
-                        placeholder=${t("rfedit.code_placeholder")}
+                        placeholder=${this.embedded && this.hint ? "" : t("rfedit.code_placeholder")}
                         .value=${this._code}
                         @input=${this._onCode}
                     ></textarea>
+                    ${this.embedded && this.hint && !this._code
+                        ? html`<div class="code-hint" aria-hidden="true">
+                              ${this.hint.map((line) => html`<div>${line}</div>`)}
+                          </div>`
+                        : nothing}
                     ${this._code.trim()
                         ? html`${this._copyHint
                                   ? html`<span class="copy-flash">${this._copyHint}</span>`
@@ -464,7 +508,7 @@ export class IrRfEditor extends LitElement {
                 ${this._renderFeedback()}
             </div>
 
-            ${this._renderFrequency()}
+            ${fieldsWait ? nothing : this._renderFrequency()}
 
             <div class="field">
                 <label for="rf-name">${this.commandId !== null ? t("assign.command_name") : t("editor.alias_label")}</label>
@@ -476,27 +520,29 @@ export class IrRfEditor extends LitElement {
                 />
             </div>
 
-            <div class="field">
-                <div class="knob-row">
-                    <div class="knob">
-                        <label for="rf-count">${t("assign.send_times")}</label>
-                        <input
-                            id="rf-count"
-                            class="num-input"
-                            type="number"
-                            min="1"
-                            max=${MAX_SEND_COUNT}
-                            .value=${String(this._sendCount)}
-                            title=${t("rfedit.send_times_title")}
-                            @input=${(e: Event) => {
-                                const n = parseInt((e.target as HTMLInputElement).value, 10);
-                                if (Number.isFinite(n)) this._sendCount = Math.min(MAX_SEND_COUNT, Math.max(1, n));
-                            }}
-                        />
+            ${fieldsWait
+                ? nothing
+                : html`<div class="field">
+                    <div class="knob-row">
+                        <div class="knob">
+                            <label for="rf-count">${t("assign.send_times")}</label>
+                            <input
+                                id="rf-count"
+                                class="num-input"
+                                type="number"
+                                min="1"
+                                max=${MAX_SEND_COUNT}
+                                .value=${String(this._sendCount)}
+                                title=${t("rfedit.send_times_title")}
+                                @input=${(e: Event) => {
+                                    const n = parseInt((e.target as HTMLInputElement).value, 10);
+                                    if (Number.isFinite(n)) this._sendCount = Math.min(MAX_SEND_COUNT, Math.max(1, n));
+                                }}
+                            />
+                        </div>
+                        ${this._countNote()}
                     </div>
-                    ${this._countNote()}
-                </div>
-            </div>
+                </div>`}
 
             ${this.hasTrigger && this._codeChanged
                 ? html`<div class="note">${t("editor.trigger_note_sig")}</div>`
@@ -517,9 +563,20 @@ export class IrRfEditor extends LitElement {
                     ${t("common.cancel")}
                 </button>
                 <button class="action-btn create-btn" @click=${() => void this._save()} ?disabled=${!this._canSave}>
-                    ${this._busy ? t("common.saving") : t("common.save")}
+                    ${this.embedded
+                        ? this._busy
+                            ? t("common.creating")
+                            : t("common.create")
+                        : this._busy
+                          ? t("common.saving")
+                          : t("common.save")}
                 </button>
             </div>
+        `;
+        // In the add window the window is the dialog (ir-add-code-dialog).
+        if (this.embedded) return body;
+        return html`<ha-dialog open heading=${heading} scrimClickAction="" @closed=${this._close}>
+            ${body}
         </ha-dialog>`;
     }
 

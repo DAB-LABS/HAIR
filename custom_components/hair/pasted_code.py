@@ -371,7 +371,7 @@ def _read_one(
             text,
             error=(
                 f"This is a Broadlink RF code ({band}), not infrared. Add "
-                "it as a radio code instead (Add Radio Code in the Clipper)."
+                "it to a remote with Add Signal instead."
             ),
         )
     return PastedCode(text)
