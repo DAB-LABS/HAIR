@@ -1,6 +1,5 @@
 /**
- * HAIR's chip and dot colours, in one place (chip and dot audit,
- * owner 2026-11-14 19:15 PT: gertrude-2026-11-14-chip-audit.md).
+ * HAIR's chip and dot colours, in one place.
  *
  * Every health dot, picked pill and capture state in the panel reads
  * its colour from here, through the custom properties hairTokens
@@ -20,8 +19,7 @@
  * health rule lives; this file re-exports them so it is the whole
  * palette.
  *
- * THE DOT RULE (owner, 2026-11-14, as ruled for Kobe's dots and kept
- * in the audit): bright means picked. A picked chip's dot is its full
+ * THE DOT RULE: bright means picked. A picked chip's dot is its full
  * health colour, with a glow while online; an unpicked chip's, or a
  * row's with nothing to pick, is the same colour dulled toward gray.
  * Hollow always means offline, and offline is always ember, so the

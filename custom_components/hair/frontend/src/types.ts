@@ -1187,6 +1187,31 @@ export type CaptureSwitchSource = "user" | "declared" | "device" | "software";
  *  integration that says so with a boolean ``capturing`` attribute
  *  (docs/windowed-receivers.md). The panel reads the window's live
  *  state from the receiver entity in ``hass``. */
+/** One radio receiver's tuning, as HAIR finds it (``hair/rf/receiver_tuning``,
+ *  listening PR 1): tunable when its device has one enabled frequency
+ *  number, with what that number holds now and its limits. */
+export interface ReceiverTuning {
+    receiver_entity_id: string;
+    tunable: boolean;
+    number_entity: string | null;
+    available: boolean;
+    current_mhz: number | null;
+    min_mhz: number | null;
+    max_mhz: number | null;
+    /** The ranges the receiver declares through core, in Hz. */
+    declared: [number, number][];
+    /** A receiver with no tuning number that declares one frequency:
+     *  ``current_mhz`` is that frequency, and it cannot be changed. */
+    fixed?: boolean;
+}
+
+/** What a tune came to (``hair/rf/receiver_tune``): always an answer,
+ *  never an error, for each outcome. */
+export interface ReceiverTuneResult {
+    result: "confirmed" | "did_not_change" | "cannot_tune";
+    current_mhz: number | null;
+}
+
 export interface CaptureReceiverRow {
     receiver_entity_id: string;
     name: string;

@@ -1,7 +1,6 @@
 /**
  * The code box, the strip under it and the S/L diamonds, shared by both
- * code editors (owner, 2026-11-15: the radio editor takes the infrared
- * editor's look; docs/internal/plans/radio-editor-matches-ir-editor.md).
+ * code editors, so the radio editor reads the same as the infrared one.
  *
  * The infrared editor (ir-signal-editor.ts) and the radio editor
  * (ir-rf-editor.ts) stay two components, because their engines differ:

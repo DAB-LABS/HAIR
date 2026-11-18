@@ -13,6 +13,7 @@ from .const import (
     MEDIUM_RF,
     RF_FREQUENCY_SOURCE_RECEIVER,
     RF_FREQUENCY_SOURCE_SIGNAL,
+    RF_FREQUENCY_SOURCE_TUNED,
     RF_FREQUENCY_SOURCE_WINDOW,
     RF_GAP_MEASURED,
     RF_PROTOCOL,
@@ -313,11 +314,13 @@ def _trigger_rf_in(data: dict[str, Any]) -> dict[str, Any]:
 
 
 # How much a radio row's carrier can be trusted, by where it came from:
-# the code's own measurement, then the window it was heard in, then the
-# receiver's declared range.
+# the code's own measurement, then the window it was heard in or the
+# receiver's own tuning (both the receiver confirming where it listens),
+# then the receiver's declared range.
 _RF_FREQUENCY_RANK = {
     RF_FREQUENCY_SOURCE_SIGNAL: 3,
     RF_FREQUENCY_SOURCE_WINDOW: 2,
+    RF_FREQUENCY_SOURCE_TUNED: 2,
     RF_FREQUENCY_SOURCE_RECEIVER: 1,
 }
 

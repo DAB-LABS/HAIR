@@ -28,9 +28,11 @@ so nothing here imports it at module level.
 THE FREQUENCY OF A CODE, in order: the received signal's own
 ``frequency`` (``signal``); else the receiver's ``frequency_hz``
 attribute while its ``capture_phase`` reads ``listening``, the carrier
-the open window listens on (``window``); else the receiver's declared
-range when it is one fixed value (``receiver``); else none, and the row's
-band reads unknown.
+the open window listens on (``window``); else the receiver's tuning
+number as it read when the capture arrived (``tuned``, ``rf_tune``),
+where a tuning number that cannot be trusted right now means the band is
+unknown; else the receiver's declared range when it is one fixed value
+(``receiver``); else none, and the row's band reads unknown.
 """
 from __future__ import annotations
 
@@ -50,6 +52,7 @@ from homeassistant.helpers.event import (
 from .const import (
     RF_FREQUENCY_SOURCE_RECEIVER,
     RF_FREQUENCY_SOURCE_SIGNAL,
+    RF_FREQUENCY_SOURCE_TUNED,
     RF_FREQUENCY_SOURCE_WINDOW,
 )
 from .receiver_window import (
@@ -146,6 +149,17 @@ def frequency_of(
         window = state.attributes.get(ATTR_FREQUENCY_HZ)
         if _positive_int(window):
             return window, RF_FREQUENCY_SOURCE_WINDOW
+    from .rf_tune import READING_HZ, READING_UNKNOWN, reading
+
+    # The reading taken when the capture arrived (``rf_tune.stamp``); a
+    # signal that was never stamped is read now.
+    tuned = getattr(signal, "hair_tuned", None)
+    if tuned is None:
+        tuned = reading(hass, entity_id)
+    if tuned.kind == READING_HZ and _positive_int(tuned.hz):
+        return tuned.hz, RF_FREQUENCY_SOURCE_TUNED
+    if tuned.kind == READING_UNKNOWN:
+        return None, None
     fixed = fixed_frequency(supported_ranges(hass, entity_id))
     if fixed is not None:
         return fixed, RF_FREQUENCY_SOURCE_RECEIVER

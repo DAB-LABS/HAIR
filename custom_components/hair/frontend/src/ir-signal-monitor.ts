@@ -157,6 +157,36 @@ export function signalCarrier(sig: { medium?: string; rf_frequency_hz?: number |
     return "band" in parts ? t("listen.band", { band: parts.band }) : `${parts.khz} kHz`;
 }
 
+/** Where a radio row's frequency came from, as one short phrase for its
+ *  tooltip, kept simple. A radio row HAIR cannot vouch for reads "band
+ *  unknown", never 433.92. Infrared rows have no phrase. */
+export function carrierSourceKey(sig: { medium?: string; rf_frequency_hz?: number | null; rf_frequency_source?: string | null }): string | null {
+    if (sig.medium !== "rf") return null;
+    if (!sig.rf_frequency_hz) return "listen.src_unknown";
+    switch (sig.rf_frequency_source) {
+        case "signal":
+            return "listen.src_signal";
+        case "window":
+            return "listen.src_window";
+        case "tuned":
+            return "listen.src_tuned";
+        case "receiver":
+            return "listen.src_receiver";
+        default:
+            return null;
+    }
+}
+
+/** A signal row's carrier tooltip: the carrier, then where it came from
+ *  ("433.00 MHz, receiver setting"), or the carrier alone. */
+export function carrierTitle(sig: { medium?: string; rf_frequency_hz?: number | null; rf_frequency_source?: string | null; frequency: number }): string {
+    const key = carrierSourceKey(sig);
+    const carrier = signalCarrier(sig);
+    if (!key) return carrier;
+    if (!carrier) return t(key);
+    return t("listen.src_join", { carrier, source: t(key) });
+}
+
 @customElement("ir-signal-monitor")
 export class IrSignalMonitor extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -2119,8 +2149,9 @@ export class IrSignalMonitor extends LitElement {
                                         title=${fmtTime(sig.last_seen)}
                                         >${relTime(sig.last_seen)}</span
                                     >
-                                    <span class="meta-freq"
-                                        >${signalCarrier(sig)}</span
+                                    <span class="meta-freq" title=${carrierTitle(sig)}
+                                        >${signalCarrier(sig) ||
+                                        (sig.medium === "rf" ? t("listen.band_unknown") : "")}</span
                                     >
                                 </div>
                                 <div class="signal-actions">

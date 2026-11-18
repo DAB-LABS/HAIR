@@ -1,6 +1,4 @@
-"""The radio editor takes the infrared editor's look (owner, 2026-11-15;
-docs/internal/plans/radio-editor-matches-ir-editor.md and the kickoff
-ir-2026-11-15-kickoff-gertrude-radio-editor.md).
+"""The radio editor takes the infrared editor's look.
 
 - One shared code box (ir-code-box-styles.ts): the copper focus edge,
   the fit-to-content height, and the copy icon in a strip above the
@@ -157,7 +155,8 @@ class TestTheSharedCodeBox:
 
 
 class TestTheOwnersSecondLookAsks:
-    """Owner, 12:29 PT on 11-16 (rf-2026-11-16-owner-1229-radio-editor-asks.md)."""
+    """The code box's steady copper edge, and an Other field the size of
+    the band pills."""
 
     def test_only_the_held_repair_box_steps_back(self):
         text = _read("ir-signal-editor.ts")
@@ -272,10 +271,9 @@ def _identity(text: str) -> str:
 
 
 class TestTheIdentityInTheBox:
-    """Owner, 2026-11-16, at #274's look on VM999: the code's identity
-    lives inside the validation box, once, in both editors, as "Recognized
-    as" and then the pill (his 12:07 PT correction: recognition reads the
-    same way everywhere in HAIR). No second pill under the box."""
+    """The code's identity lives inside the validation box, once, in both
+    editors, as "Recognized as" and then the pill, so recognition reads the
+    same way everywhere in HAIR. No second pill under the box."""
 
     def _ir(self) -> str:
         return _read("ir-signal-editor.ts")

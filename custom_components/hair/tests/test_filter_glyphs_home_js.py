@@ -246,4 +246,6 @@ class TestTheWiring:
         row = _flat("ir-listen-row.ts")
         live = "pillLive(states, row, this._items[row.receiver_entity_id] ?? null)"
         assert f"pillShown(this.show, row, {live})" in row
-        assert "${rows.map(" in row
+        # Keyed by receiver, so a pill showing or hiding never moves an
+        # open menu to another pill.
+        assert "${repeat(" in row and "(row) => row.receiver_entity_id," in row

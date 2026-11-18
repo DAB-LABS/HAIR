@@ -2949,6 +2949,13 @@ class SignalMonitor:
             self.rf_always_on.count(receiver_entity_id, "captures")
         timings = list(getattr(signal, "timings", None) or [])
         bodied = bodied_pieces(split_frames(timings))
+        if bodied:
+            # The tuning number's reading on arrival (listening PR 1):
+            # read once here, so a press is stamped with the band it was
+            # heard on, whenever it is filed.
+            from .rf_tune import stamp
+
+            signal = stamp(self._hass, receiver_entity_id, signal)
         if not bodied:
             if self._candy:
                 with _candy_guard("static"):

@@ -1786,8 +1786,8 @@ export class IrSignalEditor extends LitElement {
     }
 
     /**
-     * The code's identity, once, inside the box's info line (owner,
-     * 2026-11-16, at #274's look): "Recognized as", then the pill, where
+     * The code's identity, once, inside the box's info line: "Recognized
+     * as", then the pill, where
      * the sentence and a second pill under the box used to say it twice.
      * The pill takes the protocol's place in the sentence, so recognition
      * reads the same way everywhere in HAIR.

@@ -70,6 +70,7 @@ import { t } from "./localize.js";
 import { onArrival } from "./ir-arrivals.js";
 import "./ir-capture-switch-menu.js";
 import "./ir-pill-picker.js";
+import "./ir-listen-tune.js";
 import type { PickerChoice } from "./ir-pill-picker.js";
 import {
     bandNumber,
@@ -92,7 +93,7 @@ import {
     type PillLive,
     type PillLook,
 } from "./ir-listen-state.js";
-import type { CaptureReceiverRow, RfReceiverItem, WindowMode } from "./types.js";
+import type { CaptureReceiverRow, ReceiverTuning, RfReceiverItem, WindowMode } from "./types.js";
 
 /** Waiting: HAIR's gold (hair-colors.ts). */
 export const LISTEN_GOLD = HAIR_GOLD;
@@ -115,6 +116,9 @@ export class IrListenChip extends LitElement {
     @property({ attribute: false }) public row!: CaptureReceiverRow;
     /** A software window's latest item from the radio subscription. */
     @property({ attribute: false }) public item: RfReceiverItem | null = null;
+    /** Where this radio receiver listens and whether HAIR can set it
+     *  (listening PR 1); null until the row has read it. */
+    @property({ attribute: false }) public tuning: ReceiverTuning | null = null;
 
     @state() private _bloomed = false;
     @state() private _busy = false;
@@ -287,6 +291,19 @@ export class IrListenChip extends LitElement {
                 ?locked=${locked}
                 @pick=${(e: CustomEvent) => void this._save("frequency", e.detail.value)}
             ></ir-pill-picker>`);
+        }
+
+        // Where a radio receiver listens, on every radio
+        // receiver that has no frequency picker of its own: a capture
+        // device that declares a frequency select keeps that picker.
+        if (row.medium === "rf" && freqs.length === 0 && this.tuning) {
+            out.push(html`<ir-listen-tune
+                class="pick-tune"
+                .api=${this.api}
+                .receiverEntityId=${row.receiver_entity_id}
+                .tuning=${this.tuning}
+                ?inactive=${!active}
+            ></ir-listen-tune>`);
         }
 
         const lengths = lengthChoices(states, row);
