@@ -328,6 +328,7 @@ class TestThePanel:
             "number_entity": NUMBER,
             "available": True,
             "current_mhz": 433.92,
+            "fixed": False,
             "min_mhz": 300.0,
             "max_mhz": 928.0,
             "declared": [[300_000_000, 928_000_000]],
@@ -337,6 +338,42 @@ class TestThePanel:
         with _rig(_Hass(entries=[_entry(RX, DEVICE)])) as hass:
             row = rf_tune.describe(hass, RX)
         assert (row["tunable"], row["number_entity"], row["current_mhz"]) == (False, None, None)
+        assert row["fixed"] is False
+
+    def test_a_receiver_fixed_to_one_frequency_shows_it(self):
+        """The Athom declares 433.92 to 433.92 and has no tuning number: its
+        pill shows 433.92, fixed, the value its captures are stamped with."""
+        with (
+            _rig(_Hass(entries=[_entry(RX, DEVICE)])) as hass,
+            patch.object(rf_receive, "supported_ranges",
+                         return_value=[(433_920_000, 433_920_000)]),
+        ):
+            row = rf_tune.describe(hass, RX)
+            stamped = rf_receive.frequency_of(hass, RX, _signal())
+        assert (row["tunable"], row["fixed"], row["available"]) == (False, True, True)
+        assert row["current_mhz"] == 433.92
+        assert stamped[0] == 433_920_000
+
+    def test_no_number_and_no_single_value_is_band_unknown(self):
+        for ranges in ([], [(0, 0)], [(300_000_000, 928_000_000)],
+                       [(433_920_000, 433_920_000), (868_350_000, 868_350_000)]):
+            with (
+                _rig(_Hass(entries=[_entry(RX, DEVICE)])) as hass,
+                patch.object(rf_receive, "supported_ranges", return_value=ranges),
+            ):
+                row = rf_tune.describe(hass, RX)
+            seen = (row["current_mhz"], row["fixed"], row["available"])
+            assert seen == (None, False, False), ranges
+
+    def test_a_tuning_number_that_is_unavailable_is_band_unknown_not_fixed(self):
+        """A tunable receiver never falls back to a declared value."""
+        with (
+            _rig(_Hass(value="unavailable")) as hass,
+            patch.object(rf_receive, "supported_ranges",
+                         return_value=[(433_920_000, 433_920_000)]),
+        ):
+            row = rf_tune.describe(hass, RX)
+        assert (row["tunable"], row["current_mhz"], row["fixed"]) == (True, None, False)
 
     @pytest.mark.asyncio
     async def test_the_tune_door_refuses_what_is_not_a_receiver(self):

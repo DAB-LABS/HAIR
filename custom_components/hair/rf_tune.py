@@ -187,9 +187,17 @@ def _rounded(value_hz: float, step: Any, factor: int) -> int:
 
 
 def describe(hass: HomeAssistant, receiver_entity_id: str) -> dict[str, Any]:
-    """The receiver's tuning for the panel."""
-    from .rf_receive import supported_ranges
+    """The receiver's tuning for the panel.
 
+    A receiver HAIR cannot tune that declares one single frequency (one
+    range with min == max) listens there: ``current_mhz`` is that value
+    and ``fixed`` is True, the same value its captures are stamped with.
+    ``fixed`` is False for a tunable receiver and for one whose band is
+    unknown.
+    """
+    from .rf_receive import fixed_frequency, supported_ranges
+
+    ranges = supported_ranges(hass, receiver_entity_id) or []
     number = tuning_number(hass, receiver_entity_id)
     state = hass.states.get(number) if number else None
     factor = _unit_factor(state) or _UNITS["MHz"]
@@ -201,15 +209,19 @@ def describe(hass: HomeAssistant, receiver_entity_id: str) -> dict[str, Any]:
             return None
 
     hz = number_hz(hass, number) if number else None
+    fixed_hz = None if number else fixed_frequency(ranges)
+    if fixed_hz:
+        hz = fixed_hz
     return {
         "receiver_entity_id": receiver_entity_id,
         "tunable": number is not None,
         "number_entity": number,
         "available": hz is not None,
         "current_mhz": round(hz / 1_000_000, 6) if hz else None,
+        "fixed": fixed_hz is not None,
         "min_mhz": mhz(state.attributes.get("min")) if state else None,
         "max_mhz": mhz(state.attributes.get("max")) if state else None,
-        "declared": [list(r) for r in supported_ranges(hass, receiver_entity_id) or []],
+        "declared": [list(r) for r in ranges],
     }
 
 
