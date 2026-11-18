@@ -1,7 +1,9 @@
 /**
  * The radio frequency control, one for every place HAIR asks for a radio
- * frequency (owner, 2026-11-16 13:46 PT): the radio code editor today,
- * the listening picker on a receiver's chip next.
+ * frequency: the radio code editor and the listening picker on a
+ * receiver's pill. It has two forms.
+ *
+ * form="pills" (the radio code editor):
  *
  *   the band pills   315 and 433.92 (RF_PRESETS_HZ); the picked one blue.
  *   Other            a free field for any other frequency, in MHz. Empty,
@@ -9,9 +11,22 @@
  *                    list of common bands; typing anything still works,
  *                    by the same rule as always (rf-code.ts mhzToHz).
  *                    When it holds the frequency it wears the same blue
- *                    as a picked pill (owner, 14:33 PT: "the button
- *                    should be blue like it is when you pick any of the
- *                    other ones").
+ *                    as a picked pill.
+ *
+ * form="list" (the listening picker):
+ *
+ *   the bands        every common band in order (RF_SUGGESTIONS_MHZ),
+ *                    plus the current one if it is not among them, the
+ *                    current one marked. A band outside the host's
+ *                    minHz..maxHz is greyed but still clickable. One
+ *                    click picks.
+ *   Other...         the last row; a click turns it into a field in
+ *                    place, focused. Enter sets what is typed, Escape
+ *                    goes back to the row. Nothing is set while typing,
+ *                    so a half-typed number never becomes a frequency.
+ *
+ * Both forms fire `frequency-done` after any pick, a change or not, so a
+ * host that shows the list in a menu can close it.
  *
  * It fires `frequency-changed` with `{ hz }` only when the frequency
  * really changes: a click on the band already picked, or typing the
@@ -41,6 +56,21 @@ export function frequencyChange(currentHz: number | null, nextHz: number | null)
     return nextHz === currentHz ? null : nextHz;
 }
 
+/** The list form's rows: the common bands in order, with the current
+ *  frequency added in its place when it is not one of them. Pure, for
+ *  the node tests. */
+export function listBands(valueHz: number | null): number[] {
+    const bands = RF_SUGGESTIONS_MHZ.map((mhz) => mhzToHz(mhz)).filter((hz): hz is number => hz !== null);
+    if (valueHz !== null && !bands.includes(valueHz)) bands.push(valueHz);
+    return bands.sort((a, b) => a - b);
+}
+
+/** Whether a band is outside the limits the host knows; unknown limits
+ *  are never "outside". Pure, for the node tests. */
+export function outsideRange(hz: number, minHz: number | null, maxHz: number | null): boolean {
+    return (minHz !== null && hz < minHz) || (maxHz !== null && hz > maxHz);
+}
+
 /** Whether the Other field holds the frequency: a value that is not one
  *  of the band pills. Then it wears the picked look. */
 export function otherHolds(valueHz: number | null): boolean {
@@ -64,8 +94,15 @@ export class HairFrequencyControl extends LitElement {
     @property({ type: Boolean }) public disabled = false;
     /** The group's label, read out with the pills. */
     @property({ attribute: false }) public label = "";
+    /** "pills" (the default) or "list"; see the header. */
+    @property() public form: "pills" | "list" = "pills";
+    /** The list form greys bands outside these, when known. */
+    @property({ attribute: false }) public minHz: number | null = null;
+    @property({ attribute: false }) public maxHz: number | null = null;
 
     @state() private _typed = "";
+    /** The list form's Other row is a field. */
+    @state() private _otherOpen = false;
 
     willUpdate(changed: Map<string, unknown>): void {
         if (!changed.has("valueHz")) return;
@@ -86,6 +123,67 @@ export class HairFrequencyControl extends LitElement {
         this._typed = "";
         if (wasInvalid) this._fire("frequency-invalid", { invalid: false });
         if (next !== null) this._fire("frequency-changed", { hz: next });
+        this._fire("frequency-done", {});
+    }
+
+    /** The list form's field: kept as typed, set only on Enter. */
+    private _onListInput(e: Event): void {
+        this._typed = (e.target as HTMLInputElement).value;
+    }
+
+    private _onListKey(e: KeyboardEvent): void {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            const hz = mhzToHz(this._typed);
+            if (hz === null) {
+                this._listInvalid = true;
+                return;
+            }
+            this._listInvalid = false;
+            this._otherOpen = false;
+            this._pick(hz);
+        } else if (e.key === "Escape") {
+            // Back to the row; the host's menu stays open.
+            e.stopPropagation();
+            this._otherOpen = false;
+            this._listInvalid = false;
+            this._typed = "";
+            void this.updateComplete.then(() =>
+                this.renderRoot.querySelector<HTMLElement>(".row.other-row")?.focus(),
+            );
+        }
+    }
+
+    @state() private _listInvalid = false;
+
+    private _openOther(): void {
+        this._otherOpen = true;
+        this._typed = "";
+        this._listInvalid = false;
+        void this.updateComplete.then(() =>
+            this.renderRoot.querySelector<HTMLInputElement>(".row.other-field input")?.focus(),
+        );
+    }
+
+    /** Up and down move between the rows, as in a menu. */
+    private _onListNav(e: KeyboardEvent): void {
+        if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+        const rows = [...this.renderRoot.querySelectorAll<HTMLElement>(".row")];
+        const at = rows.indexOf((this.renderRoot as ShadowRoot).activeElement as HTMLElement);
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        const next = rows[Math.max(0, Math.min(rows.length - 1, at + step))];
+        if (next) {
+            e.preventDefault();
+            next.focus();
+        }
+    }
+
+    /** The list form puts the current band in view once it is drawn. */
+    protected firstUpdated(): void {
+        if (this.form !== "list") return;
+        const on = this.renderRoot.querySelector<HTMLElement>(".row.on");
+        on?.scrollIntoView({ block: "nearest" });
+        (on ?? this.renderRoot.querySelector<HTMLElement>(".row"))?.focus({ preventScroll: true });
     }
 
     private _onInput(e: Event): void {
@@ -101,6 +199,47 @@ export class HairFrequencyControl extends LitElement {
     }
 
     render() {
+        return this.form === "list" ? this._renderList() : this._renderPills();
+    }
+
+    private _renderList() {
+        const bands = listBands(this.valueHz);
+        return html`<div class="list" role="listbox" aria-label=${this.label} @keydown=${this._onListNav}>
+            ${bands.map((hz) => {
+                const on = hz === this.valueHz;
+                const dim = outsideRange(hz, this.minHz, this.maxHz);
+                return html`<button
+                    class="row ${on ? "on" : ""} ${dim ? "dim" : ""}"
+                    role="option"
+                    aria-selected=${on ? "true" : "false"}
+                    ?disabled=${this.disabled}
+                    @click=${() => this._pick(hz)}
+                >
+                    <span class="check">${on ? "✓" : ""}</span>${t("rfedit.mhz", { mhz: hzToMhz(hz) })}
+                </button>`;
+            })}
+            ${this._otherOpen
+                ? html`<span class="row other-field">
+                      <input
+                          type="text"
+                          inputmode="decimal"
+                          class=${this._listInvalid ? "invalid" : ""}
+                          placeholder=${t("rfedit.other_placeholder")}
+                          aria-label=${t("rfedit.other_mhz")}
+                          ?disabled=${this.disabled}
+                          .value=${this._typed}
+                          @input=${this._onListInput}
+                          @keydown=${this._onListKey}
+                      />
+                      <span class="unit">MHz</span>
+                  </span>`
+                : html`<button class="row other-row" ?disabled=${this.disabled} @click=${this._openOther}>
+                      <span class="check"></span>${t("listen.tune_other")}
+                  </button>`}
+        </div>`;
+    }
+
+    private _renderPills() {
         const preset = presetOf(this.valueHz);
         const holds = otherHolds(this.valueHz) && !this._invalid;
         return html`<div class="freq-row" role="group" aria-label=${this.label}>
@@ -166,8 +305,8 @@ export class HairFrequencyControl extends LitElement {
             align-items: center;
             gap: 4px;
         }
-        /* As tall as the band pills beside it, and narrower (owner,
-           2026-11-16): the pills' padding, type size and rounding. */
+        /* As tall as the band pills beside it, and narrower: the pills'
+           padding, type size and rounding. */
         .other input {
             width: 6em;
             box-sizing: border-box;
@@ -190,6 +329,76 @@ export class HairFrequencyControl extends LitElement {
         .unit {
             font-size: 0.8rem;
             color: var(--secondary-text-color);
+        }
+        /* The list form: a menu of bands, like the pill pickers' menus. */
+        .list {
+            display: flex;
+            flex-direction: column;
+            max-height: 264px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 32px;
+            padding: 0 10px 0 6px;
+            border: none;
+            border-radius: 6px;
+            background: none;
+            color: var(--primary-text-color);
+            font: inherit;
+            font-size: 0.85rem;
+            text-align: left;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        button.row:hover,
+        button.row:focus-visible {
+            outline: none;
+            background: color-mix(in srgb, var(--primary-text-color) 8%, transparent);
+        }
+        .row.on {
+            color: #03a9f4;
+            font-weight: 500;
+        }
+        /* Outside what the receiver says it does: greyed, still a pick. */
+        .row.dim {
+            color: var(--secondary-text-color);
+            opacity: 0.6;
+        }
+        .check {
+            display: inline-block;
+            width: 14px;
+            text-align: center;
+        }
+        .row.other-row {
+            border-top: 1px solid var(--divider-color);
+            border-radius: 0 0 6px 6px;
+            margin-top: 2px;
+        }
+        .row.other-field {
+            gap: 4px;
+            padding-left: 26px;
+            cursor: default;
+        }
+        .row.other-field input {
+            width: 7em;
+            box-sizing: border-box;
+            padding: 4px 8px;
+            border-radius: 12px;
+            border: 1px solid var(--primary-color, #03a9f4);
+            background: var(--card-background-color, transparent);
+            color: var(--primary-text-color);
+            font: inherit;
+            font-size: 0.85rem;
+        }
+        .row.other-field input:focus {
+            outline: none;
+        }
+        .row.other-field input.invalid {
+            border-color: var(--error-color, #db4437);
         }
     `;
 }

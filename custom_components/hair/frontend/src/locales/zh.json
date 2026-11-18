@@ -462,6 +462,7 @@
     "listen.tune_outside": "超出此接收器支持的范围；仍会尝试。",
     "listen.tune_did_not_change": "此接收器没有改变；仍在 {mhz} MHz 接收。",
     "listen.tune_cannot": "HAIR 无法调节此接收器；它在硬件所在的频率接收。",
+    "listen.tune_other": "其他…",
     "listen.src_signal": "由接收器报告",
     "listen.src_window": "捕获窗口",
     "listen.src_tuned": "接收器设置",

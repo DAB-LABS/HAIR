@@ -496,6 +496,7 @@
     "listen.tune_outside": "Poza zakresem tego odbiornika; próbuję mimo to.",
     "listen.tune_did_not_change": "Ten odbiornik się nie zmienił; nadal nasłuchuje na {mhz} MHz.",
     "listen.tune_cannot": "HAIR nie może dostroić tego odbiornika; nasłuchuje tam, gdzie pozwala jego sprzęt.",
+    "listen.tune_other": "Inna…",
     "listen.src_signal": "podana przez odbiornik",
     "listen.src_window": "okno przechwytywania",
     "listen.src_tuned": "ustawienie odbiornika",

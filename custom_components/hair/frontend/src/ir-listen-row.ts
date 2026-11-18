@@ -29,6 +29,7 @@
  * follow it, wrapping when there are several, one to a row on a phone.
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
+import { repeat } from "lit/directives/repeat.js";
 import type { HairApi } from "./api.js";
 import { headerChipStyles } from "./ir-header-chip-styles.js";
 import "./ir-listen-chip.js";
@@ -106,7 +107,11 @@ export class IrListenRow extends LitElement {
         return html`
             <div class="hdr-row" role="group" aria-label=${t("listen.label")}>
                 <div class="hdr-row-pills">
-                    ${rows.map(
+                    ${repeat(
+                        rows,
+                        // Keyed by receiver, so a pill that shows or hides
+                        // never hands its neighbours' open menus to another.
+                        (row) => row.receiver_entity_id,
                         (row) => html`<ir-listen-chip
                             .hass=${this.hass}
                             .api=${this.api}

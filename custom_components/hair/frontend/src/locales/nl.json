@@ -462,6 +462,7 @@
     "listen.tune_outside": "Buiten wat deze ontvanger ondersteunt; toch geprobeerd.",
     "listen.tune_did_not_change": "Deze ontvanger is niet veranderd; hij luistert nog op {mhz} MHz.",
     "listen.tune_cannot": "HAIR kan deze ontvanger niet afstemmen; hij luistert waar zijn hardware luistert.",
+    "listen.tune_other": "Andere…",
     "listen.src_signal": "gemeld door de ontvanger",
     "listen.src_window": "opnamevenster",
     "listen.src_tuned": "ontvangerinstelling",

@@ -462,6 +462,7 @@
     "listen.tune_outside": "Fora do que este recetor suporta; a tentar na mesma.",
     "listen.tune_did_not_change": "Este recetor não mudou; continua a ouvir em {mhz} MHz.",
     "listen.tune_cannot": "O HAIR não consegue sintonizar este recetor; ouve onde o seu hardware ouve.",
+    "listen.tune_other": "Outra…",
     "listen.src_signal": "indicada pelo recetor",
     "listen.src_window": "janela de captura",
     "listen.src_tuned": "definição do recetor",

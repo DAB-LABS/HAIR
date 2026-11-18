@@ -462,6 +462,7 @@
     "listen.tune_outside": "Fuera de lo que admite este receptor; se intenta igualmente.",
     "listen.tune_did_not_change": "Este receptor no cambió; sigue escuchando en {mhz} MHz.",
     "listen.tune_cannot": "HAIR no puede sintonizar este receptor; escucha donde su hardware lo hace.",
+    "listen.tune_other": "Otra…",
     "listen.src_signal": "indicada por el receptor",
     "listen.src_window": "ventana de captura",
     "listen.src_tuned": "ajuste del receptor",

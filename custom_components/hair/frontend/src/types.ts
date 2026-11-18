@@ -1197,6 +1197,9 @@ export interface ReceiverTuning {
     max_mhz: number | null;
     /** The ranges the receiver declares through core, in Hz. */
     declared: [number, number][];
+    /** A receiver with no tuning number that declares one frequency:
+     *  ``current_mhz`` is that frequency, and it cannot be changed. */
+    fixed?: boolean;
 }
 
 /** What a tune came to (``hair/rf/receiver_tune``): always an answer,
