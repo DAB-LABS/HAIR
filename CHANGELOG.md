@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The infrared code editor has Delete, as the radio one does: bottom left, only for a saved command or signal, with the same confirmation as deleting from the row.
 - HAIR now hears self-learning Nexa and KAKU (KlikAanKlikUit) remotes, and others whose marks are all one length. For now they share one card in the Sniffer, with a row for each button.
 - The radio code editor says when a pasted code is a rolling code, before Save: HAIR keeps it but never sends it.
+- A radio receiver that can be retuned, like a CC1101, shows where it's listening on its pill in the Sniffer, and you can change it there. Codes it hears are filed at that frequency.
 
 ### Changed
 
