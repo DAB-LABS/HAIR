@@ -3028,9 +3028,17 @@ class SignalMonitor:
         """
         from .rf_family import rolling_identity
         from .rf_receive import frequency_of
+        from .rf_replay import HELD, REPLAY
 
         rolling = rolling_identity(analysis.frame)
-        if rolling is not None and not self._rf_replay.accept(rolling):
+        verdict = (
+            self._rf_replay.check(rolling, time.monotonic())
+            if rolling is not None else None
+        )
+        if verdict == HELD:
+            # More of a press just heard: the button is held down.
+            return
+        if verdict == REPLAY:
             # A rolling code this button already sent: a recording, not a
             # press. No values are logged.
             _LOGGER.debug(

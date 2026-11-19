@@ -28,16 +28,15 @@ from custom_components.hair.const import (
 from custom_components.hair.identity import TIER_DECODED, SignalIdentity
 from custom_components.hair.models import CommandCategory, IRCommand
 from custom_components.hair.rf_family import rolling_identity
-from custom_components.hair.rf_replay import RollingReplay
+from custom_components.hair.rf_replay import HELD, NEW, REPLAY, RollingReplay
 from custom_components.hair.rf_send import rolling_row
 from custom_components.hair.tests.test_rf_family_keeloq import SERIAL
 from custom_components.hair.tests.test_rf_family_keeloq import _bits as _kl_bits
 from custom_components.hair.tests.test_rf_family_keeloq import _capture as _kl_capture
 from custom_components.hair.tests.test_rf_family_keeloq import _word as _kl_word
-from custom_components.hair.tests.test_rf_family_somfy import ADDRESS
+from custom_components.hair.tests.test_rf_family_somfy import ADDRESS, _plain
 from custom_components.hair.tests.test_rf_family_somfy import _capture as _somfy_capture
 from custom_components.hair.tests.test_rf_family_somfy import _frame as _somfy_frame
-from custom_components.hair.tests.test_rf_family_somfy import _plain
 from custom_components.hair.tests.test_rf_hear import (
     RECEIVER,
     _Modulation,
@@ -107,6 +106,12 @@ class TestTheFixedPart:
         assert reads[0].button == "2"
         assert [r.rolling for r in reads] == [10, 11, 500]
 
+    def test_the_somfy_key_nibble_does_not_split_a_command(self):
+        """A real remote steps its key nibble on every press, too."""
+        one = rolling_identity(_somfy_frame(_plain(key=0xA7, rolling=10)))
+        two = rolling_identity(_somfy_frame(_plain(key=0xA8, rolling=11)))
+        assert one.fingerprint == two.fingerprint
+
     def test_somfy_reads_while_its_label_is_off(self):
         assert rf_family.FAMILIES["somfy_rts"].shown is False
         assert rolling_identity(_somfy(2, 10)) is not None
@@ -145,48 +150,73 @@ class TestTheFixedPart:
 # ---------------------------------------------------------------------------
 
 
+class _Clock:
+    """Presses a few seconds apart, unless a test says otherwise."""
+
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def tick(self, seconds: float = 10.0) -> float:
+        self.now += seconds
+        return self.now
+
+
+def _verdicts(frames, *, gap: float = 10.0) -> list[str]:
+    replay, clock = RollingReplay(), _Clock()
+    return [replay.check(rolling_identity(f), clock.tick(gap)) for f in frames]
+
+
 class TestReplay:
     def test_a_keeloq_word_heard_before_is_refused(self):
-        replay = RollingReplay()
-        assert replay.accept(rolling_identity(_keeloq(1)))
-        assert replay.accept(rolling_identity(_keeloq(2)))
-        assert not replay.accept(rolling_identity(_keeloq(1)))
-        assert replay.accept(rolling_identity(_keeloq(3)))
+        assert _verdicts([_keeloq(1), _keeloq(2), _keeloq(1), _keeloq(3)]) == [
+            NEW, NEW, REPLAY, NEW,
+        ]
 
     def test_keeloq_is_kept_per_button(self):
-        replay = RollingReplay()
-        assert replay.accept(rolling_identity(_keeloq(1)))
-        assert replay.accept(rolling_identity(_keeloq(1, buttons=("S2",))))
+        assert _verdicts([_keeloq(1), _keeloq(1, buttons=("S2",))]) == [NEW, NEW]
 
     def test_a_seed_word_is_never_checked(self):
-        replay = RollingReplay()
-        seed = rolling_identity(_keeloq(7, buttons=("S0", "S1", "S2", "S3")))
-        assert replay.accept(seed) and replay.accept(seed)
+        seed = _keeloq(7, buttons=("S0", "S1", "S2", "S3"))
+        assert _verdicts([seed, seed], gap=0.5) == [NEW, NEW]
+
+    def test_a_held_keeloq_button_is_one_press_not_a_replay(self):
+        """A held HCS301 button sends its word with RPT 0, then again and
+        again with RPT 1; the receiver can split them into bursts."""
+        held = [_keeloq(5), _keeloq(5, rpt=1), _keeloq(5, rpt=1), _keeloq(5, rpt=1)]
+        assert _verdicts(held, gap=0.3) == [NEW, HELD, HELD, HELD]
+
+    def test_a_long_hold_stays_one_press(self):
+        held = [_keeloq(5)] + [_keeloq(5, rpt=1)] * 8
+        assert set(_verdicts(held, gap=1.5)[1:]) == {HELD}
+
+    def test_the_same_word_later_is_a_replay(self):
+        assert _verdicts([_keeloq(5), _keeloq(5, rpt=1)], gap=5.0) == [NEW, REPLAY]
 
     def test_somfy_shares_one_counter_across_its_buttons(self):
-        replay = RollingReplay()
-        assert replay.accept(rolling_identity(_somfy(2, 10)))  # Up
-        assert replay.accept(rolling_identity(_somfy(4, 11)))  # Down
-        assert not replay.accept(rolling_identity(_somfy(2, 10)))
-        assert not replay.accept(rolling_identity(_somfy(1, 11)))
+        assert _verdicts([
+            _somfy(2, 10),  # Up
+            _somfy(4, 11),  # Down
+            _somfy(2, 10),
+            _somfy(1, 11),  # My, at Down's counter
+        ]) == [NEW, NEW, REPLAY, REPLAY]
+
+    def test_a_held_somfy_button_is_one_press(self):
+        assert _verdicts([_somfy(2, 10)] * 3, gap=0.5) == [NEW, HELD, HELD]
 
     def test_a_somfy_remote_pressed_out_of_range_is_not_stuck(self):
-        replay = RollingReplay()
-        assert replay.accept(rolling_identity(_somfy(2, 10)))
-        assert replay.accept(rolling_identity(_somfy(2, 900)))
-        assert not replay.accept(rolling_identity(_somfy(2, 500)))
+        assert _verdicts([_somfy(2, 10), _somfy(2, 900), _somfy(2, 500)]) == [
+            NEW, NEW, REPLAY,
+        ]
 
     def test_the_somfy_counter_wraps(self):
-        replay = RollingReplay()
-        assert replay.accept(rolling_identity(_somfy(2, 0xFFFE)))
-        assert replay.accept(rolling_identity(_somfy(2, 1)))
+        assert _verdicts([_somfy(2, 0xFFFE), _somfy(2, 1)]) == [NEW, NEW]
 
     def test_the_memory_is_bounded(self):
         from custom_components.hair import rf_replay
 
-        replay = RollingReplay()
+        replay, clock = RollingReplay(), _Clock()
         for serial in range(rf_replay.MAX_REMOTES + 5):
-            replay.accept(rolling_identity(_keeloq(1, serial=serial + 1)))
+            replay.check(rolling_identity(_keeloq(1, serial=serial + 1)), clock.tick())
         assert len(replay._keeloq) == rf_replay.MAX_REMOTES
 
 
@@ -195,7 +225,7 @@ class TestReplay:
 # ---------------------------------------------------------------------------
 
 
-async def _hear(fake_hass, monitor, captures):
+async def _hear(fake_hass, monitor, captures, *, gap: float = 10.0):
     tasks = []
     fake_hass.async_create_task = MagicMock(side_effect=tasks.append)
     fake_hass.states.get = MagicMock(return_value=_state(
@@ -208,10 +238,10 @@ async def _hear(fake_hass, monitor, captures):
         )
         with patch(
             "custom_components.hair.signal_monitor.time.time",
-            return_value=1_000.0 + 10.0 * index,
+            return_value=1_000.0 + gap * index,
         ), patch(
             "custom_components.hair.signal_monitor.time.monotonic",
-            return_value=1_000.0 + 10.0 * index,
+            return_value=1_000.0 + gap * index,
         ):
             monitor._on_rf_signal(signal, RECEIVER)
             while tasks:
@@ -272,6 +302,28 @@ class TestHearing:
         await _hear(fake_hass, monitor, [_kl_press(11), _kl_press(22), _kl_press(11)])
         assert manager.on_signal_captured.call_count == 2
         assert store.get_all_devices()[0].signals[0].hit_count == 2
+
+    async def test_a_held_keeloq_press_fires_once_and_says_no_replay(self, fake_hass):
+        monitor, store = _monitor(fake_hass)
+        manager = _with_triggers(monitor)
+        monitor._candy = MagicMock()
+        with patch.object(monitor, "_candy_static_hit") as static:
+            await _hear(fake_hass, monitor, [
+                _kl_press(5), _kl_press(5, rpt=1), _kl_press(5, rpt=1),
+            ], gap=0.4)
+        assert manager.on_signal_captured.call_count == 1
+        assert store.get_all_devices()[0].signals[0].hit_count == 1
+        assert not any(
+            call.args[-1] == "replay" for call in static.call_args_list
+        )
+
+    async def test_a_replay_says_so_in_the_drawer(self, fake_hass):
+        monitor, _store = _monitor(fake_hass)
+        _with_triggers(monitor)
+        monitor._candy = MagicMock()
+        with patch.object(monitor, "_candy_static_hit") as static:
+            await _hear(fake_hass, monitor, [_kl_press(5), _kl_press(6), _kl_press(5)])
+        assert [call.args[-1] for call in static.call_args_list] == ["replay"]
 
     async def test_somfy_presses_are_one_row_and_a_replay_is_dropped(self, fake_hass):
         monitor, store = _monitor(fake_hass)

@@ -22,7 +22,8 @@ its own word, and the repeats must not refuse the press.
 The memory is in this process only: never stored, shown or logged. A
 restart empties it, so the first replay after a restart is let through.
 A KeeLoq seed word (all four buttons, sent to pair a receiver) repeats by
-design and is never checked.
+design and is never checked. A button held down repeats its own rolling
+part; that is one press, dropped quietly, not a replay (``HELD``).
 """
 from __future__ import annotations
 
@@ -37,60 +38,88 @@ _SOMFY_MODULO = 1 << 16
 _SOMFY_AHEAD_MAX = _SOMFY_MODULO // 2 - 1
 # How many remotes the memory keeps before it forgets the oldest.
 MAX_REMOTES = 512
+# The same rolling part again within this many seconds of when it was
+# last heard is one press held down, not a replay.
+HELD_S = 2.0
 
 
 def _digest(value: int) -> bytes:
     return hashlib.sha256(value.to_bytes(8, "little", signed=False)).digest()[:8]
 
 
+# What the check says about a press.
+NEW = "new"  # a press not heard before: it goes on
+HELD = "held"  # more of a press just heard (a button held down): dropped quietly
+REPLAY = "replay"  # an earlier press played back: dropped, and said so
+
+
 class RollingReplay:
     """Per-remote memory of the rolling parts seen, for one HAIR instance."""
 
     def __init__(self) -> None:
+        # Per KeeLoq button: the recent words, and when the newest one was
+        # last heard.
         self._keeloq: collections.OrderedDict[
-            tuple[str, str], collections.deque[bytes]
+            tuple[str, str], tuple[collections.deque[bytes], float]
         ] = collections.OrderedDict()
-        self._somfy: collections.OrderedDict[str, int] = collections.OrderedDict()
+        # Per Somfy remote: the last counter, and when it was last heard.
+        self._somfy: collections.OrderedDict[str, tuple[int, float]] = (
+            collections.OrderedDict()
+        )
 
-    def accept(self, identity: Any) -> bool:
-        """Whether a press is new, recording it when it is.
+    def check(self, identity: Any, now: float) -> str:
+        """``NEW``, ``HELD`` or ``REPLAY`` for one press, recording it.
 
-        ``identity`` is an ``rf_family.RollingIdentity``. A press with no
-        rolling part to read, or a family this check does not know, is
-        accepted.
+        ``identity`` is an ``rf_family.RollingIdentity`` and ``now`` a
+        monotonic time in seconds. A press with no rolling part to read, a
+        seed word, or a family this check does not know is ``NEW``.
+
+        The same rolling part again within ``HELD_S`` of when it was last
+        heard is one press held down: a held KeeLoq button repeats its word
+        (with RPT set after the first), and a held Somfy button its
+        counter, and the receiver can deliver them as separate bursts.
         """
         rolling = getattr(identity, "rolling", None)
         if rolling is None or getattr(identity, "seed", False):
-            return True
+            return NEW
         if identity.family == "keeloq":
-            return self._accept_keeloq((identity.remote, identity.button), rolling)
+            return self._check_keeloq((identity.remote, identity.button), rolling, now)
         if identity.family == "somfy_rts":
-            return self._accept_somfy(identity.remote, rolling)
-        return True
+            return self._check_somfy(identity.remote, rolling, now)
+        return NEW
 
-    def _accept_keeloq(self, key: tuple[str, str], rolling: int) -> bool:
+    def _check_keeloq(self, key: tuple[str, str], rolling: int, now: float) -> str:
         word = _digest(rolling)
-        seen = self._keeloq.get(key)
-        if seen is None:
-            seen = collections.deque(maxlen=KEELOQ_RECENT)
-            self._keeloq[key] = seen
-            self._trim(self._keeloq)
-        elif word in seen:
-            return False
+        entry = self._keeloq.get(key)
+        if entry is None:
+            seen: collections.deque[bytes] = collections.deque(maxlen=KEELOQ_RECENT)
+        else:
+            seen, heard_at = entry
+            if seen and seen[-1] == word and now - heard_at < HELD_S:
+                self._keeloq[key] = (seen, now)
+                return HELD
+            if word in seen:
+                return REPLAY
         seen.append(word)
+        self._keeloq[key] = (seen, now)
         self._keeloq.move_to_end(key)
-        return True
+        self._trim(self._keeloq)
+        return NEW
 
-    def _accept_somfy(self, remote: str, counter: int) -> bool:
-        last = self._somfy.get(remote)
-        if last is not None:
+    def _check_somfy(self, remote: str, counter: int, now: float) -> str:
+        entry = self._somfy.get(remote)
+        if entry is not None:
+            last, heard_at = entry
+            if counter == last and now - heard_at < HELD_S:
+                self._somfy[remote] = (last, now)
+                return HELD
             ahead = (counter - last) % _SOMFY_MODULO
             if not 1 <= ahead <= _SOMFY_AHEAD_MAX:
-                return False
-        self._somfy[remote] = counter
+                return REPLAY
+        self._somfy[remote] = (counter, now)
         self._somfy.move_to_end(remote)
         self._trim(self._somfy)
-        return True
+        return NEW
 
     @staticmethod
     def _trim(memory: collections.OrderedDict) -> None:
