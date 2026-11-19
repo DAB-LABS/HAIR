@@ -95,6 +95,9 @@ The Candy Drawer, at the top right of the Mirror, shows radio as well as infrare
 ## What to expect
 
 - **Fixed-code remotes** work best: one button sends the same code every time. Most plugs, fans, doorbells and cheap keyfobs are fixed-code, as are garage-door openers from before the mid-1990s.
-- **Rolling-code remotes**, such as most car keys, modern garage doors and gates, and Somfy blinds, send a different code each press, by design. HAIR files each press as a new row and cannot recognize the button.
+- **Rolling-code remotes**, such as most car keys, modern garage doors and gates, and Somfy blinds, send a different code each press, by design. A saved one won't work a second time, so HAIR keeps these codes but never sends them. For KeeLoq and Somfy RTS remotes, HAIR files each press by the remote and the button, so a button's presses land on one row and can be a trigger. Other rolling-code remotes still get a new row for each press.
+  - Don't use a rolling-code trigger to unlock or open anything. HAIR can't check the code's encryption, and it only ignores a recording of a press it already heard.
+  - A Somfy remote with several channels shows one card per channel.
+  - Rolling-code rows captured by an earlier version of HAIR stay as they were; press the button again.
 - **Some remotes appear as several cards.** A remote whose code length changes with the button pressed can spread over several cards in the Sniffer.
 - **Remotes whose marks are all one length**, such as self-learning Nexa and KAKU (KlikAanKlikUit), are filed like any other radio code. For now they all share one card in the Sniffer, with a row for each button. A few with unusual timing are still not filed.

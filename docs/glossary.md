@@ -280,7 +280,7 @@ travel with a wig.
 
 **Family.** The chip a radio remote is built on, such as EV1527 or PT2262. When HAIR recognizes it, a radio row's protocol pill names it and its tooltip shows the code's fields. A radio code HAIR does not recognize shows no pill.
 
-**Rolling code.** A remote that sends a different code on every press, as most car keys and modern garage doors do. HAIR hears each press but cannot recognize the button. A KeeLoq or Somfy RTS code is marked as a rolling code, and HAIR never sends one.
+**Rolling code.** A remote that sends a different code on every press, as most car keys and modern garage doors do. A KeeLoq or Somfy RTS code is marked as a rolling code, and HAIR never sends one. HAIR recognizes a KeeLoq or Somfy RTS button by the part of the code that doesn't change, so its presses can be a trigger; other rolling-code remotes get a new row for each press.
 
 **Capture window.** The time a receiver takes new codes. A capture device hears only inside one. An always-on radio receiver hears known codes all the time and takes new codes only inside one. Opened from the receiver's pill on the Sniffer, or by a Listen in the editor.
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A KeeLoq or Somfy RTS remote's buttons can be triggers now. HAIR files each press by the part that doesn't change (the remote and the button), so every press of one button lands on one row and fires its trigger. A recording of a press it already heard is ignored. HAIR still never sends these codes. Rolling-code rows captured before this version stay as they were; press the button again.
+
 ## [1.3.1] - 2026-11-18 -- Permanent Wave
 
 ### Added
