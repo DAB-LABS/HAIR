@@ -63,7 +63,7 @@ def run(tmp_path_factory):
         pytest.skip("frontend toolchain not installed (node_modules / node)")
     out = tmp_path_factory.mktemp("listenpanel")
     src = _read("ir-listen-tune.ts")
-    rules = src[src.index("/** What the box reads:"):src.index("@customElement(")]
+    rules = src[src.index("/** Which of the three"):src.index("@customElement(")]
     head = (
         'import { hzToMhz } from "./rf-code.js";\n'
         "type ReceiverTuning = any; type ReceiverTuneResult = any;\n"
@@ -91,7 +91,10 @@ class TestTheBox:
         assert run["label"] == [
             "433.92",
             'listen.tune_setting{"mhz":"433"}',
-            "listen.band_unknown",
+            # The athom here has no tuning number and no fixed band: it
+            # declares nothing, so "auto". No tuning at all is the
+            # real unknown.
+            "listen.tune_auto",
             "listen.band_unknown",
         ]
 

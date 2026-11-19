@@ -2,10 +2,20 @@
  * Where a radio receiver listens, on its Sniffer pill: per receiver,
  * and only there.
  *
- * A small box at the pill's end, the same as the other pill pickers,
- * reading the frequency the receiver holds now ("433.92"; for a receiver
- * with one fixed frequency, that one), "setting 433.00..." while a
- * change is on its way, or "band unknown". A click opens a menu under
+ * Only a receiver HAIR can tune gets a menu. The other two kinds show a
+ * plain value with a line on hover, and nothing to click:
+ *
+ *   fixed   one declared frequency (an Athom): that frequency, "This
+ *           receiver only listens here."
+ *   auto    a receiver that declares nothing: no tuning number and no
+ *           single frequency: "auto", "HAIR can't set where this receiver
+ *           listens.", or while its window is open and the receiver says
+ *           where it locked, that frequency.
+ *
+ * For a tunable receiver, a small box at the pill's end, the same as the
+ * other pill pickers, reading the frequency it holds now ("433.92"),
+ * "setting 433.00..." while a change is on its way, or "band unknown"
+ * when its number gives nothing. A click opens a menu under
  * it: the shared frequency control in its list form (every common band,
  * the current one marked, then "Other..." to type one). One click picks
  * and closes the menu. When there is something to say about the pick,
@@ -19,8 +29,7 @@
  *   it cannot be tuned             "HAIR can't tune this receiver; it
  *                                   listens where its hardware does."
  *
- * Offered on every radio receiver; nothing hides it up front. The
- * server says what happened; nothing here guesses. Every click and
+ * The server says what happened; nothing here guesses. Every click and
  * keydown stops here, because the pill around it is the press. The menu
  * follows its box when the page scrolls or the window resizes (a phone's
  * keyboard opening resizes it) and closes on a click outside, Escape, a
@@ -44,12 +53,37 @@ function mhzOrNull(mhz: number | null | undefined): number | null {
     return mhz == null ? null : Math.round(mhz * 1_000_000);
 }
 
-/** What the box reads: the frequency being set, else the one held now,
- *  else "band unknown". Pure, for the node tests. */
-export function tuneLabel(tuning: ReceiverTuning | null, pendingHz: number | null): string {
+/** Which of the three a receiver is: one HAIR can tune, one with a
+ *  single fixed frequency, or one that finds its frequency itself.
+ *  Pure, for the node tests. */
+export function tuneKind(tuning: ReceiverTuning | null): "tunable" | "fixed" | "auto" {
+    if (!tuning || tuning.tunable) return "tunable";
+    return tuning.fixed ? "fixed" : "auto";
+}
+
+/** What the box reads: the frequency being set, else the one held now.
+ *  A receiver that declares nothing reads "auto", or the
+ *  frequency its open window locked to (``windowHz``). A tunable one
+ *  whose number gives nothing reads "band unknown". Pure, for the node
+ *  tests. */
+export function tuneLabel(
+    tuning: ReceiverTuning | null,
+    pendingHz: number | null,
+    windowHz: number | null = null,
+): string {
     if (pendingHz !== null) return t("listen.tune_setting", { mhz: hzToMhz(pendingHz) });
+    if (tuneKind(tuning) === "auto") return windowHz ? hzToMhz(windowHz) : t("listen.tune_auto");
     if (tuning?.current_mhz != null) return hzToMhz(Math.round(tuning.current_mhz * 1_000_000));
     return t("listen.band_unknown");
+}
+
+/** The hover line on a receiver HAIR can't tune, or null for one it
+ *  can. Pure, for the node tests. */
+export function stillTitle(tuning: ReceiverTuning | null): string | null {
+    const kind = tuneKind(tuning);
+    if (kind === "fixed") return t("listen.tune_fixed_title");
+    if (kind === "auto") return t("listen.tune_auto_title");
+    return null;
 }
 
 /** Whether a frequency is outside the receiver's limits (its number's,
@@ -84,6 +118,10 @@ export class IrListenTune extends LitElement {
     @property({ attribute: false }) public tuning: ReceiverTuning | null = null;
     /** Shows its value but takes no change (the receiver is down). */
     @property({ type: Boolean, reflect: true }) public inactive = false;
+    /** The frequency an open window locked to, from the receiver's own
+     *  state (``capture_phase`` listening), or null. Read only for a
+     *  receiver that finds its frequency itself. */
+    @property({ attribute: false }) public windowHz: number | null = null;
 
     @state() private _panel: { top: number; left: number } | null = null;
     /** What the open panel shows: the list, or the note after a pick. */
@@ -201,8 +239,17 @@ export class IrListenTune extends LitElement {
     }
 
     render() {
-        const label = tuneLabel(this.tuning, this._pendingHz);
+        const label = tuneLabel(this.tuning, this._pendingHz, this.windowHz);
         const name = t("listen.tune_title", { value: label });
+        const still = stillTitle(this.tuning);
+        if (still !== null) {
+            // Nothing to pick: a plain value, its line on hover.
+            return html`<span class="wrap" @click=${this._stop}>
+                <span class="box still" title=${still} aria-label=${`${name}. ${still}`}>
+                    <span class="val">${label}</span>
+                </span>
+            </span>`;
+        }
         const note = tuneNote(this._pendingOutside, this._result);
         const currentHz =
             this.tuning?.current_mhz != null ? Math.round(this.tuning.current_mhz * 1_000_000) : null;
@@ -275,8 +322,13 @@ export class IrListenTune extends LitElement {
             white-space: nowrap;
             cursor: pointer;
         }
-        .box:disabled {
+        .box:disabled,
+        .box.still {
             cursor: default;
+        }
+        /* Nothing to pick: the box's shape, no caret, no press. */
+        .box.still {
+            padding: 0 5px;
         }
         :host([inactive]) .box {
             background: transparent;
