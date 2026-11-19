@@ -219,8 +219,17 @@ def _normalize_rf(parsed: Any) -> NormalizedSignal:
     suppression, the identity tiers) reads a radio row through the
     same fields it reads an infrared one. The decoded tier and the
     receiver-tolerant tier stay empty: they run infrared decoders.
+
+    A clean read of a rolling-code family (KeeLoq, Somfy RTS) is the one
+    exception: its decoded fingerprint is the family and the fixed fields
+    (remote and button), and its card is that remote. The decoded tier
+    wins every match, so each press of one button is the same code
+    although part of the frame changes on every press.
     """
+    from .rf_family import rolling_identity
+
     analysis = parsed.rf
+    rolling = rolling_identity(parsed.raw_timings)
     return NormalizedSignal(
         protocol=parsed.protocol,
         code=None,
@@ -228,15 +237,15 @@ def _normalize_rf(parsed: Any) -> NormalizedSignal:
         frequency=getattr(parsed, "frequency", DEFAULT_CARRIER_FREQUENCY),
         sig_fp=analysis.fingerprint,
         device_address=None,
-        dev_fp=analysis.device_key,
+        dev_fp=rolling.device_key if rolling else analysis.device_key,
         byte_hash=analysis.frame_hash,
         decoded_protocol=None,
         decoded_address=None,
         decoded_command=None,
-        decoded_fingerprint=None,
+        decoded_fingerprint=rolling.fingerprint if rolling else None,
         decoded_extras=None,
         norm_fp=None,
-        decode_covers=None,
+        decode_covers=True if rolling else None,
         rf=analysis,
         rf_frequency_hz=getattr(parsed, "rf_frequency_hz", None),
     )
@@ -703,6 +712,10 @@ class SignalMonitor:
         # the repeat windows let it through. Per receiver and button; see
         # press_cues.py.
         self._press_cues = PressCueTracker()
+        # Rolling-code presses already heard, in memory only (rf_replay).
+        from .rf_replay import RollingReplay
+
+        self._rf_replay = RollingReplay()
 
         # Per-device-fingerprint rate limit for the dismiss-activity bus
         # event push. Separate from ``_rate_buckets`` so the dismiss-activity
@@ -3013,8 +3026,23 @@ class SignalMonitor:
         and ``raw`` the capture as received (None for a burst, which
         never existed as one capture). Only the Candy Drawer reads them.
         """
+        from .rf_family import rolling_identity
         from .rf_receive import frequency_of
 
+        rolling = rolling_identity(analysis.frame)
+        if rolling is not None and not self._rf_replay.accept(rolling):
+            # A rolling code this button already sent: a recording, not a
+            # press. No values are logged.
+            _LOGGER.debug(
+                "Radio press on %s dropped: a %s code already heard",
+                receiver_entity_id, rolling.family,
+            )
+            if self._candy:
+                with _candy_guard("static"):
+                    self._candy_static_hit(
+                        receiver_entity_id, None, candy_feed.STATIC_REPLAY
+                    )
+            return
         frequency_hz, source = frequency_of(
             self._hass, receiver_entity_id, signal
         )

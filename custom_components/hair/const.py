@@ -600,6 +600,10 @@ RF_ROLLING_CODE_MESSAGE = (
     "This is a rolling code: the remote changes it on every press, so HAIR "
     "never sends it."
 )
+# A KeeLoq word with all four buttons is a pairing word, not a button:
+# no trigger is made on it.
+RF_ROLLING_SEED = "rf_rolling_seed"
+RF_ROLLING_SEED_MESSAGE = "This is a pairing word, not a button."
 RF_PLATFORM_NOT_LOADED = "rf_platform_not_loaded"
 # A transmitter that declares no frequency ((0, 0) or nothing): the
 # picker's reason, never a send.

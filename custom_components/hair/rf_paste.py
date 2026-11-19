@@ -486,6 +486,16 @@ def apply_code(row: Any, result: dict[str, Any]) -> None:
                  "decoded_fingerprint", "decoded_extras", "decode_covers"):
         if hasattr(row, name):
             setattr(row, name, None)
+    # A rolling code is filed by its fixed part, as a heard press is
+    # (``signal_monitor._normalize_rf``), so a pasted press of a button
+    # is that button.
+    from .rf_family import rolling_identity
+
+    rolling = rolling_identity(row.raw_timings)
+    if rolling is not None and hasattr(row, "decoded_fingerprint"):
+        row.decoded_fingerprint = rolling.fingerprint
+        if hasattr(row, "decode_covers"):
+            row.decode_covers = True
     if hasattr(row, "fingerprint"):
         row.fingerprint = result["fingerprint"]
 

@@ -278,16 +278,20 @@ class TestTheExport:
 
 
 class TestTriggersStayAllowed:
-    def test_the_trigger_doors_do_not_check(self):
+    def test_the_trigger_doors_do_not_check_the_send_guard(self):
         """A rolling row is a trigger by design: nothing on the way to one
-        asks."""
+        asks the send guard. (The create door reads the fixed part, so the
+        trigger fires on every press, and refuses only a KeeLoq pairing
+        word; ``test_rf_rolling_triggers``.)"""
         from custom_components.hair import signal_monitor, websocket_api
 
         for module, name in (
             (signal_monitor.SignalMonitor, "copy_signals_to_trigger_remote"),
             (websocket_api, "ws_create_trigger"),
         ):
-            assert "rolling" not in inspect.getsource(getattr(module, name))
+            source = inspect.getsource(getattr(module, name))
+            assert "rolling_row" not in source
+            assert "RF_ROLLING_CODE" not in source
 
 
 def test_the_message_says_why_and_promises_nothing():

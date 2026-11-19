@@ -27,6 +27,8 @@ from .const import (
     MEDIUM_RF,
     MIRROR_DEVICE_FP,
     RF_PROTOCOL,
+    RF_ROLLING_SEED,
+    RF_ROLLING_SEED_MESSAGE,
     RF_SOFTWARE_WINDOW_MAX_S,
     RF_SOFTWARE_WINDOW_MIN_S,
     SEND_AIR_TIME_MAX_MS,
@@ -4281,6 +4283,18 @@ async def ws_create_trigger(
         return
     if is_rf(trigger):
         _fill_radio_trigger(data, trigger, source_cmd)
+        from .rf_family import rolling_identity
+
+        rolling = rolling_identity(trigger.raw_timings)
+        if rolling is not None and rolling.seed:
+            connection.send_error(
+                msg["id"], RF_ROLLING_SEED, RF_ROLLING_SEED_MESSAGE
+            )
+            return
+        if rolling is not None:
+            # A rolling code's trigger fires on every press of its button:
+            # it matches on the fixed part, as the press is filed.
+            trigger.decoded_fingerprint = rolling.fingerprint
     if trigger.decoded_fingerprint is None and trigger.code:
         # Safe server-side derive (see the comment at the top of the
         # handler); same computation as the load-time trigger backfill.
