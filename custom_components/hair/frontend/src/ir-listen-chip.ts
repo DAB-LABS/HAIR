@@ -302,6 +302,7 @@ export class IrListenChip extends LitElement {
                 .api=${this.api}
                 .receiverEntityId=${row.receiver_entity_id}
                 .tuning=${this.tuning}
+                .windowHz=${live.phase === "listening" ? live.frequencyHz : null}
                 ?inactive=${!active}
             ></ir-listen-tune>`);
         }

@@ -117,7 +117,9 @@ capture_mode_select: select.office_rm4_pro_capture_mode
 The pickers cannot be used while the window is open; they show the settings
 the window opened with, and after a sweep locks, the carrier it found. Declare
 only what the user can change: a receiver on a single fixed carrier needs no
-`frequency_select`. Each declaration follows the safety rule below, and one
+`frequency_select`. A radio receiver HAIR can't set, and that has no single
+fixed carrier, shows "auto" on its pill, or the carrier in `frequency_hz`
+while its window is open and listening. Each declaration follows the safety rule below, and one
 that fails it is ignored on its own, without costing the others.
 
 The pill's badge shows whether the receiver is taking new codes: solid while your window is open, light while it is closed. The pickers are inactive while a window is open, because a change applies to the next one. A receiver without `capturing` is not a capture device; if it is a radio receiver, HAIR keeps its own capture window for it, and none of this contract applies.
@@ -241,7 +243,7 @@ on an RF-capable model there are two switches, so the user chooses. From 0.2.0
 it also declares `capture_switch` and `capture_mode`. From 0.3.0, an
 RF-capable model also has an RF receiver with its own capture switch, which
 reports `capture_phase` and `frequency_hz` and sweeps when the user sets the
-RF frequency to sweep, and both receivers declare `window_length` and
+RF frequency to sweep. From 0.3.1, both receivers declare `window_length` and
 `capture_mode_select`, the RF receiver also `frequency_select` with its
 `frequency_options`, so the length, type and frequency are set from the
 pill.
