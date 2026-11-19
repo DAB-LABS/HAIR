@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-18 -- Permanent Wave
+
 ### Added
 
 - When infrared or radio is switched off in the Sniffer or the Remotes header, its glyph glows and keeps a blue dot as signals of that kind arrive, the way the hidden-remotes eye does.
