@@ -32,13 +32,18 @@ Key components:
   or RM4 pro through BroadSniff today, and ESPHome radio receivers from Home
   Assistant 2026.12. A radio row carries its band, and its protocol pill names
   the remote's chip family (EV1527, PT2262, HT12E, HT6P20 or KeeLoq) when HAIR
-  recognizes it; an unrecognized radio code shows no pill. Radio codes send
+  recognizes it; an unrecognized radio code shows no pill. A receiver that can
+  be retuned (a CC1101) shows where it listens on its Sniffer pill and can be
+  retuned there; codes it hears are filed at that frequency. Radio codes send
   through any radio_frequency transmitter, such as a Broadlink RM pro or RM4 pro
-  or an ESPHome radio transmitter. The sniffed catalog is capped (200 signals per
+  or an ESPHome radio transmitter. HAIR never sends a rolling code: a KeeLoq or
+  Somfy RTS code is kept but cannot become a device command. The sniffed catalog is capped (200 signals per
   remote, 20,000 total, oldest evicted first) so a noisy receiver cannot grow the
   store without bound.
 - Clipper: a manual-entry surface (a third panel tab) for building virtual remotes by
-  pasting codes, for cases where a live signal cannot be sniffed. Since 0.17.5
+  pasting codes, for cases where a live signal cannot be sniffed. Since 1.3.1 one
+  Add Signal window takes infrared and radio codes and shows the fields for the
+  medium it reads. Since 0.17.5
   the paste box also takes a Tuya base64 code (Zigbee2MQTT ir_code_to_send) or
   a Broadlink base64 code: pasted_code.coerce_pasted_code converts it to Pronto
   at every door that takes the code box (Clipper, command editor, Needs

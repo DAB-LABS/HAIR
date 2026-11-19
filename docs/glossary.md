@@ -88,9 +88,9 @@ automations.
 your receiver, press a button, and it appears here. Signals are grouped by
 which remote they seem to have come from.
 
-**Clipper.** Build a remote by pasting codes one at a time (Pronto, or a Tuya
-or Broadlink base64 code), for when you have codes but no way to capture them
-live. Also where a remote built from your installed code library lands.
+**Clipper.** Build a remote by pasting codes one at a time, infrared or radio,
+through one Add Signal window, for when you have codes but no way to capture
+them live. Also where a remote built from your installed code library lands.
 
 **Plucker.** Pull codes that already live inside a vendor blaster into HAIR,
 without re-learning each one at a receiver. Nothing is broadcast over the air
@@ -280,9 +280,11 @@ travel with a wig.
 
 **Family.** The chip a radio remote is built on, such as EV1527 or PT2262. When HAIR recognizes it, a radio row's protocol pill names it and its tooltip shows the code's fields. A radio code HAIR does not recognize shows no pill.
 
-**Rolling code.** A remote that sends a different code on every press, as most car keys and modern garage doors do. HAIR hears each press but cannot recognize the button.
+**Rolling code.** A remote that sends a different code on every press, as most car keys and modern garage doors do. HAIR hears each press but cannot recognize the button. A KeeLoq or Somfy RTS code is marked as a rolling code, and HAIR never sends one.
 
 **Capture window.** The time a receiver takes new codes. A capture device hears only inside one. An always-on radio receiver hears known codes all the time and takes new codes only inside one. Opened from the receiver's pill on the Sniffer, or by a Listen in the editor.
+
+**Listening at.** Where a retunable radio receiver, such as a CC1101, listens. It shows on the receiver's pill in the Sniffer, which can change it, and codes the receiver hears are filed at that frequency. A receiver fixed to one frequency shows it and can't be retuned.
 
 **Transmitter.** An entity on the `radio_frequency` platform that can send: the radio word for what infrared calls an emitter. A transmitter declares the frequencies it can send, and HAIR sends a radio code only through one that can send its band.
 
