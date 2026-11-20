@@ -48,6 +48,23 @@ SEND_REPEAT_GAP = 0.1
 # wig reader); the editor reads them off the payload rather than hardcoding.
 SEND_SPACING_MIN_MS = 20
 SEND_SPACING_MAX_MS = 1000
+
+# --- Grouped signals ----------------------------------------------------------
+# A grouped command runs other commands in order with a delay between
+# them (grouped-signals.md). The delay is counted from the END of the
+# previous step's signal, not its start: the blasters accept a code
+# before they finish sending it, and a long frame or a burst of Send
+# times can stay on the air for up to SEND_AIR_TIME_MAX_MS after that.
+# The floor is the quiet the transmit gate already leaves between two
+# blasters (EMITTER_STAGGER_GAP_S), which also covers the pipeline
+# wobble the bench measured and keeps two steps' Mirror echoes apart.
+GROUP_DELAY_MIN_MS = 300
+GROUP_DELAY_MAX_MS = 60_000
+GROUP_DELAY_DEFAULT_MS = 500
+GROUP_MAX_STEPS = 20
+# Delays plus each step's air time. Stops a typo turning a button into a
+# ten-minute job; a button press waits for the whole run.
+GROUP_RUN_MAX_MS = 120_000
 # Floor for the silence inserted between blocks. A spacing shorter than the
 # block itself cannot be honoured -- the code is simply longer than the
 # number -- so the blocks go out back to back separated by this much and

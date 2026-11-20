@@ -100,9 +100,12 @@ def build_device_index(device: IRDevice) -> DeviceCommandIndex:
         file_sourced_command,
         norm_fingerprint_of_code,
     )
+    from .models import is_group
 
     index = DeviceCommandIndex()
     for cmd in device.commands:
+        if is_group(cmd):
+            continue  # no code of its own (grouped-signals.md)
         # Per-command resilience (GH #108): a row that cannot produce an
         # identity costs itself, not the whole pin map.
         try:

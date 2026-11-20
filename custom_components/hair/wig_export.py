@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from .const import MAX_DITTO_COUNT, RF_GAP_MEASURED
 from .ir_command import carrier_or_default, raw_to_pronto
-from .models import IRDevice, is_rf
+from .models import IRDevice, is_group, is_rf
 from .rf_send import rolling_row
 from .wig_format import (
     RF_FREQUENCY_MAX_HZ,
@@ -184,6 +184,17 @@ def build_wig_from_device(
         # skipped either: skipped means a code that could not be
         # exported, and this one is exported, as a cell.
         if command.matrix_cell:
+            continue
+        # A GROUPED COMMAND STAYS HOME (grouped-signals.md). A wig is one
+        # device's codes; a group points at other devices' commands, so
+        # it is left out and said, the same way a rolling code is.
+        if is_group(command):
+            skipped += 1
+            alias = (command.name or "").strip() or f"Command {i}"
+            notes.append(
+                f"{alias} is a grouped signal and was left out: it points "
+                "at other devices' commands."
+            )
             continue
         # A RADIO ROW TRAVELS AS ``rf`` (hair-wig/5, RF send round). Its
         # frame has no Pronto form (a radio carrier rounds to a zero

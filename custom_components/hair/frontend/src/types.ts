@@ -32,6 +32,64 @@ export type CommandCategoryId =
     | "media_control"
     | "custom";
 
+/** One step of a grouped command, as the server resolves it. */
+export interface GroupStepView {
+    device_id: string;
+    command_id: string;
+    delay_ms: number;
+    device_name: string;
+    command_name: string;
+    /** Its command (or device) was deleted: it shows its last names. */
+    missing: boolean;
+    medium?: Medium;
+    protocol?: string | null;
+    rf_frequency_hz?: number | null;
+}
+
+export interface GroupView {
+    steps: GroupStepView[];
+    devices: string[];
+    missing: number;
+    run_ms: number;
+}
+
+/** What one Test of a grouped command did. */
+export interface GroupRunResult {
+    total: number;
+    sent: number;
+    busy: boolean;
+    failures: {
+        index: number;
+        device_name: string;
+        command_name: string;
+        reason: "missing" | "group" | "failed";
+        detail: string;
+    }[];
+}
+
+/** The step picker's list (``hair/command/group/candidates``). */
+export interface GroupCandidateDevice {
+    id: string;
+    name: string;
+    here: boolean;
+    blaster: boolean;
+    commands: {
+        id: string;
+        name: string;
+        reason: "group" | "rolling" | "lattice" | "no_blaster" | null;
+        medium: Medium;
+        protocol?: string | null;
+        rf_frequency_hz?: number | null;
+    }[];
+}
+
+export interface GroupUser {
+    device_id: string;
+    device_name: string;
+    command_id: string;
+    command_name: string;
+}
+
 export interface ActionOption {
     key: string;
     label: string;
@@ -119,6 +177,10 @@ export interface IRCommand {
     // Protocol state beyond the identity (v0.6.0): RC-5/Marantz toggle,
     // Sharp extension. Server-managed; surfaced for display only.
     decoded_extras?: Record<string, number> | null;
+    /** A grouped command (grouped-signals.md): its steps, resolved by
+     *  the server. Present only on a grouped command, whose protocol is
+     *  "GROUP"; `isGroup` (group-steps.ts) is the one test. */
+    group?: GroupView;
     // Byte-level identity (v0.3.4 tiebreaker; identity since v0.5.8).
     // Was missing from this interface -- the device-detail trigger dialog
     // reads it -- which surfaced as a TS2339 build warning.

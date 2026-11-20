@@ -14,6 +14,9 @@ import { latticeFields } from "./matrix-lattice.js";
 import type { CandyEvent } from "./candy-text.js";
 import type {
     ActionOption,
+    GroupCandidateDevice,
+    GroupRunResult,
+    GroupUser,
     AssignResult,
     CandidateVerdict,
     CaptureReceiverRow,
@@ -200,6 +203,45 @@ export class HairApi {
         });
     }
 
+    /** A new, empty grouped command on a device (grouped-signals.md). */
+    groupCreate(deviceId: string): Promise<{ command: IRCommand; device: IRDevice }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/command/group/create",
+            device_id: deviceId,
+        });
+    }
+
+    /** Replace a grouped command's steps; answers the device as it is now. */
+    groupSetSteps(
+        deviceId: string,
+        commandId: string,
+        steps: { device_id: string; command_id: string; delay_ms: number }[],
+    ): Promise<{ device: IRDevice }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/command/group/steps",
+            device_id: deviceId,
+            command_id: commandId,
+            steps,
+        });
+    }
+
+    /** Every device and its commands, for the step picker. */
+    groupCandidates(deviceId: string): Promise<{ devices: GroupCandidateDevice[] }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/command/group/candidates",
+            device_id: deviceId,
+        });
+    }
+
+    /** The grouped commands a delete would leave a missing step in. */
+    groupUsedBy(deviceId: string, commandId?: string): Promise<{ groups: GroupUser[] }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/command/group/used-by",
+            device_id: deviceId,
+            ...(commandId ? { command_id: commandId } : {}),
+        });
+    }
+
     deleteCommand(deviceId: string, commandId: string): Promise<{ removed: boolean }> {
         return this.hass.connection.sendMessagePromise<{ removed: boolean }>({
             type: "hair/command/delete",
@@ -255,11 +297,17 @@ export class HairApi {
     sendCommand(
         deviceId: string,
         commandId: string,
-    ): Promise<{ sent: boolean; heard: boolean; receiver: string | null }> {
+    ): Promise<{
+        sent: boolean;
+        heard: boolean;
+        receiver: string | null;
+        group?: GroupRunResult;
+    }> {
         return this.hass.connection.sendMessagePromise<{
             sent: boolean;
             heard: boolean;
             receiver: string | null;
+            group?: GroupRunResult;
         }>({
             type: "hair/command/send",
             device_id: deviceId,

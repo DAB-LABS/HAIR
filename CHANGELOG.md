@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - A KeeLoq or Somfy RTS remote's buttons can be triggers now. HAIR files each press by the part that doesn't change (the remote and the button), so every press of one button lands on one row and fires its trigger. A recording of a press it already heard is ignored. HAIR still never sends these codes. Rolling-code rows captured before this version stay as they were; press the button again.
+- Grouped signals: a command on a device that sends other commands, from any device, in order, with a delay between each. Add one with + Grouped Signals on a device's page. It maps to an action, gets a button, and Test runs it. The delay counts from the end of the previous signal, 300 ms at least. Grouped signals stay out of a wig export and Save to Closet.
 
 ## [1.3.1] - 2026-11-18 -- Permanent Wave
 

@@ -57,10 +57,12 @@ from .models import (
     FAN_SPEED_STEPS_MIN,
     ON_OFF_DOMAINS,
     SPEED_CYCLE_TURN_ON_CHOICES,
+    IRCommand,
     IRDevice,
     IRTrigger,
     TriggerRemote,
     copy_rf_signal,
+    is_group,
     is_on_off_entity,
     is_rf,
     max_power_settle_s,
@@ -113,6 +115,10 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_reorder_commands)
     websocket_api.async_register_command(hass, ws_reorder_devices)
     websocket_api.async_register_command(hass, ws_send_command)
+    websocket_api.async_register_command(hass, ws_group_create)
+    websocket_api.async_register_command(hass, ws_group_set_steps)
+    websocket_api.async_register_command(hass, ws_group_candidates)
+    websocket_api.async_register_command(hass, ws_group_used_by)
     websocket_api.async_register_command(hass, ws_get_command_templates)
     websocket_api.async_register_command(hass, ws_receiver_hardware)
     websocket_api.async_register_command(hass, ws_get_receivers)
@@ -305,10 +311,27 @@ def _media(rows: Any, *, matrix: bool = False) -> list[str]:
     is nothing to go on: the card then draws no glyph.
     """
 
-    present = {getattr(row, "medium", MEDIUM_IR) or MEDIUM_IR for row in rows}
+    present = {
+        getattr(row, "medium", MEDIUM_IR) or MEDIUM_IR
+        for row in rows if not is_group(row)
+    }
     if matrix:
         present.add(MEDIUM_IR)
     return [m for m in (MEDIUM_IR, MEDIUM_RF) if m in present]
+
+
+def _augment_groups(hass: HomeAssistant, device: IRDevice, rows: Any) -> None:
+    """Give each grouped command its resolved steps (``group``): names
+    as they are now, missing steps marked, devices touched, run time."""
+    from .grouped import group_payload
+
+    data = _get_first_entry_data(hass)
+    manager = data.get("device_manager") if data else None
+    if manager is None or not rows:
+        return
+    for row, command in zip(rows, device.commands, strict=False):
+        if is_group(command) and row.get("id") == command.id:
+            row["group"] = group_payload(manager, command)
 
 
 def _augment_rf_family(rows: Any) -> None:
@@ -372,6 +395,7 @@ async def _device_full(
 ) -> dict[str, Any]:
     full = device.to_dict()
     _augment_rf_family(full.get("commands"))
+    _augment_groups(hass, device, full.get("commands"))
     # The store record omits an unset settle time (models.py, so the
     # default stays a default); the panel always gets the key, null
     # meaning the default, the same as the list summary sends.
@@ -1143,10 +1167,19 @@ async def ws_send_command(
     heard_future: asyncio.Future[str | None] = (
         asyncio.get_running_loop().create_future()
     )
+    from .grouped import GroupResult, GroupRunError
+
     try:
-        await manager.async_send_command(
+        outcome = await manager.async_send_command(
             msg["device_id"], msg["command_id"], heard_future=heard_future,
         )
+    except GroupRunError as err:
+        heard_future.cancel()
+        connection.send_result(
+            msg["id"], {"sent": False, "heard": False, "receiver": None,
+                        "group": err.result.to_dict()},
+        )
+        return
     except KeyError as err:
         heard_future.cancel()
         connection.send_error(msg["id"], "not_found", str(err))
@@ -1161,6 +1194,16 @@ async def ws_send_command(
         connection.send_error(msg["id"], "send_failed", str(err))
         return
 
+    if isinstance(outcome, GroupResult):
+        # A group's steps each hear their own; the button reports how
+        # many went out and which did not.
+        heard_future.cancel()
+        connection.send_result(
+            msg["id"], {"sent": outcome.sent > 0 or outcome.skipped_busy,
+                        "heard": False, "receiver": None,
+                        "group": outcome.to_dict()},
+        )
+        return
     receiver: str | None = None
     try:
         receiver = await asyncio.wait_for(
@@ -1173,6 +1216,161 @@ async def ws_send_command(
     connection.send_result(
         msg["id"], {"sent": True, "heard": heard, "receiver": receiver}
     )
+
+
+# --- Grouped commands (grouped-signals.md) ---------------------------------
+
+_STEP_SCHEMA = vol.Schema({
+    vol.Required("device_id"): str,
+    vol.Required("command_id"): str,
+    vol.Optional("delay_ms"): vol.Coerce(int),
+}, extra=vol.REMOVE_EXTRA)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/group/create",
+    vol.Required("device_id"): str,
+    vol.Optional("name"): str,
+})
+@websocket_api.async_response
+async def ws_group_create(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Add an empty grouped command to a device, under a name no other
+    command on it has, at the head of the list like any new command."""
+    from .models import GROUP_PROTOCOL
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    device = manager.get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+    base = (msg.get("name") or "").strip() or "Grouped signal"
+    name, n = base, 1
+    while device.get_command_by_name(name) is not None:
+        n += 1
+        name = f"{base} {n}"
+    command = IRCommand(name=name, protocol=GROUP_PROTOCOL, steps=[])
+    await manager.async_add_command(device.id, command, placement="top")
+    connection.send_result(msg["id"], {
+        "command": command.to_dict(),
+        "device": await _device_full(hass, device),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/group/steps",
+    vol.Required("device_id"): str,
+    vol.Required("command_id"): str,
+    vol.Required("steps"): [_STEP_SCHEMA],
+})
+@websocket_api.async_response
+async def ws_group_set_steps(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Replace a grouped command's steps: added, removed, reordered or a
+    delay changed. Refused with a code the panel words (``grouped``)."""
+    from .const import GROUP_DELAY_DEFAULT_MS
+    from .grouped import StepsRefused
+    from .models import GroupStep
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    steps = [
+        GroupStep(
+            device_id=item["device_id"],
+            command_id=item["command_id"],
+            delay_ms=item.get("delay_ms", GROUP_DELAY_DEFAULT_MS),
+        )
+        for item in msg["steps"]
+    ]
+    # A missing step keeps the names it had, so it can still say what
+    # it was after the panel hands it back.
+    device = manager.get_device(msg["device_id"])
+    old = device.get_command(msg["command_id"]) if device else None
+    known = {
+        (s.device_id, s.command_id): s for s in (old.steps or ())
+    } if old is not None else {}
+    for step in steps:
+        before = known.get((step.device_id, step.command_id))
+        if before is not None:
+            step.device_name = before.device_name
+            step.command_name = before.command_name
+    try:
+        await manager.async_set_group_steps(
+            msg["device_id"], msg["command_id"], steps
+        )
+    except KeyError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
+        return
+    except StepsRefused as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    device = manager.get_device(msg["device_id"])
+    connection.send_result(msg["id"], {"device": await _device_full(hass, device)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/group/candidates",
+    vol.Required("device_id"): str,
+})
+@callback
+def ws_group_candidates(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Every device and its commands, for the step picker."""
+    from .grouped import step_candidates
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    connection.send_result(msg["id"], {
+        "devices": step_candidates(data["device_manager"], msg["device_id"]),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/group/used-by",
+    vol.Required("device_id"): str,
+    vol.Optional("command_id"): str,
+})
+@callback
+def ws_group_used_by(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The grouped commands a delete would leave a missing step in: of
+    one command, or with no command, of a whole device."""
+    from .grouped import groups_using
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    connection.send_result(msg["id"], {
+        "groups": groups_using(
+            data["device_manager"], msg["device_id"], msg.get("command_id")
+        ),
+    })
 
 
 def _porthole_cell(
@@ -1218,7 +1416,7 @@ async def ws_delete_command(
     device = manager.get_device(msg["device_id"])
     if device is not None:
         cmd = device.get_command(msg["command_id"])
-        if cmd is not None:
+        if cmd is not None and not is_group(cmd):
             sig_fp = canonical_fingerprint(
                 cmd.protocol, cmd.code, cmd.raw_timings
             )
@@ -1968,6 +2166,8 @@ def _assignment_index(
     entries: list[tuple[SignalIdentity, dict[str, str]]] = []
     for device in hair_devices:
         for command in device.commands:
+            if is_group(command):
+                continue  # no code to assign (grouped-signals.md)
             # Per-command resilience (GH #108): one unreadable command
             # used to abort this walk, and with it the Sniffer list, the
             # wig list and every page that shows an assignment dot.
@@ -8528,7 +8728,7 @@ async def ws_device_make_remote(
 
     triggers: list[IRTrigger] = []
     for i, command in enumerate(device.commands, start=1):
-        if command.matrix_cell is not None:
+        if command.matrix_cell is not None or is_group(command):
             continue
         trig_name = command.name.strip() or f"Command {i}"
         trigger = IRTrigger(

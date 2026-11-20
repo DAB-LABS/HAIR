@@ -189,6 +189,64 @@ _RF_INT_FIELDS = frozenset({
 _RF_KNOWN = frozenset({"medium", *RF_ROW_FIELDS, "band"})
 
 
+# A grouped command's protocol (grouped-signals.md). It has no code of
+# its own, and an older build that meets one refuses to send it ("unknown
+# protocol") rather than sending something it does not understand.
+GROUP_PROTOCOL = "GROUP"
+
+
+def is_group(row: Any) -> bool:
+    """Whether a command is a grouped command: steps, no code."""
+    return (
+        getattr(row, "steps", None) is not None
+        or getattr(row, "protocol", None) == GROUP_PROTOCOL
+    )
+
+
+@dataclass
+class GroupStep:
+    """One step of a grouped command: another device's command.
+
+    A REFERENCE, NOT A COPY. The step names a device and a command by
+    id, so a rename or a code edit reaches every group using it, and a
+    deleted command leaves a missing step rather than a frozen code.
+    ``device_name`` and ``command_name`` are only what the step was,
+    for showing a missing one; refreshed whenever the step resolves and
+    never used to send.
+    """
+
+    device_id: str
+    command_id: str
+    # Pause before the next step, counted from the end of this step's
+    # signal. Unused on the last step.
+    delay_ms: int = 500
+    device_name: str = ""
+    command_name: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "device_id": self.device_id,
+            "command_id": self.command_id,
+            "delay_ms": self.delay_ms,
+            "device_name": self.device_name,
+            "command_name": self.command_name,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GroupStep:
+        try:
+            delay = int(data.get("delay_ms", 500))
+        except (TypeError, ValueError):
+            delay = 500
+        return cls(
+            device_id=str(data.get("device_id") or ""),
+            command_id=str(data.get("command_id") or ""),
+            delay_ms=delay,
+            device_name=str(data.get("device_name") or ""),
+            command_name=str(data.get("command_name") or ""),
+        )
+
+
 def is_rf(row: Any) -> bool:
     """Whether a row (command, signal, capture, trigger) is radio."""
     return getattr(row, "medium", MEDIUM_IR) == MEDIUM_RF
@@ -367,6 +425,8 @@ _KNOWN_COMMAND = frozenset({
     "tx_force_raw",
     "plucked_command_name", "matrix_cell", "sent_state", "comb_suspect",
     "comb_finding", "created_at",
+    # A grouped command's steps (grouped-signals.md).
+    "steps",
     # DERIVED, listed so from_dict drops it (GH #144). to_dict computes
     # the copyable form of the code on every write; a stale one riding
     # back in through _extra would describe a code this row no longer
@@ -417,7 +477,13 @@ def clone_command(
         if isinstance(value, dict):
             value = dict(value)
         elif isinstance(value, list):
-            value = list(value)
+            # A grouped command's steps are records of their own: a copy
+            # that shared them would edit the original's steps.
+            value = [
+                GroupStep.from_dict(item.to_dict())
+                if isinstance(item, GroupStep) else item
+                for item in value
+            ]
         setattr(fresh, key, value)
     # A newer build's fields ride the copy too (0.10.1 item 2); dropping
     # them here would make duplicating a device the same quiet data loss
@@ -550,6 +616,12 @@ class IRCommand:
     # actually found rather than a generic "suspect" -- the comb knows,
     # so the row should say (bench 2026-08-03).
     comb_finding: str | None = None
+    # A GROUPED COMMAND (grouped-signals.md): other commands, from any
+    # device, sent in order with a delay between them. Set only on a
+    # grouped command, which has protocol GROUP_PROTOCOL and no code;
+    # None on every other row, and never written for one. ``is_group``
+    # is the one test.
+    steps: list[GroupStep] | None = None
     created_at: str = field(default_factory=_now_iso)
     # Radio rows (RF hear, round 1): see RF_ROW_FIELDS. Infrared rows
     # leave every one of these at its default and never write them.
@@ -616,6 +688,12 @@ class IRCommand:
             if self.sent_state else None,
             "comb_suspect": self.comb_suspect,
             "comb_finding": self.comb_finding,
+            # Written only on a grouped command, so every other row's
+            # record stays byte-identical to what it was.
+            **(
+                {"steps": [step.to_dict() for step in self.steps]}
+                if self.steps is not None else {}
+            ),
             "created_at": self.created_at,
             **_rf_out(self),
         }, self._extra)
@@ -652,6 +730,11 @@ class IRCommand:
             sent_state=data.get("sent_state") or None,
             comb_suspect=bool(data.get("comb_suspect", False)),
             comb_finding=data.get("comb_finding") or None,
+            steps=(
+                [GroupStep.from_dict(item) for item in data["steps"]
+                 if isinstance(item, dict)]
+                if isinstance(data.get("steps"), list) else None
+            ),
             created_at=data.get("created_at") or _now_iso(),
             **_rf_in(data),
         ), data, _KNOWN_COMMAND)
@@ -1106,7 +1189,7 @@ class IRDevice:
             ),
             _extra=dict(self.entity_config._extra),
         )
-        return IRDevice(
+        clone = IRDevice(
             name=new_name,
             device_type=self.device_type,
             manufacturer=self.manufacturer,
@@ -1138,6 +1221,19 @@ class IRDevice:
             # (0.10.1 item 2).
             _extra=dict(self._extra),
         )
+        # A grouped command's steps that pointed at this device's own
+        # commands point at the copies; steps on other devices stay.
+        copies = {
+            old.id: new.id
+            for old, new in zip(self.commands, cloned_commands, strict=True)
+        }
+        for command in cloned_commands:
+            for step in command.steps or ():
+                if step.device_id == self.id and step.command_id in copies:
+                    step.device_id = clone.id
+                    step.command_id = copies[step.command_id]
+                    step.device_name = new_name
+        return clone
 
     def reorder_commands(self, command_ids: list[str]) -> None:
         """Reorder ``self.commands`` to match the given ID list.
