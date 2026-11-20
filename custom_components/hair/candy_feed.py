@@ -53,6 +53,7 @@ CANDY_HOLD_MAX = 256
 STATIC_NO_BODY = "no_body"  # no frame with a body
 STATIC_SHORT = "short"  # too short to be a remote's: a vote, or every lone piece
 STATIC_LONE = "lone"  # a frame whose burst never voted
+STATIC_REPLAY = "replay"  # a rolling code that button already sent
 
 # Echo kinds, as the verdict reports them.
 ECHO_SEND = "send"
@@ -414,7 +415,8 @@ def rf_static_capture_event(
 ) -> dict[str, Any]:
     """One static capture, for a subscription that asked for them.
 
-    ``reason`` says why it is static: ``no_body``, ``short`` or ``lone``.
+    ``reason`` says why it is static: ``no_body``, ``short``, ``lone`` or
+    ``replay``.
     """
     timings = _ints(raw)
     return {

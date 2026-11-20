@@ -570,6 +570,10 @@ class _Fit:
 
     key: str
     fields: tuple[tuple[str, str], ...]
+    # A rolling family's changing part (the KeeLoq encrypted word, the
+    # Somfy counter), for the replay check only: never a field, never
+    # shown or logged.
+    rolling: int | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -951,7 +955,8 @@ def _mark_first_1_2(frame: tuple[int, ...]) -> _ShapeRead | None:
     ]
     if bits_n >= 65:
         fields.append(("low battery", "yes" if bits[64] else "no"))
-    return _ShapeRead(round(unit), (_Fit("keeloq", tuple(fields)),))
+    hopping = sum(bit << index for index, bit in enumerate(bits[:32]))
+    return _ShapeRead(round(unit), (_Fit("keeloq", tuple(fields), hopping),))
 
 
 # ---------------------------------------------------------------------------
@@ -1040,7 +1045,7 @@ def _manchester_somfy(frame: tuple[int, ...]) -> _ShapeRead | None:
     return _ShapeRead(round(half), (_Fit("somfy_rts", (
         ("address", f"{address:06X}"),
         ("command", str(plain[1] >> 4)),
-    )),))
+    ), plain[2] << 8 | plain[3]),))
 
 
 # ---------------------------------------------------------------------------
@@ -1183,8 +1188,7 @@ _SHAPES = (
 # ---------------------------------------------------------------------------
 
 # The families whose code changes on every press. HAIR never sends one:
-# a receiver ignores a code it has seen, or the remote falls out of step
-# with it.
+# a saved one won't work a second time.
 ROLLING_FAMILIES = frozenset({"keeloq", "somfy_rts"})
 
 
@@ -1223,4 +1227,95 @@ def _rolling_family(frame: tuple[int, ...]) -> str | None:
                 (fit.key for fit in read.fits if fit.key in ROLLING_FAMILIES),
                 None,
             )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Rolling codes: identity from the fixed part
+# ---------------------------------------------------------------------------
+
+# The fixed fields of each rolling family, in identity order: who sent it
+# and which button. KeeLoq's low battery and repeat bits sit in the clear
+# part too but change between presses, so they are left out.
+_ROLLING_FIXED = {
+    "keeloq": ("serial", "buttons"),
+    "somfy_rts": ("address", "command"),
+}
+# What a KeeLoq word with all four buttons carries: a seed, sent to pair a
+# receiver, in place of the encrypted part.
+KEELOQ_SEED_BUTTONS = "all (seed)"
+
+
+@dataclass(frozen=True)
+class RollingIdentity:
+    """A clean read of a rolling-code frame, split into its two parts.
+
+    ``fingerprint`` is the row's decoded identity: the family and the
+    fixed fields only, so every press of one button is the same code.
+    ``remote`` keys a remote (KeeLoq serial, Somfy address) and
+    ``button`` one of its buttons. ``rolling`` is the part that changes on
+    every press, held for the replay check and nothing else.
+    """
+
+    family: str
+    remote: str
+    button: str
+    rolling: int | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def fingerprint(self) -> str:
+        return f"RF:{self.family}:{self.remote}:{self.button}"
+
+    @property
+    def device_key(self) -> str:
+        """The Sniffer card: one per remote."""
+        return f"DEV:RF:{self.family}:{self.remote}"
+
+    @property
+    def seed(self) -> bool:
+        """A KeeLoq pairing word rather than a button press."""
+        return self.family == "keeloq" and self.button == KEELOQ_SEED_BUTTONS
+
+
+def rolling_identity(
+    frame: list[int] | tuple[int, ...] | None,
+) -> RollingIdentity | None:
+    """The fixed-part identity of a rolling-code frame, or None.
+
+    Only a clean read of exactly one rolling family counts: a frame two
+    families fit, or one a decoder only half reads, keeps the identity
+    every other radio frame has. Fails open to None, logged at warning,
+    as ``rolling_family`` does.
+    """
+    if not frame:
+        return None
+    try:
+        return _rolling_identity(tuple(int(v) for v in frame))
+    except Exception:
+        _LOGGER.warning(
+            "Radio rolling-code identity failed; the code keeps its frame identity",
+            exc_info=True,
+        )
+        return None
+
+
+@lru_cache(maxsize=1024)
+def _rolling_identity(frame: tuple[int, ...]) -> RollingIdentity | None:
+    for decode in _SHAPES:
+        read = decode(frame)
+        if read is None or not read.fits:
+            continue
+        if len(read.fits) != 1 or read.fits[0].key not in _ROLLING_FIXED:
+            return None
+        fit = read.fits[0]
+        values = dict(fit.fields)
+        remote_name, button_name = _ROLLING_FIXED[fit.key]
+        if remote_name not in values or button_name not in values:
+            return None
+        return RollingIdentity(
+            family=fit.key,
+            remote=values[remote_name],
+            button=values[button_name],
+            rolling=fit.rolling,
+        )
     return None
