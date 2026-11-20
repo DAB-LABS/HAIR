@@ -415,9 +415,9 @@ The receiver also needs room for a whole press. A Daikin 152 press is 293 mark-a
 
 ### Translations
 
-HAIR speaks twelve languages, and ten of them need a native-speaker review. Spanish has one already (thanks @Waterbrain). French, Japanese, German, Polish, Portuguese, Dutch, Italian, Russian, Simplified Chinese, and Traditional Chinese were drafted by a programming assistant and are marked "reviewer wanted" inside each dictionary file. A native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. See [Adding a language](CONTRIBUTING.md#adding-a-language).
+HAIR speaks twelve languages, and nine of them need a native-speaker review. Spanish and Traditional Chinese have one already (thanks @Waterbrain and @cornguo). French, Japanese, German, Polish, Portuguese, Dutch, Italian, Russian, and Simplified Chinese were drafted by a programming assistant and are marked "reviewer wanted" inside each dictionary file. A native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. See [Adding a language](CONTRIBUTING.md#adding-a-language).
 
-<details><summary>See the panel translated -- the same device detail in Spanish, the one translation with a native-speaker review</summary>
+<details><summary>See the panel translated -- the same device detail in Spanish, one of the translations with a native-speaker review</summary>
 
 ![Device detail rendered in Spanish with translated action badges and buttons, native-speaker reviewed by @Waterbrain](images/screenshots/device-detail-translated.png)
 

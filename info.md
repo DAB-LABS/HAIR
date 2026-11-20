@@ -27,7 +27,7 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 - **Action Mapping** - Bind captured IR commands to HA entity features via dropdown selection.
 - **Auto Entities** - Devices get native HA entities (`media_player`, `climate`, `fan`, `light`, `switch`, `cover`, `remote`, `button`).
 - **Command Templates** - Device-type-aware guided setup with predefined command names.
-- **Twelve languages** - The panel and setup wizard ship in English, Spanish, French, Japanese, German, Polish, Portuguese, Dutch, Italian, Russian, Simplified Chinese, and Traditional Chinese, following your HA profile language automatically. Spanish has a native-speaker review; the other non-English translations are programming-assistant drafts, and native-speaker reviewers are very welcome.
+- **Twelve languages** - The panel and setup wizard ship in English, Spanish, French, Japanese, German, Polish, Portuguese, Dutch, Italian, Russian, Simplified Chinese, and Traditional Chinese, following your HA profile language automatically. Spanish and Traditional Chinese have native-speaker reviews; the other non-English translations are programming-assistant drafts, and native-speaker reviewers are very welcome.
 - **UX polish** - Drag-to-reorder device cards, remotes, signals, and commands, NATIVE / BRIDGE badges to see migration state at a glance, Sniffer Test with an emitter picker, and a mobile-friendly nav button for phone users.
 
 ## Requirements

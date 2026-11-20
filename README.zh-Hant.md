@@ -36,7 +36,7 @@
 面板會說您的語言：英文、西班牙文、法文、日文、德文、波蘭文、葡萄牙文、荷蘭文、義大利文、俄文、簡體中文與繁體中文，並自動跟隨您 Home Assistant 個人資料的語言。
 
 > [!IMPORTANT]
-> HAIR 面板的繁體中文翻譯（以台灣用語為準）由程式設計助理起草，正在等待母語使用者審閱。如果您願意接手：審閱只需要一個 pull request，您的名字會寫進檔案裡。從這裡開始：[Adding a language](CONTRIBUTING.md#adding-a-language)
+> HAIR 面板的繁體中文翻譯（以台灣用語為準）由程式設計助理起草，並已經過母語使用者審閱：[@cornguo](https://github.com/cornguo)。如果您發現不順的地方，一個 pull request 就能修正。從這裡開始：[Adding a language](CONTRIBUTING.md#adding-a-language)
 
 ## 完整文件
 

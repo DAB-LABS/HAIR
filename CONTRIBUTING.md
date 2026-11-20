@@ -146,7 +146,7 @@ The HAIR panel is fully localizable. Adding a language starts with two dictionar
 | Italian (it) | yes | yes | programming-assistant draft, native reviewer wanted |
 | Russian (ru) | yes | yes | programming-assistant draft, native reviewer wanted |
 | Chinese, Simplified (zh-Hans) | yes | yes | programming-assistant draft, native reviewer wanted |
-| Chinese, Traditional (zh-Hant) | yes | yes | programming-assistant draft (Taiwan usage), native reviewer wanted |
+| Chinese, Traditional (zh-Hant) | yes | yes | panel dictionary and config flow reviewed by a native speaker (@cornguo), Taiwan usage |
 
 Assistant-drafted locales ship live on purpose: imperfect French beats English for a French user, and visible strings are the best way to find the person who will polish them. If that person is you, open a PR that corrects the values and flips the file's `_meta.review` marker to `reviewed by @yourhandle, <date>`. That marker is a real key in every panel dictionary (never rendered), so the parity tests force each locale to declare where it stands.
 

@@ -782,7 +782,7 @@ Localization (v0.6.8): the panel and the config flow ship in twelve languages
 profile language with English fallback. Non-English locales are
 programming-assistant drafts, marked "reviewer wanted" inside each
 dictionary file (the Spanish panel translation is native-speaker
-reviewed as of v0.8.0); native-speaker reviews
+reviewed as of v0.8.0, Traditional Chinese since it shipped); native-speaker reviews
 and new languages are welcome as small PRs guarded by parity tests (see
 CONTRIBUTING.md, "Adding a language").
 
