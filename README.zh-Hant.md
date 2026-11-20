@@ -23,7 +23,7 @@
 - **剪下來（Clipper）。** 貼上已知的紅外線指令碼，或選擇品牌與型號，從內建的遙控器資料庫填滿一整支遙控器。
 - **挑出來（Plucker）。** 把萬用遙控器（例如 Tuya Local）中已學習的指令碼取出來，不必在接收器上重新學一次。
 - **聽出來（Mirror）。** 透過 Home Assistant 發出的每個紅外線指令都會出現在 Mirror 中，不論是否有接收器聽到，點一下就能變成您自己的指令。
-- **穿上它（衣櫃）。** 把指令碼檔案拖進衣櫃 -- 別人分享的指令組（Wig）、SmartIR 的 JSON、Flipper Zero 的 `.ir`、LIRC 設定檔、IrScrutinizer 匯出的 Girr、Logitech Harmony 裝置檔、Global Cache 指令組、Tasmota 紅外線指令碼或 irdb 的 CSV -- 它會掛進您的收藏，點一下就能變成可用的遙控器。
+- **收進衣櫃。** 把指令碼檔案拖進衣櫃 -- 別人分享的指令組（Wig）、SmartIR 的 JSON、Flipper Zero 的 `.ir`、LIRC 設定檔、IrScrutinizer 匯出的 Girr、Logitech Harmony 裝置檔、Global Cache 指令碼檔、Tasmota 紅外線指令碼或 irdb 的 CSV -- 它會放進您的收藏，點一下就能變成可用的遙控器。
 
 ## 有了指令碼之後能做什麼
 
