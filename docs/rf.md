@@ -2,7 +2,7 @@
 
 Home Assistant 2026.11 adds a radio frequency platform beside the infrared one. HAIR listens to every radio receiver on it, the same way it listens to infrared receivers. Press a button on a radio remote, such as a keyfob, a ceiling fan remote, a plug's handset or a doorbell, and the code shows up in the Sniffer as a row of its own. From there it works like any other code: give it an alias, assign it to a device, or make it a trigger.
 
-This page covers what HAIR hears, which receivers work, and what to expect from different kinds of radio remote. [Windowed receivers](windowed-receivers.md) is the contract for integration authors.
+This page covers what HAIR hears, which receivers work, and what to expect from different kinds of radio remote. [Receivers](receivers.md) is the contract for integration authors.
 
 ## What you need
 
