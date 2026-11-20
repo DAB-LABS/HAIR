@@ -196,7 +196,10 @@ SIGNAL_MAX_SIGNALS_PER_DEVICE = 200
 SIGNAL_MAX_TOTAL_SIGNALS = 20000
 SIGNAL_EVICT_AGE_DAYS = 30
 SIGNAL_EVICT_MIN_HITS = 5
-SIGNAL_CLUSTER_THRESHOLD = 3
+# How many presses a sniffed remote needs before the Sniffer lists its
+# card. One: a code only reaches the catalog through a capture window (or
+# matches a row already there), so the first press is the user's own.
+SIGNAL_CLUSTER_THRESHOLD = 1
 SIGNAL_REPEAT_SUPPRESS_MS = 300
 SIGNAL_SAVE_DEBOUNCE_S = 30
 SIGNAL_SAVE_MAX_DELAY_S = 300
