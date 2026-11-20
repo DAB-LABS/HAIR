@@ -1290,7 +1290,8 @@ export interface ReceiverTuning {
         hz: number | null;
         source: "receiver" | "number" | "select" | "fixed" | null;
     };
-    /** False for a moment after HAIR set it: show "band unknown". */
+    /** False for a moment after HAIR set it, while codes heard are not
+     *  stamped with it. The panel shows ``now`` regardless. */
     trusted: boolean;
     windowed: boolean;
     listening: boolean;

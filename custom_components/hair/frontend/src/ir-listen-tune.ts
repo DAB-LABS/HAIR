@@ -56,8 +56,10 @@ const NOTE_MS = 6000;
 /** What the box reads. A pick on its way reads "setting ...". Then
  *  where the receiver listens now, by the server's own order: a
  *  frequency, or "Sweep". A receiver that declares nothing reads "auto";
- *  one HAIR can set but that gives nothing reads "band unknown", as it
- *  does for a moment after HAIR set it. Pure, for the node tests. */
+ *  one HAIR can set but that gives nothing reads "band unknown". The
+ *  row's ``trusted`` is for stamping codes in the moment after a set,
+ *  not for the box: right after a pick the box shows the value the
+ *  receiver now holds, not "band unknown". Pure, for the node tests. */
 export function tuneLabel(row: ReceiverTuning | null, pending: TunePick | null): string {
     if (pending !== null) {
         return "hz" in pending
@@ -65,11 +67,8 @@ export function tuneLabel(row: ReceiverTuning | null, pending: TunePick | null):
             : t("listen.tune_setting", { mhz: optionLabel(row, pending.option) });
     }
     if (!row) return t("listen.band_unknown");
-    const fixedOrNone = row.form === "fixed" || row.form === "none";
-    if (row.trusted || fixedOrNone) {
-        if (row.now.kind === "hz" && row.now.hz) return hzToMhz(row.now.hz);
-        if (row.now.kind === "sweep") return t("listen.sweep");
-    }
+    if (row.now.kind === "hz" && row.now.hz) return hzToMhz(row.now.hz);
+    if (row.now.kind === "sweep") return t("listen.sweep");
     return row.form === "none" ? t("listen.tune_auto") : t("listen.band_unknown");
 }
 

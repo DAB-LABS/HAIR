@@ -10,8 +10,9 @@ its ``form``) and the pill draws from that alone:
 - both: the presets, then "Other...";
 - fixed: its one frequency, no menu, a hover line;
 - none: "auto", or where its open window locked, no menu, a hover line;
-- "band unknown" for a receiver HAIR can set that gives nothing, or for
-  a moment after HAIR set it.
+- "band unknown" for a receiver HAIR can set that gives nothing; right
+  after a pick the box shows the picked value, even while the server's
+  ``trusted`` is false for stamping.
 
 A pick sends a frequency, or a preset by name (the only way to a sweep).
 The rows are read again when what they were built from changes in Home
@@ -74,10 +75,12 @@ const rows = {
         number: { entity_id: "number.x", min_hz: null, max_hz: null, step_hz: null,
                   source: "found" },
         now: { kind: "unknown", hz: null, source: null } },
-    settling: { ...base, receiver_entity_id: "cc3", form: "number", trusted: false,
-        number: { entity_id: "number.y", min_hz: null, max_hz: null, step_hz: null,
-                  source: "found" },
-        now: hz(433920000, "number") },
+    // The answer to a pick of 315: confirmed, the number already 315,
+    // and trusted false for the two seconds after HAIR set it.
+    justPicked: { ...base, receiver_entity_id: "cc3", form: "number", trusted: false,
+        number: { entity_id: "number.y", min_hz: 300000000, max_hz: 928000000,
+                  step_hz: 1000, source: "found" },
+        now: hz(315000000, "number") },
 };
 const menu = (r) => {
     const m = tuneMenu(r);
@@ -171,8 +174,13 @@ class TestWhatThePillReads:
             "noneLocked": "315",
             "sweeping": "listen.sweep",
             "unknown": "listen.band_unknown",
-            "settling": "listen.band_unknown",
+            "justPicked": "315",
         }
+
+    def test_a_pick_shows_the_picked_value_not_band_unknown(self, run):
+        # The bench case: confirmed, trusted false, the pill must not
+        # snap back to "band unknown".
+        assert run["label"]["justPicked"] == "315"
 
     def test_a_pick_on_its_way(self, run):
         assert run["pending"] == [
