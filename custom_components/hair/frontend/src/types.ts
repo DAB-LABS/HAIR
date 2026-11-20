@@ -1267,6 +1267,41 @@ export interface ReceiverTuning {
     /** A receiver with no tuning number that declares one frequency:
      *  ``current_mhz`` is that frequency, and it cannot be changed. */
     fixed?: boolean;
+    /** The one receiver description (``rf_receive.receiver_frequency``).
+     *  How the frequency is set: a select of presets, a number for any
+     *  value, both, one fixed value, or nothing. All in Hz. */
+    form: "select" | "number" | "both" | "fixed" | "none";
+    /** Where the receiver says it can listen, [[min, max], ...]. */
+    ranges: [number, number][];
+    /** The select's options in order; ``hz`` null is a sweep, and the
+     *  ``number`` one is the option the number feeds ("Other..."). */
+    presets: FrequencyPreset[];
+    select: string | null;
+    number: {
+        entity_id: string;
+        min_hz: number | null;
+        max_hz: number | null;
+        step_hz: number | null;
+        source: "declared" | "found";
+    } | null;
+    /** Where it listens now, by the server's order of sources. */
+    now: {
+        kind: "hz" | "sweep" | "unknown" | "none";
+        hz: number | null;
+        source: "receiver" | "number" | "select" | "fixed" | null;
+    };
+    /** False for a moment after HAIR set it: show "band unknown". */
+    trusted: boolean;
+    windowed: boolean;
+    listening: boolean;
+}
+
+/** One option of a receiver's frequency select. */
+export interface FrequencyPreset {
+    option: string;
+    hz: number | null;
+    current: boolean;
+    number?: boolean;
 }
 
 /** What a tune came to (``hair/rf/receiver_tune``): always an answer,
@@ -1274,6 +1309,8 @@ export interface ReceiverTuning {
 export interface ReceiverTuneResult {
     result: "confirmed" | "did_not_change" | "cannot_tune";
     current_mhz: number | null;
+    /** The receiver's row, read after the set. */
+    row?: ReceiverTuning;
 }
 
 export interface CaptureReceiverRow {

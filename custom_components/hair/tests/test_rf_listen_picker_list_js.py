@@ -130,13 +130,13 @@ class TestTheMenu:
     def test_it_uses_the_list_form(self):
         tune = self._tune()
         assert 'form="list"' in tune
-        assert ".minHz=${mhzOrNull(this.tuning?.min_mhz)}" in tune
-        assert ".maxHz=${mhzOrNull(this.tuning?.max_mhz)}" in tune
+        # The rows come from the receiver's own description.
+        assert ".rows=${menu.rows}" in tune
 
     def test_a_pick_closes_it(self):
         tune = self._tune()
         assert "@frequency-done=${() => {" in tune
-        body = tune.split("private async _tune(hz: number): Promise<void> {", 1)[1]
+        body = tune.split("private async _tune(pick: TunePick): Promise<void> {", 1)[1]
         body = body.split("\n    }\n", 1)[0]
         assert "if (this._pendingOutside) this._open(\"note\");" in body
         assert "else this._close();" in body

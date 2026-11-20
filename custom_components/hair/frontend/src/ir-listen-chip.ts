@@ -268,7 +268,10 @@ export class IrListenChip extends LitElement {
         const locked = look === "open" || look === "sweep";
         const out = [];
 
-        const freqs = frequencyChoices(row);
+        // A radio receiver's frequency is the one control below, from the
+        // server's one description of it; this select picker stays only
+        // for a receiver of another medium that declares one.
+        const freqs = row.medium === "rf" ? [] : frequencyChoices(row);
         const freq = currentFrequency(states, row, live);
         if (freqs.length > 0 && freq) {
             const label = freq.sweep
@@ -293,16 +296,15 @@ export class IrListenChip extends LitElement {
             ></ir-pill-picker>`);
         }
 
-        // Where a radio receiver listens, on every radio
-        // receiver that has no frequency picker of its own: a capture
-        // device that declares a frequency select keeps that picker.
-        if (row.medium === "rf" && freqs.length === 0 && this.tuning) {
+        // Where a radio receiver listens, on every radio receiver: one
+        // control, whatever the receiver declares (a select, a number,
+        // both, one fixed value, or nothing).
+        if (row.medium === "rf" && this.tuning) {
             out.push(html`<ir-listen-tune
                 class="pick-tune"
                 .api=${this.api}
                 .receiverEntityId=${row.receiver_entity_id}
                 .tuning=${this.tuning}
-                .windowHz=${live.phase === "listening" ? live.frequencyHz : null}
                 ?inactive=${!active}
             ></ir-listen-tune>`);
         }
