@@ -85,7 +85,7 @@ To go from a fresh install to a working button:
 
 ## Capture a remote
 
-The Sniffer is a live listener. It shows every signal your receivers hear, groups signals by the remote they came from, and filters out repeat frames from a held-down button. A new remote needs at least three presses before HAIR trusts it enough to show it as its own card, so give it a few before you go looking for it.
+The Sniffer is a live listener. It shows every signal your receivers hear, groups signals by the remote they came from, and filters out repeat frames from a held-down button. A new remote shows up as its own card on its first press.
 
 To capture a remote:
 

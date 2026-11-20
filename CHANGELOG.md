@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A new remote shows in the Sniffer on its first press. It used to wait for three.
+
 ### Added
 
 - A KeeLoq or Somfy RTS remote's buttons can be triggers now. HAIR files each press by the part that doesn't change (the remote and the button), so every press of one button lands on one row and fires its trigger. A recording of a press it already heard is ignored. HAIR still never sends these codes. Rolling-code rows captured before this version stay as they were; press the button again.
