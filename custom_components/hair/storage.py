@@ -13,7 +13,7 @@ from .const import (
     STORAGE_VERSION_MINOR,
 )
 from .identity import NormFpIndex
-from .models import IRDevice, IRTrigger, TriggerRemote
+from .models import IRDevice, IRTrigger, TriggerRemote, is_group
 from .store_health import StoreHealth
 
 _LOGGER = logging.getLogger(__name__)
@@ -354,6 +354,8 @@ class HAIRStore:
         self._idx_norm_fp = NormFpIndex()
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 try:
                     self._index_one_command(device, cmd)
                 except Exception:
@@ -417,6 +419,8 @@ class HAIRStore:
         filled = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if fill_spacing_block(cmd):
                     filled += 1
         if filled:
@@ -614,6 +618,8 @@ class HAIRStore:
             return None
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if (
                     cmd.protocol == RF_PROTOCOL
                     and cmd.byte_hash == byte_hash
@@ -652,6 +658,8 @@ class HAIRStore:
         mended = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if (
                     cmd.protocol == RF_PROTOCOL
                     and not cmd.raw_timings
@@ -676,6 +684,8 @@ class HAIRStore:
         whole: dict[str, Any] = {}
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if cmd.protocol == RF_PROTOCOL and cmd.raw_timings and cmd.byte_hash:
                     whole.setdefault(cmd.byte_hash, cmd)
         return whole
@@ -834,6 +844,8 @@ class HAIRStore:
         changed = False
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if cmd.byte_hash is not None:
                     continue
                 # Canonical (wire) form, like every other hash in HAIR
@@ -880,6 +892,8 @@ class HAIRStore:
         changed = commands = triggers = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 # HASHABLE IS THE BAR, NOT CANONICALIZABLE (GH #125).
                 # This used to skip any row whose code did not
                 # canonicalize, which sounds conservative and is not: a
@@ -1035,6 +1049,8 @@ class HAIRStore:
         commands = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if not stored_identity_is_stale(
                     cmd.decoded_fingerprint, timings_of(cmd.raw_timings, cmd.code)
                 ):
@@ -1078,6 +1094,8 @@ class HAIRStore:
         changed = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 # A radio row never meets an infrared decoder (RF hear,
                 # round 1): its frame would only ever false-match.
                 if cmd.decoded_fingerprint or is_rf(cmd):
@@ -1116,6 +1134,8 @@ class HAIRStore:
         judged = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if cmd.decode_covers is not None or is_rf(cmd):
                     continue
                 raw = cmd.raw_timings

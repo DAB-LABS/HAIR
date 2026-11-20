@@ -126,6 +126,7 @@ const ICON_COMB =
 import "./ir-tx-knobs.js";
 import "./ir-count-dot.js";
 import type { IRCommand } from "./types.js";
+import { aboutSeconds, isGroup } from "./group-steps.js";
 
 @customElement("ir-command-row")
 export class IrCommandRow extends LitElement {
@@ -230,6 +231,12 @@ export class IrCommandRow extends LitElement {
      *  device's climate entity. Drives the solid-vs-outline glyph and
      *  which of the two titles the button carries. */
     @property({ type: Boolean }) public starred = false;
+    /** A grouped command's steps are showing (grouped-signals.md). The
+     *  chevron in the edit pencil's place toggles it (`toggle-open`). */
+    @property({ type: Boolean }) public open = false;
+    /** Start renaming as soon as the row is drawn: a new group comes
+     *  in open with its name ready to type over. */
+    @property({ type: Boolean }) public renameOnOpen = false;
 
     @state() private _editingName = false;
     @state() private _draftName = "";
@@ -354,6 +361,34 @@ export class IrCommandRow extends LitElement {
         });
     }
 
+    protected firstUpdated(): void {
+        if (this.renameOnOpen && this.command) {
+            this._startRename(new Event("rename"));
+        }
+    }
+
+    /** What a grouped command shows where the diamonds go: its steps,
+     *  the devices it touches, its run time, and any missing step. */
+    private _groupSummary() {
+        const g = this.command?.group;
+        if (!g || !g.steps.length) {
+            return html`<span class="muted">${t("group.no_steps_yet")}</span>`;
+        }
+        const parts = [
+            t(g.steps.length === 1 ? "group.one_step" : "group.n_steps", {
+                count: String(g.steps.length),
+            }),
+            ...(g.devices.length ? [g.devices.join(", ")] : []),
+            t("group.about", { time: aboutSeconds(g.run_ms) }),
+        ];
+        return html`${parts.join(" · ")}${g.missing
+            ? html`<span class="missing-count">⚠ ${t(
+                  g.missing === 1 ? "group.one_missing" : "group.n_missing",
+                  { count: String(g.missing) },
+              )}</span>`
+            : ""}`;
+    }
+
     private _commitRename(): void {
         if (!this._editingName) return;
         const name = this._draftName.trim();
@@ -379,10 +414,15 @@ export class IrCommandRow extends LitElement {
 
     render() {
         const learned = this.command !== null;
-        const diamonds = learned ? this._renderDiamonds() : null;
+        const group = isGroup(this.command);
+        const diamonds = learned && !group ? this._renderDiamonds() : null;
         const showActionLabel = learned && this.showActionMapping;
         return html`
-            <div class="row" data-learned=${learned ? "true" : "false"}>
+            <div
+                class="row"
+                data-learned=${learned ? "true" : "false"}
+                ?data-open=${group && this.open}
+            >
                 <div class="top-line">
                     <div class="status" aria-hidden="true">
                         <slot name="status"></slot>
@@ -455,7 +495,9 @@ export class IrCommandRow extends LitElement {
                         ${learned
                             ? html`
                                   <div class="chip-col">
-                                      ${this.command?.medium !== "rf" && this.command?.decoded_protocol
+                                      ${group
+                                          ? html`<span class="group-chip">${t("group.chip")}</span>`
+                                          : this.command?.medium !== "rf" && this.command?.decoded_protocol
                                           ? html`<ir-protocol-chip
                                                 .protocol=${this.command
                                                     .decoded_protocol}
@@ -526,7 +568,15 @@ export class IrCommandRow extends LitElement {
                                       ?disabled=${this.busy}
                                       @click=${() => this._emit("test")}
                                   >${t("cmdrow.test")}</button>
-                                  ${this.command?.comb_suspect
+                                  ${group
+                                      ? // A group has no code to hear; its
+                                        // space is kept so the columns line up.
+                                        html`<button
+                                            class="action-btn trigger-btn reserve"
+                                            aria-hidden="true"
+                                            tabindex="-1"
+                                        >${t("cmdrow.trigger")}</button>`
+                                      : this.command?.comb_suspect
                                       ? ""
                                       : html`<button
                                       class="action-btn trigger-btn"
@@ -550,11 +600,26 @@ export class IrCommandRow extends LitElement {
                                                 this.busy,
                                             )
                                           : ""}
-                                      ${renderEditBtn(
-                                          () => this._emit("edit-command"),
-                                          t("cmdrow.edit_code"),
-                                          this.busy,
-                                      )}
+                                      ${group
+                                          ? html`<button
+                                                class="expand-btn"
+                                                title=${t(this.open ? "group.close" : "group.open")}
+                                                aria-label=${t(this.open ? "group.close" : "group.open")}
+                                                aria-expanded=${this.open ? "true" : "false"}
+                                                ?disabled=${this.busy}
+                                                @click=${() => this._emit("toggle-open")}
+                                            >
+                                                <svg
+                                                    class="chevron ${this.open ? "chevron-open" : ""}"
+                                                    viewBox="0 0 24 24"
+                                                    aria-hidden="true"
+                                                ><path d="M6 9l6 6 6-6"></path></svg>
+                                            </button>`
+                                          : renderEditBtn(
+                                                () => this._emit("edit-command"),
+                                                t("cmdrow.edit_code"),
+                                                this.busy,
+                                            )}
                                       <button
                                           class="trash-btn"
                                           title=${t("cmdrow.delete_title")}
@@ -578,13 +643,16 @@ export class IrCommandRow extends LitElement {
                               `}
                     </div>
                 </div>
-                <div class="meta">
-                    ${diamonds
+                <div class="meta ${group ? "plain" : ""}">
+                    ${group
+                        ? this._groupSummary()
+                        : diamonds
                         ? diamonds
                         : learned
                           ? html`${this._commandLabel()}`
                           : html`<span class="muted">${t("cmdrow.not_learned")}</span>`}
                 </div>
+                ${group && this.open ? html`<slot name="group"></slot>` : ""}
             </div>
         `;
     }
@@ -775,6 +843,79 @@ export class IrCommandRow extends LitElement {
         }
         .muted {
             font-style: italic;
+        }
+        /* A grouped command (grouped-signals.md): its line where the
+           diamonds go is words, not code; the chip sits in the protocol
+           chip's column in the chip's own grammar; the chevron sits in
+           the edit pencil's place, the same chevron the matrix card and
+           the Sniffer rows use. */
+        .row[data-open] {
+            border: 1px solid var(--divider-color);
+        }
+        .meta.plain {
+            font-family: inherit;
+        }
+        .missing-count {
+            color: var(--warning-color, #d9a441);
+            margin-left: 6px;
+        }
+        .group-chip {
+            font-size: 9.5px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            white-space: nowrap;
+            padding: 2px 7px;
+            border-radius: 9px;
+            border: 1px solid #c9a3e6;
+            color: #c9a3e6;
+            line-height: 1.05;
+            opacity: 0.9;
+        }
+        .action-btn.reserve {
+            visibility: hidden;
+        }
+        /* On a phone the row wraps anyway, so the held space would only
+           push the chevron onto a line of its own. */
+        @media (max-width: 450px) {
+            .action-btn.reserve {
+                display: none;
+            }
+        }
+        .expand-btn {
+            background: none;
+            border: none;
+            color: var(--secondary-text-color);
+            /* The edit pencil's width, so TEST lines up with the rows
+               above and below. */
+            width: 26px;
+            height: 30px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            cursor: pointer;
+            padding: 0;
+        }
+        .expand-btn:hover:not(:disabled) {
+            background: var(--secondary-background-color);
+            color: var(--primary-text-color);
+        }
+        .expand-btn[aria-expanded="true"] {
+            color: var(--primary-text-color);
+        }
+        .expand-btn .chevron {
+            width: 20px;
+            height: 20px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: transform 150ms ease;
+        }
+        .expand-btn .chevron-open {
+            transform: rotate(180deg);
         }
         .diamonds {
             display: inline-flex;

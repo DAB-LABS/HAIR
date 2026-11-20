@@ -47,6 +47,7 @@ import "./ir-trigger-remote-settings-dialog.js";
 import "./ir-ghost-tile.js";
 import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
 import { PINNING_UI_ENABLED, PIN_BLUE } from "./ir-pin-flag.js";
+import { groupsNote } from "./group-steps.js";
 import type { HairApi } from "./api.js";
 import { landedManyNotice, pinFillNotice } from "./api.js";
 import type { PinResult } from "./api.js";
@@ -84,6 +85,7 @@ import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
     CombSummary,
     DeviceSummary,
+    GroupUser,
     DeviceTypeId,
     IRDevice,
     IRTrigger,
@@ -293,6 +295,9 @@ export class IrDeviceList extends LitElement {
     @state() private _confirmDeleteTrigger: IRTrigger | null = null;
     @state() private _duplicateTarget: DeviceSummary | null = null;
     @state() private _confirmDeleteDevice: DeviceSummary | null = null;
+    /** The grouped commands on other devices that a device delete
+     *  would leave a missing step in (grouped-signals.md). */
+    @state() private _deleteDeviceGroups: GroupUser[] = [];
     // Mirror-door mints (signpost 3, Track 3.5, owner-directed
     // 2026-08-15): the source object riding between a Settings
     // dialog's request-make-remote/request-make-device and the mint
@@ -813,7 +818,7 @@ export class IrDeviceList extends LitElement {
 
     private _requestDeleteDevice(device: DeviceSummary, e: Event): void {
         e.stopPropagation();
-        this._confirmDeleteDevice = device;
+        this._askDeleteDevice(device);
     }
 
     // --- Trigger remotes (Add Popups signpost 2, Track 4) ---
@@ -2359,6 +2364,20 @@ export class IrDeviceList extends LitElement {
         this._factsTimer = null;
     }
 
+    /** Open the device delete confirm, and ask which grouped commands
+     *  on other devices would lose a step, so the confirm can say. */
+    private _askDeleteDevice(device: DeviceSummary): void {
+        this._confirmDeleteDevice = device;
+        this._deleteDeviceGroups = [];
+        if (!this.api) return;
+        void this.api
+            .groupUsedBy(device.id)
+            .then(({ groups }) => {
+                if (this._confirmDeleteDevice?.id === device.id) this._deleteDeviceGroups = groups;
+            })
+            .catch(() => undefined);
+    }
+
     render() {
         if (this.loading) {
             return html`<div class="loading">${t("devlist.loading")}</div>`;
@@ -2484,7 +2503,7 @@ export class IrDeviceList extends LitElement {
                                                         this._openDuplicateDialog(this._expandedDevice, ev)}
                                                     @request-delete=${() => {
                                                         if (this._expandedDevice) {
-                                                            this._confirmDeleteDevice = this._expandedDevice;
+                                                            this._askDeleteDevice(this._expandedDevice);
                                                         }
                                                     }}
                                                     @request-make-remote=${() =>
@@ -3068,7 +3087,8 @@ export class IrDeviceList extends LitElement {
                 ? html`
                       <ir-confirm-dialog
                           title=${t("devlist.del_device_title")}
-                          message=${t("devlist.del_device_msg", { name: this._confirmDeleteDevice.name })}
+                          message=${t("devlist.del_device_msg", { name: this._confirmDeleteDevice.name }) +
+                          groupsNote(t, this._deleteDeviceGroups)}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._doDeleteDevice}
