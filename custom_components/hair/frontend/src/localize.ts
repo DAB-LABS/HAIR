@@ -42,6 +42,7 @@ import pl from "./locales/pl.json";
 import pt from "./locales/pt.json";
 import ru from "./locales/ru.json";
 import zh from "./locales/zh.json";
+import zhHant from "./locales/zh-Hant.json";
 
 type Dictionary = Record<string, string>;
 
@@ -63,11 +64,17 @@ const DICTIONARIES: Record<string, Dictionary> = {
     // language choices; pt-BR resolves here via the base-language rule.
     pt: pt as Dictionary,
     ru: ru as Dictionary,
-    // One Simplified Chinese dictionary serves every Chinese tag:
-    // zh-Hans and zh-CN resolve here directly or via the base-language
-    // rule, and zh-Hant reads it too rather than falling back to
-    // English. Same trade-off as the single pt dictionary above.
+    // Simplified Chinese: zh-Hans and zh-CN resolve here directly or
+    // via the base-language rule.
     zh: zh as Dictionary,
+    // Traditional Chinese (Taiwan usage). Keys are lowercase because
+    // setPanelLanguage lowercases the requested tag; HA's own choice is
+    // zh-Hant, and the region tags that read Traditional script land
+    // here too instead of falling through to Simplified.
+    "zh-hant": zhHant as Dictionary,
+    "zh-tw": zhHant as Dictionary,
+    "zh-hk": zhHant as Dictionary,
+    "zh-mo": zhHant as Dictionary,
 };
 
 let _lang = "en";

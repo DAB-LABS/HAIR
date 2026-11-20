@@ -195,7 +195,7 @@ class TestTheNoFrameRefusal:
 
     def test_both_strings_are_in_every_language(self):
         langs = sorted(p.stem for p in LOCALES.glob("*.json") if p.stem != "xx")
-        assert len(langs) == 11
+        assert len(langs) == 12
         en = _locale("en")
         for lang in langs:
             d = _locale(lang)
