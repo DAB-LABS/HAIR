@@ -3812,14 +3812,19 @@ def ws_rf_receiver_tuning(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Every radio receiver's tuning, for the Sniffer's receiver chip
-    (listening PR 1): whether HAIR can tune it, through which number,
-    where it listens now, the number's limits and the declared ranges."""
-    from .rf_receive import rf_receiver_ids
+    """Every radio receiver's frequency row, for the Sniffer's frequency
+    control: its form, ranges, presets, select and number, where it
+    listens now and whether that can be trusted
+    (``rf_receive.receiver_frequency``). The earlier chip's fields
+    (``rf_tune.describe``) ride along in the same row."""
+    from .rf_receive import receiver_frequency, rf_receiver_ids
     from .rf_tune import describe
 
     connection.send_result(msg["id"], {
-        "receivers": [describe(hass, rid) for rid in rf_receiver_ids(hass)],
+        "receivers": [
+            {**describe(hass, rid), **receiver_frequency(hass, rid)}
+            for rid in rf_receiver_ids(hass)
+        ],
     })
 
 
@@ -3827,7 +3832,8 @@ def ws_rf_receiver_tuning(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/rf/receiver_tune",
     vol.Required("receiver_entity_id"): str,
-    vol.Required("frequency_hz"): vol.All(int, vol.Range(min=1_000_000, max=10_000_000_000)),
+    vol.Optional("frequency_hz"): vol.All(int, vol.Range(min=1_000_000, max=10_000_000_000)),
+    vol.Optional("option"): vol.All(str, vol.Length(min=1, max=255)),
 })
 @websocket_api.async_response
 async def ws_rf_receiver_tune(
@@ -3835,27 +3841,38 @@ async def ws_rf_receiver_tune(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Set a radio receiver's listening frequency (listening PR 1).
+    """Set where a radio receiver listens: ``frequency_hz`` (any value) or
+    ``option`` (a preset by name, the only way to pick a sweep), exactly
+    one of them.
 
-    The answer is a result, not an error, so the chip can say it:
-    ``confirmed`` with the value now held, ``did_not_change`` with the
-    value the receiver still holds, or ``cannot_tune`` when HAIR has no
-    number to set. A value outside the number's limits is still tried.
+    The answer is a result, not an error, so the control can say it:
+    ``confirmed`` with where it listens now, ``did_not_change`` with
+    where it still listens, or ``cannot_tune`` when HAIR has no way to
+    set it there. A value outside the number's limits is still tried.
+    ``row`` is the receiver's frequency row, read after.
     """
-    from .rf_receive import is_rf_receiver_state
-    from .rf_tune import async_tune
+    from .rf_receive import is_rf_receiver_state, receiver_frequency
+    from .rf_tune import async_set_frequency
 
     receiver = msg["receiver_entity_id"]
     if not is_rf_receiver_state(hass.states.get(receiver)):
         connection.send_error(msg["id"], "not_found", f"{receiver} is not a radio receiver")
         return
+    if ("frequency_hz" in msg) == ("option" in msg):
+        connection.send_error(
+            msg["id"], "invalid_format", "Give frequency_hz or option, not both"
+        )
+        return
     try:
-        result = await async_tune(hass, receiver, msg["frequency_hz"])
-    except Exception as err:  # the number's service refused
+        result = await async_set_frequency(
+            hass, receiver,
+            frequency_hz=msg.get("frequency_hz"), option=msg.get("option"),
+        )
+    except Exception as err:  # the number's or the select's service refused
         _LOGGER.debug("Tuning %s failed", receiver, exc_info=True)
         connection.send_error(msg["id"], "tune_failed", str(err))
         return
-    connection.send_result(msg["id"], result)
+    connection.send_result(msg["id"], {**result, "row": receiver_frequency(hass, receiver)})
 
 
 @websocket_api.require_admin
