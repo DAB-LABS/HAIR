@@ -71,6 +71,7 @@ A radio row sends the way an infrared one does: assign it to a device and press 
 - **A refused Test** says so at the bottom of the panel, naming the transmitter and the band, and the row keeps its Test button.
 - **How many times a press is sent.** A remote repeats its code several times for each press, and a receiver often needs more than one of them. A new radio command starts from the number of repeats HAIR heard in one press, from 2 to 10, or 4 when the press was not measured. Send times in the code's editor changes it.
 - **The Mirror** shows each radio send with the band it went out on.
+- **Rolling codes are never sent.** HAIR keeps a KeeLoq or Somfy RTS code, and it can be a trigger, but a saved rolling code won't work a second time, so HAIR never sends one.
 
 A send is bounded: HAIR never holds the air for more than 3 seconds, and never repeats a send on its own. Transmit power and the band rules where you live are the hardware's and yours.
 
