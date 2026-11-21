@@ -73,6 +73,10 @@ export interface GroupCandidateDevice {
     name: string;
     here: boolean;
     blaster: boolean;
+    /** A climate matrix device: its cells are not commands. */
+    matrix: boolean;
+    /** The media its commands use, infrared first (the Devices page's). */
+    media: Medium[];
     commands: {
         id: string;
         name: string;

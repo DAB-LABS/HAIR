@@ -2,7 +2,7 @@
  * Device detail view: editable header (name, type, emitter),
  * read-only hardware cards (TX / RX), flat command list.
  */
-import { LitElement, html, css, nothing } from "lit";
+import { LitElement, html, css, nothing, unsafeCSS } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp, tv } from "./localize.js";
@@ -13,7 +13,7 @@ import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import "./ir-command-row.js";
 import "./ir-group-steps.js";
-import { groupsNote, isGroup } from "./group-steps.js";
+import { GROUP_HUE, GROUP_HUE_LIGHT, groupsNote, isGroup } from "./group-steps.js";
 
 /** Action-badge sizing constants (owner ruling, 2026-08-01; box model
  *  REWORKED 2026-08-11, fourth bench pass -- the fixed-width reservation
@@ -603,6 +603,12 @@ export class IrDeviceDetail extends LitElement {
     // ---------------------------------------------------------------
     // Action mapping
     // ---------------------------------------------------------------
+
+    protected willUpdate(changed: Map<string, unknown>): void {
+        super.willUpdate(changed);
+        // The GROUP chip is toned per theme (--hair-group-hue below).
+        this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));
+    }
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -2132,6 +2138,14 @@ export class IrDeviceDetail extends LitElement {
         settingsButtonStyles,
         exitToEntityButtonStyles,
         css`
+        /* The GROUP chip and the picker's "This device" badge, per theme
+           (group-steps.ts GROUP_HUE). Inherited by the rows below. */
+        :host {
+            --hair-group-hue: ${unsafeCSS(GROUP_HUE_LIGHT)};
+        }
+        :host([dark]) {
+            --hair-group-hue: ${unsafeCSS(GROUP_HUE)};
+        }
         /* The 0.9.8 top-nudge and the 2026-08-15 10px right inset on
            .device-meta .settings-btn both retired
            with .device-meta itself (punch list item 9). The gear no

@@ -400,6 +400,8 @@ class TestWhatThePanelReads:
         no_blaster = next(d for d in listed if d["name"] == "Bedroom AC")
         assert not no_blaster["blaster"]
         assert no_blaster["commands"][0]["reason"] == "no_blaster"
+        # Each device says its media and whether it is a matrix device.
+        assert listed[0]["media"] == ["ir"] and listed[0]["matrix"] is False
 
     async def test_used_by_names_the_groups(self, manager):
         tv = _device("TV", "infrared.tv", "Power On")

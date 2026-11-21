@@ -60,7 +60,9 @@ SEND_SPACING_MAX_MS = 1000
 # wobble the bench measured and keeps two steps' Mirror echoes apart.
 GROUP_DELAY_MIN_MS = 300
 GROUP_DELAY_MAX_MS = 60_000
-GROUP_DELAY_DEFAULT_MS = 500
+# A new step starts at the floor, with its minus greyed, so the row
+# shows it can only go bigger.
+GROUP_DELAY_DEFAULT_MS = 300
 GROUP_MAX_STEPS = 20
 # Delays plus each step's air time. Stops a typo turning a button into a
 # ten-minute job; a button press waits for the whole run.

@@ -415,8 +415,13 @@ def step_candidates(
     The group's own device first, the rest in the panel's order. Grouped
     commands are left out (no groups inside groups); a command that
     can't be a step stays in the list with its reason, so the picker can
-    grey it and say why.
+    grey it and say why. Each device carries its media, the same list
+    the Devices page draws its glyphs from, and whether it is a climate
+    matrix device: a matrix device with nothing sendable is greyed with
+    a pointer to saving a state as a command.
     """
+    from .websocket_api import _media
+
     devices = manager.get_all_devices()
     devices.sort(key=lambda d: d.id != home_device_id)
     out = []
@@ -436,6 +441,8 @@ def step_candidates(
             "name": device.name,
             "here": device.id == home_device_id,
             "blaster": bool(device.emitter_entity_ids),
+            "matrix": bool(device.climate_matrix),
+            "media": _media(device.commands, matrix=bool(device.climate_matrix)),
             "commands": commands,
         })
     return out

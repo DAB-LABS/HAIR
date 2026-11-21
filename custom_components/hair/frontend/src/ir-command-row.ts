@@ -99,7 +99,7 @@
  * group's own 4px from TRIGGER is untouched. One click toggles, no
  * dialog.
  */
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, unsafeCSS } from "lit";
 import { DIAMOND_LONG_VAR, DIAMOND_SHORT_VAR } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
@@ -126,7 +126,7 @@ const ICON_COMB =
 import "./ir-tx-knobs.js";
 import "./ir-count-dot.js";
 import type { IRCommand } from "./types.js";
-import { aboutSeconds, isGroup } from "./group-steps.js";
+import { GROUP_HUE, aboutSeconds, isGroup } from "./group-steps.js";
 
 @customElement("ir-command-row")
 export class IrCommandRow extends LitElement {
@@ -867,8 +867,8 @@ export class IrCommandRow extends LitElement {
             white-space: nowrap;
             padding: 2px 7px;
             border-radius: 9px;
-            border: 1px solid #c9a3e6;
-            color: #c9a3e6;
+            border: 1px solid var(--hair-group-hue, ${unsafeCSS(GROUP_HUE)});
+            color: var(--hair-group-hue, ${unsafeCSS(GROUP_HUE)});
             line-height: 1.05;
             opacity: 0.9;
         }
@@ -886,9 +886,11 @@ export class IrCommandRow extends LitElement {
             background: none;
             border: none;
             color: var(--secondary-text-color);
-            /* The edit pencil's width, so TEST lines up with the rows
-               above and below. */
-            width: 26px;
+            /* The edit pencil's box exactly (24 wide, measured), so TEST
+               and everything left of it line up with the rows above and
+               below. 26 put a group's TEST 2px left of the others. */
+            box-sizing: border-box;
+            width: 24px;
             height: 30px;
             display: inline-flex;
             align-items: center;
