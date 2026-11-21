@@ -16,7 +16,7 @@ Patch releases (1.0.1) fix things. Minor releases (1.1.0) add things. Anything o
 
 **Home Assistant version.** `hacs.json` names the oldest Home Assistant release HAIR supports. It moves forward as Home Assistant retires the APIs HAIR uses, and the release notes say so one release ahead.
 
-**Contracts with other integrations.** The `capture_switch` declaration for windowed receivers ([Windowed receivers](windowed-receivers.md)) and the pluckable registry format ([Making your integration pluckable](making-your-integration-pluckable.md)) stay as documented.
+**Contracts with other integrations.** The `capture_switch` declaration for windowed receivers ([Receivers](receivers.md)) and the pluckable registry format ([Making your integration pluckable](making-your-integration-pluckable.md)) stay as documented.
 
 ## Not promised
 

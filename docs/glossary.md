@@ -32,7 +32,7 @@ The Devices tab lists yours under Receivers.
 **Capture device.** A receiver that hears only while a capture window is
 open, for a few seconds at a time, such as a Broadlink with BroadSniff
 installed. Any integration can make its receiver one (see
-[Windowed receivers](windowed-receivers.md)). The Devices tab marks it
+[Receivers](receivers.md)). The Devices tab marks it
 RX-CAPTURE: click the chip to listen, or its arrow to choose which switch
 opens the window.
 

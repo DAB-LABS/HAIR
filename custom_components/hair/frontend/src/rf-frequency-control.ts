@@ -15,15 +15,21 @@
  *
  * form="list" (the listening picker):
  *
- *   the bands        every common band in order (RF_SUGGESTIONS_MHZ),
- *                    plus the current one if it is not among them, the
- *                    current one marked. A band outside the host's
- *                    minHz..maxHz is greyed but still clickable. One
- *                    click picks.
- *   Other...         the last row; a click turns it into a field in
- *                    place, focused. Enter sets what is typed, Escape
- *                    goes back to the row. Nothing is set while typing,
- *                    so a half-typed number never becomes a frequency.
+ *   the rows         the host's `rows` (a receiver's presets, or the
+ *                    common bands for one that takes any value), the
+ *                    current one marked; a greyed row is still a pick.
+ *                    Without `rows`, every common band in order
+ *                    (RF_SUGGESTIONS_MHZ), greyed outside minHz..maxHz.
+ *                    One click picks.
+ *   Other...         the last row, when `other` is set; a click turns it
+ *                    into a field in place, focused. Enter sets what is
+ *                    typed, Escape goes back to the row. Nothing is set
+ *                    while typing, so a half-typed number never becomes
+ *                    a frequency.
+ *
+ * With `rows`, a pick fires `frequency-pick` with `{ hz, option }`: the
+ * row's preset by name, or a frequency (a band or Other). A pick of the
+ * current row is no change and fires nothing but `frequency-done`.
  *
  * Both forms fire `frequency-done` after any pick, a change or not, so a
  * host that shows the list in a menu can close it.
@@ -71,6 +77,16 @@ export function outsideRange(hz: number, minHz: number | null, maxHz: number | n
     return (minHz !== null && hz < minHz) || (maxHz !== null && hz > maxHz);
 }
 
+/** One row of the list form, as the host builds it. */
+export interface ListRow {
+    key: string;
+    label: string;
+    hz: number | null;
+    option: string | null;
+    current: boolean;
+    dim: boolean;
+}
+
 /** Whether the Other field holds the frequency: a value that is not one
  *  of the band pills. Then it wears the picked look. */
 export function otherHolds(valueHz: number | null): boolean {
@@ -99,6 +115,10 @@ export class HairFrequencyControl extends LitElement {
     /** The list form greys bands outside these, when known. */
     @property({ attribute: false }) public minHz: number | null = null;
     @property({ attribute: false }) public maxHz: number | null = null;
+    /** The list form's rows from the host, or null for the common bands. */
+    @property({ attribute: false }) public rows: ListRow[] | null = null;
+    /** Whether the list form ends with "Other...". */
+    @property({ type: Boolean }) public other = true;
 
     @state() private _typed = "";
     /** The list form's Other row is a field. */
@@ -126,6 +146,14 @@ export class HairFrequencyControl extends LitElement {
         this._fire("frequency-done", {});
     }
 
+    /** A host row picked: its preset by name, or its frequency. */
+    private _pickRow(row: ListRow): void {
+        if (!row.current) {
+            this._fire("frequency-pick", row.option !== null ? { option: row.option } : { hz: row.hz });
+        }
+        this._fire("frequency-done", {});
+    }
+
     /** The list form's field: kept as typed, set only on Enter. */
     private _onListInput(e: Event): void {
         this._typed = (e.target as HTMLInputElement).value;
@@ -141,7 +169,12 @@ export class HairFrequencyControl extends LitElement {
             }
             this._listInvalid = false;
             this._otherOpen = false;
-            this._pick(hz);
+            if (this.rows !== null) {
+                this._fire("frequency-pick", { hz });
+                this._fire("frequency-done", {});
+            } else {
+                this._pick(hz);
+            }
         } else if (e.key === "Escape") {
             // Back to the row; the host's menu stays open.
             e.stopPropagation();
@@ -205,7 +238,7 @@ export class HairFrequencyControl extends LitElement {
     private _renderList() {
         const bands = listBands(this.valueHz);
         return html`<div class="list" role="listbox" aria-label=${this.label} @keydown=${this._onListNav}>
-            ${bands.map((hz) => {
+            ${this.rows !== null ? this._renderRows(this.rows) : bands.map((hz) => {
                 const on = hz === this.valueHz;
                 const dim = outsideRange(hz, this.minHz, this.maxHz);
                 return html`<button
@@ -218,7 +251,9 @@ export class HairFrequencyControl extends LitElement {
                     <span class="check">${on ? "✓" : ""}</span>${t("rfedit.mhz", { mhz: hzToMhz(hz) })}
                 </button>`;
             })}
-            ${this._otherOpen
+            ${!this.other
+                ? ""
+                : this._otherOpen
                 ? html`<span class="row other-field">
                       <input
                           type="text"
@@ -237,6 +272,20 @@ export class HairFrequencyControl extends LitElement {
                       <span class="check"></span>${t("listen.tune_other")}
                   </button>`}
         </div>`;
+    }
+
+    private _renderRows(rows: ListRow[]) {
+        return rows.map(
+            (row) => html`<button
+                class="row ${row.current ? "on" : ""} ${row.dim ? "dim" : ""}"
+                role="option"
+                aria-selected=${row.current ? "true" : "false"}
+                ?disabled=${this.disabled}
+                @click=${() => this._pickRow(row)}
+            >
+                <span class="check">${row.current ? "✓" : ""}</span>${row.label}
+            </button>`,
+        );
     }
 
     private _renderPills() {

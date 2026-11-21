@@ -7,7 +7,7 @@ card and the code editor's Listen. This module is everything HAIR knows
 about such receivers, and it knows no integration by name: a receiver
 says it is a capture device through its own state attributes, and any
 integration can say so. The published contract is
-``docs/windowed-receivers.md``; the attribute names are chosen to map
+``docs/receivers.md``; the attribute names are chosen to map
 onto a capture feature on HA core's infrared receiver if core adopts
 one, and the contract will follow core if it does.
 
@@ -86,10 +86,16 @@ ATTR_FREQUENCY_SELECT = "frequency_select"
 ATTR_WINDOW_LENGTH = "window_length"
 ATTR_CAPTURE_MODE_SELECT = "capture_mode_select"
 ATTR_FREQUENCY_OPTIONS = "frequency_options"
+# Optional, on any radio receiver: a number on its own device that sets
+# any carrier, and the frequency select's option that number feeds (the
+# select's other options are presets).
+ATTR_FREQUENCY_NUMBER = "frequency_number"
+ATTR_FREQUENCY_NUMBER_OPTION = "frequency_number_option"
 SWEEP = "sweep"
 # The domain each declared setting must be in.
 SETTING_DOMAINS = {
     ATTR_FREQUENCY_SELECT: "select",
+    ATTR_FREQUENCY_NUMBER: "number",
     ATTR_WINDOW_LENGTH: "number",
     ATTR_CAPTURE_MODE_SELECT: "select",
 }
@@ -414,6 +420,9 @@ def _clean_settings(settings: Any) -> dict[str, Any]:
         value = settings.get(key)
         if isinstance(value, str) and value:
             out[key] = value
+    option = settings.get(ATTR_FREQUENCY_NUMBER_OPTION)
+    if ATTR_FREQUENCY_NUMBER in out and isinstance(option, str) and option:
+        out[ATTR_FREQUENCY_NUMBER_OPTION] = option
     options = settings.get(ATTR_FREQUENCY_OPTIONS)
     if ATTR_FREQUENCY_SELECT in out and isinstance(options, list):
         kept = [
@@ -435,8 +444,10 @@ def declared_settings(
 
     Each must name an entity on the receiver's own device, in its
     domain (a select for the frequency and the mode, a number for the
-    length), the rule ``capture_switch`` follows. The frequency options
-    count only beside a valid frequency select.
+    length and the frequency number), the rule ``capture_switch``
+    follows. The frequency options count only beside a valid frequency
+    select, and the number's option only when it names one of them
+    beside a valid frequency number.
     """
     if state is None or not device_id:
         return {}
@@ -452,6 +463,13 @@ def declared_settings(
         options = frequency_options(state.attributes.get(ATTR_FREQUENCY_OPTIONS))
         if options:
             out[ATTR_FREQUENCY_OPTIONS] = options
+    option = state.attributes.get(ATTR_FREQUENCY_NUMBER_OPTION)
+    if (
+        ATTR_FREQUENCY_NUMBER in out
+        and isinstance(option, str)
+        and any(o["option"] == option for o in out.get(ATTR_FREQUENCY_OPTIONS, []))
+    ):
+        out[ATTR_FREQUENCY_NUMBER_OPTION] = option
     return out
 
 

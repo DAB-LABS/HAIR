@@ -38,6 +38,31 @@ import { t } from "./localize.js";
 import type { CaptureReceiverRow, ReceiverTuning, RfReceiverItem } from "./types.js";
 import { pillLive, pillShown } from "./ir-listen-state.js";
 
+/** What the radio receivers' rows depend on in Home Assistant: each
+ *  receiver's select and number, and the receiver's own window. When
+ *  this changes, the rows are read again. Pure, for the node tests. */
+export function tuningWatch(
+    states: Record<string, { state?: string; attributes?: Record<string, unknown> } | undefined> | undefined,
+    rows: ReceiverTuning[],
+): string {
+    return rows
+        .map((row) => {
+            const rx = states?.[row.receiver_entity_id];
+            return [
+                row.receiver_entity_id,
+                row.select ? states?.[row.select]?.state : "",
+                row.number ? states?.[row.number.entity_id]?.state : "",
+                // Not the state itself: a radio receiver's is the time it
+                // last heard something, which moves on every code.
+                rx?.state === "unavailable",
+                rx?.attributes?.capturing,
+                rx?.attributes?.capture_phase,
+                rx?.attributes?.frequency_hz,
+            ].join("|");
+        })
+        .join(";");
+}
+
 @customElement("ir-listen-row")
 export class IrListenRow extends LitElement {
     @property({ attribute: false }) public hass?: any;
@@ -53,6 +78,14 @@ export class IrListenRow extends LitElement {
      *  if the read fails (an older server), so no tune box shows. */
     @state() private _tuning: Record<string, ReceiverTuning> = {};
     private _tuningAsked = false;
+    /** What the rows were read against, so a change made elsewhere (the
+     *  select in Home Assistant, the number, a window opening) reads
+     *  them again. */
+    private _tuningSeen = "";
+    /** One read at a time; a change during a read reads once more after
+     *  it, so a burst of changes costs two reads, with no timer. */
+    private _tuningReading = false;
+    private _tuningAgain = false;
 
     disconnectedCallback(): void {
         super.disconnectedCallback();
@@ -60,6 +93,7 @@ export class IrListenRow extends LitElement {
     }
 
     protected updated(changed: PropertyValues): void {
+        if (changed.has("hass")) this._rereadOnChange();
         if (!changed.has("rows") && !changed.has("api")) return;
         if (this.api && !this._tuningAsked && this.rows.some((r) => r.medium === "rf")) {
             this._tuningAsked = true;
@@ -70,12 +104,33 @@ export class IrListenRow extends LitElement {
         else if (!wanted && this._sub !== null) this._unsubscribe();
     }
 
+    /** Read the rows again when anything they were built from has
+     *  changed in Home Assistant. */
+    private _rereadOnChange(): void {
+        const seen = tuningWatch(this.hass?.states, Object.values(this._tuning));
+        if (seen === this._tuningSeen || !this._tuningAsked) return;
+        this._tuningSeen = seen;
+        void this._readTuning();
+    }
+
     private async _readTuning(): Promise<void> {
+        if (this._tuningReading) {
+            this._tuningAgain = true;
+            return;
+        }
+        this._tuningReading = true;
         try {
             const { receivers } = await this.api.receiverTuning();
             this._tuning = Object.fromEntries(receivers.map((r) => [r.receiver_entity_id, r]));
+            this._tuningSeen = tuningWatch(this.hass?.states, receivers);
         } catch {
             // Best effort: without it, the pills show no tune box.
+        } finally {
+            this._tuningReading = false;
+        }
+        if (this._tuningAgain) {
+            this._tuningAgain = false;
+            void this._readTuning();
         }
     }
 

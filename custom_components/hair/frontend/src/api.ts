@@ -373,13 +373,18 @@ export class HairApi {
         return this.hass.connection.sendMessagePromise({ type: "hair/rf/receiver_tuning" });
     }
 
-    /** Set where a radio receiver listens. The answer says whether it
-     *  took: confirmed, did not change, or cannot be tuned. */
-    receiverTune(receiverEntityId: string, frequencyHz: number): Promise<ReceiverTuneResult> {
+    /** Set where a radio receiver listens: a frequency, or one of its
+     *  select's options by name (the only way to pick a sweep). The
+     *  answer says whether it took: confirmed, did not change, or
+     *  cannot be tuned. */
+    receiverTune(
+        receiverEntityId: string,
+        pick: { hz: number } | { option: string },
+    ): Promise<ReceiverTuneResult> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/rf/receiver_tune",
             receiver_entity_id: receiverEntityId,
-            frequency_hz: frequencyHz,
+            ...("hz" in pick ? { frequency_hz: pick.hz } : { option: pick.option }),
         });
     }
 

@@ -14,7 +14,7 @@ HAIR toggles a switch and reads ``capturing`` from the receiver's state.
 An always-on receiver has neither, so HAIR keeps the window itself. It
 has the same three modes and the same fields as a hardware one
 (``capturing``, ``window_ends_at``, ``capture_mode``, the meanings in
-``docs/windowed-receivers.md``): ``sliding`` moves its end out by its
+``docs/receivers.md``): ``sliding`` moves its end out by its
 length at every code HAIR accepts from the receiver, ``multiple`` keeps
 its end, ``single`` closes after the first accepted code. HAIR holds the
 state, not HA, so the panel reads it from HAIR's doors and its push

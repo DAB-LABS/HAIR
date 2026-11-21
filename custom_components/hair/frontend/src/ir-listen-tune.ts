@@ -2,24 +2,26 @@
  * Where a radio receiver listens, on its Sniffer pill: per receiver,
  * and only there.
  *
- * Only a receiver HAIR can tune gets a menu. The other two kinds show a
- * plain value with a line on hover, and nothing to click:
+ * One control for every radio receiver, drawn from the server's one
+ * description of it (``hair/rf/receiver_tuning``, its ``form``):
  *
- *   fixed   one declared frequency (an Athom): that frequency, "This
- *           receiver only listens here."
- *   auto    a receiver that declares nothing: no tuning number and no
- *           single frequency: "auto", "HAIR can't set where this receiver
- *           listens.", or while its window is open and the receiver says
- *           where it locked, that frequency.
+ *   select  the receiver's own presets in order, "Sweep" among them
+ *           when it has one; "Other..." when its number feeds an option
+ *   number  the common bands, greyed outside its limits or declared
+ *           ranges but still a pick, then "Other..."
+ *   both    the presets, then "Other..."
+ *   fixed   one declared frequency (an Athom): that frequency, no menu,
+ *           "This receiver only listens here." on hover
+ *   none    a receiver that declares nothing: "auto", or where its open
+ *           window locked; no menu, "HAIR can't set where this receiver
+ *           listens." on hover
  *
- * For a tunable receiver, a small box at the pill's end, the same as the
- * other pill pickers, reading the frequency it holds now ("433.92"),
- * "setting 433.00..." while a change is on its way, or "band unknown"
- * when its number gives nothing. A click opens a menu under
- * it: the shared frequency control in its list form (every common band,
- * the current one marked, then "Other..." to type one). One click picks
- * and closes the menu. When there is something to say about the pick,
- * a small note takes the menu's place:
+ * A small box at the pill's end, the same as the other pill pickers,
+ * reading where the receiver listens now ("433.92", "Sweep"), "setting
+ * 433.00..." while a change is on its way, or "band unknown" when a
+ * receiver HAIR can set gives nothing. A click opens the menu under it.
+ * One click picks and closes the menu. When there is something to say
+ * about the pick, a small note takes the menu's place:
  *
  *   outside the receiver's limits  "Outside what this receiver
  *                                   supports; trying anyway." (HAIR
@@ -41,58 +43,93 @@ import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
 import type { ReceiverTuneResult, ReceiverTuning } from "./types.js";
 import { hzToMhz } from "./rf-code.js";
-import "./rf-frequency-control.js";
+import { listBands, outsideRange, type ListRow } from "./rf-frequency-control.js";
+
+/** A pick: a frequency, or a select option by name. */
+export type TunePick = { hz: number } | { option: string };
 
 const CARET = svg`<path d="M7,10L12,15L17,10H7Z" />`;
 
 /** How long the note after a pick stays, unless clicked away first. */
 const NOTE_MS = 6000;
 
-/** A receiver's limit in MHz as Hz, or null. */
-function mhzOrNull(mhz: number | null | undefined): number | null {
-    return mhz == null ? null : Math.round(mhz * 1_000_000);
+/** What the box reads. A pick on its way reads "setting ...". Then
+ *  where the receiver listens now, by the server's own order: a
+ *  frequency, or "Sweep". A receiver that declares nothing reads "auto";
+ *  one HAIR can set but that gives nothing reads "band unknown". The
+ *  row's ``trusted`` is for stamping codes in the moment after a set,
+ *  not for the box: right after a pick the box shows the value the
+ *  receiver now holds, not "band unknown". Pure, for the node tests. */
+export function tuneLabel(row: ReceiverTuning | null, pending: TunePick | null): string {
+    if (pending !== null) {
+        return "hz" in pending
+            ? t("listen.tune_setting", { mhz: hzToMhz(pending.hz) })
+            : t("listen.tune_setting", { mhz: optionLabel(row, pending.option) });
+    }
+    if (!row) return t("listen.band_unknown");
+    if (row.now.kind === "hz" && row.now.hz) return hzToMhz(row.now.hz);
+    if (row.now.kind === "sweep") return t("listen.sweep");
+    return row.form === "none" ? t("listen.tune_auto") : t("listen.band_unknown");
 }
 
-/** Which of the three a receiver is: one HAIR can tune, one with a
- *  single fixed frequency, or one that finds its frequency itself.
+/** A select option as the list shows it: its band, or "Sweep". */
+function optionLabel(row: ReceiverTuning | null, option: string): string {
+    const preset = row?.presets.find((p) => p.option === option);
+    return preset?.hz ? hzToMhz(preset.hz) : t("listen.sweep");
+}
+
+/** The hover line on a receiver HAIR can't set, or null for one it can.
  *  Pure, for the node tests. */
-export function tuneKind(tuning: ReceiverTuning | null): "tunable" | "fixed" | "auto" {
-    if (!tuning || tuning.tunable) return "tunable";
-    return tuning.fixed ? "fixed" : "auto";
-}
-
-/** What the box reads: the frequency being set, else the one held now.
- *  A receiver that declares nothing reads "auto", or the
- *  frequency its open window locked to (``windowHz``). A tunable one
- *  whose number gives nothing reads "band unknown". Pure, for the node
- *  tests. */
-export function tuneLabel(
-    tuning: ReceiverTuning | null,
-    pendingHz: number | null,
-    windowHz: number | null = null,
-): string {
-    if (pendingHz !== null) return t("listen.tune_setting", { mhz: hzToMhz(pendingHz) });
-    if (tuneKind(tuning) === "auto") return windowHz ? hzToMhz(windowHz) : t("listen.tune_auto");
-    if (tuning?.current_mhz != null) return hzToMhz(Math.round(tuning.current_mhz * 1_000_000));
-    return t("listen.band_unknown");
-}
-
-/** The hover line on a receiver HAIR can't tune, or null for one it
- *  can. Pure, for the node tests. */
-export function stillTitle(tuning: ReceiverTuning | null): string | null {
-    const kind = tuneKind(tuning);
-    if (kind === "fixed") return t("listen.tune_fixed_title");
-    if (kind === "auto") return t("listen.tune_auto_title");
+export function stillTitle(row: ReceiverTuning | null): string | null {
+    if (row?.form === "fixed") return t("listen.tune_fixed_title");
+    if (row?.form === "none") return t("listen.tune_auto_title");
     return null;
 }
 
-/** Whether a frequency is outside the receiver's limits (its number's,
- *  or the ranges it declares). Unknown limits are never "outside". */
-export function outsideLimits(tuning: ReceiverTuning | null, hz: number): boolean {
-    if (!tuning) return false;
-    if (tuning.min_mhz != null && hz < Math.round(tuning.min_mhz * 1_000_000)) return true;
-    if (tuning.max_mhz != null && hz > Math.round(tuning.max_mhz * 1_000_000)) return true;
+/** Whether a frequency is outside what the receiver says it can do: its
+ *  number's own limits, then the ranges it declares. Unknown limits are
+ *  never "outside". Pure, for the node tests. */
+export function outsideLimits(row: ReceiverTuning | null, hz: number): boolean {
+    if (!row) return false;
+    if (row.number && outsideRange(hz, row.number.min_hz, row.number.max_hz)) return true;
+    if (row.ranges.length > 0 && !row.ranges.some(([lo, hi]) => hz >= lo && hz <= hi)) return true;
     return false;
+}
+
+/** The menu for a receiver, or null when there is nothing to pick.
+ *  - a select: its presets in order (the number's option is "Other...");
+ *  - a number: the common bands, greyed outside its limits or ranges,
+ *    then "Other...";
+ *  - both: the presets, then "Other...";
+ *  - fixed or none: no menu.
+ *  Pure, for the node tests. */
+export function tuneMenu(row: ReceiverTuning | null): { rows: ListRow[]; other: boolean } | null {
+    if (!row || row.form === "fixed" || row.form === "none") return null;
+    const nowHz = row.now.kind === "hz" ? row.now.hz : null;
+    if (row.form === "number") {
+        return {
+            rows: listBands(nowHz).map((hz) => ({
+                key: String(hz),
+                label: t("rfedit.mhz", { mhz: hzToMhz(hz) }),
+                hz,
+                option: null,
+                current: hz === nowHz,
+                dim: outsideLimits(row, hz),
+            })),
+            other: true,
+        };
+    }
+    const rows = row.presets
+        .filter((p) => !p.number)
+        .map((p) => ({
+            key: p.option,
+            label: p.hz ? t("rfedit.mhz", { mhz: hzToMhz(p.hz) }) : t("listen.sweep"),
+            hz: p.hz,
+            option: p.option,
+            current: p.current,
+            dim: false,
+        }));
+    return { rows, other: row.form === "both" || row.presets.some((p) => p.number === true) };
 }
 
 /** The one line under the control, or null. A pending set outside the
@@ -116,18 +153,15 @@ export class IrListenTune extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
     @property() public receiverEntityId = "";
     @property({ attribute: false }) public tuning: ReceiverTuning | null = null;
-    /** Shows its value but takes no change (the receiver is down). */
+    /** Shows its value but takes no change (the receiver is down, or
+     *  its window is open). */
     @property({ type: Boolean, reflect: true }) public inactive = false;
-    /** The frequency an open window locked to, from the receiver's own
-     *  state (``capture_phase`` listening), or null. Read only for a
-     *  receiver that finds its frequency itself. */
-    @property({ attribute: false }) public windowHz: number | null = null;
 
     @state() private _panel: { top: number; left: number } | null = null;
     /** What the open panel shows: the list, or the note after a pick. */
     @state() private _mode: "list" | "note" = "list";
     private _noteTimer: ReturnType<typeof setTimeout> | null = null;
-    @state() private _pendingHz: number | null = null;
+    @state() private _pending: TunePick | null = null;
     @state() private _pendingOutside = false;
     @state() private _result: ReceiverTuneResult | null = null;
 
@@ -197,19 +231,20 @@ export class IrListenTune extends LitElement {
 
     /** A pick from the list: the list closes; a note shows only when
      *  there is something to say. */
-    private async _tune(hz: number): Promise<void> {
-        this._pendingHz = hz;
-        this._pendingOutside = outsideLimits(this.tuning, hz);
+    private async _tune(pick: TunePick): Promise<void> {
+        this._pending = pick;
+        this._pendingOutside = "hz" in pick && outsideLimits(this.tuning, pick.hz);
         this._result = null;
         if (this._pendingOutside) this._open("note");
         else this._close();
         let result: ReceiverTuneResult | null = null;
         try {
-            result = await this.api.receiverTune(this.receiverEntityId, hz);
+            result = await this.api.receiverTune(this.receiverEntityId, pick);
         } catch {
-            result = { result: "did_not_change", current_mhz: this.tuning?.current_mhz ?? null };
+            const hz = this.tuning?.now.kind === "hz" ? this.tuning.now.hz : null;
+            result = { result: "did_not_change", current_mhz: hz ? hz / 1_000_000 : null };
         }
-        this._pendingHz = null;
+        this._pending = null;
         this._pendingOutside = false;
         this._result = result;
         if (tuneNote(false, result)) this._showNote();
@@ -239,7 +274,7 @@ export class IrListenTune extends LitElement {
     }
 
     render() {
-        const label = tuneLabel(this.tuning, this._pendingHz, this.windowHz);
+        const label = tuneLabel(this.tuning, this._pending);
         const name = t("listen.tune_title", { value: label });
         const still = stillTitle(this.tuning);
         if (still !== null) {
@@ -251,11 +286,10 @@ export class IrListenTune extends LitElement {
             </span>`;
         }
         const note = tuneNote(this._pendingOutside, this._result);
-        const currentHz =
-            this.tuning?.current_mhz != null ? Math.round(this.tuning.current_mhz * 1_000_000) : null;
+        const menu = tuneMenu(this.tuning);
         return html`<span class="wrap" @click=${this._stop} @keydown=${this._onKey}>
             <button
-                class="box ${this._panel ? "open" : ""} ${this._pendingHz !== null ? "pending" : ""}"
+                class="box ${this._panel ? "open" : ""} ${this._pending !== null ? "pending" : ""}"
                 aria-haspopup=${this.inactive ? "false" : "dialog"}
                 aria-expanded=${this._panel ? "true" : "false"}
                 aria-label=${name}
@@ -274,19 +308,22 @@ export class IrListenTune extends LitElement {
                       popover="manual"
                       style="top:${this._panel.top}px;left:${this._panel.left}px"
                   >
-                      ${this._mode === "list"
+                      ${this._mode === "list" && menu
                           ? html`<div class="heading">${t("listen.tune_heading")}</div>
                                 <hair-frequency-control
                                     form="list"
-                                    .valueHz=${this._pendingHz ?? currentHz}
-                                    .minHz=${mhzOrNull(this.tuning?.min_mhz)}
-                                    .maxHz=${mhzOrNull(this.tuning?.max_mhz)}
+                                    .rows=${menu.rows}
+                                    .other=${menu.other}
                                     .label=${t("listen.tune_heading")}
-                                    ?disabled=${this._pendingHz !== null}
-                                    @frequency-changed=${(e: CustomEvent<{ hz: number }>) =>
-                                        void this._tune(e.detail.hz)}
+                                    ?disabled=${this._pending !== null}
+                                    @frequency-pick=${(e: CustomEvent<{ hz?: number; option?: string }>) =>
+                                        void this._tune(
+                                            e.detail.option !== undefined
+                                                ? { option: e.detail.option }
+                                                : { hz: e.detail.hz as number },
+                                        )}
                                     @frequency-done=${() => {
-                                        if (this._pendingHz === null) this._close();
+                                        if (this._pending === null) this._close();
                                     }}
                                 ></hair-frequency-control>`
                           : nothing}
