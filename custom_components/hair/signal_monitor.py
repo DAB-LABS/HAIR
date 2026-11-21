@@ -75,6 +75,7 @@ from .const import (
     RF_PROTOCOL,
     RF_ROLLING_CODE,
     RF_ROLLING_CODE_MESSAGE,
+    RF_UNREAD_MIN_EDGES,
     SEND_REPEAT_GAP,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
@@ -1101,6 +1102,17 @@ class SignalMonitor:
         data = event.data or {}
         entity_id = data.get("entity_id")
         new_state = data.get("new_state")
+        if (
+            entity_id
+            and entity_id.startswith("radio_frequency.")
+            and new_state is not None
+            and new_state.attributes.get("capturing") is True
+        ):
+            old_state = data.get("old_state")
+            if old_state is None or old_state.attributes.get("capturing") is not True:
+                # A windowed receiver opened its window: its "can't read"
+                # count starts again.
+                self.rf_always_on.window_opened(entity_id)
         available = (
             new_state is not None and new_state.state != STATE_UNAVAILABLE
         )
@@ -2897,6 +2909,16 @@ class SignalMonitor:
             self._rf_bursts[receiver_entity_id] = assembler
         return assembler
 
+    def _rf_listening(self, receiver_entity_id: str) -> bool:
+        """A window the user opened is listening on this radio receiver:
+        HAIR's own for an always-on one, the receiver's for a windowed one."""
+        if self.rf_always_on.attached(receiver_entity_id):
+            return self.rf_always_on.window_open(receiver_entity_id)
+        from .receiver_window import is_capturing, says_capture
+
+        state = self._hass.states.get(receiver_entity_id)
+        return state is not None and says_capture(state) and is_capturing(state)
+
     def _rf_burst_voted(
         self, rid: str, analysis: Any, signal: Any, frames: int, fingerprint: str
     ) -> None:
@@ -2985,6 +3007,13 @@ class SignalMonitor:
                 )
             return
         analysis = vote(bodied)
+        if analysis is None and any(
+            len(parts.body) >= RF_UNREAD_MIN_EDGES for _piece, parts in bodied
+        ) and self._rf_listening(receiver_entity_id):
+            # Long enough to be a remote's, and no vote: possibly a code
+            # HAIR can't read. Counted only; a later vote of the same
+            # window (a one-frame-per-capture receiver) cancels it.
+            self.rf_always_on.note_unread(receiver_entity_id, readable=False)
         if analysis is not None:
             self._emit_rf(
                 analysis, signal, receiver_entity_id,
@@ -3030,6 +3059,12 @@ class SignalMonitor:
         from .rf_receive import frequency_of
         from .rf_replay import HELD, REPLAY
 
+        if analysis.body_edges >= RF_MIN_BODY_EDGES and self._rf_listening(
+            receiver_entity_id
+        ):
+            # A code HAIR can read was heard in this window: no "can't
+            # read" line for it.
+            self.rf_always_on.note_unread(receiver_entity_id, readable=True)
         rolling = rolling_identity(analysis.frame)
         verdict = (
             self._rf_replay.check(rolling, time.monotonic())

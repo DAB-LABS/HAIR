@@ -40,6 +40,15 @@ agreeing frames, nearly all of them noise); rows minted; presses that
 reached a known row or a trigger; and new codes dropped because the
 window was closed. Cheap integers, pushed at most once a second, so a
 noisy receiver can be seen being handled.
+
+UNREAD CODES (``UnreadLedger``). A radio code heard inside a window the
+user opened, on any radio receiver, that had a body long enough to be a
+remote's and passed no vote: a rolling code HAIR has no reader for,
+heard as a different code on every press. Nothing is kept of it. The
+receiver's row and push carry ``unread_radio``, how many were heard in
+the current or last window, or 0 when that window also heard a code
+HAIR could read; the panel says "Heard a radio code HAIR can't read
+yet" for a non-zero count. It starts again at 0 when a window opens.
 """
 from __future__ import annotations
 
@@ -214,6 +223,59 @@ class SoftwareWindow:
         self.close()
 
 
+class UnreadLedger:
+    """Per receiver: codes heard in the current or last window that HAIR
+    could not read, whether that window also heard one it could, and when
+    that window opened (the panel's key for it)."""
+
+    def __init__(self, wall_now: Callable[[], datetime] | None = None) -> None:
+        self._wall_now = wall_now or (lambda: datetime.now(UTC))
+        # receiver -> [unread, readable, opened_at]
+        self._windows: dict[str, list[Any]] = {}
+
+    def count(self, receiver: str) -> int:
+        record = self._windows.get(receiver)
+        if record is None or record[1]:
+            return 0
+        return record[0]
+
+    def opened_at(self, receiver: str) -> str | None:
+        """When the counted window opened, or None while the count is 0."""
+        if not self.count(receiver):
+            return None
+        return _iso(self._windows[receiver][2])
+
+    def fields(self, receiver: str) -> dict[str, Any]:
+        return {
+            "unread_radio": self.count(receiver),
+            "unread_window_opened_at": self.opened_at(receiver),
+        }
+
+    def opened(self, receiver: str, at: datetime | None = None) -> bool:
+        """A window opened on the receiver. True if its count changed."""
+        before = self.count(receiver)
+        self._windows[receiver] = [0, False, at or self._wall_now()]
+        return before != 0
+
+    def _record(self, receiver: str) -> list[Any]:
+        # A window HAIR didn't see open (it was open before HAIR started):
+        # keyed from its first code.
+        return self._windows.setdefault(receiver, [0, False, self._wall_now()])
+
+    def unread(self, receiver: str) -> bool:
+        before = self.count(receiver)
+        self._record(receiver)[0] += 1
+        return self.count(receiver) != before
+
+    def readable(self, receiver: str) -> bool:
+        before = self.count(receiver)
+        self._record(receiver)[1] = True
+        return self.count(receiver) != before
+
+    def forget(self, receiver: str) -> None:
+        self._windows.pop(receiver, None)
+
+
 class RfAlwaysOn:
     """Every always-on receiver HAIR is hearing: windows and counters.
 
@@ -237,6 +299,12 @@ class RfAlwaysOn:
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
         self._dirty: set[str] = set()
         self._push_handle: Any = None
+        # Codes heard in a window that HAIR could not read, for every
+        # radio receiver (windowed ones too); see the module docstring.
+        self.unread = UnreadLedger(self._wall_now)
+        # When each software window last opened, to tell a new window
+        # from a moved end.
+        self._opened_at: dict[str, datetime | None] = {}
         # Debug-only timing over the capture path, for the load number.
         self.time_ns: dict[str, int] = {}
         self._timed: dict[str, int] = {}
@@ -271,6 +339,8 @@ class RfAlwaysOn:
         window.close()
         self._counters.pop(receiver, None)
         self.time_ns.pop(receiver, None)
+        self._opened_at.pop(receiver, None)
+        self.unread.forget(receiver)
         self._dirty.discard(receiver)
         self._send({
             "receiver_entity_id": receiver,
@@ -278,6 +348,8 @@ class RfAlwaysOn:
             "window_ends_at": None,
             "capture_mode": None,
             "counters": None,
+            "unread_radio": 0,
+            "unread_window_opened_at": None,
         })
 
     # -- windows ----------------------------------------------------------
@@ -349,6 +421,7 @@ class RfAlwaysOn:
             "receiver_entity_id": receiver,
             **window.state(),
             "counters": self.counters(receiver),
+            **self.unread.fields(receiver),
         }
 
     def _send(self, item: dict[str, Any]) -> None:
@@ -364,7 +437,25 @@ class RfAlwaysOn:
             self._send(self._item(receiver))
 
     def _window_changed(self, receiver: str) -> None:
+        window = self._windows.get(receiver)
+        if window is not None and window.capturing:
+            if window.opened_at != self._opened_at.get(receiver):
+                self.unread.opened(receiver, window.opened_at)
+            self._opened_at[receiver] = window.opened_at
         self._push(receiver)
+
+    def note_unread(self, receiver: str, *, readable: bool) -> None:
+        """A radio code in an open window: one HAIR could read or not.
+        A software receiver's push goes out when its count changes."""
+        changed = (
+            self.unread.readable(receiver) if readable else self.unread.unread(receiver)
+        )
+        if changed:
+            self._push(receiver)
+
+    def window_opened(self, receiver: str) -> None:
+        """A windowed receiver opened its own window: start again."""
+        self.unread.opened(receiver)
 
     def _schedule_counter_push(self) -> None:
         if self._push_handle is not None or not self._subscribers:
@@ -388,6 +479,8 @@ class RfAlwaysOn:
             window = self._windows.pop(receiver)
             window.close()
         self._counters.clear()
+        self._opened_at.clear()
+        self.unread = UnreadLedger(self._wall_now)
         self._subscribers.clear()
 
 
