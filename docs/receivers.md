@@ -137,8 +137,8 @@ about where it listens, and HAIR draws one frequency control from them on the
 receiver's pill and in the radio code editor.
 
 - **Where it can listen:** the receiver entity's `supported_frequency_ranges`,
-  as Home Assistant's `radio_frequency` platform already reads them. Values
-  outside them are shown greyed, and can still be picked.
+  as Home Assistant's `radio_frequency` platform already reads them. HAIR
+  sets nothing outside them ([What HAIR will set](#what-hair-will-set)).
 - **How it is set:**
   - `frequency_select` with `frequency_options`, for presets;
   - `frequency_number`, a `number` on the receiver's own device in MHz, kHz
@@ -171,6 +171,21 @@ one of the presets carries picks that preset instead. HAIR then waits a few
 seconds for the entity to read what it asked for, and says whether it did. A
 code heard in the two seconds after HAIR changed the receiver is filed with
 its band unknown, because it may have been heard on the old one.
+
+### What HAIR will set
+
+HAIR sets a receiver only to a frequency it accepts:
+
+- its declared `supported_frequency_ranges`, when it declares any;
+- otherwise its tuning number's own minimum and maximum. A CC1101 on ESPHome
+  that sets no range in its YAML takes anything its Listen number allows;
+- otherwise nothing can be typed, and the receiver shows "auto".
+
+A typed value outside them is refused, and nothing is sent to the device: "This
+receiver doesn't take 390 MHz. It takes 305 to 335 and 433.42 to 438 MHz." The
+"Other..." box shows the ranges as its hint. Presets are the device's own, so
+picking one is never refused. The number's own option (`frequency_number_option`)
+isn't a preset: picking it is checked against the value the number holds.
 
 **A receiver that can't declare its number.** An ESPHome receiver can't add
 state attributes from YAML yet, so a CC1101 board can't declare

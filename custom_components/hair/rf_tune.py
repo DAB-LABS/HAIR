@@ -39,7 +39,9 @@ pulse of its own.
 SETTING IT (``async_set_frequency``). A value one of the presets
 carries picks that preset; any other value sets the number (and, when
 the number feeds an option, picks that option too); a preset can also be
-picked by name, the only way to pick a sweep. A number is set with
+picked by name, the only way to pick a sweep. A value outside what the
+receiver accepts (``accepted_ranges``) is refused and nothing is set;
+presets are the device's own and are never refused. A number is set with
 ``number.set_value`` in its own unit, then a wait of up to
 ``RF_TUNE_CONFIRM_S`` for its state to read the asked value, compared
 after rounding to its step; a select the same way, until it reads the
@@ -88,6 +90,8 @@ _UNITS = {"MHz": 1_000_000, "kHz": 1_000, "Hz": 1}
 TUNE_CONFIRMED = "confirmed"
 TUNE_DID_NOT_CHANGE = "did_not_change"
 TUNE_CANNOT = "cannot_tune"
+# A value the receiver doesn't accept (``accepted_ranges``): nothing is set.
+TUNE_NOT_ACCEPTED = "not_accepted"
 
 # What a reading at a capture's arrival can be.
 READING_NONE = "none"        # the receiver has no tuning number
@@ -496,6 +500,49 @@ async def _async_pick(
 _PRESET_MATCH_HZ = 500
 
 
+def accepted_ranges(
+    hass: HomeAssistant,
+    receiver_entity_id: str,
+    decl: Declared | None = None,
+    number: str | None = None,
+) -> list[tuple[int, int]]:
+    """The values HAIR will set this receiver to, as Hz ranges.
+
+    Its declared ranges when it declares any; otherwise its tuning
+    number's own minimum and maximum (a CC1101 on ESPHome, which can't
+    declare a range from YAML); otherwise none, and nothing is checked
+    (a receiver with nothing to set has no box to type in). Presets are
+    the device's own and are never checked against these.
+    """
+    from .rf_receive import supported_ranges
+
+    ranges = [
+        (int(low), int(high))
+        for low, high in (supported_ranges(hass, receiver_entity_id) or [])
+    ]
+    if ranges:
+        return ranges
+    if decl is None:
+        decl = declared(hass, receiver_entity_id)
+        number = tuning_source(hass, receiver_entity_id, decl)[0]
+    if number is None:
+        return []
+    state = hass.states.get(number)
+    factor = _unit_factor(state)
+    attrs = getattr(state, "attributes", {}) or {}
+    try:
+        low = round(float(attrs["min"]) * factor)
+        high = round(float(attrs["max"]) * factor)
+    except (KeyError, TypeError, ValueError):
+        return []
+    return [(low, high)] if low <= high else []
+
+
+def is_accepted(frequency_hz: int, ranges: list[tuple[int, int]]) -> bool:
+    """Whether a value is inside one of the ranges (no ranges: anything)."""
+    return not ranges or any(low <= frequency_hz <= high for low, high in ranges)
+
+
 async def async_set_frequency(
     hass: HomeAssistant,
     receiver_entity_id: str,
@@ -512,9 +559,16 @@ async def async_set_frequency(
     decl = declared(hass, receiver_entity_id)
     number, _source = tuning_source(hass, receiver_entity_id, decl)
     presets = dict(decl.options)
+    accepts = accepted_ranges(hass, receiver_entity_id, decl, number)
     if option is not None:
         if decl.select is None or option not in presets:
             return _answer(hass, receiver_entity_id, TUNE_CANNOT)
+        if number is not None and option == decl.number_option:
+            # The number's own option isn't a preset: what it holds now
+            # is checked as a typed value would be.
+            held = number_hz(hass, number)
+            if held is not None and not is_accepted(held, accepts):
+                return _not_accepted(hass, receiver_entity_id, accepts)
         result = await _async_pick(hass, receiver_entity_id, decl.select, option)
         return _answer(hass, receiver_entity_id, result)
     if frequency_hz is None:
@@ -530,6 +584,8 @@ async def async_set_frequency(
                 return _answer(hass, receiver_entity_id, result)
     if number is None:
         return _answer(hass, receiver_entity_id, TUNE_CANNOT)
+    if not is_accepted(frequency_hz, accepts):
+        return _not_accepted(hass, receiver_entity_id, accepts)
     tuned = await async_tune(hass, receiver_entity_id, frequency_hz)
     result = tuned["result"]
     if decl.select is not None and decl.number_option is not None:
@@ -539,6 +595,15 @@ async def async_set_frequency(
         if picked != TUNE_CONFIRMED:
             result = picked
     return _answer(hass, receiver_entity_id, result)
+
+
+def _not_accepted(
+    hass: HomeAssistant, receiver_entity_id: str, accepts: list[tuple[int, int]]
+) -> dict[str, Any]:
+    """A value outside what the receiver accepts: nothing was set."""
+    answer = _answer(hass, receiver_entity_id, TUNE_NOT_ACCEPTED)
+    answer["accepts"] = [[low, high] for low, high in accepts]
+    return answer
 
 
 def _answer(hass: HomeAssistant, receiver_entity_id: str, result: str) -> dict[str, Any]:

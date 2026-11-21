@@ -304,17 +304,17 @@ class TestSetting:
     @pytest.mark.asyncio
     async def test_any_other_value_sets_the_number_then_its_option(self):
         with _rig(_Hass(_broadsniff_032())) as hass:
-            result = await rf_tune.async_set_frequency(hass, RX, frequency_hz=391_500_000)
-        assert result == {"result": "confirmed", "current_mhz": 391.5}
+            result = await rf_tune.async_set_frequency(hass, RX, frequency_hz=434_500_000)
+        assert result == {"result": "confirmed", "current_mhz": 434.5}
         assert hass.calls == [
-            ("number", "set_value", {"entity_id": CUSTOM, "value": 391.5}),
+            ("number", "set_value", {"entity_id": CUSTOM, "value": 434.5}),
             ("select", "select_option", {"entity_id": SELECT, "option": "custom"}),
         ]
 
     @pytest.mark.asyncio
     async def test_the_custom_options_own_value_sets_the_number_not_a_preset(self):
         """Custom carries the number's value; asking for it is "Other..."."""
-        with _rig(_Hass(_broadsniff_032())) as hass:
+        with _rig(_Hass(_broadsniff_032()), ranges=[(300_000_000, 450_000_000)]) as hass:
             await rf_tune.async_set_frequency(hass, RX, frequency_hz=390_000_000)
         assert hass.calls[0][0] == "number"
 
@@ -350,7 +350,7 @@ class TestSetting:
     @pytest.mark.asyncio
     async def test_a_cc1101_is_set_as_before(self):
         entries = [_entry(RX, DEVICE), _entry(CUSTOM, DEVICE)]
-        with _rig(_Hass({}, entries=entries)) as hass:
+        with _rig(_Hass({}, entries=entries), ranges=[]) as hass:
             result = await rf_tune.async_set_frequency(hass, RX, frequency_hz=433_000_000)
         assert result == {"result": "confirmed", "current_mhz": 433.0}
         assert hass.calls == [("number", "set_value", {"entity_id": CUSTOM, "value": 433.0})]
@@ -361,6 +361,74 @@ class TestSetting:
             await rf_tune.async_set_frequency(hass, RX, option="mhz_315")
             assert rf_receive.receiver_frequency(hass, RX)["trusted"] is False
             assert rf_receive.frequency_of(hass, RX, _signal()) == (None, None)
+
+
+class TestOnlyWhatItAccepts:
+    """A value the receiver doesn't accept is refused and nothing is set.
+    It accepts its declared ranges, else its number's own limits."""
+
+    def test_the_row_says_what_it_accepts(self):
+        with _rig(_Hass(_broadsniff_032())) as hass:
+            declared = rf_receive.receiver_frequency(hass, RX)["accepts"]
+        entries = [_entry(RX, DEVICE), _entry(CUSTOM, DEVICE)]
+        with _rig(_Hass({}, entries=entries), ranges=[]) as hass:
+            limits = rf_receive.receiver_frequency(hass, RX)["accepts"]
+        with _rig(_Hass({}, entries=[_entry(RX, DEVICE)]),
+                  ranges=[(433_920_000, 433_920_000)]) as hass:
+            fixed = rf_receive.receiver_frequency(hass, RX)["accepts"]
+        with _rig(_Hass({}, entries=[_entry(RX, DEVICE)]), ranges=[]) as hass:
+            nothing = rf_receive.receiver_frequency(hass, RX)["accepts"]
+        assert declared == [[305_000_000, 335_000_000], [433_420_000, 438_000_000]]
+        assert limits == [[300_000_000, 450_000_000]]
+        assert fixed == [] and nothing == []
+
+    @pytest.mark.asyncio
+    async def test_a_value_between_its_ranges_is_refused(self):
+        with _rig(_Hass(_broadsniff_032())) as hass:
+            result = await rf_tune.async_set_frequency(hass, RX, frequency_hz=390_000_000)
+        assert result["result"] == "not_accepted"
+        assert result["accepts"] == [[305_000_000, 335_000_000], [433_420_000, 438_000_000]]
+        assert hass.calls == []
+
+    @pytest.mark.asyncio
+    async def test_a_cc1101_refuses_what_its_number_does_not_take(self):
+        entries = [_entry(RX, DEVICE), _entry(CUSTOM, DEVICE)]
+        with _rig(_Hass({}, entries=entries), ranges=[]) as hass:
+            result = await rf_tune.async_set_frequency(hass, RX, frequency_hz=868_000_000)
+        assert (result["result"], result["accepts"]) == (
+            "not_accepted", [[300_000_000, 450_000_000]],
+        )
+        assert hass.calls == []
+
+    @pytest.mark.asyncio
+    async def test_a_preset_is_always_taken(self):
+        with _rig(_Hass(_broadsniff_031(), option="mhz_433_92"),
+                  ranges=[(433_420_000, 438_000_000)]) as hass:
+            result = await rf_tune.async_set_frequency(hass, RX, frequency_hz=315_000_000)
+            by_name = await rf_tune.async_set_frequency(hass, RX, option="sweep")
+        assert (result["result"], by_name["result"]) == ("confirmed", "confirmed")
+
+    @pytest.mark.asyncio
+    async def test_the_numbers_own_option_is_checked_by_what_it_holds(self):
+        with _rig(_Hass(_broadsniff_032(), custom="390.00")) as hass:
+            outside = await rf_tune.async_set_frequency(hass, RX, option="custom")
+            assert hass.calls == []
+        with _rig(_Hass(_broadsniff_032(), custom="434.00")) as hass:
+            inside = await rf_tune.async_set_frequency(hass, RX, option="custom")
+        assert (outside["result"], inside["result"]) == ("not_accepted", "confirmed")
+
+    @pytest.mark.asyncio
+    async def test_the_door_answers_with_what_it_accepts(self):
+        from custom_components.hair.websocket_api import ws_rf_receiver_tune
+
+        conn = MagicMock()
+        with _rig(_Hass(_broadsniff_032())) as hass:
+            await ws_rf_receiver_tune(hass, conn, {
+                "id": 1, "receiver_entity_id": RX, "frequency_hz": 390_000_000,
+            })
+        answer = conn.send_result.call_args.args[1]
+        assert answer["result"] == "not_accepted"
+        assert answer["row"]["accepts"] == answer["accepts"]
 
 
 class TestTheDoors:

@@ -3849,8 +3849,9 @@ async def ws_rf_receiver_tune(
 
     The answer is a result, not an error, so the control can say it:
     ``confirmed`` with where it listens now, ``did_not_change`` with
-    where it still listens, or ``cannot_tune`` when HAIR has no way to
-    set it there. A value outside the number's limits is still tried.
+    where it still listens, ``cannot_tune`` when HAIR has no way to set
+    it there, or ``not_accepted`` with ``accepts`` for a value outside
+    what the receiver accepts (nothing is set).
     ``row`` is the receiver's frequency row, read after.
     """
     from .rf_receive import is_rf_receiver_state, receiver_frequency
