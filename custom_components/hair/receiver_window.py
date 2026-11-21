@@ -675,6 +675,7 @@ def capture_receivers(
             settings = store.settings(found.entry_id) if store is not None else {}
         phase = attributes.get(ATTR_CAPTURE_PHASE)
         frequency_hz = attributes.get(ATTR_FREQUENCY_HZ)
+        unread = _unread(hass, receiver)
         rows.append({
             "receiver_entity_id": receiver,
             "name": _name(hass, found.device_id, receiver),
@@ -708,6 +709,8 @@ def capture_receivers(
             **_settings_row(settings),
             "window_seconds": None,
             "window_mode": None,
+            "unread_radio": unread["unread_radio"],
+            "unread_window_opened_at": unread["unread_window_opened_at"],
         })
     rows.extend(_software_rows(hass, store))
     if include_always_on:
@@ -755,8 +758,22 @@ def _always_on_rows(hass: HomeAssistant, receivers: list[str]) -> list[dict[str,
             **_settings_row({}),
             "window_seconds": None,
             "window_mode": None,
+            "unread_radio": 0,
+            "unread_window_opened_at": None,
         })
     return rows
+
+
+def _unread(hass: HomeAssistant, receiver: str) -> dict[str, Any]:
+    """How many radio codes HAIR couldn't read in the receiver's current
+    or last window, and when that window opened
+    (``rf_window.UnreadLedger``). Infrared rows carry 0."""
+    from .rf_window import rf_always_on
+
+    always_on = rf_always_on(hass)
+    if always_on is None or not receiver.startswith("radio_frequency."):
+        return {"unread_radio": 0, "unread_window_opened_at": None}
+    return always_on.unread.fields(receiver)
 
 
 def _software_rows(
@@ -805,6 +822,7 @@ def _software_rows(
             **_settings_row({}),
             "window_seconds": seconds,
             "window_mode": mode,
+            **always_on.unread.fields(receiver),
         })
     return rows
 

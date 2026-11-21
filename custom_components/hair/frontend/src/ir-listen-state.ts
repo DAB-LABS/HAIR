@@ -8,9 +8,9 @@
  * carries the "last heard" tint are exactly what a source grep cannot
  * see. Nothing here imports Lit or touches the DOM.
  *
- * A capture device is an infrared receiver whose state carries a
- * boolean ``capturing`` (windowed receivers, round 3;
- * docs/windowed-receivers.md). Everything below reads that contract
+ * A capture device is a receiver, infrared or radio, whose state
+ * carries a boolean ``capturing`` (the contract in docs/receivers.md).
+ * Everything below reads that contract
  * from the receiver entity itself and knows no integration by name.
  */
 import type {

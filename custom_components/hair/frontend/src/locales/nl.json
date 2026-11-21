@@ -514,6 +514,8 @@
     "listen.tune_outside": "Buiten wat deze ontvanger ondersteunt; toch geprobeerd.",
     "listen.tune_did_not_change": "Deze ontvanger is niet veranderd; hij luistert nog op {mhz} MHz.",
     "listen.tune_cannot": "HAIR kan deze ontvanger niet afstemmen; hij luistert waar zijn hardware luistert.",
+    "listen.unread_radio": "Een radiocode gehoord die HAIR nog niet kan lezen. Hij verandert misschien bij elke druk.",
+    "listen.unread_radio_hint": "Sommige afstandsbedieningen sturen bij elke druk een nieuwe code. HAIR kan die nog niet allemaal lezen.",
     "listen.tune_auto": "auto",
     "listen.tune_auto_title": "HAIR kan niet instellen waar deze ontvanger luistert.",
     "listen.tune_fixed_title": "Deze ontvanger luistert alleen hier.",

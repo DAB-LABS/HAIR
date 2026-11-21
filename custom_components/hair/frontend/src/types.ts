@@ -1215,6 +1215,11 @@ export interface RfReceiverItem {
     window_ends_at: string | null;
     capture_mode: WindowMode | null;
     counters: Record<string, number | string> | null;
+    /** Radio codes the current or last window heard and HAIR couldn't
+     *  read; 0 when that window also heard one it could. */
+    unread_radio: number;
+    /** When that window opened: its key. Null while unread_radio is 0. */
+    unread_window_opened_at: string | null;
 }
 
 export interface ReceiverInfo {
@@ -1249,7 +1254,7 @@ export type CaptureSwitchSource = "user" | "declared" | "device" | "software";
 /** One capture device (``hair/receivers/capture``): an infrared receiver
  *  that hears only while a capture window is open, from any
  *  integration that says so with a boolean ``capturing`` attribute
- *  (docs/windowed-receivers.md). The panel reads the window's live
+ *  (docs/receivers.md). The panel reads the window's live
  *  state from the receiver entity in ``hass``. */
 /** One radio receiver's tuning, as HAIR finds it (``hair/rf/receiver_tuning``,
  *  listening PR 1): tunable when its device has one enabled frequency
@@ -1355,6 +1360,10 @@ export interface CaptureReceiverRow {
     /** A software window's next length and mode (null on a capture device). */
     window_seconds: number | null;
     window_mode: WindowMode | null;
+    /** As on RfReceiverItem: radio codes the current or last window
+     *  couldn't read, and when that window opened. 0 / null for IR. */
+    unread_radio: number;
+    unread_window_opened_at: string | null;
 }
 
 // ---------------------------------------------------------------------------

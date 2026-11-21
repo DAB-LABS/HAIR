@@ -575,6 +575,11 @@ RF_MIN_FRAMES = 2
 # within a burst; no fixed-code remote's body comes near this. Known rows
 # are not affected: a match counts and fires whatever its length.
 RF_MIN_BODY_EDGES = 8
+# A radio code that passed no vote counts as "heard, can't read" only when
+# its body has at least this many edges: a rolling code's word is long
+# (KeeLoq's 66 bits are 132), and the receiver noise that sometimes
+# clears the floor above stays well short of this.
+RF_UNREAD_MIN_EDGES = 48
 # The inter-frame gap stored for a code whose gap was never seen inside a
 # capture. PROVISIONAL: long enough for every fixed-code family the plan
 # lists (a longer gap is accepted where a shorter one is not); the send

@@ -711,6 +711,8 @@ class TestTheReceiversDoors:
             # a device's declared entities or a software window's choice.
             "frequency_select", "window_length", "capture_mode_select",
             "frequency_options", "window_seconds", "window_mode",
+            # What the panel's "can't read" line reads.
+            "unread_radio", "unread_window_opened_at",
         }
         assert (rows[0]["capture_device"], rows[0]["software_window"]) == (True, False)
         assert rows[0]["medium"] == "ir"

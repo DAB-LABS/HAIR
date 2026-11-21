@@ -38,6 +38,31 @@ import { t } from "./localize.js";
 import type { CaptureReceiverRow, ReceiverTuning, RfReceiverItem } from "./types.js";
 import { pillLive, pillShown } from "./ir-listen-state.js";
 
+/** The "can't read" lines under the pills: one per radio receiver
+ *  whose last window heard a code HAIR couldn't read and filed nothing,
+ *  until its next window opens or the line is dismissed. The window's
+ *  open time is its key, so a dismissed count stays dismissed after a
+ *  reload. A software
+ *  window's count comes from the radio subscription's item, a capture
+ *  device's from its row. Pure, for the node tests. */
+export function unreadLines(
+    rows: CaptureReceiverRow[],
+    items: Record<string, RfReceiverItem>,
+    open: (row: CaptureReceiverRow) => boolean,
+    dismissed: ReadonlySet<string>,
+): { receiver: string; name: string; key: string }[] {
+    const out: { receiver: string; name: string; key: string }[] = [];
+    for (const row of rows) {
+        if (row.medium !== "rf" || open(row)) continue;
+        const src = row.software_window ? (items[row.receiver_entity_id] ?? row) : row;
+        if (!src.unread_radio || src.unread_radio < 1) continue;
+        const key = `${row.receiver_entity_id}@${src.unread_window_opened_at ?? ""}`;
+        if (dismissed.has(key)) continue;
+        out.push({ receiver: row.receiver_entity_id, name: row.name, key });
+    }
+    return out;
+}
+
 /** What the radio receivers' rows depend on in Home Assistant: each
  *  receiver's select and number, and the receiver's own window. When
  *  this changes, the rows are read again. Pure, for the node tests. */
@@ -78,6 +103,9 @@ export class IrListenRow extends LitElement {
      *  if the read fails (an older server), so no tune box shows. */
     @state() private _tuning: Record<string, ReceiverTuning> = {};
     private _tuningAsked = false;
+    /** "Can't read" lines the person has dismissed, by receiver and
+     *  window. */
+    @state() private _dismissed: ReadonlySet<string> = new Set();
     /** What the rows were read against, so a change made elsewhere (the
      *  select in Home Assistant, the number, a window opening) reads
      *  them again. */
@@ -157,6 +185,12 @@ export class IrListenRow extends LitElement {
             pillShown(this.show, row, pillLive(states, row, this._items[row.receiver_entity_id] ?? null)),
         );
         if (rows.length === 0) return nothing;
+        const unread = unreadLines(
+            rows,
+            this._items,
+            (row) => pillLive(states, row, this._items[row.receiver_entity_id] ?? null).on,
+            this._dismissed,
+        );
         // No "Listen" label (fix round 1, item 6): the row is the
         // receivers, live; the group keeps the word for screen readers.
         return html`
@@ -178,6 +212,20 @@ export class IrListenRow extends LitElement {
                     )}
                 </div>
             </div>
+            ${unread.map(
+                (line) => html`<div class="unread" title=${t("listen.unread_radio_hint")}>
+                    <span class="unread-text">
+                        <span class="unread-name">${line.name}:</span>
+                        ${t("listen.unread_radio")}
+                        <span class="unread-hint">${t("listen.unread_radio_hint")}</span>
+                    </span>
+                    <button
+                        class="unread-x"
+                        aria-label=${t("common.close")}
+                        @click=${() => (this._dismissed = new Set([...this._dismissed, line.key]))}
+                    >×</button>
+                </div>`,
+            )}
         `;
     }
 
@@ -186,6 +234,36 @@ export class IrListenRow extends LitElement {
         css`
             :host {
                 display: block;
+            }
+            /* The "can't read" line: muted, not an error, under the pills. */
+            .unread {
+                display: flex;
+                align-items: flex-start;
+                gap: 6px;
+                margin: 4px 2px 0;
+                font-size: 0.75rem;
+                color: var(--secondary-text-color);
+            }
+            .unread-name {
+                font-weight: 500;
+            }
+            /* A phone has no hover: the second line shows instead. */
+            .unread-hint {
+                display: none;
+            }
+            @media (hover: none), (max-width: 600px) {
+                .unread-hint {
+                    display: block;
+                }
+            }
+            .unread-x {
+                margin-left: auto;
+                border: none;
+                background: none;
+                color: inherit;
+                font: inherit;
+                cursor: pointer;
+                padding: 0 4px;
             }
         `,
     ];
