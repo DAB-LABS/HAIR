@@ -37,15 +37,16 @@ TSC = FRONTEND / "node_modules" / ".bin" / "tsc"
 TOOLCHAIN_MISSING = not TSC.exists() or shutil.which("node") is None
 
 DRIVER = r"""
-import { tuneLabel, stillTitle, outsideLimits, tuneMenu, tuneNote } from "./rule.js";
+import { tuneLabel, stillTitle, outsideLimits, tuneMenu, tuneNote, rangesText } from "./rule.js";
 import { tuningWatch } from "./watch.js";
 
-const base = { ranges: [], presets: [], select: null, number: null, trusted: true,
+const base = { ranges: [], accepts: [], presets: [], select: null, number: null, trusted: true,
     windowed: false, listening: false };
 const hz = (v, source) => ({ kind: "hz", hz: v, source });
 const rows = {
     select: { ...base, receiver_entity_id: "rm4", form: "select", windowed: true,
         ranges: [[305000000, 335000000], [433420000, 438000000]], select: "select.f",
+        accepts: [[305000000, 335000000], [433420000, 438000000]],
         presets: [
             { option: "mhz_433_92", hz: 433920000, current: true },
             { option: "mhz_315", hz: 315000000, current: false },
@@ -61,7 +62,8 @@ const rows = {
     number: { ...base, receiver_entity_id: "cc", form: "number",
         number: { entity_id: "number.l", min_hz: 300000000, max_hz: 400000000, step_hz: 1000,
                   source: "found" },
-        ranges: [[300000000, 928000000]], now: hz(345000000, "number") },
+        // No declared ranges: the server's accepts is the number's limits.
+        accepts: [[300000000, 400000000]], now: hz(345000000, "number") },
     fixed: { ...base, receiver_entity_id: "athom", form: "fixed",
         ranges: [[433920000, 433920000]], now: hz(433920000, "fixed") },
     none: { ...base, receiver_entity_id: "rx", form: "none", now: { kind: "none", hz: null,
@@ -85,7 +87,8 @@ const rows = {
 const menu = (r) => {
     const m = tuneMenu(r);
     return m && { other: m.other,
-                  rows: m.rows.map((x) => [x.label, x.hz, x.option, x.current, x.dim]) };
+                  rows: m.rows.map((x) => [x.label, x.hz, x.option, x.current, x.dim]),
+                  blocked: m.rows.filter((x) => x.blocked).map((x) => [x.hz, x.title]) };
 };
 console.log(JSON.stringify({
     label: Object.fromEntries(Object.entries(rows).map(([k, r]) => [k, tuneLabel(r, null)])),
@@ -98,9 +101,19 @@ console.log(JSON.stringify({
     outside: [outsideLimits(rows.number, 433920000), outsideLimits(rows.number, 315000000),
               outsideLimits(rows.select, 390000000), outsideLimits(rows.select, 315000000),
               outsideLimits(rows.none, 1), outsideLimits(null, 1)],
-    note: [tuneNote(true, null), tuneNote(false, { result: "confirmed", current_mhz: 433.0 }),
-           tuneNote(false, { result: "did_not_change", current_mhz: 433.92 }),
-           tuneNote(false, { result: "cannot_tune", current_mhz: null })],
+    note: [tuneNote({ hz: 390000000, accepts: rows.select.accepts }, null),
+           tuneNote(null, { result: "confirmed", current_mhz: 433.0 }),
+           tuneNote(null, { result: "did_not_change", current_mhz: 433.92 }),
+           tuneNote(null, { result: "cannot_tune", current_mhz: null }),
+           tuneNote(null, { result: "not_accepted", current_mhz: null, hz: 390000000,
+                            accepts: [[300000000, 928000000]] })],
+    ranges: [rangesText(rows.select.accepts, "and", "en"),
+             rangesText(rows.select.accepts, "or", "en"),
+             rangesText([[300000000, 928000000]], "and", "en"),
+             rangesText([[300000000, 348000000], [387000000, 464000000], [779000000, 928000000]],
+                        "and", "en"),
+             rangesText(rows.select.accepts, "and", "de"),
+             rangesText([], "and", "en")],
     watch: (() => {
         const s = { "select.f": { state: "mhz_433_92" },
                     rm4: { state: "2020-01-01T00:00:00", attributes: { capturing: false } } };
@@ -206,12 +219,20 @@ class TestTheMenu:
             [MHZ.format("433.92"), 433920000, "mhz_433_92", True, False],
             [MHZ.format("315"), 315000000, "mhz_315", False, False],
             ["listen.sweep", None, "sweep", False, False],
-        ]}
+        ], "blocked": []}
 
     def test_the_numbers_option_is_other_not_a_band(self, run):
         menu = run["menu"]["selectWithNumber"]
         assert menu["other"] is True
         assert [r[2] for r in menu["rows"]] == ["mhz_433_92"]
+
+    def test_a_band_it_does_not_accept_cannot_be_picked(self, run):
+        blocked = run["menu"]["number"]["blocked"]
+        assert [b[0] for b in blocked] == [418000000, 433420000, 433920000, 868350000, 915000000]
+        assert blocked[0][1] == 'listen.tune_band_refused{"mhz":"418"}'
+        # A select's presets are the device's own: never blocked.
+        assert run["menu"]["select"]["blocked"] == []
+        assert run["menu"]["selectWithNumber"]["blocked"] == []
 
     def test_a_number_gets_the_common_bands_greyed_outside(self, run):
         menu = run["menu"]["number"]
@@ -219,23 +240,38 @@ class TestTheMenu:
         by_hz = {r[1]: r for r in menu["rows"]}
         # The current odd value takes its place, marked.
         assert by_hz[345000000][3] is True
-        # Inside the number's 300 to 400: not greyed; above it: greyed,
-        # still there to pick.
+        # Inside what it accepts (300 to 400 here): not greyed; above it:
+        # greyed, and blocked (above).
         assert by_hz[315000000][4] is False and by_hz[390000000][4] is False
         assert by_hz[433920000][4] is True and by_hz[915000000][4] is True
         assert all(r[2] is None for r in menu["rows"])
 
-    def test_outside_is_the_numbers_limits_then_the_ranges(self, run):
+    def test_outside_is_what_the_server_says_it_accepts(self, run):
         assert run["outside"] == [True, False, True, False, False, False]
 
 
 class TestTheLines:
     def test_the_note_after_a_pick(self, run):
-        outside, confirmed, unchanged, cannot = run["note"]
-        assert outside == {"key": "listen.tune_outside"}
+        refused, confirmed, unchanged, cannot, door = run["note"]
+        r = 'listen.tune_range{{"low":"{}","high":"{}"}}'.format
+        assert refused == {"key": "listen.tune_refused", "params": {
+            "mhz": "390", "ranges": f"{r('305', '335')} and {r('433.42', '438')}"}}
         assert confirmed is None
         assert unchanged == {"key": "listen.tune_did_not_change", "params": {"mhz": "433.92"}}
         assert cannot == {"key": "listen.tune_cannot"}
+        # The door refused what got through: the same line, from its answer.
+        assert door == {"key": "listen.tune_refused", "params": {
+            "mhz": "390", "ranges": r("300", "928")}}
+
+    def test_the_ranges_as_words(self, run):
+        r = 'listen.tune_range{{"low":"{}","high":"{}"}}'.format
+        two_and, two_or, one, three, german, none = run["ranges"]
+        assert two_and == f"{r('305', '335')} and {r('433.42', '438')}"
+        assert two_or == f"{r('305', '335')} or {r('433.42', '438')}"
+        assert one == r("300", "928")
+        assert three == f"{r('300', '348')}, {r('387', '464')}, and {r('779', '928')}"
+        assert german == f"{r('305', '335')} und {r('433.42', '438')}"
+        assert none == ""
 
 
 class TestReadAgain:
