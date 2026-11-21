@@ -1254,7 +1254,7 @@ export type CaptureSwitchSource = "user" | "declared" | "device" | "software";
 /** One capture device (``hair/receivers/capture``): an infrared receiver
  *  that hears only while a capture window is open, from any
  *  integration that says so with a boolean ``capturing`` attribute
- *  (docs/windowed-receivers.md). The panel reads the window's live
+ *  (docs/receivers.md). The panel reads the window's live
  *  state from the receiver entity in ``hass``. */
 /** One radio receiver's tuning, as HAIR finds it (``hair/rf/receiver_tuning``,
  *  listening PR 1): tunable when its device has one enabled frequency
