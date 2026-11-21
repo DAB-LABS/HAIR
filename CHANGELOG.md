@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A new remote shows in the Sniffer on its first press. It used to wait for three.
 - The Closet opens faster, and so does the brand list in Create Remote. HAIR re-checks only the wigs that changed since the last look, not every wig every time.
+- Device settings are laid out as cards. Each shows its name and a line saying what is set, and opens with a click. Inside the cards everything is in the panel's plain greys; blue marks only the open card's outline and its buttons. Power has one heading, with the Power button setting at its top.
 
 ### Added
 
