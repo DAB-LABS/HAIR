@@ -467,6 +467,7 @@ class HAIRStore:
                 remote.pinned_device_ids
                 or remote.bindings
                 or remote.follow_only_device_ids
+                or remote.track_only_device_ids
             ):
                 changed = self._prune_dangling_pins(remote) or changed
             if not remote.pinned_device_ids:
@@ -513,7 +514,15 @@ class HAIRStore:
         unfollowed = len(follow) != len(remote.follow_only_device_ids)
         if unfollowed:
             remote.follow_only_device_ids = follow
-        return bool(dangling or stale or unfollowed)
+        # Nor does a Track only mark (GH #294).
+        track = [
+            device_id for device_id in remote.track_only_device_ids
+            if device_id in remote.pinned_device_ids
+        ]
+        untracked = len(track) != len(remote.track_only_device_ids)
+        if untracked:
+            remote.track_only_device_ids = track
+        return bool(dangling or stale or unfollowed or untracked)
 
     def _backfill_trigger_decoded(self) -> bool:
         """Decode stored trigger codes into ``decoded_fingerprint`` in place.

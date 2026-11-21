@@ -26,6 +26,8 @@ from .const import (
     MEDIUM_IR,
     MEDIUM_RF,
     MIRROR_DEVICE_FP,
+    PIN_MODE_EXCEPT_POWER,
+    PIN_MODES,
     RF_PROTOCOL,
     RF_ROLLING_SEED,
     RF_ROLLING_SEED_MESSAGE,
@@ -240,7 +242,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_duplicate_trigger_remote)
     websocket_api.async_register_command(hass, ws_pin_trigger_remote_device)
     websocket_api.async_register_command(hass, ws_unpin_trigger_remote_device)
-    websocket_api.async_register_command(hass, ws_set_pin_relay)
+    websocket_api.async_register_command(hass, ws_set_pin_mode)
     websocket_api.async_register_command(hass, ws_set_trigger_remote_receiver_scope)
     # Typed Remotes (heard state, round 2a).
     websocket_api.async_register_command(hass, ws_set_trigger_remote_type)
@@ -5071,6 +5073,8 @@ async def ws_list_trigger_remotes(
             # Always present for the panel, empty meaning every pin
             # relays (GH #183); the store omits it while empty.
             "follow_only_device_ids": list(remote.follow_only_device_ids),
+            # The same for Track only (GH #294).
+            "track_only_device_ids": list(remote.track_only_device_ids),
             "matrix": matrix_summary_block,
             **_remote_state_payload(hass, remote),
         })
@@ -5631,6 +5635,7 @@ async def ws_pin_trigger_remote_device(
     connection.send_result(msg["id"], {
         "pinned_device_ids": list(remote.pinned_device_ids),
         "follow_only_device_ids": list(remote.follow_only_device_ids),
+        "track_only_device_ids": list(remote.track_only_device_ids),
         # What the pin filled, as set-type reports it.
         "fill_source": fill.source if fill is not None else None,
         "fill_count": fill.count if fill is not None else 0,
@@ -5668,10 +5673,8 @@ async def ws_unpin_trigger_remote_device(
         from datetime import UTC, datetime
 
         remote.pinned_device_ids.remove(device_id)
-        # How the pin behaved goes with the pin (GH #183).
-        remote.follow_only_device_ids = [
-            d for d in remote.follow_only_device_ids if d != device_id
-        ]
+        # How the pin behaved goes with the pin (GH #183, GH #294).
+        remote.drop_pin_mode(device_id)
         remote.updated_at = datetime.now(UTC).isoformat()
         # The unpinned device's map goes with it: derive_bindings walks
         # pinned devices only, so re-deriving here drops the stale entry
@@ -5689,23 +5692,25 @@ async def ws_unpin_trigger_remote_device(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/pin-relay",
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/pin-mode",
     vol.Required("remote_id"): str,
     vol.Required("device_id"): str,
-    vol.Required("relay"): bool,
+    vol.Required("mode"): vol.In(PIN_MODES),
 })
 @websocket_api.async_response
-async def ws_set_pin_relay(
+async def ws_set_pin_mode(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Choose whether a pin relays the handset's power toggle (GH #183).
+    """Choose what a pin does with the presses its remote hears.
 
-    ``relay`` True: the pinned device is sent the toggle the remote
-    heard, for a device out of the handset's sight. False: the device
-    heard the handset itself, so its card follows the press and nothing
-    is sent. Only the power toggle; every other press relays either way.
+    ``send``: every press is sent to the device, for a device out of the
+    handset's sight. ``except_power``: every press but the power toggle
+    (GH #183), for a toggle-power device that hears its own Power button;
+    refused on a device without one. ``track``: nothing is sent and the
+    device's entity follows every press (GH #294), for a device that
+    hears the remote itself. Both stored lists are written together.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -5722,19 +5727,26 @@ async def ws_set_pin_relay(
             msg["id"], "not_found", "That device is not pinned to this remote"
         )
         return
-    follows = device_id in remote.follow_only_device_ids
-    if follows == msg["relay"]:
+    mode = msg["mode"]
+    if mode == PIN_MODE_EXCEPT_POWER:
+        from .send_follow import device_toggles_power
+
+        device = store.get_device(device_id)
+        if device is None or not device_toggles_power(device):
+            connection.send_error(
+                msg["id"], "invalid_mode",
+                "That device has no one-button power to leave out",
+            )
+            return
+    if remote.set_pin_mode(device_id, mode):
         from datetime import UTC, datetime
 
-        if msg["relay"]:
-            remote.follow_only_device_ids.remove(device_id)
-        else:
-            remote.follow_only_device_ids.append(device_id)
         remote.updated_at = datetime.now(UTC).isoformat()
         store.update_trigger_remote(remote)
         await store.async_save()
     connection.send_result(msg["id"], {
         "follow_only_device_ids": list(remote.follow_only_device_ids),
+        "track_only_device_ids": list(remote.track_only_device_ids),
     })
 
 

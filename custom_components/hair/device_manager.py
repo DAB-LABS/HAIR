@@ -622,9 +622,7 @@ class DeviceManager:
             remote.pinned_device_ids = [
                 d for d in remote.pinned_device_ids if d != device_id
             ]
-            remote.follow_only_device_ids = [
-                d for d in remote.follow_only_device_ids if d != device_id
-            ]
+            remote.drop_pin_mode(device_id)
             remote.bindings.pop(device_id, None)
             remote.updated_at = datetime.now(UTC).isoformat()
             self._store.update_trigger_remote(remote)
