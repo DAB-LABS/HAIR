@@ -175,11 +175,15 @@ class _Run:
         self.loop = loop
         self.monitor = monitor
         self.tasks: list = []
-        fake_hass.async_create_task = MagicMock(side_effect=self.tasks.append)
-        fake_hass.states.get = MagicMock(return_value=types.SimpleNamespace(
+        # Plain functions, not mocks: an hour's replay makes hundreds of
+        # thousands of these calls, and a mock keeps a record of every
+        # one (a coroutine each, for the tasks) until the test ends.
+        fake_hass.async_create_task = self.tasks.append
+        state = types.SimpleNamespace(
             entity_id=RID, state="2026-01-01T00:00:00+00:00",
             attributes={"device_class": "receiver"},
-        ))
+        )
+        fake_hass.states.get = lambda _entity_id, _state=state: _state
 
     async def drain(self):
         while self.tasks:
