@@ -514,6 +514,8 @@
     "listen.tune_outside": "超出此接收器支持的范围；仍会尝试。",
     "listen.tune_did_not_change": "此接收器没有改变；仍在 {mhz} MHz 接收。",
     "listen.tune_cannot": "HAIR 无法调节此接收器；它在硬件所在的频率接收。",
+    "listen.unread_radio": "收到了 HAIR 还无法读取的无线电代码。它可能每按一次就变化。",
+    "listen.unread_radio_hint": "有些遥控器每按一次就发送新代码。HAIR 还无法读取所有这类代码。",
     "listen.tune_auto": "自动",
     "listen.tune_auto_title": "HAIR 无法设置此接收器的监听频率。",
     "listen.tune_fixed_title": "此接收器只在此频率监听。",

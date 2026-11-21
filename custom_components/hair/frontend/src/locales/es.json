@@ -514,6 +514,8 @@
     "listen.tune_outside": "Fuera de lo que admite este receptor; se intenta igualmente.",
     "listen.tune_did_not_change": "Este receptor no cambió; sigue escuchando en {mhz} MHz.",
     "listen.tune_cannot": "HAIR no puede sintonizar este receptor; escucha donde su hardware lo hace.",
+    "listen.unread_radio": "Se oyó un código de radio que HAIR aún no puede leer. Puede cambiar con cada pulsación.",
+    "listen.unread_radio_hint": "Algunos mandos envían un código nuevo con cada pulsación. HAIR aún no puede leerlos todos.",
     "listen.tune_auto": "auto",
     "listen.tune_auto_title": "HAIR no puede ajustar dónde escucha este receptor.",
     "listen.tune_fixed_title": "Este receptor solo escucha aquí.",
