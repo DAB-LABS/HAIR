@@ -57,7 +57,7 @@ from custom_components.hair.wig_store import ensure_wigs_dir, wigs_dir
 SRC = Path(__file__).parent.parent / "frontend" / "src"
 LOCALES = SRC / "locales"
 LOCALE_NAMES = (
-    "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru", "zh",
+    "en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru", "zh", "zh-Hant",
 )
 FIXTURES = Path(__file__).parent / "fixtures" / "wigs"
 KOMECO = FIXTURES / "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json"

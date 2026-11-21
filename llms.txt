@@ -777,12 +777,12 @@ Supported device types and resulting HA entities:
 - Screen -> cover (open, close, stop)
 - Other -> remote (generic IR command sender)
 
-Localization (v0.6.8): the panel and the config flow ship in eleven languages
-(en, es, fr, ja, de, pl, pt/pt-BR, nl, it, ru, zh-Hans). The panel follows the HA user's
+Localization (v0.6.8): the panel and the config flow ship in twelve languages
+(en, es, fr, ja, de, pl, pt/pt-BR, nl, it, ru, zh-Hans, zh-Hant). The panel follows the HA user's
 profile language with English fallback. Non-English locales are
 programming-assistant drafts, marked "reviewer wanted" inside each
 dictionary file (the Spanish panel translation is native-speaker
-reviewed as of v0.8.0); native-speaker reviews
+reviewed as of v0.8.0, Traditional Chinese since it shipped); native-speaker reviews
 and new languages are welcome as small PRs guarded by parity tests (see
 CONTRIBUTING.md, "Adding a language").
 
@@ -858,7 +858,7 @@ Receiver architecture:
   tab walkthroughs, installation and setup, and architecture diagram. Truncated
   translated READMEs (README.es.md, README.fr.md, README.ja.md, README.de.md,
   README.pl.md, README.pt.md, README.nl.md, README.it.md, README.ru.md,
-  README.zh.md) sit at the
+  README.zh.md, README.zh-Hant.md) sit at the
   repo root, each carrying the pitch, install steps, and a pointer back to the full
   English documentation; they are drafted by a programming assistant, refreshed
   each release, and open for native-speaker ownership.
