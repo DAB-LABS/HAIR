@@ -246,6 +246,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_trigger_remote_receiver_scope)
     # Typed Remotes (heard state, round 2a).
     websocket_api.async_register_command(hass, ws_set_trigger_remote_type)
+    websocket_api.async_register_command(hass, ws_set_trigger_remote_power)
     websocket_api.async_register_command(hass, ws_update_trigger_remote_mapping)
 
 
@@ -858,6 +859,60 @@ async def ws_create_device(
     connection.send_result(msg["id"], result)
 
 
+def _resolve_power_source(
+    hass: HomeAssistant, current: Any, msg: dict[str, Any], owner: str
+) -> tuple[str | None, float | None, float | None, float | None] | str:
+    """The four state-source fields a request leaves, or why it is refused.
+
+    Shared by ``device/update`` and ``trigger-remote/set-power``, so a
+    Device and a typed Remote take a source by one set of rules.
+    ``current`` is the Device or Remote, whose stored values stand for
+    any key the request leaves out; ``owner`` names it in a refusal.
+    Nothing is written here: the caller writes all four, or none.
+    """
+    new_sensor = msg.get("power_sensor_entity_id", current.power_sensor_entity_id)
+    if new_sensor is not None and not (
+        new_sensor.startswith("sensor.") or is_on_off_entity(new_sensor)
+    ):
+        return (
+            "power_sensor_entity_id must be a sensor entity or an on/off "
+            "entity (" + ", ".join(ON_OFF_DOMAINS) + ")"
+        )
+    if new_sensor is not None:
+        # A HAIR entity's state is what HAIR assumed, so as a source it
+        # would only ever confirm itself.
+        entry = er.async_get(hass).async_get(new_sensor)
+        if entry is not None and entry.platform == DOMAIN:
+            return f"a HAIR entity cannot be a {owner}'s state source"
+    if new_sensor is None:
+        # Thresholds without a sensor are meaningless, and so is a
+        # settle time: all three clear with the sensor.
+        new_off_below = None
+        new_on_above = None
+        new_settle = None
+    else:
+        new_off_below = msg.get("power_off_below_w", current.power_off_below_w)
+        new_on_above = msg.get("power_on_above_w", current.power_on_above_w)
+        if is_on_off_entity(new_sensor):
+            # An on/off entity is read by its state; thresholds sent with
+            # it are cleared rather than refused.
+            new_off_below = None
+            new_on_above = None
+        # None is the default (DEFAULT_POWER_SETTLE_S); 0 is no window
+        # at all. The two are different and stay different.
+        new_settle = msg.get("power_settle_s", current.power_settle_s)
+    settle_cap = max_power_settle_s(new_sensor)
+    if new_settle is not None and not 0 <= new_settle <= settle_cap:
+        return f"power_settle_s must be from 0 to {settle_cap:g} seconds"
+    if (
+        new_off_below is not None
+        and new_on_above is not None
+        and new_on_above < new_off_below
+    ):
+        return "power_on_above_w must be at or above power_off_below_w"
+    return new_sensor, new_off_below, new_on_above, new_settle
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/device/update",
@@ -992,74 +1047,16 @@ async def ws_update_device(
             "power_settle_s",
         )
     ):
-        new_sensor = msg.get(
-            "power_sensor_entity_id", device.power_sensor_entity_id
-        )
-        if new_sensor is not None and not (
-            new_sensor.startswith("sensor.") or is_on_off_entity(new_sensor)
-        ):
-            connection.send_error(
-                msg["id"],
-                "invalid_format",
-                "power_sensor_entity_id must be a sensor entity or an on/off "
-                "entity (" + ", ".join(ON_OFF_DOMAINS) + ")",
-            )
+        resolved = _resolve_power_source(hass, device, msg, "Device")
+        if isinstance(resolved, str):
+            connection.send_error(msg["id"], "invalid_format", resolved)
             return
-        if new_sensor is not None:
-            # A HAIR entity's state is what HAIR assumed, so as a source
-            # it would only ever confirm itself.
-            entry = er.async_get(hass).async_get(new_sensor)
-            if entry is not None and entry.platform == DOMAIN:
-                connection.send_error(
-                    msg["id"],
-                    "invalid_format",
-                    "a HAIR entity cannot be a Device's state source",
-                )
-                return
-        if new_sensor is None:
-            # Thresholds without a sensor are meaningless, and so is a
-            # settle time: all three clear with the sensor.
-            new_off_below = None
-            new_on_above = None
-            new_settle = None
-        else:
-            new_off_below = msg.get(
-                "power_off_below_w", device.power_off_below_w
-            )
-            new_on_above = msg.get(
-                "power_on_above_w", device.power_on_above_w
-            )
-            if is_on_off_entity(new_sensor):
-                # An on/off entity is read by its state; thresholds sent
-                # with it are cleared rather than refused.
-                new_off_below = None
-                new_on_above = None
-            # None is the default (DEFAULT_POWER_SETTLE_S); 0 is no
-            # window at all. The two are different and stay different.
-            new_settle = msg.get("power_settle_s", device.power_settle_s)
-        settle_cap = max_power_settle_s(new_sensor)
-        if new_settle is not None and not 0 <= new_settle <= settle_cap:
-            connection.send_error(
-                msg["id"],
-                "invalid_format",
-                f"power_settle_s must be from 0 to {settle_cap:g} seconds",
-            )
-            return
-        if (
-            new_off_below is not None
-            and new_on_above is not None
-            and new_on_above < new_off_below
-        ):
-            connection.send_error(
-                msg["id"],
-                "invalid_format",
-                "power_on_above_w must be at or above power_off_below_w",
-            )
-            return
-        device.power_sensor_entity_id = new_sensor
-        device.power_off_below_w = new_off_below
-        device.power_on_above_w = new_on_above
-        device.power_settle_s = new_settle
+        (
+            device.power_sensor_entity_id,
+            device.power_off_below_w,
+            device.power_on_above_w,
+            device.power_settle_s,
+        ) = resolved
 
     # Climate room sensors validate together too, same "nothing
     # half-mutated on a rejected request" reasoning as the power
@@ -5092,6 +5089,7 @@ def _remote_state_payload(hass: HomeAssistant, remote: Any) -> dict[str, Any]:
     """
     from .remote_state import (
         remote_action_options,
+        remote_power_eligible,
         remote_state_entity_id,
         tracked_mapping,
     )
@@ -5103,6 +5101,13 @@ def _remote_state_payload(hass: HomeAssistant, remote: Any) -> dict[str, Any]:
         ),
         "action_options": remote_action_options(remote.device_type),
         "state_entity_id": remote_state_entity_id(hass, remote),
+        # A typed Remote's state source, always present for the panel
+        # (the store omits it while unset), and whether its type reads it.
+        "power_eligible": remote_power_eligible(remote),
+        "power_sensor_entity_id": remote.power_sensor_entity_id,
+        "power_off_below_w": remote.power_off_below_w,
+        "power_on_above_w": remote.power_on_above_w,
+        "power_settle_s": remote.power_settle_s,
     }
 
 
@@ -5206,6 +5211,73 @@ async def ws_set_trigger_remote_type(
         "remote_id": remote.id,
         "removed_entity_id": removed_entity_id,
         **fill,
+        **_remote_state_payload(hass, remote),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/set-power",
+    vol.Required("remote_id"): str,
+    vol.Optional("power_sensor_entity_id"): vol.Any(str, None),
+    vol.Optional("power_off_below_w"): vol.Any(vol.Coerce(float), None),
+    vol.Optional("power_on_above_w"): vol.Any(vol.Coerce(float), None),
+    vol.Optional("power_settle_s"): vol.Any(vol.Coerce(float), None),
+})
+@websocket_api.async_response
+async def ws_set_trigger_remote_power(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Give a typed Remote a state source, change it, or clear it.
+
+    The Device's four keys with the Device's rules (``_resolve_power_
+    source``): a power sensor in watts with its two thresholds, or an
+    on/off entity, and the settle window. Only a Remote whose type can
+    show power takes one (``remote_state.remote_power_eligible``).
+    Nothing is written on a refusal. The power monitor re-subscribes the
+    Remote at once. Returns the Remote's state payload.
+    """
+    from .remote_state import remote_power_eligible
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+    if not remote_power_eligible(remote):
+        connection.send_error(
+            msg["id"],
+            "invalid_format",
+            "Only a media player, fan, light or switch Remote can have a state source",
+        )
+        return
+    resolved = _resolve_power_source(hass, remote, msg, "Remote")
+    if isinstance(resolved, str):
+        connection.send_error(msg["id"], "invalid_format", resolved)
+        return
+
+    from datetime import UTC, datetime
+
+    (
+        remote.power_sensor_entity_id,
+        remote.power_off_below_w,
+        remote.power_on_above_w,
+        remote.power_settle_s,
+    ) = resolved
+    remote.updated_at = datetime.now(UTC).isoformat()
+    store.update_trigger_remote(remote)
+    await store.async_save()
+    power_monitor = data.get("power_monitor")
+    if power_monitor is not None:
+        power_monitor.rebuild_remote(remote)
+    connection.send_result(msg["id"], {
+        "remote_id": remote.id,
         **_remote_state_payload(hass, remote),
     })
 

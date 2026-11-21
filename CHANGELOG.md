@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A typed Remote that is a media player, fan, light or switch can have a power source, as a Device can: a power sensor with its two thresholds, or an on/off entity such as a presence sensor. The Remote's entity follows it, and after a Power press on the handset the source waits the settle time before it can overrule the press. Set it in the Remote's settings, which now have Save. A Device and its Remote each keep their own source.
 - When a listening window hears a radio code HAIR can't read yet, such as a car key's, the Sniffer says so instead of showing nothing.
 - An integration can tell HAIR how to set its radio receiver to any frequency, with a `frequency_number` (and `frequency_number_option` when the number feeds one of its presets). An always-on radio receiver can also report where it listens with `frequency_hz` at any time. The guide for integration authors is now [Receivers](docs/receivers.md).
 - A KeeLoq or Somfy RTS remote's buttons can be triggers now. HAIR files each press by the part that doesn't change (the remote and the button), so every press of one button lands on one row and fires its trigger. A recording of a press it already heard is ignored. HAIR still never sends these codes. Rolling-code rows captured before this version stay as they were; press the button again.

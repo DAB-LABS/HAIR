@@ -1651,6 +1651,24 @@ export class HairApi {
      * 2a). A change or clear removes the old state entity for good;
      * the panel warns first.
      */
+    /** A typed Remote's state source: the Device's four keys and rules
+     *  (hair/trigger-remote/set-power). */
+    setTriggerRemotePower(
+        remoteId: string,
+        source: {
+            power_sensor_entity_id: string | null;
+            power_off_below_w: number | null;
+            power_on_above_w: number | null;
+            power_settle_s: number | null;
+        },
+    ): Promise<RemoteStateResult> {
+        return this.hass.connection.sendMessagePromise<RemoteStateResult>({
+            type: "hair/trigger-remote/set-power",
+            remote_id: remoteId,
+            ...source,
+        });
+    }
+
     setTriggerRemoteType(
         remoteId: string,
         deviceType: RemoteTypeId | null,

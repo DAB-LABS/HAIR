@@ -163,6 +163,11 @@ def run(tmp_path_factory):
 
 
 def _dialog() -> str:
+    """The Power section every settings dialog shares."""
+    return (SRC / "ir-power-source-section.ts").read_text(encoding="utf-8")
+
+
+def _device_dialog() -> str:
     return (SRC / "ir-device-settings-dialog.ts").read_text(encoding="utf-8")
 
 
@@ -175,8 +180,7 @@ def _panel() -> str:
 def _power_section() -> str:
     text = _dialog()
     body = text[text.index("private _renderPowerSection()"):]
-    # Up to the next section: Pinned remotes, which has a menu of its own.
-    return body[: body.index("private _renderRelaySection()")]
+    return body[: body.index("private _renderSourceField")]
 
 
 POWER = ["sensor.amp_watts", "sensor.heater_kw", "sensor.tv_plug_power"]
@@ -433,7 +437,7 @@ class TestTheDialog:
 
     def test_validation_skips_the_thresholds_for_an_on_off_source(self):
         text = _dialog()
-        body = text[text.index("private get _validationError()"):]
+        body = text[text.index("get validationError()"):]
         body = body[: body.index("\n    }\n")]
         assert "if (isOnOffEntity(this._sensorChoice)) return null;" in body
 
@@ -452,6 +456,10 @@ class TestTheDialog:
 
     def test_the_save_uses_the_shared_patch(self):
         text = _dialog()
-        body = text[text.index("private async _save"):]
+        body = text[text.index("patch(): PowerSource"):]
         body = body[: body.index("\n    }\n")]
         assert "stateSourcePatch(" in body
+        save = _device_dialog()
+        save = save[save.index("private async _save"):]
+        save = save[: save.index("\n    }\n")]
+        assert "Object.assign(patch, this._power.patch());" in save

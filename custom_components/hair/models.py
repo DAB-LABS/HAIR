@@ -919,8 +919,9 @@ def _settle_or_none(value: Any, sensor_entity_id: str | None) -> float | None:
     return float(value)
 
 
-def power_settle_seconds(device: IRDevice) -> float:
-    """The settle window a device gets after a send, in seconds.
+def power_settle_seconds(device: IRDevice | TriggerRemote) -> float:
+    """The settle window a Device gets after a send, or a typed Remote
+    after a heard power press, in seconds.
 
     The one place a stored None becomes the default. 0 means none.
     """
@@ -1698,6 +1699,9 @@ _KNOWN_REMOTE = frozenset({
     "follow_only_device_ids",
     # Track only (GH #294).
     "track_only_device_ids",
+    # A typed Remote's state source.
+    "power_sensor_entity_id", "power_off_below_w", "power_on_above_w",
+    "power_settle_s",
 })
 
 
@@ -1821,6 +1825,16 @@ class TriggerRemote:
     # makes a rename free. Kept when the type is cleared, so setting
     # it back restores the mapping.
     entity_config: EntityConfig = field(default_factory=EntityConfig)
+    # A TYPED REMOTE'S STATE SOURCE: the Device's four fields under the
+    # Device's names and with the Device's meaning (a power sensor with
+    # its two thresholds, or an on/off entity, and the settle window).
+    # Read only while the Remote's type can show power
+    # (``remote_state.remote_power_eligible``); kept when the type is
+    # cleared, as the mapping is. Never copied to or from a Device.
+    power_sensor_entity_id: str | None = None
+    power_off_below_w: float | None = None
+    power_on_above_w: float | None = None
+    power_settle_s: float | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     # Keys this parser did not consume, written back last so a newer
@@ -1844,6 +1858,13 @@ class TriggerRemote:
             out["device_type"] = self.device_type
         if self.device_type is not None or self.entity_config.command_mapping:
             out["entity_config"] = self.entity_config.to_dict()
+        # Omitted while no source is set, so a Remote without one stores
+        # exactly what it stored before.
+        if self.power_sensor_entity_id:
+            out["power_sensor_entity_id"] = self.power_sensor_entity_id
+            out["power_off_below_w"] = self.power_off_below_w
+            out["power_on_above_w"] = self.power_on_above_w
+            out["power_settle_s"] = self.power_settle_s
         return _with_extra(out, self._extra)
 
     def _base_dict(self) -> dict[str, Any]:
@@ -1961,6 +1982,15 @@ class TriggerRemote:
                 if isinstance(ec := data.get("entity_config"), dict)
                 else EntityConfig()
             ),
+            # Absent on every Remote written before a Remote could have
+            # a state source: none, read the way a Device's is.
+            power_sensor_entity_id=data.get("power_sensor_entity_id") or None,
+            power_off_below_w=data.get("power_off_below_w"),
+            power_on_above_w=data.get("power_on_above_w"),
+            power_settle_s=_settle_or_none(
+                data.get("power_settle_s"),
+                data.get("power_sensor_entity_id") or None,
+            ),
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
         ), data, _KNOWN_REMOTE)
@@ -2015,6 +2045,11 @@ class TriggerRemote:
             # (ws_duplicate_trigger_remote).
             device_type=self.device_type,
             entity_config=EntityConfig.from_dict(self.entity_config.to_dict()),
+            # Its state source too, as a Device's duplicate keeps its.
+            power_sensor_entity_id=self.power_sensor_entity_id,
+            power_off_below_w=self.power_off_below_w,
+            power_on_above_w=self.power_on_above_w,
+            power_settle_s=self.power_settle_s,
             # Whatever a newer build knew and this one does not
             # (0.10.1 item 2). Same argument as climate_matrix: it is
             # part of what this remote IS.

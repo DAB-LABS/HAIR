@@ -927,6 +927,13 @@ export interface TriggerRemoteInfo {
     command_mapping: Record<string, string>;
     action_options: ActionOption[];
     state_entity_id: string | null;
+    // A typed Remote's state source: whether its type reads one, and
+    // the Device's four fields, null while there is none.
+    power_eligible: boolean;
+    power_sensor_entity_id: string | null;
+    power_off_below_w: number | null;
+    power_on_above_w: number | null;
+    power_settle_s: number | null;
 }
 
 /** A radio button "Make a Device" made with nothing to send yet (radio

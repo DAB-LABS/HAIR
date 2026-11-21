@@ -45,33 +45,13 @@
  * dialog's content is swapped wholesale mid-transition instead of
  * toggled with `?hidden`.
  *
- * ENTITY PICKER: the coding plan calls for <ha-entity-picker>, but
- * that component is used nowhere else in this codebase and internally
- * leans on <ha-combo-box>/<ha-textfield> -- the same lazy-load family
- * that made <ha-textfield> render as an empty, unfocusable shell in
- * ir-promote-dialog.ts (see that file's header comment, "shampoo
- * bench" bug) when used directly inside a custom panel. Rather than
- * risk the identical failure mode on the one field this dialog cannot
- * work without, the state source picker below is house-built: a
- * closed field showing what is chosen, which opens a floating list (a
- * combobox; ir-capture-switch-menu.ts is the nearest precedent, a
- * closed control and a floating menu). The list is a plain search
- * <input> over the rows of the RX-CAPTURE switch search, and scans
- * this.hass.states (state-source.ts): None, then the "sensor" entities
- * that look like power sensors (device_class "power", or a W/kW unit),
- * then the on/off entities a state can be read from, each group under
- * its heading and sorted by name -- the same direct-hass.states-scan
- * convention ir-emitter-picker.ts already uses for emitters. The search
- * matches a name or an entity id and never hides the chosen row; how
- * the field and the list answer clicks and keys is pickerStep's. No
- * manual entity-ID fallback (owner ruling 2026-08-09, post-launch
- * bench pass): the design brief specs a picker only, so a device whose
- * currently-configured sensor doesn't match the power-ish filter still
- * gets it injected into the candidate list (see stateSourceCandidates)
- * rather than losing it. The climate pickers (climate-sensors.md) are
- * plain <select>s, filtering on device_class "temperature"/"humidity"
- * (see _candidatesByDeviceClass) -- same safety net, same no-custom-ID
- * ruling, picker only.
+ * THE POWER SECTION'S FIELDS (the state source picker, the readout,
+ * the thresholds and the settle time) are ir-power-source-section.ts,
+ * which the Remote settings dialog uses too; this dialog adds the
+ * matrix Power button tick above them. The climate pickers are plain
+ * <select>s, filtering on device_class "temperature" or "humidity"
+ * (see _candidatesByDeviceClass); a stored sensor the filter no longer
+ * matches is still offered, so it is never lost.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -91,28 +71,14 @@ import {
     hasSpeedCycle,
     speedStepsForSave,
 } from "./speed-cycle-settings.js";
-import { isEntityOnline } from "./entity-health.js";
-import { dotClass } from "./hair-colors.js";
-import { healthDotStyles, ONLINE_VAR } from "./ir-header-chip-styles.js";
-import { popoverStyles } from "./ir-popover-styles.js";
-import { settingsSectionStyles } from "./settings-section-styles.js";
 import {
-    PANEL_GAP,
-    PICKER_CLOSED,
-    filterSourceGroups,
-    isOnOffEntity,
-    pickerOptions,
-    pickerStep,
-    placePanel,
-    settleCapFor,
-    settleOnPick,
-    stateSourceCandidates,
-    stateSourcePatch,
-    type PanelPlacement,
-    type PickerEvent,
-    type PickerState,
-    type SourceGroups,
-} from "./state-source.js";
+    sectionAccentHost,
+    settingsSectionStyles,
+} from "./settings-section-styles.js";
+import {
+    type IrPowerSourceSection,
+    renderLiveReadout,
+} from "./ir-power-source-section.js";
 
 export type SettingsSectionId = "power" | "climate" | "speed_cycle";
 
@@ -172,23 +138,6 @@ interface SensorStateShape {
     };
 }
 
-const DEFAULT_OFF_BELOW_W = 5;
-const DEFAULT_ON_ABOVE_W = 10;
-// The settle window (0.17.2). Mirrors models.py DEFAULT_POWER_SETTLE_S;
-// the ceilings depend on the source (state-source.ts settleCapFor).
-const DEFAULT_SETTLE_S = 20;
-
-/** Is focus, through any shadow roots, on something a user types into
- * or presses? */
-function focusIsOnAControl(): boolean {
-    let el: Element | null = document.activeElement;
-    while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
-    if (!el || el === document.body) return false;
-    return el.matches(
-        "input, textarea, select, button, a[href], [contenteditable=''], [contenteditable='true'], [tabindex]:not([tabindex='-1'])",
-    );
-}
-
 @customElement("ir-device-settings-dialog")
 export class IrDeviceSettingsDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -199,21 +148,6 @@ export class IrDeviceSettingsDialog extends LitElement {
     @property({ attribute: false }) public triggerRemotes: TriggerRemoteInfo[] =
         [];
 
-    /** "" = no source, otherwise a power sensor or an on/off entity id
-     *  from the picker. */
-    @state() private _sensorChoice = "";
-    @state() private _offBelow = "";
-    @state() private _onAbove = "";
-    @state() private _settle = "";
-    /** The state source picker: closed, or open with its search and
-     * the option the arrow keys are on (state-source.ts pickerStep). */
-    @state() private _picker: PickerState = PICKER_CLOSED;
-    /** Where the open list floats, and the correction for a containing
-     * block that is not the window (see _placePanel). */
-    @state() private _panel: PanelPlacement | null = null;
-    @state() private _panelShift = { dx: 0, dy: 0 };
-    private _trackFrame = 0;
-    private _trackedBox = "";
     // Climate room sensors (climate-sensors.md, riding 0.9.8). Same ""
     // = none convention as the power picker above, but independent of
     // it and of each other -- either can be picked, changed, or
@@ -243,17 +177,6 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._modes = Object.fromEntries(
             this._pinningRemotes().map((r) => [r.id, pinModeOf(r, this.device.id)]),
         );
-        this._sensorChoice = this.device.power_sensor_entity_id ?? "";
-        this._offBelow =
-            this.device.power_off_below_w?.toString() ??
-            String(DEFAULT_OFF_BELOW_W);
-        this._onAbove =
-            this.device.power_on_above_w?.toString() ??
-            String(DEFAULT_ON_ABOVE_W);
-        // ?? and not ||: a stored 0 is the opt-out and must show as 0.
-        this._settle =
-            this.device.power_settle_s?.toString() ??
-            String(DEFAULT_SETTLE_S);
         this._temperatureChoice = this.device.temperature_sensor_entity_id ?? "";
         this._humidityChoice = this.device.humidity_sensor_entity_id ?? "";
         const config = this.device.entity_config;
@@ -330,18 +253,13 @@ export class IrDeviceSettingsDialog extends LitElement {
         ) {
             return t("devsettings.validation_speed_steps");
         }
-        if (!this._sensorChoice) return null;
-        // An on/off entity is read by its state: no thresholds to check.
-        if (isOnOffEntity(this._sensorChoice)) return null;
-        const off = parseFloat(this._offBelow);
-        const on = parseFloat(this._onAbove);
-        if (Number.isNaN(off) || Number.isNaN(on)) {
-            return t("devsettings.validation_incomplete");
-        }
-        if (on < off) {
-            return t("devsettings.validation_order");
-        }
-        return null;
+        if (!settingsSections(this.device).includes("power")) return null;
+        return this._power?.validationError ?? null;
+    }
+
+    /** The Power card's fields (ir-power-source-section.ts). */
+    private get _power(): IrPowerSourceSection | null {
+        return this.renderRoot?.querySelector("ir-power-source-section") ?? null;
     }
 
     /** Bench fix (see file header): plain dispatch, one persistent
@@ -392,162 +310,6 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._close();
     }
 
-    /** A row of the state source picker was chosen ("" is None). */
-    private _pickSource(entityId: string): void {
-        if (this._busy || entityId === this._sensorChoice) return;
-        this._sensorChoice = entityId;
-        if (entityId) {
-            this._settle = settleOnPick(entityId, this._settle);
-        }
-    }
-
-    disconnectedCallback(): void {
-        super.disconnectedCallback();
-        this._stopPanelTracking();
-    }
-
-    private _sourceGroups(): SourceGroups {
-        return stateSourceCandidates(
-            this.hass?.states ?? {},
-            this.hass?.entities ?? {},
-            this.device.power_sensor_entity_id,
-        );
-    }
-
-    /**
-     * Every click and key on the picker goes through pickerStep; this
-     * carries out what the step asks. A handled key is cancelled and
-     * stopped here, so Escape closes the list and never reaches the
-     * dialog around it.
-     */
-    private _pickerEvent(event: PickerEvent, dom?: Event): void {
-        if (this._busy && !this._picker.open) return;
-        const groups = this._sourceGroups();
-        const chosen = this._sensorChoice;
-        const step = pickerStep(this._picker, event, chosen, (query, keep = true) =>
-            pickerOptions(
-                filterSourceGroups(groups, query, keep ? chosen || null : null),
-            ),
-        );
-        if (step.handled && dom) {
-            dom.preventDefault();
-            dom.stopPropagation();
-        }
-        const wasOpen = this._picker.open;
-        this._picker = step.state;
-        if (step.pick !== undefined) this._pickSource(step.pick);
-        if (!wasOpen && step.state.open) {
-            // Placed before the first render: a list that is not yet
-            // visible cannot take focus.
-            const field = this.renderRoot.querySelector<HTMLElement>(".source-field");
-            if (field) {
-                this._panel = placePanel(field.getBoundingClientRect(), {
-                    width: window.innerWidth,
-                    height: window.innerHeight,
-                });
-            }
-            this._startPanelTracking();
-        }
-        if (wasOpen && !step.state.open) this._stopPanelTracking();
-        void this.updateComplete.then(() => {
-            const root = this.renderRoot;
-            if (step.focusSearch) {
-                root.querySelector<HTMLInputElement>(".source-search")?.focus();
-            }
-            if (step.focusField && event.kind !== "outside") {
-                root.querySelector<HTMLElement>(".source-field")?.focus();
-            }
-            root.querySelector<HTMLElement>(".source-row.active")?.scrollIntoView({
-                block: "nearest",
-            });
-        });
-    }
-
-    /**
-     * A press anywhere but the field or the list closes it. Focus goes
-     * back to the field once the press is over, unless the press put it
-     * on another control, which is where the user meant it to go.
-     */
-    private _onOutsidePointer = (e: Event): void => {
-        const path = e.composedPath();
-        const field = this.renderRoot.querySelector<HTMLElement>(".source-field");
-        const panel = this.renderRoot.querySelector(".source-panel");
-        if ((field && path.includes(field)) || (panel && path.includes(panel))) {
-            return;
-        }
-        this._pickerEvent({ kind: "outside" });
-        window.addEventListener(
-            "pointerup",
-            () =>
-                setTimeout(() => {
-                    if (!focusIsOnAControl()) field?.focus();
-                }),
-            { once: true, capture: true },
-        );
-    };
-
-    /**
-     * While the list is open it follows the field. Any of the scroll
-     * areas between here and the window can move it, and a scroll event
-     * from inside another shadow root never reaches a listener out
-     * here, so the field's box is checked once a frame instead, and the
-     * list placed again when it or the window changes.
-     */
-    private _startPanelTracking(): void {
-        document.addEventListener("pointerdown", this._onOutsidePointer, true);
-        this._trackedBox = "";
-        const tick = () => {
-            const field = this.renderRoot.querySelector<HTMLElement>(".source-field");
-            if (field) {
-                const r = field.getBoundingClientRect();
-                const box = `${r.top},${r.left},${r.width},${r.height},${window.innerWidth},${window.innerHeight}`;
-                if (box !== this._trackedBox) {
-                    this._trackedBox = box;
-                    void this._placePanel(field);
-                }
-            }
-            this._trackFrame = requestAnimationFrame(tick);
-        };
-        this._trackFrame = requestAnimationFrame(tick);
-    }
-
-    private _stopPanelTracking(): void {
-        document.removeEventListener("pointerdown", this._onOutsidePointer, true);
-        cancelAnimationFrame(this._trackFrame);
-        this._trackFrame = 0;
-        this._panel = null;
-    }
-
-    /**
-     * Fixed, from the field's box (placePanel), so no scroll area in the
-     * dialog clips it and it floats over what follows. Fixed means the
-     * window only when no ancestor makes itself the containing block (a
-     * transform does); the list is measured once placed, and any
-     * difference from where it was meant to be is kept as a shift.
-     */
-    private async _placePanel(field: HTMLElement): Promise<void> {
-        const r = field.getBoundingClientRect();
-        const place = placePanel(r, {
-            width: window.innerWidth,
-            height: window.innerHeight,
-        });
-        this._panel = place;
-        await this.updateComplete;
-        const panel = this.renderRoot.querySelector<HTMLElement>(".source-panel");
-        if (!panel || !this._picker.open) return;
-        const got = panel.getBoundingClientRect();
-        const dx = place.left - got.left;
-        const dy = place.up
-            ? r.top - PANEL_GAP - got.bottom
-            : r.bottom + PANEL_GAP - got.top;
-        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-            this._panelShift = {
-                dx: this._panelShift.dx + dx,
-                dy: this._panelShift.dy + dy,
-            };
-        }
-    }
-
     private _onTemperatureChoiceChanged(e: Event): void {
         this._temperatureChoice = (e.target as HTMLSelectElement).value;
     }
@@ -580,26 +342,6 @@ export class IrDeviceSettingsDialog extends LitElement {
         return this._pinningRemotes().length > 0;
     }
 
-    /** What the settle field saves as. A device still on the default
-     * that nobody changed stays on the default (null), so it keeps
-     * following it; an empty field also means the default. Anything
-     * else is clamped into the range the backend accepts for the
-     * chosen source. */
-    private _settleForSave(): number | null {
-        const value = parseFloat(this._settle);
-        if (Number.isNaN(value)) return null;
-        if (
-            this.device.power_settle_s == null &&
-            value === DEFAULT_SETTLE_S
-        ) {
-            return null;
-        }
-        return Math.min(
-            settleCapFor(this._sensorChoice),
-            Math.max(0, value),
-        );
-    }
-
     private async _save(): Promise<void> {
         if (this._busy) return;
         const validation = this._validationError;
@@ -610,18 +352,9 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._busy = true;
         this._error = null;
         const sections = settingsSections(this.device);
-        const sensorId = this._sensorChoice || null;
         const patch: Parameters<HairApi["updateDevice"]>[1] = {};
-        if (sections.includes("power")) {
-            Object.assign(
-                patch,
-                stateSourcePatch(
-                    sensorId,
-                    this._offBelow,
-                    this._onAbove,
-                    sensorId ? this._settleForSave() : null,
-                ),
-            );
+        if (sections.includes("power") && this._power) {
+            Object.assign(patch, this._power.patch());
         }
         if (this.device.matrix) {
             patch.power_toggles = this._powerToggles;
@@ -705,7 +438,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                 "power",
                 t("devsettings.power_title"),
                 this._powerSummary(),
-                this._renderPowerSection(),
+                this._renderPowerCard(),
             )}
             ${this._renderCard(
                 "climate",
@@ -787,6 +520,41 @@ export class IrDeviceSettingsDialog extends LitElement {
         `;
     }
 
+    /** The Power card's body: a matrix Device's Power button tick,
+     * then the source and what is read from it, which every settings
+     * dialog with a Power section shares (ir-power-source-section.ts). */
+    private _renderPowerCard() {
+        return html`
+            <section class="settings-section section-power">
+                ${this.device.matrix
+                    ? html`
+                          <label class="check-row">
+                              <input
+                                  type="checkbox"
+                                  .checked=${this._powerToggles}
+                                  @change=${(e: Event) =>
+                                      (this._powerToggles = (
+                                          e.target as HTMLInputElement
+                                      ).checked)}
+                                  ?disabled=${this._busy}
+                              />
+                              <span>${t("devsettings.power_toggles_label")}</span>
+                          </label>
+                          <p class="section-explainer">
+                              ${t("devsettings.power_toggles_help")}
+                          </p>
+                      `
+                    : ""}
+            </section>
+            <ir-power-source-section
+                .hass=${this.hass}
+                .source=${this.device}
+                .busy=${this._busy}
+                @power-source-change=${() => this.requestUpdate()}
+            ></ir-power-source-section>
+        `;
+    }
+
     /**
      * One card (settings-section-styles.ts): a heading button with the
      * section's name over its summary, and the section's fields under
@@ -832,11 +600,7 @@ export class IrDeviceSettingsDialog extends LitElement {
      * says the problem instead. */
     private _powerSummary(): string {
         if (this._problemCard() === "power") return this._validationError ?? "";
-        const id = this._sensorChoice;
-        if (!id) return t("devsettings.sum_power_none");
-        const name = this.hass?.states?.[id]?.attributes?.friendly_name ?? id;
-        if (isOnOffEntity(id)) return name;
-        return t("devsettings.sum_power_watts", { name, watts: this._onAbove });
+        return this._power?.summary ?? "";
     }
 
     private _climateSummary(): string {
@@ -871,130 +635,6 @@ export class IrDeviceSettingsDialog extends LitElement {
                           : "devsettings.speed_cycle_turn_on_resume",
                   ),
         ].join(" · ");
-    }
-
-    private _renderPowerSection() {
-        const groups = this._sourceGroups();
-        const sensorPicked = !!this._sensorChoice;
-        const onOff = isOnOffEntity(this._sensorChoice);
-        const liveState = sensorPicked
-            ? this.hass?.states?.[this._sensorChoice]
-            : undefined;
-        const shown = filterSourceGroups(
-            groups,
-            this._picker.query,
-            this._sensorChoice || null,
-        );
-        return html`
-            <section class="settings-section section-power">
-                ${this.device.matrix
-                    ? html`
-                          <label class="check-row">
-                              <input
-                                  type="checkbox"
-                                  .checked=${this._powerToggles}
-                                  @change=${(e: Event) =>
-                                      (this._powerToggles = (
-                                          e.target as HTMLInputElement
-                                      ).checked)}
-                                  ?disabled=${this._busy}
-                              />
-                              <span>${t("devsettings.power_toggles_label")}</span>
-                          </label>
-                          <p class="section-explainer">
-                              ${t("devsettings.power_toggles_help")}
-                          </p>
-                      `
-                    : ""}
-
-                <p class="section-explainer">
-                    ${t("devsettings.power_intro")}
-                </p>
-
-                <div class="field">
-                    <label id="source-label"
-                        >${t("devsettings.sensor_label")}</label
-                    >
-                    ${this._renderSourceField(groups)}
-                    ${this._picker.open ? this._renderSourcePanel(shown) : ""}
-                    <p class="section-explainer">
-                        ${t(
-                            onOff
-                                ? "devsettings.onoff_explainer"
-                                : "devsettings.power_explainer",
-                        )}
-                    </p>
-                </div>
-
-                ${sensorPicked
-                    ? html`
-                          <div class="live-readout">
-                              ${this._renderLiveReadout(liveState, onOff)}
-                          </div>
-                      `
-                    : ""}
-                ${sensorPicked && !onOff
-                    ? html`
-                          <div class="pair-grid field">
-                              <div>
-                                  <label
-                                      >${t("devsettings.off_below_label")}</label
-                                  >
-                                  <input
-                                      type="number"
-                                      .value=${this._offBelow}
-                                      @input=${(e: Event) =>
-                                          (this._offBelow = (
-                                              e.target as HTMLInputElement
-                                          ).value)}
-                                      ?disabled=${this._busy}
-                                  />
-                              </div>
-                              <div>
-                                  <label
-                                      >${t("devsettings.on_above_label")}</label
-                                  >
-                                  <input
-                                      type="number"
-                                      .value=${this._onAbove}
-                                      @input=${(e: Event) =>
-                                          (this._onAbove = (
-                                              e.target as HTMLInputElement
-                                          ).value)}
-                                      ?disabled=${this._busy}
-                                  />
-                              </div>
-                          </div>
-                      `
-                    : ""}
-                ${sensorPicked
-                    ? html`
-                          <div class="field">
-                              <label>${t("devsettings.settle_label")}</label>
-                              <input
-                                  type="number"
-                                  min="0"
-                                  max=${settleCapFor(this._sensorChoice)}
-                                  step="1"
-                                  .value=${this._settle}
-                                  @input=${(e: Event) =>
-                                      (this._settle = (
-                                          e.target as HTMLInputElement
-                                      ).value)}
-                                  ?disabled=${this._busy}
-                              />
-                              <p class="section-explainer">
-                                  ${t(
-                                      onOff
-                                          ? "devsettings.settle_help_onoff"
-                                          : "devsettings.settle_help",
-                                  )}
-                              </p>
-                          </div>
-                      `
-                    : ""}
-            </section>
-        `;
     }
 
     /** Pinned remotes (GH #294, GH #183): per Remote pinning this
@@ -1181,7 +821,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                 ${tempPicked
                     ? html`
                           <div class="live-readout">
-                              ${this._renderLiveReadout(tempState)}
+                              ${renderLiveReadout(tempState)}
                           </div>
                       `
                     : ""}
@@ -1212,211 +852,12 @@ export class IrDeviceSettingsDialog extends LitElement {
                 ${humidityPicked
                     ? html`
                           <div class="live-readout">
-                              ${this._renderLiveReadout(humidityState)}
+                              ${renderLiveReadout(humidityState)}
                           </div>
                       `
                     : ""}
             </section>
         `;
-    }
-
-    /**
-     * The closed field: what is chosen, in the shape of a list row (the
-     * health dot, the name over the entity id), or None, with the caret
-     * on the right. A combobox: click, Enter, Space or Arrow Down opens
-     * the list.
-     */
-    private _renderSourceField(groups: SourceGroups) {
-        const id = this._sensorChoice;
-        const known = [...groups.power, ...groups.onOff].find(
-            (c) => c.entityId === id,
-        );
-        const name = id
-            ? (known?.name ??
-              this.hass?.states?.[id]?.attributes?.friendly_name ??
-              id)
-            : t("devsettings.sensor_none");
-        const open = this._picker.open;
-        return html`<div
-            class="source-field ${open ? "open" : ""}"
-            role="combobox"
-            tabindex=${this._busy ? "-1" : "0"}
-            aria-labelledby="source-label"
-            aria-haspopup="listbox"
-            aria-expanded=${open ? "true" : "false"}
-            aria-controls="source-listbox"
-            aria-disabled=${this._busy ? "true" : "false"}
-            title=${id ? `${name} · ${id}` : name}
-            @click=${(e: Event) => this._pickerEvent({ kind: "field-click" }, e)}
-            @keydown=${(e: KeyboardEvent) =>
-                this._pickerEvent({ kind: "field-key", key: e.key }, e)}
-        >
-            ${this._renderSourceDot(id, true)}
-            <span class="txt">
-                <span class="iname">${name}</span>
-                ${id ? html`<span class="iid">${id}</span>` : ""}
-            </span>
-            <span class="select-chevron" aria-hidden="true"></span>
-        </div>`;
-    }
-
-    /**
-     * The open list, floating over the dialog (ir-popover-styles): the
-     * search, which takes focus, then None and the two groups. The
-     * arrow keys move the active option from the search
-     * (aria-activedescendant); headings are not options.
-     */
-    private _renderSourcePanel(shown: SourceGroups) {
-        const place = this._panel;
-        const options = pickerOptions(shown);
-        const optionId = (entityId: string) =>
-            `source-opt-${options.indexOf(entityId)}`;
-        const active = this._picker.active;
-        const style = place
-            ? [
-                  `left:${place.left + this._panelShift.dx}px`,
-                  `width:${place.width}px`,
-                  `max-height:${place.maxHeight}px`,
-                  place.up
-                      ? `bottom:${place.bottom - this._panelShift.dy}px`
-                      : `top:${place.top + this._panelShift.dy}px`,
-              ].join(";")
-            : "visibility:hidden";
-        const row = (entityId: string, name: string) =>
-            this._renderSourceRow(entityId, name, optionId(entityId), active);
-        return html`<div
-            class="action-popover source-panel ${place?.up ? "up" : ""}"
-            style=${style}
-            @keydown=${(e: KeyboardEvent) =>
-                this._pickerEvent({ kind: "panel-key", key: e.key }, e)}
-        >
-            <input
-                class="source-search"
-                type="text"
-                .value=${this._picker.query}
-                placeholder=${t("devsettings.source_search")}
-                aria-label=${t("devsettings.source_search")}
-                aria-controls="source-listbox"
-                aria-activedescendant=${active !== null && options.includes(active)
-                    ? optionId(active)
-                    : ""}
-                @input=${(e: Event) =>
-                    this._pickerEvent({
-                        kind: "query",
-                        value: (e.target as HTMLInputElement).value,
-                    })}
-            />
-            <div
-                class="source-list"
-                id="source-listbox"
-                role="listbox"
-                aria-labelledby="source-label"
-            >
-                ${row("", t("devsettings.sensor_none"))}
-                ${shown.power.length
-                    ? html`<div role="group" aria-label=${t("devsettings.power_group_label")}>
-                          <div class="source-group" aria-hidden="true">
-                              ${t("devsettings.power_group_label")}
-                          </div>
-                          ${shown.power.map((c) => row(c.entityId, c.name))}
-                      </div>`
-                    : ""}
-                ${shown.onOff.length
-                    ? html`<div role="group" aria-label=${t("devsettings.onoff_group_label")}>
-                          <div class="source-group" aria-hidden="true">
-                              ${t("devsettings.onoff_group_label")}
-                              <span class="source-group-hint"
-                                  >${t("devsettings.onoff_group_hint")}</span
-                              >
-                          </div>
-                          ${shown.onOff.map((c) => row(c.entityId, c.name))}
-                      </div>`
-                    : ""}
-                ${shown.power.length + shown.onOff.length === 0
-                    ? html`<div class="source-none">
-                          ${t("devsettings.source_no_match")}
-                      </div>`
-                    : ""}
-            </div>
-        </div>`;
-    }
-
-    /** The source's health dot: bright on the closed field, which names
-     *  the source in use, dull in the list, where nothing is picked yet
-     *  (chip and dot audit, owner 2026-11-14 19:15 PT). */
-    private _renderSourceDot(entityId: string, bright = false) {
-        return entityId
-            ? html`<span
-                  class="dot ${dotClass(isEntityOnline(this.hass?.states, entityId), bright)}"
-              ></span>`
-            : html`<span class="dot-gap"></span>`;
-    }
-
-    /** One option of the open list, the shape of the RX-CAPTURE switch
-     * search (ir-capture-switch-menu.ts): the health dot, the name over
-     * the entity id, the chosen row tinted, the active one outlined.
-     * None has no dot and no id. Not a button: the search keeps focus,
-     * so a press here must not take it. */
-    private _renderSourceRow(
-        entityId: string,
-        name: string,
-        id: string,
-        active: string | null,
-    ) {
-        const chosen = this._sensorChoice === entityId;
-        return html`<div
-            id=${id}
-            class="source-row ${chosen ? "cur" : ""} ${active === entityId ? "active" : ""}"
-            role="option"
-            aria-selected=${chosen ? "true" : "false"}
-            title=${entityId ? `${name} · ${entityId}` : name}
-            @pointerdown=${(e: Event) => e.preventDefault()}
-            @click=${() => this._pickerEvent({ kind: "row", entityId })}
-        >
-            ${this._renderSourceDot(entityId)}
-            <span class="txt">
-                <span class="iname">${name}</span>
-                ${entityId ? html`<span class="iid">${entityId}</span>` : ""}
-            </span>
-        </div>`;
-    }
-
-    /** The dot signals "this number is live," full stop (design brief:
-     * "stays green in both sections... independent of the
-     * oxblood/cold-blue theming" -- and, same principle, independent
-     * of the on/off verdict too). An earlier pass colored it by
-     * classify_power_reading()'s on/off/hold verdict instead, which
-     * read as "sensor might be broken" on a perfectly healthy reading
-     * that just happened to sit in the off band -- corrected here.
-     * An on/off source shows its state as it is ("Now: home"), live
-     * when it is one of the four states that mean on or off. */
-    private _renderLiveReadout(state: {
-        state?: string;
-        attributes?: { unit_of_measurement?: string };
-    } | undefined, onOff = false) {
-        if (!state || state.state === undefined) {
-            return html`<span class="readout-dot readout-unknown"></span>
-                ${t("devsettings.readout_unavailable")}`;
-        }
-        if (onOff) {
-            const known = ["on", "off", "home", "not_home"].includes(
-                state.state,
-            );
-            return html`<span
-                    class="readout-dot ${known ? "readout-live" : "readout-unknown"}"
-                ></span>
-                ${t("devsettings.readout_now", { value: state.state })}`;
-        }
-        const raw = parseFloat(state.state);
-        const unit = state.attributes?.unit_of_measurement ?? "";
-        if (Number.isNaN(raw)) {
-            const value = unit ? `${state.state} ${unit}` : state.state;
-            return html`<span class="readout-dot readout-unknown"></span>
-                ${t("devsettings.readout_now", { value })}`;
-        }
-        const value = unit ? `${raw} ${unit}` : `${raw}`;
-        return html`<span class="readout-dot readout-live"></span>
-            ${t("devsettings.readout_now", { value })}`;
     }
 
     static styles = [
@@ -1425,20 +866,6 @@ export class IrDeviceSettingsDialog extends LitElement {
             ha-alert {
                 display: block;
                 margin: 8px 0;
-            }
-            .check-row {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin: 4px 0 12px;
-                font-size: 14px;
-                color: var(--primary-text-color);
-                cursor: pointer;
-            }
-            .pair-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                column-gap: 10px;
             }
             /* Destructive alone on the left, constructive pair on the
              * right, with a growing spacer between (punch list item
@@ -1475,48 +902,6 @@ export class IrDeviceSettingsDialog extends LitElement {
                 background: rgba(230, 81, 0, 0.14);
             }
 
-            /* Indented to line up with the entity picker's own text
-             * (owner correction, bench pass -- the earlier 26px lined
-             * up with the live-readout instead, which read as too
-             * much for a caption). input[type="text"]/select get
-             * padding: 8px from dialogStyles, so 8px here lands this
-             * paragraph's text under the "F" of whatever's selected
-             * in the dropdown. Shared by both the section intro
-             * (before the picker) and the per-field explainer (under
-             * it) -- same look, same alignment, two spots. */
-            .section-explainer {
-                margin: 0 0 12px;
-                padding-left: 8px;
-                font-size: 0.8rem;
-                color: var(--secondary-text-color);
-            }
-            /* The per-field explainer ("The sensor must report
-             * watts.") sits directly under the select with no gap by
-             * default -- owner correction, bench pass: a little
-             * standoff from the box above it reads better than
-             * touching. Scoped to the .field instance only, so the
-             * section-intro paragraph (which sits under the heading,
-             * not a box) keeps its original spacing. */
-            .field > .section-explainer {
-                margin-top: 6px;
-            }
-            /* dialogStyles only styles input[type="text"]/select --
-             * number inputs need the same anatomy spelled out here. */
-            input[type="number"] {
-                width: 100%;
-                padding: 8px;
-                border-radius: 4px;
-                border: 1px solid var(--divider-color);
-                background: var(--card-background-color);
-                color: var(--primary-text-color);
-                font-size: 0.95rem;
-                font-family: inherit;
-                box-sizing: border-box;
-            }
-            input[type="number"]:focus {
-                outline: none;
-                border-color: var(--primary-color);
-            }
             /* Pinned remotes: "Pinned remote:" muted, the remote's name
              * in full text colour, the menu under it, and the line that
              * says what the choice does. Scoped so it wins over the
@@ -1533,162 +918,6 @@ export class IrDeviceSettingsDialog extends LitElement {
             .pin-desc {
                 margin: 6px 0 0;
             }
-            .settings-section select option {
-                color: var(--primary-text-color);
-                background: var(--card-background-color);
-            }
-
-            .live-readout {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin: 4px 0 0;
-                padding: 8px 10px;
-                border-radius: 6px;
-                background: var(--section-wash, var(--secondary-background-color));
-                font-size: 0.85rem;
-                color: var(--primary-text-color);
-            }
-            .readout-dot {
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                flex: 0 0 auto;
-            }
-            /* Green whenever the readout has a genuine live number,
-             * full stop -- design brief: "signals 'this number is
-             * moving right now,' not which section it belongs to."
-             * Not tied to the on/off verdict; a reading sitting in
-             * the hysteresis band is just as live as one past a
-             * threshold. */
-            .readout-live {
-                background: ${ONLINE_VAR};
-            }
-            .readout-unknown {
-                background: var(--disabled-text-color, #999);
-                opacity: 0.5;
-            }
-
-            /* The state source picker: a closed field the height of the
-               other inputs, and a floating list (ir-popover-styles) with
-               the RX-CAPTURE switch search's rows
-               (ir-capture-switch-menu.ts). */
-            .source-field {
-                position: relative;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                box-sizing: border-box;
-                width: 100%;
-                min-height: 38px;
-                padding: 3px 34px 3px 10px;
-                border: 1px solid var(--divider-color);
-                border-radius: 4px;
-                background: var(--card-background-color);
-                color: var(--primary-text-color);
-                font-size: 0.9rem;
-                cursor: pointer;
-            }
-            .source-field:focus,
-            .source-field.open {
-                outline: none;
-                border-color: var(--primary-color);
-            }
-            .source-field[aria-disabled="true"] {
-                cursor: default;
-                opacity: 0.6;
-            }
-            .action-popover.source-panel {
-                display: flex;
-                flex-direction: column;
-                max-width: none;
-                min-width: 0;
-                box-sizing: border-box;
-                padding: 6px;
-                overflow: hidden;
-            }
-            .source-panel .source-search {
-                flex: none;
-                margin-bottom: 6px;
-            }
-            .source-list {
-                flex: 1 1 auto;
-                min-height: 0;
-                overflow-y: auto;
-                border-top: 1px solid var(--divider-color);
-            }
-            .source-group {
-                display: flex;
-                flex-direction: column;
-                gap: 2px;
-                padding: 9px 10px 5px;
-                border-bottom: 1px solid var(--divider-color);
-                background: var(--secondary-background-color);
-                font-size: 0.7rem;
-                text-transform: uppercase;
-                letter-spacing: 0.06em;
-                color: var(--secondary-text-color);
-            }
-            .source-group-hint {
-                font-size: 0.75rem;
-                text-transform: none;
-                letter-spacing: normal;
-                line-height: 1.35;
-            }
-            .source-row {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                padding: 7px 10px;
-                border-bottom: 1px solid var(--divider-color);
-                font-size: 0.9rem;
-                color: var(--primary-text-color);
-                cursor: pointer;
-            }
-            .source-row:hover {
-                background: var(--secondary-background-color);
-            }
-            .source-row.cur {
-                background: color-mix(in srgb, var(--primary-color) 10%, transparent);
-            }
-            .source-row.active {
-                box-shadow: inset 0 0 0 1px var(--primary-color);
-            }
-            .source-field .dot,
-            .source-field .dot-gap,
-            .source-row .dot,
-            .source-row .dot-gap {
-                width: 7px;
-                height: 7px;
-                border-radius: 50%;
-                flex: none;
-            }
-            .source-field .txt,
-            .source-row .txt {
-                display: flex;
-                flex-direction: column;
-                min-width: 0;
-            }
-            .source-field .iname,
-            .source-field .iid,
-            .source-row .iname,
-            .source-row .iid {
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-            .source-field .iid,
-            .source-row .iid {
-                font-size: 0.7rem;
-                color: var(--secondary-text-color);
-                margin-top: 1px;
-            }
-            .source-none {
-                padding: 14px 10px;
-                color: var(--secondary-text-color);
-                font-style: italic;
-            }
-
             .save-btn {
                 background: #3f8a4b;
                 color: #fff;
@@ -1698,9 +927,8 @@ export class IrDeviceSettingsDialog extends LitElement {
                 opacity: 0.9;
             }
         `,
+        sectionAccentHost,
         settingsSectionStyles,
-        popoverStyles,
-        healthDotStyles,
     ];
 }
 

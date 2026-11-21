@@ -573,6 +573,7 @@ export class HaPanelIrDevices extends LitElement {
                               @remote-state-heard=${this._onRemoteChanged}
                               @remote-created=${this._onRemoteChanged}
                               @remote-type-changed=${this._onRemoteChanged}
+                              @remote-power-changed=${this._onRemoteChanged}
                               @device-created=${this._onDeviceChanged}
                           ></ir-device-list>
 

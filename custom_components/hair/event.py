@@ -188,6 +188,10 @@ def sync_remote_entities(
     from .remote_state import sync_remote_state_entities
 
     sync_remote_state_entities(hass, entry_id, removed_remote_id)
+    # And a typed Remote's state source (power_monitor.sync_remotes).
+    power_monitor = data.get("power_monitor")
+    if power_monitor is not None:
+        power_monitor.sync_remotes()
     remote_entities: dict[str, HAIRRemoteLastPressedEntity] | None = data.get(
         "_remote_last_pressed_entities"
     )

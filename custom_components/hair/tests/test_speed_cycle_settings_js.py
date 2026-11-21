@@ -123,7 +123,7 @@ class TestTheDialog:
         text = _dialog()
         render = text[text.index("private _renderBody()"):]
         assert (
-            render.index("_renderPowerSection()")
+            render.index("_renderPowerCard()")
             < render.index("_renderSpeedCycleSection()")
             < render.index("_renderConvertSection()")
         )

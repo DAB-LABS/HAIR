@@ -3130,6 +3130,8 @@ export class IrDeviceList extends LitElement {
             ${this._remoteSettingsTarget
                 ? html`
                       <ir-trigger-remote-settings-dialog
+                          .api=${this.api}
+                          .hass=${this.hass}
                           .remote=${this._remoteSettingsTarget}
                           @request-duplicate=${(ev: Event) => {
                               const target = this._remoteSettingsTarget;
