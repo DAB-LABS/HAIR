@@ -56,7 +56,7 @@ import type { CaptureReceiverRow, HardwareFacts, Medium } from "./types.js";
 import { listsInKind, rowsKind, soleKind } from "./media-kind.js";
 import { receiverIdMedium } from "./receiver-medium.js";
 import { PROTO_SIGNAL, PROTO_SOURCE, protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
-import { captureSignature, cardCaptureState } from "./ir-listen-state.js";
+import { badgeCaptureState, captureSignature, cardCaptureState, type BadgeCapture } from "./ir-listen-state.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
 import { HiddenActivity, hiddenActivityStyles } from "./hidden-activity.js";
 import {
@@ -107,7 +107,7 @@ import { REMOTE_TYPES } from "./types.js";
 import { entityDisplayName, entityFullName } from "./entity-names.js";
 import { cardGlyph, isEntityOnline, partsHealth } from "./entity-health.js";
 import { cardIconPath } from "./card-icons.js";
-import { EMBER_VAR, GOLD_VAR, ONLINE_VAR, PICKED_VAR } from "./ir-header-chip-styles.js";
+import { EMBER_VAR, GOLD_VAR, GREY_VAR, ONLINE_VAR, PICKED_VAR } from "./ir-header-chip-styles.js";
 
 /**
  * Sentinel "device id" for the single HAIR Triggers drawer card, reusing
@@ -2230,22 +2230,32 @@ export class IrDeviceList extends LitElement {
     }
 
     /** A row's badge tooltip and accessible name: what it is, and its
-     *  health, the badge's colour. */
-    private _badgeTitle(row: CapabilityRow): string {
+     *  health, the badge's colour; for a capture receiver, its capture
+     *  state too, which the colour then says. */
+    private _badgeTitle(row: CapabilityRow, look: Exclude<BadgeCapture, "offline"> | null = null): string {
         const what = t(`hw.badge.${row.medium}_${row.direction}`);
-        return `${badgeLabel(row)}, ${t(row.available ? "common.online" : "common.offline")}: ${what}`;
+        const base = `${badgeLabel(row)}, ${t(row.available ? "common.online" : "common.offline")}: ${what}`;
+        return look ? `${base}. ${t(`hw.badge.capture_${look}`)}` : base;
     }
 
     private _renderCapabilityRow(row: CapabilityRow, ruleAbove: boolean) {
         const fact = this._factText(row.fact);
         const name = entityDisplayName(this.hass, row.entity_id);
         const full = entityFullName(this.hass, row.entity_id);
-        const title = this._badgeTitle(row);
+        // A capture receiver's own badge takes its Sniffer pill's colour:
+        // grey with no switch, gold ready, green listening. Unavailable
+        // stays ember, by health.
+        const capture =
+            row.capture_device && row.direction === "rx" && row.available
+                ? badgeCaptureState(this.hass?.states, this._listenRows, row.entity_id)
+                : null;
+        const look = capture === "offline" ? null : capture;
+        const title = this._badgeTitle(row, look);
         return html`<div
             class="cap-row ${row.available ? "" : "is-down"} ${ruleAbove ? "rule-above" : ""}"
             data-entity=${row.entity_id}
         >
-            <span class="badge cap-badge ${row.medium === "rf" ? "rf" : ""} ${row.available ? "" : "offline"}" role="img" aria-label=${title} title=${title}
+            <span class="badge cap-badge ${row.medium === "rf" ? "rf" : ""} ${row.available ? "" : "offline"} ${look ? `capture-${look}` : ""}" role="img" aria-label=${title} title=${title}
                 >${badgeLabel(row)}</span
             >
             <span class="cap-name" title=${full}>${name}</span>
@@ -3662,6 +3672,36 @@ export class IrDeviceList extends LitElement {
         :host([dark]) .badge.cap-badge.rf:not(.offline) {
             color: #81c784;
             background: rgba(129, 199, 132, 0.14);
+        }
+        /* A capture receiver's badge, as its Sniffer pill: gold ready,
+           grey with no switch yet; green
+           listening is the health green above. Infrared solid, radio a
+           pale wash, the same pairing. No new hex: on a light card the
+           radio gold letters are the gold mixed toward black, so they
+           read on white, and on a dark card the gold itself. */
+        .badge.cap-badge.capture-ready:not(.rf) {
+            background: ${GOLD_VAR};
+            color: color-mix(in srgb, #000 70%, ${GOLD_VAR});
+        }
+        .badge.cap-badge.capture-ready.rf {
+            background: color-mix(in srgb, ${GOLD_VAR} 16%, transparent);
+            color: color-mix(in srgb, ${GOLD_VAR} 60%, #000);
+        }
+        :host([dark]) .badge.cap-badge.capture-ready.rf {
+            background: color-mix(in srgb, ${GOLD_VAR} 16%, transparent);
+            color: ${GOLD_VAR};
+        }
+        .badge.cap-badge.capture-waiting:not(.rf) {
+            background: ${GREY_VAR};
+            color: color-mix(in srgb, #fff 70%, ${GREY_VAR});
+        }
+        .badge.cap-badge.capture-waiting.rf {
+            background: color-mix(in srgb, ${GREY_VAR} 16%, transparent);
+            color: ${GREY_VAR};
+        }
+        :host([dark]) .badge.cap-badge.capture-waiting.rf {
+            background: color-mix(in srgb, ${GREY_VAR} 30%, transparent);
+            color: color-mix(in srgb, ${GREY_VAR} 50%, #fff);
         }
         .hw-card.is-offline {
             border-color: color-mix(in srgb, ${EMBER_VAR} 40%, transparent);
