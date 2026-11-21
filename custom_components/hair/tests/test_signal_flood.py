@@ -27,6 +27,7 @@ Covered here:
 from __future__ import annotations
 
 import copy
+import gc
 import random
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -325,9 +326,17 @@ def _timed_heal(rows: int) -> float:
         for n in range(rows)
     ]
     dev = _dev(signals)
-    start = time.perf_counter()
-    assert _heal_device_signals(dev) is True
-    elapsed = time.perf_counter() - start
+    # Only the heal is timed: a full garbage collection over a large
+    # worker's heap can land inside the timed window and cost more than
+    # the heal itself, so collection is off while it runs.
+    gc.collect()
+    gc.disable()
+    try:
+        start = time.perf_counter()
+        assert _heal_device_signals(dev) is True
+        elapsed = time.perf_counter() - start
+    finally:
+        gc.enable()
     assert len(dev.signals) == half
     return elapsed
 
@@ -341,11 +350,11 @@ class TestHealPerformance:
         not against a slow runner. So the limit is set by the same heal
         at a tenth of the size, timed on the same machine: linear work
         takes about 10 times as long at 10 times the rows, the old pass
-        about 100 times. The best of three takes the noise out of the
-        small one.
+        about 100 times. Each size is timed three times and the best kept,
+        so a worker that is busy for a moment doesn't decide the result.
         """
         reference = min(_timed_heal(500) for _ in range(3))
-        elapsed = _timed_heal(5000)
+        elapsed = min(_timed_heal(5000) for _ in range(3))
         limit = max(40 * reference, 0.05)
         assert elapsed < limit, (
             f"heal took {elapsed:.2f}s for 5,000 rows against {reference:.4f}s "
