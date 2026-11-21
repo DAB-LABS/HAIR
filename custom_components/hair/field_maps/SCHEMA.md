@@ -1,4 +1,4 @@
-# Field-map schema v0.6
+# Field-map schema v0.7
 
 Proposed v0 by the first derivation pass (2026-08-22). Extended to v0.1 by round two
 and to v0.2 by round three, same date, and to v0.3 by the DAIKIN216 map (2026-09-14), and to v0.4 by the AC
@@ -9,7 +9,9 @@ added one optional frame key, `frame.setting_frames`, which defaults to
 `[payload_frame]`, so every map written against v0.4 describes exactly the same
 frames it did before. v0.6 (2026-09-29) added one optional frame key,
 `frame.optional_leader`, which defaults to false, so every map that does not
-declare it reads exactly the codes it read before.
+declare it reads exactly the codes it read before. v0.7 added one
+optional field key, `role`, so every map that declares no role reads exactly what
+it read before.
 **Every change in every round is additive**: a reader written against v0 still reads
 every map in this directory correctly, with one conformance point (round two,
 `vocabulary`) called out at the end.
@@ -73,6 +75,8 @@ fields:
       params: {...}
     coordinate: <dim>                # NEW v0.3: which wig dimension answers this
                                      # field, when the NAME does not say
+    role: power_toggle               # NEW v0.7: read beside the state, never in
+                                     # it; see "Changes in v0.7"
     applies_when:                    # NEW v0.1: when this field carries a fact at all
       in:     {<dim>: [<label>, ...]}
       not_in: {<dim>: [<label>, ...]}
@@ -314,6 +318,50 @@ leaderless one as unreadable.
 Only DAIKIN152 declares the key. It moves that map's version (see below) and no
 other.
 
+## Changes in v0.7: role
+
+One addition, a field key `role`, and it exists because some frames carry a bit
+that says what a press DID rather than what state it names.
+
+DAIKIN64 (GH #183) has no on/off in its frame. The Power button sets one bit,
+byte 7 bit 3, and leaves the rest of the frame as the state the unit is in. As
+an ordinary field that bit would join every identity key, and a Power press
+would match a state only when it was made at the one state the file's power
+code happens to carry (cool / auto / 16 in the #183 file). As a role it is read
+beside the state:
+
+```yaml
+fields:
+  - name: power_toggle
+    role: power_toggle
+    frame: 0
+    byte: 7
+    bits: "mask:0x08"
+    encoding_ref: {name: bitflag, params: {true_values: ["on"]}}
+```
+
+- **The parser keeps role fields apart** (`FieldMap.roles`, keyed by role).
+  They are not in `FieldMap.fields`, so nothing that treats a field as a
+  coordinate of the state sees them: the settings a capture reads as, the
+  comb, the fix flow.
+- **The closed set of roles is `power_toggle`.** A field naming a role this
+  engine does not know is dropped, not demoted to a state field, since a state
+  field joins identity keys. A role declared twice keeps its first field.
+- **What HAIR does with `power_toggle`:** for a family on the read-bytes list,
+  a code whose role bits are non-zero takes the ROLE's identity (the family,
+  its identity bytes and the role name) instead of its fields' values. So
+  every Power press is one code to every matcher, whatever state the rest of
+  the frame carries: the cell index hears it as the matrix's power code, a
+  trigger on Power fires on it, and a trigger on a state never does. A toggle
+  device then flips, as it does for any heard power code. The checksum still
+  has to hold first, as for any read key.
+
+Rules a map must keep, enforced by `test_field_map_schema.py`: every role is in
+the closed set and declared once, and the parser keeps every role field out of
+`fields`.
+
+Only DAIKIN64 declares a role. It moves that map's version and no other.
+
 ## What moves a map's version
 
 HAIR derives a version for every map and keys people's answers to comb
@@ -328,6 +376,7 @@ JUDGES, taken over the parsed map rather than the document:
   `bit_order`, `bits_tolerance`, `identity_bytes` and the `timing` block; each field's `name`, `frame`, `byte`, `bits`,
   `encoding_ref` (name and every param, including the vocabulary),
   `applies_when`, `mode_traits`, `coordinate` and `confidence`; each
+  role field (v0.7), on the same terms, when the map declares one; each
   integrity rule's `type`, `params` and `confidence`.
 - **Does not:** `schema_version`, aliases, `status`, `derivation`,
   `agreement` blocks, `vocabulary_notes`, open questions, prose

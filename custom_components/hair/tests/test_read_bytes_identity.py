@@ -183,10 +183,10 @@ def _air(
 
 class TestTheList:
 
-    def test_the_two_daikin_families_and_mitsubishi144(self):
-        assert frozenset({"DAIKIN216", "DAIKIN152", "MITSUBISHI144"}) == (
-            READ_BYTES_VERIFIED
-        )
+    def test_the_three_daikin_families_and_mitsubishi144(self):
+        assert frozenset({
+            "DAIKIN216", "DAIKIN152", "MITSUBISHI144", "DAIKIN64",
+        }) == READ_BYTES_VERIFIED
 
     def test_it_is_inside_the_setting_frame_list(self):
         assert READ_BYTES_VERIFIED <= SETTING_IDENTITY_VERIFIED
@@ -289,7 +289,9 @@ class TestTheDistinctnessSweep:
     def test_the_power_codes_have_keys_of_their_own(self, family):
         """The MITSUBISHI144 pack has no power codes, so its case passes
         without testing anything; ``test_mitsubishi144_joins`` builds
-        an Off with the measurement pass's encoder instead."""
+        an Off with the measurement pass's encoder instead. DAIKIN64's
+        Off is a state code plus its power bit, and its key is the role's
+        (schema v0.7), not the state's."""
         matrix = _pack_matrix(f"{family}.json")
         cells = {EventParser.pronto_read_key(c.pronto) for c in matrix.cells}
         for code in (matrix.off, matrix.on):

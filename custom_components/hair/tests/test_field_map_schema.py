@@ -295,3 +295,90 @@ def test_every_map_reads_its_bits_from_the_space():
     for field_map in fr.library():
         assert field_map.timing.classify == "space", field_map.protocol_id
 
+
+
+ROLE_DECLARING = [
+    (name, raw) for name, raw in DOCUMENTS
+    if any(isinstance(f, dict) and "role" in f for f in raw.get("fields") or [])
+]
+
+
+class TestARoleFieldIsNeverAState:
+    """Schema v0.7: a field carrying ``role`` is read beside the state,
+    never as part of it. A state field joins every identity key, the
+    settings a capture reads as, and the comb; a role joining them would
+    split presses of one state (DAIKIN64's Power press is a state code
+    plus one bit). So the parser keeps role fields apart, in
+    ``FieldMap.roles``, and this is where a document fails that names a
+    role the engine does not know or names one twice."""
+
+    def test_someone_declares_one(self):
+        """Otherwise every test below passes on an empty list."""
+        assert [name for name, _ in ROLE_DECLARING] == ["DAIKIN64.yaml"]
+
+    @pytest.mark.parametrize(
+        "name,raw", ROLE_DECLARING, ids=[n for n, _ in ROLE_DECLARING])
+    def test_every_role_is_known_and_declared_once(self, name, raw):
+        roles = [f["role"] for f in raw["fields"] if "role" in f]
+        assert set(roles) <= fr.ROLES, name
+        assert len(roles) == len(set(roles)), name
+
+    @pytest.mark.parametrize(
+        "name,raw", ROLE_DECLARING, ids=[n for n, _ in ROLE_DECLARING])
+    def test_the_parser_keeps_it_out_of_the_fields(self, name, raw):
+        parsed = fr.parse_map(raw)
+        assert parsed is not None, name
+        role_names = {f["name"] for f in raw["fields"] if "role" in f}
+        assert {spec.name for spec in parsed.roles.values()} == role_names
+        assert not role_names & {spec.name for spec in parsed.fields}
+
+
+class TestTheParserOnRoles:
+    def _raw(self, fields):
+        return {
+            "protocol_id": "TOY",
+            "frame": {"frame_layout": [16], "timing": TIMING},
+            "fields": fields,
+        }
+
+    def _field(self, name, **extra):
+        return {"name": name, "byte": 0, "bits": "full_byte", **extra}
+
+    def test_a_known_role_goes_to_roles(self):
+        parsed = fr.parse_map(self._raw([
+            self._field("mode"),
+            self._field("power_toggle", role="power_toggle"),
+        ]))
+        assert [s.name for s in parsed.fields] == ["mode"]
+        assert parsed.roles["power_toggle"].name == "power_toggle"
+
+    def test_an_unknown_role_goes_nowhere(self):
+        """Not demoted to a state field: that would join the keys."""
+        parsed = fr.parse_map(self._raw([
+            self._field("mode"), self._field("eco", role="economy_toggle"),
+        ]))
+        assert [s.name for s in parsed.fields] == ["mode"]
+        assert parsed.roles == {}
+
+    def test_a_role_that_is_not_a_string_goes_nowhere(self):
+        """A YAML list or mapping there must not take the library down."""
+        for junk in (["power_toggle"], {"power_toggle": True}, 7):
+            parsed = fr.parse_map(self._raw([
+                self._field("mode"), self._field("p", role=junk),
+            ]))
+            assert [s.name for s in parsed.fields] == ["mode"]
+            assert parsed.roles == {}
+
+    def test_a_role_moves_the_version_and_its_absence_does_not(self):
+        """A map without a role reads exactly as before v0.7, so its
+        version must not move; one with a role must."""
+        plain = fr.parse_map(self._raw([self._field("mode")]))
+        unknown = fr.parse_map(self._raw([
+            self._field("mode"), self._field("eco", role="economy_toggle"),
+        ]))
+        known = fr.parse_map(self._raw([
+            self._field("mode"),
+            self._field("power_toggle", role="power_toggle"),
+        ]))
+        assert plain.version == unknown.version
+        assert known.version != plain.version
