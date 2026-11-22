@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - A new remote shows in the Sniffer on its first press. It used to wait for three.
+- The Closet opens faster, and so does the brand list in Create Remote. HAIR re-checks only the wigs that changed since the last look, not every wig every time.
 
 ### Added
 

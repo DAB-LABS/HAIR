@@ -6302,7 +6302,12 @@ async def ws_wigs_comb(
 
         from .wig_comb import comb_wig, stamp_receipt
         from .wig_format import serialize_wig
-        from .wig_store import load_wig, safe_wig_filename, wigs_dir
+        from .wig_store import (
+            forget_wig,
+            load_wig,
+            safe_wig_filename,
+            wigs_dir,
+        )
 
         filename = msg["filename"]
         if not safe_wig_filename(filename):
@@ -6317,6 +6322,7 @@ async def ws_wigs_comb(
         path = wigs_dir(hass.config.config_dir) / filename
         if path.is_file():
             path.write_text(serialize_wig(wig), encoding="utf-8")
+            forget_wig(hass.config.config_dir, filename)
         return {
             "filename": filename,
             "name": wig.name,
@@ -6801,6 +6807,7 @@ async def ws_wigs_update(
     def _update() -> dict[str, Any]:
         from .wig_format import serialize_wig
         from .wig_store import (
+            forget_wig,
             load_wig,
             safe_wig_filename,
             wigs_dir,
@@ -6840,6 +6847,7 @@ async def ws_wigs_update(
         _apply_identifier_edits(wig, msg)
         path = wigs_dir(hass.config.config_dir) / filename
         path.write_text(serialize_wig(wig), encoding="utf-8")
+        forget_wig(hass.config.config_dir, filename)
         return {"success": True, "filename": filename}
 
     connection.send_result(
@@ -7248,6 +7256,7 @@ async def _do_update(
         from .wig_save import lattice_diff, reject_flat_exclusions, update_text
         from .wig_store import (
             find_wig_by_id,
+            forget_wig,
             load_wig,
             read_wig_text,
             wigs_dir,
@@ -7307,6 +7316,7 @@ async def _do_update(
         (wigs_dir(hass.config.config_dir) / filename).write_text(
             new_text, encoding="utf-8"
         )
+        forget_wig(hass.config.config_dir, filename)
         result.filename = filename
         result.notes = [*result.notes, *(
             [f"metadata: {', '.join(sorted(edits))}"] if edits else []
