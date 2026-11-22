@@ -20,6 +20,12 @@
  * device carrying a loaded matrix (climate-sensors.md), and `[]` for
  * everything else (screen, other) -- a matrix AC device gets both.
  *
+ * Each section is a card that opens (settings-section-styles.ts holds
+ * the rule and the one accent): its name over a one-line summary of
+ * what is set. The first card a device gets opens with the dialog,
+ * and so does one holding a validation problem, whose summary then
+ * says the problem. Make a Remote is a card with its button on it.
+ *
  * STRINGS: commit 5 shipped every user-facing string here as a plain
  * English literal rather than routing through t()/en.json, since
  * touching en.json without the matching nine-locale sync would have
@@ -89,6 +95,7 @@ import { isEntityOnline } from "./entity-health.js";
 import { dotClass } from "./hair-colors.js";
 import { healthDotStyles, ONLINE_VAR } from "./ir-header-chip-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
+import { settingsSectionStyles } from "./settings-section-styles.js";
 import {
     PANEL_GAP,
     PICKER_CLOSED,
@@ -108,6 +115,13 @@ import {
 } from "./state-source.js";
 
 export type SettingsSectionId = "power" | "climate" | "speed_cycle";
+
+/** The cards that open, in the order they are drawn
+ * (settings-section-styles.ts): where the state comes from, how the
+ * device is driven, then other remotes. Make a Remote, an action,
+ * follows them and does not open. */
+type CardKey = SettingsSectionId | "relay";
+const CARD_ORDER: readonly CardKey[] = ["power", "climate", "speed_cycle", "relay"];
 
 const POWER_ELIGIBLE_TYPES: ReadonlySet<DeviceTypeId> = new Set([
     "ac",
@@ -216,6 +230,13 @@ export class IrDeviceSettingsDialog extends LitElement {
     @state() private _modes: Record<string, PinMode> = {};
     @state() private _busy = false;
     @state() private _error: string | null = null;
+    /** The cards that are open. Any number can be; Save saves every
+     * section, open or not. */
+    @state() private _open: ReadonlySet<CardKey> = new Set();
+
+    updated(): void {
+        this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));
+    }
 
     firstUpdated(): void {
         this._powerToggles = this.device.power_toggles === true;
@@ -240,6 +261,34 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._cycleIncludesOff = config?.speed_cycle_includes_off === true;
         this._cycleTurnOn =
             config?.speed_cycle_turn_on === "speed_1" ? "speed_1" : "resume";
+        // The first card opens, and so does one holding a problem.
+        const first = CARD_ORDER.find((key) => this._cardShows(key));
+        const problem = this._problemCard();
+        this._open = new Set(
+            [first, problem].filter((key): key is CardKey => !!key),
+        );
+    }
+
+    /** Whether a card is drawn for this device at all. */
+    private _cardShows(key: CardKey): boolean {
+        if (key === "relay") return this._showsRelay();
+        return settingsSections(this.device).includes(key);
+    }
+
+    /** The card whose fields hold the validation problem, if any. */
+    private _problemCard(): CardKey | null {
+        if (!this._validationError) return null;
+        return settingsSections(this.device).includes("speed_cycle") &&
+            Number.isNaN(speedStepsForSave(this._speedSteps))
+            ? "speed_cycle"
+            : "power";
+    }
+
+    private _toggleCard(key: CardKey): void {
+        const open = new Set(this._open);
+        if (open.has(key)) open.delete(key);
+        else open.add(key);
+        this._open = open;
     }
 
     /** Climate's picker filter (climate-sensors.md): device_class
@@ -648,29 +697,37 @@ export class IrDeviceSettingsDialog extends LitElement {
     }
 
     private _renderBody() {
-        const sections = settingsSections(this.device);
         return html`
             <div ?hidden=${!this._error}>
                 <ha-alert alert-type="error">${this._error}</ha-alert>
             </div>
-            <div class="section-slot" ?hidden=${!sections.includes("power")}>
-                ${this._renderPowerSection()}
-            </div>
-            <div
-                class="section-slot"
-                ?hidden=${!sections.includes("speed_cycle")}
-            >
-                ${this._renderSpeedCycleSection()}
-            </div>
-            <div class="section-slot" ?hidden=${!sections.includes("climate")}>
-                ${this._renderClimateSection()}
-            </div>
-            <div class="section-slot" ?hidden=${!this._showsRelay()}>
-                ${this._renderRelaySection()}
-            </div>
-            <div class="section-slot">
-                ${this._renderConvertSection()}
-            </div>
+            ${this._renderCard(
+                "power",
+                t("devsettings.power_title"),
+                this._powerSummary(),
+                this._renderPowerSection(),
+            )}
+            ${this._renderCard(
+                "climate",
+                t("devsettings.climate_section_label"),
+                this._climateSummary(),
+                this._renderClimateSection(),
+            )}
+            ${this._renderCard(
+                "speed_cycle",
+                t("devsettings.speed_cycle_section_label"),
+                this._speedCycleSummary(),
+                this._renderSpeedCycleSection(),
+            )}
+            ${this._renderCard(
+                "relay",
+                t("devsettings.relay_section_label"),
+                this._pinningRemotes()
+                    .map((remote) => remote.name)
+                    .join(", "),
+                this._renderRelaySection(),
+            )}
+            ${this._renderConvertSection()}
             <div class="dialog-actions">
                 <button
                     class="action-btn delete-btn"
@@ -709,27 +766,111 @@ export class IrDeviceSettingsDialog extends LitElement {
      *  dual-entry shape as Duplicate/Delete above. */
     private _renderConvertSection() {
         return html`
-            <section class="settings-section section-convert">
-                <div class="convert-row">
-                    <div class="convert-text">
-                        <h3 class="section-label convert-label">
+            <div class="card card-action section-convert">
+                <div class="card-row">
+                    <div class="card-text">
+                        <h3 class="card-heading card-title">
                             ${t("devsettings.make_remote_title")}
                         </h3>
-                        <p class="section-explainer convert-desc">
+                        <span class="card-sum">
                             ${t("devsettings.make_remote_desc")}
-                        </p>
+                        </span>
                     </div>
-                    <div class="convert-btn-cell">
-                        <button
-                            class="action-btn convert-btn"
-                            @click=${this._requestMakeRemote}
-                        >
-                            ${t("devsettings.make_remote_btn")}
-                        </button>
-                    </div>
+                    <button
+                        class="action-btn convert-btn card-action-btn"
+                        @click=${this._requestMakeRemote}
+                    >
+                        ${t("devsettings.make_remote_btn")}
+                    </button>
                 </div>
-            </section>
+            </div>
         `;
+    }
+
+    /**
+     * One card (settings-section-styles.ts): a heading button with the
+     * section's name over its summary, and the section's fields under
+     * it while open. A card this device does not get stays in the DOM,
+     * hidden, like every other part of this dialog; so do a closed
+     * card's fields, so the state source picker keeps its elements.
+     */
+    private _renderCard(
+        key: CardKey,
+        title: string,
+        summary: string,
+        body: unknown,
+    ) {
+        const open = this._open.has(key);
+        return html`
+            <div
+                class="card card-${key} ${open ? "open" : ""}"
+                ?hidden=${!this._cardShows(key)}
+            >
+                <h3 class="card-heading">
+                    <button
+                        type="button"
+                        class="card-head"
+                        aria-expanded=${open ? "true" : "false"}
+                        aria-controls="card-body-${key}"
+                        @click=${() => this._toggleCard(key)}
+                    >
+                        <span class="card-text">
+                            <span class="card-title">${title}</span>
+                            <span class="card-sum">${summary}</span>
+                        </span>
+                        <span class="card-fold" aria-hidden="true"></span>
+                    </button>
+                </h3>
+                <div class="card-body" id="card-body-${key}" ?hidden=${!open}>
+                    ${body}
+                </div>
+            </div>
+        `;
+    }
+
+    /** What a closed card says. A card holding the validation problem
+     * says the problem instead. */
+    private _powerSummary(): string {
+        if (this._problemCard() === "power") return this._validationError ?? "";
+        const id = this._sensorChoice;
+        if (!id) return t("devsettings.sum_power_none");
+        const name = this.hass?.states?.[id]?.attributes?.friendly_name ?? id;
+        if (isOnOffEntity(id)) return name;
+        return t("devsettings.sum_power_watts", { name, watts: this._onAbove });
+    }
+
+    private _climateSummary(): string {
+        const readings = [this._temperatureChoice, this._humidityChoice]
+            .filter((id) => !!id)
+            .map((id) => {
+                const state = this.hass?.states?.[id];
+                const unit = state?.attributes?.unit_of_measurement ?? "";
+                const raw = parseFloat(state?.state ?? "");
+                if (Number.isNaN(raw)) {
+                    return state?.attributes?.friendly_name ?? id;
+                }
+                return unit ? `${raw} ${unit}` : `${raw}`;
+            });
+        return readings.length
+            ? readings.join(" · ")
+            : t("devsettings.sum_climate_none");
+    }
+
+    private _speedCycleSummary(): string {
+        if (this._problemCard() === "speed_cycle") {
+            return this._validationError ?? "";
+        }
+        if (!this._speedSteps) return t("devsettings.sum_speed_unset");
+        return [
+            t("devsettings.sum_speed_count", { count: this._speedSteps }),
+            this._cycleIncludesOff
+                ? t("devsettings.sum_speed_off")
+                : t(
+                      this._cycleTurnOn === "speed_1"
+                          ? "devsettings.speed_cycle_turn_on_speed_1"
+                          : "devsettings.speed_cycle_turn_on_resume",
+                  ),
+        ].join(" · ");
     }
 
     private _renderPowerSection() {
@@ -748,9 +889,6 @@ export class IrDeviceSettingsDialog extends LitElement {
             <section class="settings-section section-power">
                 ${this.device.matrix
                     ? html`
-                          <h3 class="section-label">
-                              ${t("devsettings.power_button_label")}
-                          </h3>
                           <label class="check-row">
                               <input
                                   type="checkbox"
@@ -768,10 +906,6 @@ export class IrDeviceSettingsDialog extends LitElement {
                           </p>
                       `
                     : ""}
-
-                <h3 class="section-label">
-                    ${t("devsettings.power_section_label")}
-                </h3>
 
                 <p class="section-explainer">
                     ${t("devsettings.power_intro")}
@@ -872,10 +1006,6 @@ export class IrDeviceSettingsDialog extends LitElement {
         const choices = pinModeChoices(toggles);
         return html`
             <section class="settings-section section-relay">
-                <h3 class="section-label">
-                    ${t("devsettings.relay_section_label")}
-                </h3>
-
                 ${this._pinningRemotes().map((remote) => {
                     const mode = pinModeShown(this._modes[remote.id] ?? "send", toggles);
                     return html`
@@ -924,10 +1054,6 @@ export class IrDeviceSettingsDialog extends LitElement {
     private _renderSpeedCycleSection() {
         return html`
             <section class="settings-section section-speed-cycle">
-                <h3 class="section-label">
-                    ${t("devsettings.speed_cycle_section_label")}
-                </h3>
-
                 <p class="section-explainer">
                     ${t("devsettings.speed_cycle_intro")}
                 </p>
@@ -1025,10 +1151,6 @@ export class IrDeviceSettingsDialog extends LitElement {
             : undefined;
         return html`
             <section class="settings-section section-climate">
-                <h3 class="section-label">
-                    ${t("devsettings.climate_section_label")}
-                </h3>
-
                 <p class="section-explainer">
                     ${t("devsettings.climate_intro")}
                 </p>
@@ -1326,43 +1448,13 @@ export class IrDeviceSettingsDialog extends LitElement {
              * grouping lives in the markup rather than in a
              * justify-content mode, so the footer says its own shape:
              * Delete, gap, Duplicate, Save. */
-            /* Mirror-door row (s10 .convert-grid/.convert-text/
-             * .convert-btn-cell): description on the left, a
-             * fixed-width button cell on the right so the button reads
-             * as a standalone action rather than a right-aligned
-             * label. section-label/section-explainer are the same
-             * classes power/climate already use -- convert-label just
-             * overrides the accent color (s10: HA's own --primary-color
-             * blue, not a kind color -- this row isn't "device green"
-             * or "remote gold," it's a neutral cross-kind action). */
-            .convert-row {
-                display: flex;
-                align-items: center;
-                gap: 14px;
-            }
-            .convert-text {
-                flex: 1;
-            }
-            .convert-label {
-                color: var(--primary-color);
-            }
-            .convert-btn-cell {
-                flex: 0 0 116px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            .convert-btn {
-                width: 100%;
-            }
             /* Duplicate: outlined GREEN_PEAK (#43a047 -- see
              * ir-origin-colors.ts's GREEN_PEAK comment; same token
              * ir-header-chip-group.ts's Emitters:/Receivers: groups
              * use, confirmed against s10's own .btn-outline-green, not
-             * invented for this button). Hardcoded rather than
-             * imported/unsafeCSS'd, matching this file's own existing
-             * convention of hardcoded hex literals per accent (see
-             * .settings-section.section-power/.section-climate above). */
+             * invented for this button). The footer keeps its own
+             * colours; the sections take theirs from
+             * settings-section-styles.ts. */
             .duplicate-btn {
                 background: none;
                 border-color: #43a047;
@@ -1383,67 +1475,6 @@ export class IrDeviceSettingsDialog extends LitElement {
                 background: rgba(230, 81, 0, 0.14);
             }
 
-            /* Section-accent styling (owner ruling 2026-08-09, design
-             * brief "Section color treatment"): a light color WASH on
-             * specific elements -- the section label, the entity
-             * picker's border/chevron, the live-readout's background
-             * -- explicitly NOT a sidebar rule. A left border was here
-             * in an earlier build pass and got corrected out (bench
-             * pass, post-launch): the design brief calls a left rule
-             * out by name as the thing this treatment is NOT. CLIMATE
-             * (climate-sensors.md) reuses this same anatomy in cold
-             * blue via --section-accent / --section-accent-bright --
-             * the brief specs a single cold-blue value for both,
-             * unlike power's separate border/bright shades, so the
-             * .section-climate modifier below repeats the one hex
-             * twice on purpose rather than inventing a second shade. */
-            .settings-section {
-                margin: 16px 0;
-            }
-            /* Divider between settings sections (owner ruling
-             * 2026-08-09): a plain gray rule, the standard seam for
-             * however many sections this dialog ends up with over
-             * time -- not power/climate-specific. Scoped to the
-             * section-slot wrapper divs (_renderBody) rather than
-             * .settings-section itself, since two sections' <section>
-             * elements are never direct DOM siblings (each sits in
-             * its own ?hidden wrapper) while the wrapper divs always
-             * are. :not([hidden]) on both sides of the combinator
-             * means a device missing a section (the wrapper stays in
-             * the DOM but hidden) never leaves a dangling line with
-             * nothing visible above it -- the rule only fires between
-             * two sections that are both actually showing.
-             *
-             * GENERAL sibling, not adjacent (punch list item 20). With
-             * "+" the pair had to be DOM-adjacent, so a flat device --
-             * whose hidden climate wrapper sits between power and the
-             * mirror door -- matched nothing and drew no divider at
-             * all, while a matrix device drew two. Same dialog, two
-             * looks, entirely because of which optional sections
-             * happened to be present. "~" says what the rule always
-             * meant: every visible section after the first gets a
-             * seam above it, whatever is hidden in between.
-             */
-            .section-slot:not([hidden]) ~ .section-slot:not([hidden]) {
-                border-top: 1px solid var(--divider-color);
-                padding-top: 8px;
-            }
-            .settings-section.section-power {
-                --section-accent: #8e3b3b;
-                --section-accent-bright: #b05050;
-                --section-wash: rgba(142, 59, 59, 0.12);
-            }
-            .settings-section.section-climate {
-                --section-accent: #58a6d8;
-                --section-accent-bright: #58a6d8;
-                --section-wash: rgba(88, 166, 216, 0.12);
-            }
-            .section-label {
-                margin: 0 0 4px;
-                font-size: 0.95rem;
-                font-weight: 500;
-                color: var(--section-accent-bright, var(--primary-text-color));
-            }
             /* Indented to line up with the entity picker's own text
              * (owner correction, bench pass -- the earlier 26px lined
              * up with the live-readout instead, which read as too
@@ -1469,15 +1500,6 @@ export class IrDeviceSettingsDialog extends LitElement {
             .field > .section-explainer {
                 margin-top: 6px;
             }
-            /* Labels bold, descriptive text (.section-explainer) not
-             * -- owner ruling, bench pass. Scoped to these two
-             * sections so it doesn't reach into the shared
-             * dialogStyles .field label rule other dialogs use. */
-            .section-power label,
-            .section-climate label,
-            .section-speed-cycle .field > label {
-                font-weight: 600;
-            }
             /* dialogStyles only styles input[type="text"]/select --
              * number inputs need the same anatomy spelled out here. */
             input[type="number"] {
@@ -1495,50 +1517,11 @@ export class IrDeviceSettingsDialog extends LitElement {
                 outline: none;
                 border-color: var(--primary-color);
             }
-            .settings-section select,
-            .settings-section input[type="text"],
-            .settings-section input[type="number"] {
-                border-color: var(--section-accent, var(--divider-color));
-            }
-            /* The dropdown chevron, in the section accent too (design
-             * brief: "the entity picker's border and dropdown
-             * chevron"). BENCH FIX: this never painted in the
-             * previous two passes. Root cause, found by loading the
-             * data-URI directly as an Image() in the console: the
-             * inline SVG had a stray closing path tag after the
-             * path's own self-close (self-close, then an extra
-             * closing tag right after it) -- invalid XML, so
-             * Chrome's SVG image decoder silently rejected the whole
-             * thing and painted nothing, with no console error and no
-             * hint in getComputedStyle (it just echoes the specified
-             * value back, decoded or not). Fixed by dropping the
-             * stray closing tag. Moved off the select element itself
-             * onto this sibling span, layered on top via
-             * position:absolute, while chasing the bug -- kept that
-             * shape since it's a plainer element to reason about than
-             * a native form control's background layer, even though
-             * the select itself would have worked fine once the
-             * markup was valid. The fill is hardcoded per section
-             * rather than reading the CSS var, since a data-URI
-             * background-image can't reference one -- POWER's copy
-             * uses its --section-accent-bright (#b05050), CLIMATE's
-             * copy below uses its single cold-blue value (#58a6d8)
-             * the same way. */
-            .select-wrap {
-                position: relative;
-            }
-            .section-power select,
-            .section-climate select,
-            .section-speed-cycle select,
-            .section-relay select {
-                appearance: none;
-                -webkit-appearance: none;
-                padding-right: 32px;
-            }
             /* Pinned remotes: "Pinned remote:" muted, the remote's name
              * in full text colour, the menu under it, and the line that
-             * says what the choice does. */
-            .pin-row > label {
+             * says what the choice does. Scoped so it wins over the
+             * shared bold field label (settings-section-styles.ts). */
+            .settings-section .field.pin-row > label {
                 font-weight: 400;
                 color: var(--secondary-text-color);
             }
@@ -1549,49 +1532,6 @@ export class IrDeviceSettingsDialog extends LitElement {
             }
             .pin-desc {
                 margin: 6px 0 0;
-            }
-            .section-power .select-chevron {
-                position: absolute;
-                top: 50%;
-                right: 10px;
-                width: 18px;
-                height: 18px;
-                transform: translateY(-50%);
-                pointer-events: none;
-                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23b05050' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-                background-repeat: no-repeat;
-                background-position: center;
-                background-size: 18px;
-            }
-            .section-climate .select-chevron {
-                position: absolute;
-                top: 50%;
-                right: 10px;
-                width: 18px;
-                height: 18px;
-                transform: translateY(-50%);
-                pointer-events: none;
-                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%2358a6d8' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-                background-repeat: no-repeat;
-                background-position: center;
-                background-size: 18px;
-            }
-            /* Speed cycle (GH Discussion #201) has no accent of its
-             * own yet: neutral borders, and the chevron in the
-             * secondary text grey. */
-            .section-speed-cycle .select-chevron,
-            .section-relay .select-chevron {
-                position: absolute;
-                top: 50%;
-                right: 10px;
-                width: 18px;
-                height: 18px;
-                transform: translateY(-50%);
-                pointer-events: none;
-                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888888' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-                background-repeat: no-repeat;
-                background-position: center;
-                background-size: 18px;
             }
             .settings-section select option {
                 color: var(--primary-text-color);
@@ -1758,6 +1698,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                 opacity: 0.9;
             }
         `,
+        settingsSectionStyles,
         popoverStyles,
         healthDotStyles,
     ];
