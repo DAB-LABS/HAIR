@@ -49,6 +49,13 @@ the identity lists. Its fifth row in the ``same`` and ``retimed``
 pairings differs from what the commit before would have sent, by owner
 ruling (across a list change, a press may be answered by another cell
 carrying the same decoded bytes); ``merged_group_shapes`` says why.
+
+``DAIKIN64.json`` (GH #183) is in both columns. Its file rows were
+written at 7e54bc3c, the commit before its map, and the map's change
+sends the same bytes for every one. Its capture rows are recorded under
+7e54bc3c too but were written with the map in place: before it no read
+key forms for the family, so the commit before has no capture rows to
+give.
 """
 from __future__ import annotations
 

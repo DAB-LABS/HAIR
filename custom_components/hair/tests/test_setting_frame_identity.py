@@ -167,10 +167,10 @@ class TestTCL112KeepsItsFanSpeed:
 
 class TestTheAllowlist:
 
-    def test_it_is_the_five_families_measured_clean(self):
+    def test_it_is_the_six_families_measured_clean(self):
         assert set(SETTING_IDENTITY_VERIFIED) == {
             "DAIKIN216", "PANASONIC216", "TCL112", "DAIKIN152",
-            "MITSUBISHI144",
+            "MITSUBISHI144", "DAIKIN64",
         }
 
     def test_gree_is_not_on_it(self):

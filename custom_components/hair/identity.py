@@ -560,6 +560,7 @@ def _level_labels(values: list[float]) -> list[int]:
 #   TCL112        setting_frames [1, 0]  14 files                        0
 #   DAIKIN152     setting_frames [3]     8 files                        14
 #   MITSUBISHI144 setting_frames [0]     19 files (2026-10-02)          0
+#   DAIKIN64      setting_frames [0]     1 file (GH #183)               0
 #
 # TCL112 is the case the key was added for: on ``payload_frame`` alone
 # it had 692 colliding identities, because its fan speed rides in frame
@@ -586,6 +587,7 @@ def _level_labels(values: list[float]) -> list[int]:
 # them.
 SETTING_IDENTITY_VERIFIED = frozenset({
     "DAIKIN216", "PANASONIC216", "TCL112", "DAIKIN152", "MITSUBISHI144",
+    "DAIKIN64",
 })
 
 
@@ -649,9 +651,23 @@ def setting_identity_families() -> tuple[str, ...]:
 #   TCL112        14 files             turbo beside fan, Fahrenheit
 #                                      and half-degree labels    out
 #
+#   DAIKIN64      the GH #183 file     108 keys for 271 codes: cool
+#                 (271 codes, every    90 states, 90 keys; the file
+#                 checksum holding)    stores one code under several
+#                                      labels where the unit ignores
+#                                      a setting (dry: fan; fan_only:
+#                                      temperature, and its fans in
+#                                      pairs), and its Off is a state
+#                                      code plus the power bit, which
+#                                      is a ROLE (schema v0.7): any
+#                                      press with it set keys as the
+#                                      role, never as its state   in
+#
 # PANASONIC216 and TCL112 keep setting-frame identity until their maps
 # grow.
-READ_BYTES_VERIFIED = frozenset({"DAIKIN216", "DAIKIN152", "MITSUBISHI144"})
+READ_BYTES_VERIFIED = frozenset({
+    "DAIKIN216", "DAIKIN152", "MITSUBISHI144", "DAIKIN64",
+})
 
 
 def read_bytes_families() -> tuple[str, ...]:
@@ -769,11 +785,28 @@ def read_bytes_key(field_map, frames) -> str | None:
     """
     import json
 
-    from .field_readers import Reading, read_field
+    from .field_readers import ROLE_POWER_TOGGLE, Reading, read_field, read_role
 
     reading = Reading(
         field_map.protocol_id, tuple(tuple(frame) for frame in frames)
     )
+    # A POWER PRESS IS ONE IDENTITY, WHATEVER STATE IT CARRIES (schema
+    # v0.7, GH #183). On a family whose frame has no on/off, only a
+    # toggle bit (DAIKIN64), the Power press is the unit's state plus
+    # that bit. Keyed on its fields it would BE that state, to every
+    # matcher: a trigger on the state would fire on Power, a trigger on
+    # Power would fire only at the one state the file's power code
+    # carries. Keyed on the role, every Power press is the power code.
+    if read_role(reading, field_map, ROLE_POWER_TOGGLE):
+        payload = json.dumps(
+            [
+                field_map.protocol_id,
+                [list(entry) for entry in field_map.identity_bytes],
+                ROLE_POWER_TOGGLE,
+            ],
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(("role:" + payload).encode()).hexdigest()[:16]
     values: list[list[object]] = []
     for spec in field_map.fields:
         value = read_field(reading, spec)

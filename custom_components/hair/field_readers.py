@@ -44,6 +44,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import field as dc_field
 from pathlib import Path
 from typing import Any
 
@@ -217,6 +218,13 @@ class FieldMap:
     #: whether or not the leader was sent. See ``aligned_frames``. The
     #: parser only sets it on a map whose frame 0 carries nothing it reads.
     optional_leader: bool = False
+    #: Schema v0.7. Fields the map reads for what a press DOES rather
+    #: than for the state it names, keyed by role (``ROLES``). They are
+    #: kept apart from ``fields`` on purpose: every consumer of
+    #: ``fields`` (identity keys, settings, the comb, tangles) treats a
+    #: field as a coordinate of the state, and a role is not one. See
+    #: ``SCHEMA.md``, "Changes in v0.7".
+    roles: dict[str, FieldSpec] = dc_field(default_factory=dict)
 
     def field_named(self, name: str) -> FieldSpec | None:
         for spec in self.fields:
@@ -352,6 +360,56 @@ def _field(raw: dict[str, Any]) -> FieldSpec | None:
     )
 
 
+#: Schema v0.7: what a role field can be. ``power_toggle`` is a bit a
+#: handset sets on the press of a power button that toggles (DAIKIN64,
+#: GH #183): the rest of the frame is the state, unchanged, and the bit
+#: says the press was Power.
+ROLE_POWER_TOGGLE = "power_toggle"
+ROLES = frozenset({ROLE_POWER_TOGGLE})
+
+
+def _fields_and_roles(
+    raw_fields: list[Any], protocol_id: str
+) -> tuple[list[FieldSpec], dict[str, FieldSpec]]:
+    """The map's fields, and apart from them its role fields (v0.7).
+
+    A field carrying ``role`` is never a state field, whatever its name:
+    it goes to ``roles`` under that role, or, for a role this engine
+    does not know (a map written against a newer one), nowhere at all.
+    Dropping it rather than demoting it to a state field is the safe
+    direction: a state field joins identity keys, and an unknown role
+    joining them would split presses of one state.
+    """
+    fields: list[FieldSpec] = []
+    roles: dict[str, FieldSpec] = {}
+    for entry in raw_fields:
+        spec = _field(entry)
+        if spec is None:
+            continue
+        role = entry.get("role") if isinstance(entry, dict) else None
+        if role is None:
+            fields.append(spec)
+        elif isinstance(role, str) and role in ROLES and role not in roles:
+            roles[role] = spec
+        else:
+            _LOGGER.debug(
+                "field map %s: role %r on %s not used", protocol_id, role,
+                spec.name,
+            )
+    return fields, roles
+
+
+def read_role(reading: Reading, field_map: FieldMap, role: str) -> int | None:
+    """The raw value of the map's ``role`` field in this reading, or None.
+
+    None when the map declares no such role or the reading does not
+    carry its bits."""
+    spec = field_map.roles.get(role)
+    if spec is None:
+        return None
+    return read_field(reading, spec)
+
+
 def _rule(raw: dict[str, Any]) -> IntegrityRule | None:
     kind = raw.get("type")
     if kind not in INTEGRITY_RULES:
@@ -415,6 +473,7 @@ def _map_version(
     fields: list[FieldSpec],
     rules: list[IntegrityRule],
     optional_leader: bool = False,
+    roles: dict[str, FieldSpec] | None = None,
 ) -> str:
     """A short digest of what this map reads and judges, and nothing else.
 
@@ -462,6 +521,9 @@ def _map_version(
     }
     if optional_leader:
         projection["optional_leader"] = True
+    # Roles (v0.7) on the same terms: only a map that declares one moves.
+    if roles:
+        projection["roles"] = {name: roles[name] for name in sorted(roles)}
     canonical = json.dumps(
         _canonical(projection), default=str, separators=(",", ":")
     )
@@ -555,10 +617,7 @@ def parse_map(raw: dict[str, Any]) -> FieldMap | None:
     for entry in frame.get("identity_bytes") or []:
         if isinstance(entry, list | tuple) and len(entry) == 3:
             identity.append((int(entry[0]), int(entry[1]), int(entry[2])))
-    fields = [
-        spec for spec in (_field(f) for f in raw.get("fields") or [])
-        if spec is not None
-    ]
+    fields, roles = _fields_and_roles(raw.get("fields") or [], protocol_id)
     rules = [
         rule for rule in (_rule(r) for r in raw.get("integrity") or [])
         if rule is not None
@@ -588,6 +647,7 @@ def parse_map(raw: dict[str, Any]) -> FieldMap | None:
             fields=fields,
             rules=rules,
             optional_leader=optional_leader,
+            roles=roles,
         ),
         frame_layout=frame_layout,
         payload_frame=payload_frame,
@@ -599,6 +659,7 @@ def parse_map(raw: dict[str, Any]) -> FieldMap | None:
         fields=fields,
         integrity=rules,
         optional_leader=optional_leader,
+        roles=roles,
     )
 
 

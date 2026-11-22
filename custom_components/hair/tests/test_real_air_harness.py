@@ -108,9 +108,11 @@ CLOSINGS = (10_000, 80_000)
 #: chosen press, each also re-closed at every idle in ``CLOSINGS``. A
 #: change to ``_air``, the salt, the press set or the closing fails here
 #: as a model change, never as fifteen map changes.
+#: Moved by the DAIKIN64 pack joining, and by nothing else:
+#: the digest over the fifteen packs before it is still 3432b2d4...dddd5.
 MODEL_DIGEST = (
-    "3432b2d499b58f91e6f0af90f3622388"
-    "73902c5ddceaa359dcb933e8873dddd5"
+    "5d78b3cc9903a7bc1abfc73caf786e6b"
+    "e9478a3a334981f5bbd141739acf9126"
 )
 
 REMEASURE_MAP = (
@@ -680,6 +682,13 @@ FIGURES: dict[str, tuple] = {
     # (the option A follow-up, left as is by ruling). No receiver hands
     # over this train: a 10 ms idle splits the press at its 29.7 ms gap,
     # and the pieces' keys are the closed_key figures.
+    # One frame and no repeat: nothing else in the press can stand in for
+    # a frame the model's Broadlink damages, so 238 of 540 read there.
+    "DAIKIN64": (  # measured 2026-11-21
+        "1b8d8810f84a3ec7", "48e9be8306a7",
+        (1080, 1080, 238, 540), (1080, 1080, 238, 238), (540, 4), 0, 0, 0,
+        (1080, 238, 1080, 238), (1080, 1080, 238, 238, 1080, 1080, 238, 238), 0,
+    ),
     "DAIKIN216": (  # measured 2026-10-06
         "5d703155104b885f", "98b4048ab976",
         (800, 800, 396, 400), (800, 800, 396, 400), (400, 254), 0, 0, 0,
@@ -923,6 +932,7 @@ RECEIVER_BUFFER: dict[str, tuple[int, int, int]] = {
     "CHIGO96B": (0, 0, 0),
     "DAIKIN152": (60, 60, 60),
     "DAIKIN216": (200, 0, 200),
+    "DAIKIN64": (0, 0, 0),
     "FUJITSU128": (0, 0, 0),
     "GREE": (0, 0, 0),
     "MHI152": (0, 0, 0),
