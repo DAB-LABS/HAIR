@@ -1,18 +1,33 @@
 /**
  * A grouped command, opened (grouped-signals.md).
  *
- * The steps in order. Each step shows its device and command, with its
- * protocol chip or band so IR and RF steps tell apart, a grip to drag
- * it, and an x to remove it. Between two steps sits the delay field:
- * counted from the end of the first step's signal, 300 ms or more, and
- * the field says why when it refuses less. A missing step (its command
- * was deleted) shows in amber with its last names and "Pick again".
- * "+ Add step" opens the picker.
+ * The steps in order, each its own quiet block (the command rows'
+ * radius, a shade lighter) with its number in a small circle, its device
+ * and command, its protocol chip or band so IR and RF steps tell apart,
+ * a grip to drag it, and an x to take it out of this group. The x is not
+ * a trash can: the command itself stays, and the row's trash can, which
+ * deletes a command for good, sits an inch away.
+ *
+ * THE DELAY IS A BAND under each step but the last: half a step's height,
+ * full width, in the steps' own grey, so the list reads step, band, step.
+ * A small clock sits in the grip's column (grip, clock, grip, clock down
+ * the left edge), and beside it the value between a minus and a plus:
+ * "- 1.5 s +", no word, no box. The keys have no fill of their own; the
+ * glyphs carry them, with a hover and a focus ring. Each press moves the
+ * delay 100 ms; - greys out at 300 ms, the floor, so nothing it can show
+ * is refused, and + at the most. A new step starts at 300 ms. Holding a button repeats, and
+ * speeds up after a moment. It counts from the end of the first step's
+ * signal. A stored delay off the 100 ms grid shows rounded up, and saves
+ * that way the next time it is changed. The change saves once, when the
+ * button is let go.
+ *
+ * A missing step (its command was deleted) shows in amber with its last
+ * names and "Pick again". "+ Add step" opens the picker. The run time and "No steps yet"
+ * are said once, on the row's own line, so not again here.
  *
  * Changes save as they're made, as a rename or a reorder does: each one goes
  * to `hair/command/group/steps`, and the device as it now is goes up as
- * `device-updated`. A delay saves when the field is left or Enter is
- * pressed, and only when the field holds a delay the server would take.
+ * `device-updated`.
  */
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -23,10 +38,12 @@ import type { HairApi } from "./api.js";
 import type { GroupStepView, IRCommand } from "./types.js";
 import {
     GROUP_DELAY_DEFAULT_MS,
+    GROUP_DELAY_MAX_MS,
     GROUP_DELAY_MIN_MS,
     GROUP_MAX_STEPS,
-    aboutSeconds,
-    delayProblem,
+    delayOnGrid,
+    delayText,
+    stepDelay,
     moveStep,
     stepsForSave,
 } from "./group-steps.js";
@@ -34,6 +51,8 @@ import { bandText } from "./ir-group-picker.js";
 import "./ir-group-picker.js";
 import "./ir-protocol-chip.js";
 
+const CLOCK =
+    "M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z";
 const GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
 
@@ -43,8 +62,10 @@ export class IrGroupSteps extends LitElement {
     @property({ attribute: false }) public deviceId!: string;
     @property({ attribute: false }) public command!: IRCommand;
 
-    /** Typed delays not yet saved, by step index. */
-    @state() private _drafts = new Map<number, string>();
+    /** Delays being stepped and not yet saved, by step index. */
+    @state() private _drafts = new Map<number, number>();
+    /** The held stepper button's repeat. */
+    private _repeat: ReturnType<typeof setTimeout> | null = null;
     @state() private _picker: { replace: number | null } | null = null;
     @state() private _busy = false;
     @state() private _error: string | null = null;
@@ -77,6 +98,7 @@ export class IrGroupSteps extends LitElement {
 
     disconnectedCallback(): void {
         super.disconnectedCallback();
+        this._stopRepeat();
         this._sortable?.destroy();
         this._sortable = null;
     }
@@ -120,39 +142,90 @@ export class IrGroupSteps extends LitElement {
         void this._save(steps);
     }
 
-    private _onPick(e: CustomEvent<{ device_id: string; command_id: string }>): void {
-        const replace = this._picker?.replace ?? null;
-        const steps = this._steps.map((s) => ({ ...s }));
-        if (replace !== null) {
-            steps[replace] = { ...steps[replace], ...e.detail };
-        } else {
-            if (steps.length >= GROUP_MAX_STEPS) {
-                this._error = t("group.refused_too_many_steps");
-                return;
-            }
-            steps.push({ ...e.detail, delay_ms: GROUP_DELAY_DEFAULT_MS } as GroupStepView);
+    /** The picker's green button: every staged pick, in order, saved
+     *  in one go. */
+    private _onAdd(e: CustomEvent<{ picks: { device_id: string; command_id: string }[] }>): void {
+        const picks = e.detail.picks;
+        if (!picks.length) return;
+        if (this._steps.length + picks.length > GROUP_MAX_STEPS) {
+            this._error = t("group.refused_too_many_steps");
+            return;
         }
+        const steps = [
+            ...this._steps.map((s) => ({ ...s })),
+            ...picks.map((p) => ({ ...p, delay_ms: GROUP_DELAY_DEFAULT_MS }) as GroupStepView),
+        ];
         void this._save(steps);
     }
 
-    private _onDelayInput(index: number, value: string): void {
+    /** "Pick again" on a missing step: the one pick takes its place. */
+    private _onPick(e: CustomEvent<{ device_id: string; command_id: string }>): void {
+        const replace = this._picker?.replace ?? null;
+        if (replace === null) return;
+        const steps = this._steps.map((s) => ({ ...s }));
+        steps[replace] = { ...steps[replace], ...e.detail };
+        void this._save(steps);
+    }
+
+    /** The delay a step shows: its draft while stepping, else its
+     *  stored delay on the grid. */
+    private _delayOf(index: number): number {
+        return this._drafts.get(index) ?? delayOnGrid(this._steps[index].delay_ms);
+    }
+
+    private _nudge(index: number, direction: 1 | -1): void {
         const next = new Map(this._drafts);
-        next.set(index, value);
+        next.set(index, stepDelay(this._delayOf(index), direction));
         this._drafts = next;
+    }
+
+    /** A pointer press: one step now, then repeats while held, faster
+     *  after ten. Saved on release (``_endHold``). */
+    private _startHold(e: PointerEvent, index: number, direction: 1 | -1): void {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        this._stopRepeat();
+        this._nudge(index, direction);
+        let count = 0;
+        const tick = (): void => {
+            this._nudge(index, direction);
+            count += 1;
+            this._repeat = setTimeout(tick, count < 10 ? 100 : 40);
+        };
+        this._repeat = setTimeout(tick, 400);
+    }
+
+    private _stopRepeat(): void {
+        if (this._repeat !== null) clearTimeout(this._repeat);
+        this._repeat = null;
+    }
+
+    private _endHold(index: number): void {
+        if (this._repeat === null && !this._drafts.has(index)) return;
+        this._stopRepeat();
+        this._commitDelay(index);
+    }
+
+    /** A keyboard press (a click with no pointer): one step, saved. */
+    private _keyStep(e: MouseEvent, index: number, direction: 1 | -1): void {
+        if (e.detail !== 0) return;
+        this._nudge(index, direction);
+        this._commitDelay(index);
     }
 
     private _commitDelay(index: number): void {
         const draft = this._drafts.get(index);
-        if (draft === undefined || delayProblem(draft)) return;
-        if (Number(draft) === this._steps[index].delay_ms) {
+        if (draft === undefined) return;
+        if (draft === this._steps[index].delay_ms) {
             const next = new Map(this._drafts);
             next.delete(index);
             this._drafts = next;
             return;
         }
-        const steps = this._steps.map((s, i) => (i === index ? { ...s, delay_ms: Number(draft) } : s));
+        const steps = this._steps.map((s, i) => (i === index ? { ...s, delay_ms: draft } : s));
         void this._save(steps);
     }
+
 
     private _renderTag(step: GroupStepView) {
         if (step.medium === "rf") {
@@ -164,9 +237,7 @@ export class IrGroupSteps extends LitElement {
     }
 
     private _renderStep(step: GroupStepView, index: number, last: boolean) {
-        const draft = this._drafts.get(index);
-        const shown = draft ?? String(step.delay_ms);
-        const problem = draft !== undefined ? delayProblem(draft) : null;
+        const delay = last ? 0 : this._delayOf(index);
         return html`<div class="step-block">
             <div class="step ${step.missing ? "missing" : ""}">
                 <span class="num">${index + 1}</span>
@@ -201,34 +272,44 @@ export class IrGroupSteps extends LitElement {
             </div>
             ${last
                 ? nothing
-                : html`<div class="wait ${problem ? "bad" : ""}">
-                      <span>${t("group.then_wait")}</span>
-                      <input
-                          type="text"
-                          inputmode="numeric"
-                          aria-label=${t("group.delay_label")}
-                          .value=${shown}
-                          ?disabled=${this._busy}
-                          @input=${(e: Event) => this._onDelayInput(index, (e.target as HTMLInputElement).value)}
-                          @change=${() => this._commitDelay(index)}
-                          @keydown=${(e: KeyboardEvent) => {
-                              if (e.key === "Enter") this._commitDelay(index);
-                          }}
-                      />
-                      <span>ms</span>
-                      <span class="floor">${t("group.floor_hint", { ms: String(GROUP_DELAY_MIN_MS) })}</span>
-                      ${problem
-                          ? html`<span class="err" role="alert">${t(`group.delay_${problem}`, {
-                                ms: String(GROUP_DELAY_MIN_MS),
-                            })}</span>`
-                          : nothing}
+                : html`<div class="wait" title=${t("group.delay_title")}>
+                      <span class="num-space" aria-hidden="true"></span>
+                      <svg class="clock" viewBox="0 0 24 24" role="img" aria-label=${t("group.delay_title")}>
+                          <path d=${CLOCK}></path>
+                      </svg>
+                      <span class="stepper">
+                          <button
+                              aria-label=${t("group.delay_shorter")}
+                              title=${t("group.delay_shorter")}
+                              ?disabled=${this._busy || delay <= GROUP_DELAY_MIN_MS}
+                              @pointerdown=${(e: PointerEvent) => this._startHold(e, index, -1)}
+                              @pointerup=${() => this._endHold(index)}
+                              @pointerleave=${() => this._endHold(index)}
+                              @pointercancel=${() => this._endHold(index)}
+                              @click=${(e: MouseEvent) => this._keyStep(e, index, -1)}
+                          >
+                              −
+                          </button>
+                          <span class="ms" aria-live="polite">${delayText(delay)}</span>
+                          <button
+                              aria-label=${t("group.delay_longer")}
+                              title=${t("group.delay_longer")}
+                              ?disabled=${this._busy || delay >= GROUP_DELAY_MAX_MS}
+                              @pointerdown=${(e: PointerEvent) => this._startHold(e, index, 1)}
+                              @pointerup=${() => this._endHold(index)}
+                              @pointerleave=${() => this._endHold(index)}
+                              @pointercancel=${() => this._endHold(index)}
+                              @click=${(e: MouseEvent) => this._keyStep(e, index, 1)}
+                          >
+                              +
+                          </button>
+                      </span>
                   </div>`}
         </div>`;
     }
 
     render() {
         const steps = this._steps;
-        const runMs = this.command.group?.run_ms ?? 0;
         return html`
             <div class="steps">
                 ${steps.length
@@ -238,7 +319,7 @@ export class IrGroupSteps extends LitElement {
                               ${steps.map((s, i) => this._renderStep(s, i, i === steps.length - 1))}
                           </div>`,
                       )
-                    : html`<div class="empty">${t("group.no_steps")}</div>`}
+                    : nothing}
                 ${this._error ? html`<div class="err-line" role="alert">${this._error}</div>` : nothing}
                 <div class="foot">
                     <button
@@ -248,13 +329,6 @@ export class IrGroupSteps extends LitElement {
                     >
                         ${t("group.add_step")}
                     </button>
-                    ${steps.length
-                        ? html`<span class="total">
-                              ${t(this.command.group?.missing ? "group.runs_about_skipping" : "group.runs_about", {
-                                  time: aboutSeconds(runMs),
-                              })}
-                          </span>`
-                        : nothing}
                 </div>
             </div>
             ${this._picker
@@ -265,6 +339,7 @@ export class IrGroupSteps extends LitElement {
                       .steps=${steps}
                       ?replace=${this._picker.replace !== null}
                       @pick=${this._onPick}
+                      @add=${this._onAdd}
                       @closed=${() => (this._picker = null)}
                   ></ir-group-picker>`
                 : nothing}
@@ -277,20 +352,30 @@ export class IrGroupSteps extends LitElement {
         }
         .steps {
             margin: 6px 0 4px 44px;
-            border-left: 2px solid var(--divider-color);
-            padding-left: 12px;
         }
+        /* Each step its own block: the command rows' radius, a shade
+           lighter than the row it sits in. */
         .step {
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 5px 0;
+            padding: 6px 8px;
+            border-radius: 4px;
+            background: color-mix(in srgb, var(--primary-text-color) 5%, transparent);
         }
+        /* The step's number in a small circle, tabular figures. */
         .num {
-            width: 18px;
-            text-align: right;
+            box-sizing: border-box;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 1px solid var(--divider-color);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             color: var(--secondary-text-color);
-            font-size: 0.75rem;
+            font-size: 0.7rem;
+            font-variant-numeric: tabular-nums;
             flex: none;
         }
         .grip {
@@ -337,9 +422,10 @@ export class IrGroupSteps extends LitElement {
             cursor: pointer;
             flex: none;
         }
+        /* Red on hover: it takes the step out, never the command. */
         .x:hover:not(:disabled) {
-            background: var(--secondary-background-color);
-            color: var(--primary-text-color);
+            background: color-mix(in srgb, var(--error-color, #db4437) 12%, transparent);
+            color: var(--error-color, #db4437);
         }
         .pick,
         .add {
@@ -356,48 +442,77 @@ export class IrGroupSteps extends LitElement {
             letter-spacing: 0.03em;
             flex: none;
         }
+        /* The delay band between two steps: half a step's height, full
+           width, the steps' own grey and radius, so the list reads step,
+           band, step. Its columns line up with the step's: the number's
+           width, then the clock under the grip, then the value under the
+           name. */
         .wait {
             display: flex;
             align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            padding: 2px 0 2px 28px;
-            color: var(--secondary-text-color);
-            font-size: 0.8rem;
-        }
-        .wait input {
-            width: 78px;
-            background: var(--primary-background-color);
-            color: var(--primary-text-color);
-            border: 1px solid var(--divider-color);
+            gap: 10px;
+            height: 20px;
+            margin: 3px 0;
+            padding: 0 8px;
             border-radius: 4px;
-            padding: 4px 6px;
+            background: color-mix(in srgb, var(--primary-text-color) 5%, transparent);
+            color: var(--secondary-text-color);
+            font-size: 0.75rem;
+        }
+        .num-space {
+            width: 20px;
+            flex: none;
+        }
+        /* The grip's colour and weight. */
+        .clock {
+            width: 16px;
+            height: 16px;
+            flex: none;
+            fill: var(--secondary-text-color);
+            opacity: 0.6;
+        }
+        /* - value +: no box, and keys with no fill of their own. */
+        .stepper {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .stepper button {
+            width: 20px;
+            height: 18px;
+            padding: 0;
+            border: none;
+            border-radius: 3px;
+            background: transparent;
+            color: var(--primary-text-color);
             font: inherit;
-            text-align: right;
+            font-size: 0.9rem;
+            line-height: 1;
+            cursor: pointer;
+            touch-action: manipulation;
+            user-select: none;
         }
-        .wait input:focus {
-            outline: none;
-            border-color: var(--primary-color);
+        .stepper button:hover:not(:disabled) {
+            background: color-mix(in srgb, var(--primary-text-color) 12%, transparent);
         }
-        .wait.bad input {
-            border-color: var(--error-color, #db4437);
+        .stepper button:focus-visible {
+            outline: 2px solid var(--primary-color);
+            outline-offset: 0;
         }
-        .floor {
-            opacity: 0.8;
+        .stepper button:disabled {
+            opacity: 0.3;
+            cursor: default;
         }
-        .err {
-            flex-basis: 100%;
-            color: var(--error-color, #db4437);
+        .stepper .ms {
+            min-width: 52px;
+            text-align: center;
+            color: var(--primary-text-color);
+            font-variant-numeric: tabular-nums;
         }
         .err-line {
             color: var(--error-color, #db4437);
             font-size: 0.8rem;
             padding: 4px 0;
-        }
-        .empty {
-            color: var(--secondary-text-color);
-            font-style: italic;
-            padding: 6px 0;
         }
         .foot {
             display: flex;
@@ -406,22 +521,21 @@ export class IrGroupSteps extends LitElement {
             flex-wrap: wrap;
             padding: 8px 0 2px;
         }
-        .total {
-            margin-left: auto;
-            color: var(--secondary-text-color);
-            font-size: 0.8rem;
-        }
         button:disabled {
             opacity: 0.5;
             cursor: default;
         }
         @media (max-width: 450px) {
             .steps {
-                margin-left: 6px;
-                padding-left: 8px;
+                margin-left: 0;
+            }
+            .step {
+                gap: 8px;
+                padding: 6px;
             }
             .wait {
-                padding-left: 22px;
+                gap: 8px;
+                padding: 0 6px;
             }
         }
     `;
