@@ -646,7 +646,7 @@ class TestTheHardwareCards:
         # Radio rows wear the light badge (owner, 2026-11-06 18:34).
         assert (
             'class="badge cap-badge ${row.medium === "rf" ? "rf" : ""} '
-            '${row.available ? "" : "offline"}"'
+            '${row.available ? "" : "offline"} ${look ? `capture-${look}` : ""}"'
         ) in row
         assert 'role="img" aria-label=${title} title=${title}' in row
         title = text.split("private _badgeTitle(", 1)[1].split("private ", 1)[0]

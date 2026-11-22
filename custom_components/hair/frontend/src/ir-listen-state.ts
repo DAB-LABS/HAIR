@@ -523,14 +523,41 @@ export function cardCaptureState(
     rows: CaptureReceiverRow[],
     receiverIds: readonly string[],
 ): { online: boolean; listening: boolean; waiting: boolean } | null {
-    const wanted = new Set(receiverIds);
-    const mine = rows.filter(
-        (r) => wanted.has(r.receiver_entity_id) && !r.software_window && !r.always_on,
-    );
+    const mine = captureRowsFor(rows, receiverIds);
     if (mine.length === 0) return null;
     return {
         online: mine.every((r) => listenOnline(states, r)),
         listening: mine.some((r) => listenLive(states, r).on),
         waiting: mine.every((r) => r.switch_entity_id === null),
     };
+}
+
+/** The capture devices among ``receiverIds``, as the Sniffer lists them:
+ *  a pressed window, not a software window nor an always-on receiver.
+ *  The card icon and each row's badge pick their rows here, so the two
+ *  can't disagree about which receivers capture. */
+export function captureRowsFor(
+    rows: CaptureReceiverRow[],
+    receiverIds: readonly string[],
+): CaptureReceiverRow[] {
+    const wanted = new Set(receiverIds);
+    return rows.filter((r) => wanted.has(r.receiver_entity_id) && !r.software_window && !r.always_on);
+}
+
+/** One capture receiver's state for its own badge on the Devices page,
+ *  by the pill's rules: ember offline, grey with no switch, gold ready,
+ *  green listening. Null when the entity isn't a capture device the
+ *  Sniffer lists; its badge then shows health only. */
+export type BadgeCapture = "offline" | "waiting" | "ready" | "listening";
+
+export function badgeCaptureState(
+    states: States | undefined,
+    rows: CaptureReceiverRow[],
+    receiverId: string,
+): BadgeCapture | null {
+    const row = captureRowsFor(rows, [receiverId])[0];
+    if (!row) return null;
+    if (!listenOnline(states, row)) return "offline";
+    if (row.switch_entity_id === null) return "waiting";
+    return listenLive(states, row).on ? "listening" : "ready";
 }
