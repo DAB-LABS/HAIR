@@ -864,28 +864,28 @@ class TestPinning:
 
     @pytest.mark.asyncio
     async def test_the_relay_choice_is_set_and_cleared(self, fake_hass):
-        from custom_components.hair.websocket_api import ws_set_pin_relay
+        from custom_components.hair.websocket_api import ws_set_pin_mode
 
         remote = TriggerRemote(id="tr1", name="Handset",
                                pinned_device_ids=["dev-1"])
-        store, conn = _ws(fake_hass, remote, _device())
-        msg = {"id": 3, "type": "hair/trigger-remote/pin-relay",
+        store, conn = _ws(fake_hass, remote, _device(toggles=True))
+        msg = {"id": 3, "type": "hair/trigger-remote/pin-mode",
                "remote_id": "tr1", "device_id": "dev-1"}
-        await ws_set_pin_relay(fake_hass, conn, {**msg, "relay": False})
+        await ws_set_pin_mode(fake_hass, conn, {**msg, "mode": "except_power"})
         assert remote.follow_only_device_ids == ["dev-1"]
-        await ws_set_pin_relay(fake_hass, conn, {**msg, "relay": True})
+        await ws_set_pin_mode(fake_hass, conn, {**msg, "mode": "send"})
         assert remote.follow_only_device_ids == []
         assert store.async_save.await_count == 2
 
     @pytest.mark.asyncio
     async def test_the_relay_choice_needs_a_pin(self, fake_hass):
-        from custom_components.hair.websocket_api import ws_set_pin_relay
+        from custom_components.hair.websocket_api import ws_set_pin_mode
 
         remote = TriggerRemote(id="tr1", name="Handset")
         _store, conn = _ws(fake_hass, remote, _device())
-        await ws_set_pin_relay(fake_hass, conn, {
-            "id": 4, "type": "hair/trigger-remote/pin-relay",
-            "remote_id": "tr1", "device_id": "dev-1", "relay": False,
+        await ws_set_pin_mode(fake_hass, conn, {
+            "id": 4, "type": "hair/trigger-remote/pin-mode",
+            "remote_id": "tr1", "device_id": "dev-1", "mode": "track",
         })
         assert conn.send_error.call_args.args[1] == "not_found"
 

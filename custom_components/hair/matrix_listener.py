@@ -1819,7 +1819,9 @@ class MatrixListener:
             # its own handset, and a second power code would turn it
             # back, so the device's card follows the press and nothing
             # is sent. Settings presses are absolute and still go out.
-            follow = (
+            # A TRACK ONLY PIN (GH #294) follows every state, settings
+            # and power alike: the unit hears this remote itself.
+            follow = device_id in remote.track_only_device_ids or (
                 hit.power is not None
                 and device.power_toggles is True
                 and device_id in remote.follow_only_device_ids
@@ -1880,7 +1882,8 @@ class MatrixListener:
     async def async_follow_pinned_cell(
         self, device_id: str, cell_key: str
     ) -> None:
-        """Follow a heard power toggle on one pinned device (GH #183).
+        """Follow a heard state on one pinned device: a power toggle
+        (GH #183) or, on a Track only pin, any state (GH #294).
 
         The dispatcher's door for a following pin: resolved exactly as
         ``async_send_pinned_cell`` resolves, and announced to the

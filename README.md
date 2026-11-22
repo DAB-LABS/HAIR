@@ -268,6 +268,8 @@ A trigger created from a Sniffer or Clipper row reacts to a raw signal without n
 
 **Pin a Remote to a Device** and pressing the handset sends the matching command through that Device's emitters; HAIR matches the button to the command on its own. Open the **PIN** row on the Remote's header, or **PINNED** on the Device's, and tick the other side; untick to unpin. One Remote can drive several Devices, and one Device several Remotes. HAIR never re-fires its own sends, so a pinned handset by the receiver will not loop, and a runaway pairing gets cut for a minute and logged without breaking the handset's triggers.
 
+Each pin has a choice in the Device's settings, under **Pinned remotes**. **Send every press** is for a device that can't hear the handset. **Send every press except Power** is for a device whose Power is one button and which hears that button itself, so a second press doesn't turn it back. **Track only, send nothing** is for a device in the same room as its handset: it hears every press itself, so HAIR sends nothing and only moves the device's state to match. Tracking counts the presses HAIR hears, so if the receiver misses one that the device caught, the state is one step behind until the next press, or until a power sensor puts the power right.
+
 <!-- screenshot: Remote PIN row, Device PINNED row -->
 
 <p align="center"><img src="images/screenshots/trigger-dialog.png" alt="Create Trigger dialog with S/L diamond pattern and min hits setting" width="420"></p>

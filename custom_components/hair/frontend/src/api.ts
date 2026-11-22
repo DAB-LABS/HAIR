@@ -12,6 +12,7 @@
 // under node, which is what the helper tests below rely on.
 import { latticeFields } from "./matrix-lattice.js";
 import type { CandyEvent } from "./candy-text.js";
+import type { PinMode } from "./pin-mode.js";
 import type {
     ActionOption,
     GroupCandidateDevice,
@@ -1707,19 +1708,19 @@ export class HairApi {
         });
     }
 
-    /** Toggle power (GH #183): whether a pin relays the handset's power
-     *  toggle to the device (true) or the device follows it without a
-     *  send (false). Only the power toggle; every other press relays. */
-    setPinRelay(
+    /** What a pin does with its remote's presses (GH #294, GH #183):
+     *  "send" every press, "except_power" (a toggle-power device only),
+     *  or "track", sending nothing. */
+    setPinMode(
         remoteId: string,
         deviceId: string,
-        relay: boolean,
-    ): Promise<{ follow_only_device_ids: string[] }> {
+        mode: PinMode,
+    ): Promise<{ follow_only_device_ids: string[]; track_only_device_ids: string[] }> {
         return this.hass.connection.sendMessagePromise({
-            type: "hair/trigger-remote/pin-relay",
+            type: "hair/trigger-remote/pin-mode",
             remote_id: remoteId,
             device_id: deviceId,
-            relay,
+            mode,
         });
     }
 

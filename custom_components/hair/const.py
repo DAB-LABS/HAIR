@@ -481,6 +481,14 @@ PINNED_ECHO_GUARD_S = 1.0
 PINNED_LOOP_WINDOW_S = 20.0
 PINNED_LOOP_MAX_SENDS = 20
 PINNED_LOOP_COOLDOWN_S = 60.0
+
+# What a pinned remote does with a press it hears, per pinned device
+# (GH #294; GH #183 for except Power). Stored as two lists on the remote
+# (``TriggerRemote.pin_mode``), named here for the door and the panel.
+PIN_MODE_SEND = "send"
+PIN_MODE_EXCEPT_POWER = "except_power"
+PIN_MODE_TRACK = "track"
+PIN_MODES = (PIN_MODE_SEND, PIN_MODE_EXCEPT_POWER, PIN_MODE_TRACK)
 # TOGGLE POWER ON (GH #183). A matrix device whose power code toggles is
 # turned on with two sends: the power code, then the wanted cell. The
 # power code is a full state frame of its own (orthobots' DAIKIN64 file

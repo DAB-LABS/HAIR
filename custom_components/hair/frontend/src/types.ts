@@ -896,6 +896,9 @@ export interface TriggerRemoteInfo {
     // Toggle power (GH #183): pinned devices that follow a heard power
     // toggle instead of being sent it. Absent from the list = relays.
     follow_only_device_ids?: string[];
+    // Track only (GH #294): pinned devices sent nothing; their state
+    // follows every press. Wins over the list above.
+    track_only_device_ids?: string[];
     pin_map: Record<string, PinMapEntry[]>;
     // Where this remote came from. Both are backend fields the payload
     // has always carried; they are declared here as of signpost 4,

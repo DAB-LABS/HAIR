@@ -1696,6 +1696,8 @@ _KNOWN_REMOTE = frozenset({
     "device_type", "entity_config",
     # Toggle power piece 2 (GH #183).
     "follow_only_device_ids",
+    # Track only (GH #294).
+    "track_only_device_ids",
 })
 
 
@@ -1773,6 +1775,17 @@ class TriggerRemote:
     # device``). A subset of ``pinned_device_ids``: unpin and delete
     # drop an id from both.
     follow_only_device_ids: list[str] = field(default_factory=list)
+    # PINS THAT TRACK ONLY (GH #294). A pinned device in this list is
+    # sent nothing: it hears this remote itself, so every press, power
+    # and the rest, is followed (its entity moves as the send would have
+    # moved it) and nothing goes to the air. A pin's mode is read as:
+    # here, Track only; else in ``follow_only_device_ids``, every press
+    # but Power; else every press. A device is never in both: the door
+    # writes the two lists together, and load drops a device from the
+    # follow list when it is here too, so Track only wins. Set only by
+    # the user; a new pin never starts in it. A subset of
+    # ``pinned_device_ids``: unpin and delete drop an id from all three.
+    track_only_device_ids: list[str] = field(default_factory=list)
     # THE HEAR-SIDE LATTICE (signpost 4, Track M). The exact mirror of
     # IRDevice.climate_matrix, and a boolean for the same reason: the
     # matrix itself lives in its own file at
@@ -1822,6 +1835,9 @@ class TriggerRemote:
         # stores exactly what it stored before.
         if self.follow_only_device_ids:
             out["follow_only_device_ids"] = list(self.follow_only_device_ids)
+        # The same for Track only (GH #294).
+        if self.track_only_device_ids:
+            out["track_only_device_ids"] = list(self.track_only_device_ids)
         # Omitted while unset, so an untyped Remote stores exactly what
         # it stored before round 2a.
         if self.device_type is not None:
@@ -1850,8 +1866,51 @@ class TriggerRemote:
             "updated_at": self.updated_at,
         }
 
+    def pin_mode(self, device_id: str) -> str:
+        """What this remote does with its presses for one pinned device:
+        ``track`` (send nothing), ``except_power`` (send all but the
+        power toggle) or ``send``. Track only wins over the follow list."""
+        from .const import PIN_MODE_EXCEPT_POWER, PIN_MODE_SEND, PIN_MODE_TRACK
+
+        if device_id in self.track_only_device_ids:
+            return PIN_MODE_TRACK
+        if device_id in self.follow_only_device_ids:
+            return PIN_MODE_EXCEPT_POWER
+        return PIN_MODE_SEND
+
+    def set_pin_mode(self, device_id: str, mode: str) -> bool:
+        """Write one pin's mode to both lists together, so a device is
+        never in both. True when anything changed."""
+        from .const import PIN_MODE_EXCEPT_POWER, PIN_MODE_TRACK
+
+        before = self.pin_mode(device_id)
+        self.track_only_device_ids = [
+            d for d in self.track_only_device_ids if d != device_id
+        ]
+        self.follow_only_device_ids = [
+            d for d in self.follow_only_device_ids if d != device_id
+        ]
+        if mode == PIN_MODE_TRACK:
+            self.track_only_device_ids.append(device_id)
+        elif mode == PIN_MODE_EXCEPT_POWER:
+            self.follow_only_device_ids.append(device_id)
+        return before != mode
+
+    def drop_pin_mode(self, device_id: str) -> None:
+        """Forget how a pin behaves: it goes with the pin."""
+        self.track_only_device_ids = [
+            d for d in self.track_only_device_ids if d != device_id
+        ]
+        self.follow_only_device_ids = [
+            d for d in self.follow_only_device_ids if d != device_id
+        ]
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TriggerRemote:
+        track_only = [
+            str(d) for d in (data.get("track_only_device_ids") or [])
+            if isinstance(d, str)
+        ]
         return _carry_extra(cls(
             id=data.get("id") or _new_id(),
             name=data.get("name", ""),
@@ -1866,8 +1925,11 @@ class TriggerRemote:
             # 2: every pin relays, as it always did.
             follow_only_device_ids=[
                 str(d) for d in (data.get("follow_only_device_ids") or [])
-                if isinstance(d, str)
+                if isinstance(d, str) and d not in track_only
             ],
+            # Absent on every remote written before Track only (GH #294):
+            # no pin tracks only. Track only wins over the follow list.
+            track_only_device_ids=track_only,
             # Absent on every remote written before signpost 4, and on
             # any remote pinned during signpost 3's dark period --
             # both resolve to {} and are filled by the load-time

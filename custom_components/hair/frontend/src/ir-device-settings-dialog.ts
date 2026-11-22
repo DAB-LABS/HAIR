@@ -71,6 +71,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import { pinModeChoices, pinModeOf, pinModeShown, type PinMode } from "./pin-mode.js";
 import type { HairApi } from "./api.js";
 import type {
     DeviceTypeId,
@@ -209,20 +210,17 @@ export class IrDeviceSettingsDialog extends LitElement {
     @state() private _speedSteps = "";
     @state() private _cycleIncludesOff = false;
     @state() private _cycleTurnOn: SpeedCycleTurnOn = "resume";
-    // Toggle power (GH #183): the matrix setting, and per pinning Remote
-    // whether the pin relays the power toggle (true) or follows it.
+    // Toggle power (GH #183): the matrix setting. Per pinning Remote,
+    // what the pin does with its presses (GH #294, ``pin-mode.ts``).
     @state() private _powerToggles = false;
-    @state() private _relay: Record<string, boolean> = {};
+    @state() private _modes: Record<string, PinMode> = {};
     @state() private _busy = false;
     @state() private _error: string | null = null;
 
     firstUpdated(): void {
         this._powerToggles = this.device.power_toggles === true;
-        this._relay = Object.fromEntries(
-            this._pinningRemotes().map((r) => [
-                r.id,
-                !(r.follow_only_device_ids ?? []).includes(this.device.id),
-            ]),
+        this._modes = Object.fromEntries(
+            this._pinningRemotes().map((r) => [r.id, pinModeOf(r, this.device.id)]),
         );
         this._sensorChoice = this.device.power_sensor_entity_id ?? "";
         this._offBelow =
@@ -516,16 +514,21 @@ export class IrDeviceSettingsDialog extends LitElement {
         );
     }
 
-    /** Whether the pins section shows: the device's power goes round on
-     * one button (the matrix setting as ticked now, or a flat device's
-     * toggle mapping) and some Remote pins it. Outside the
-     * settingsSections() list on purpose: it reads Remotes, and the
-     * gear no longer depends on sections. */
-    private _showsRelay(): boolean {
-        const toggles = this.device.matrix
+    /** Whether the device's power goes round on one button: the matrix
+     * setting as ticked now, or a flat device's toggle mapping. Decides
+     * whether a pin can leave out Power. */
+    private _toggles(): boolean {
+        return this.device.matrix
             ? this._powerToggles
             : this.device.power_is_toggle === true;
-        return toggles && this._pinningRemotes().length > 0;
+    }
+
+    /** Whether the pins section shows: some Remote pins this device
+     * (GH #294; it showed only on toggle-power devices before). Outside
+     * the settingsSections() list on purpose: it reads Remotes, and the
+     * gear no longer depends on sections. */
+    private _showsRelay(): boolean {
+        return this._pinningRemotes().length > 0;
     }
 
     /** What the settle field saves as. A device still on the default
@@ -585,7 +588,7 @@ export class IrDeviceSettingsDialog extends LitElement {
         }
         try {
             await this.api.updateDevice(this.device.id, patch);
-            const relayChanged = await this._saveRelays();
+            const relayChanged = await this._savePinModes();
             if (relayChanged) {
                 this.dispatchEvent(
                     new CustomEvent("remote-pins-changed", {
@@ -613,17 +616,19 @@ export class IrDeviceSettingsDialog extends LitElement {
         }
     }
 
-    /** Write each pin whose relay choice changed; true when any did. */
-    private async _saveRelays(): Promise<boolean> {
+    /** Write each pin whose mode changed; true when any did. Runs after
+     * the device's own save, so a power toggle ticked here is stored
+     * before a pin asks to leave out Power. */
+    private async _savePinModes(): Promise<boolean> {
         let changed = false;
+        const toggles = this._toggles();
         for (const remote of this._pinningRemotes()) {
-            const relay = this._relay[remote.id];
-            if (relay === undefined) continue;
-            const before = !(remote.follow_only_device_ids ?? []).includes(
-                this.device.id,
-            );
-            if (relay === before) continue;
-            await this.api.setPinRelay(remote.id, this.device.id, relay);
+            const chosen = this._modes[remote.id];
+            if (chosen === undefined) continue;
+            const mode = pinModeShown(chosen, toggles);
+            const before = pinModeOf(remote, this.device.id);
+            if (mode === before) continue;
+            await this.api.setPinMode(remote.id, this.device.id, mode);
             changed = true;
         }
         return changed;
@@ -858,44 +863,56 @@ export class IrDeviceSettingsDialog extends LitElement {
         `;
     }
 
-    /** Pins and the power toggle (GH #183): per Remote pinning this
-     * device, whether a heard power press is sent on (relay) or only
-     * followed. Following is right when the device hears its own
-     * handset; relaying is for a device out of the handset's sight. */
+    /** Pinned remotes (GH #294, GH #183): per Remote pinning this
+     * device, one menu: send every press, send every press but Power (a
+     * toggle-power device only), or track only and send nothing. The
+     * line under it says what the choice does. */
     private _renderRelaySection() {
+        const toggles = this._toggles();
+        const choices = pinModeChoices(toggles);
         return html`
             <section class="settings-section section-relay">
                 <h3 class="section-label">
                     ${t("devsettings.relay_section_label")}
                 </h3>
 
-                <p class="section-explainer">
-                    ${t("devsettings.relay_intro")}
-                </p>
-
-                ${this._pinningRemotes().map(
-                    (remote) => html`
-                        <label class="check-row">
-                            <input
-                                type="checkbox"
-                                .checked=${this._relay[remote.id] ?? true}
-                                @change=${(e: Event) =>
-                                    (this._relay = {
-                                        ...this._relay,
-                                        [remote.id]: (
-                                            e.target as HTMLInputElement
-                                        ).checked,
-                                    })}
-                                ?disabled=${this._busy}
-                            />
-                            <span
-                                >${t("devsettings.relay_label", {
-                                    remote: remote.name,
-                                })}</span
+                ${this._pinningRemotes().map((remote) => {
+                    const mode = pinModeShown(this._modes[remote.id] ?? "send", toggles);
+                    return html`
+                        <div class="field pin-row">
+                            <label for=${`pin-${remote.id}`}
+                                >${t("devsettings.pin_remote_label")}
+                                <span class="pin-remote-name">${remote.name}</span></label
                             >
-                        </label>
-                    `,
-                )}
+                            <div class="select-wrap">
+                                <select
+                                    id=${`pin-${remote.id}`}
+                                    .value=${mode}
+                                    @change=${(e: Event) =>
+                                        (this._modes = {
+                                            ...this._modes,
+                                            [remote.id]: (e.target as HTMLSelectElement)
+                                                .value as PinMode,
+                                        })}
+                                    ?disabled=${this._busy}
+                                >
+                                    ${choices.map(
+                                        (choice) => html`<option
+                                            value=${choice}
+                                            ?selected=${mode === choice}
+                                        >
+                                            ${t(`devsettings.pin_mode_${choice}`)}
+                                        </option>`,
+                                    )}
+                                </select>
+                                <span class="select-chevron" aria-hidden="true"></span>
+                            </div>
+                            <p class="section-explainer pin-desc">
+                                ${t(`devsettings.pin_mode_${mode}_desc`)}
+                            </p>
+                        </div>
+                    `;
+                })}
             </section>
         `;
     }
@@ -1512,10 +1529,26 @@ export class IrDeviceSettingsDialog extends LitElement {
             }
             .section-power select,
             .section-climate select,
-            .section-speed-cycle select {
+            .section-speed-cycle select,
+            .section-relay select {
                 appearance: none;
                 -webkit-appearance: none;
                 padding-right: 32px;
+            }
+            /* Pinned remotes: "Pinned remote:" muted, the remote's name
+             * in full text colour, the menu under it, and the line that
+             * says what the choice does. */
+            .pin-row > label {
+                font-weight: 400;
+                color: var(--secondary-text-color);
+            }
+            .pin-remote-name {
+                color: var(--primary-text-color);
+                font-weight: 500;
+                margin-left: 4px;
+            }
+            .pin-desc {
+                margin: 6px 0 0;
             }
             .section-power .select-chevron {
                 position: absolute;
@@ -1546,7 +1579,8 @@ export class IrDeviceSettingsDialog extends LitElement {
             /* Speed cycle (GH Discussion #201) has no accent of its
              * own yet: neutral borders, and the chevron in the
              * secondary text grey. */
-            .section-speed-cycle .select-chevron {
+            .section-speed-cycle .select-chevron,
+            .section-relay .select-chevron {
                 position: absolute;
                 top: 50%;
                 right: 10px;

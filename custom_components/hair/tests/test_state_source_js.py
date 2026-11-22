@@ -175,7 +175,8 @@ def _panel() -> str:
 def _power_section() -> str:
     text = _dialog()
     body = text[text.index("private _renderPowerSection()"):]
-    return body[: body.index("private _renderSpeedCycleSection()")]
+    # Up to the next section: Pinned remotes, which has a menu of its own.
+    return body[: body.index("private _renderRelaySection()")]
 
 
 POWER = ["sensor.amp_watts", "sensor.heater_kw", "sensor.tv_plug_power"]
