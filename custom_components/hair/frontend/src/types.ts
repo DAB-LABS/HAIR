@@ -1285,6 +1285,9 @@ export interface ReceiverTuning {
     form: "select" | "number" | "both" | "fixed" | "none";
     /** Where the receiver says it can listen, [[min, max], ...]. */
     ranges: [number, number][];
+    /** What HAIR will set on it, in Hz: the declared ranges, or else
+     *  its number's own limits; empty when there's nothing to set. */
+    accepts: [number, number][];
     /** The select's options in order; ``hz`` null is a sweep, and the
      *  ``number`` one is the option the number feeds ("Other..."). */
     presets: FrequencyPreset[];
@@ -1320,8 +1323,12 @@ export interface FrequencyPreset {
 /** What a tune came to (``hair/rf/receiver_tune``): always an answer,
  *  never an error, for each outcome. */
 export interface ReceiverTuneResult {
-    result: "confirmed" | "did_not_change" | "cannot_tune";
+    result: "confirmed" | "did_not_change" | "cannot_tune" | "not_accepted";
     current_mhz: number | null;
+    /** On ``not_accepted``: what the receiver takes, in Hz. */
+    accepts?: [number, number][];
+    /** On ``not_accepted``: the value tried (the panel adds it). */
+    hz?: number;
     /** The receiver's row, read after the set. */
     row?: ReceiverTuning;
 }

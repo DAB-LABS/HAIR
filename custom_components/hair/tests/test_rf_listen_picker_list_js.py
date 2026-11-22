@@ -138,9 +138,11 @@ class TestTheMenu:
         assert "@frequency-done=${() => {" in tune
         body = tune.split("private async _tune(pick: TunePick): Promise<void> {", 1)[1]
         body = body.split("\n    }\n", 1)[0]
-        assert "if (this._pendingOutside) this._open(\"note\");" in body
-        assert "else this._close();" in body
-        assert "if (tuneNote(false, result)) this._showNote();" in body
+        # The menu closes at once; nothing is tried outside what the
+        # receiver accepts (that is refused in the box first).
+        assert "this._close();" in body
+        assert "_pendingOutside" not in tune
+        assert "if (tuneNote(null, result)) this._showNote();" in body
 
     def test_scroll_and_resize_follow_the_box(self):
         body = self._tune().split("private _away = () => {", 1)[1].split("\n    };\n", 1)[0]

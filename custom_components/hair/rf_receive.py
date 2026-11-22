@@ -183,7 +183,9 @@ def receiver_frequency(hass: HomeAssistant, entity_id: str) -> dict[str, Any]:
     value, nothing to set) or ``none``. Frequencies are in Hz. ``now``
     is where it listens: an open window's carrier (or its sweep) while
     one listens, else what ``rf_tune.listening_now`` says, else the one
-    fixed value. ``trusted`` is False for the settle after HAIR set it.
+    fixed value. ``accepts`` is what HAIR will set it to
+    (``rf_tune.accepted_ranges``), ``[]`` for a fixed receiver or one
+    with nothing to set. ``trusted`` is False for the settle after HAIR set it.
     """
     from .rf_tune import (
         NOW_HZ,
@@ -192,6 +194,7 @@ def receiver_frequency(hass: HomeAssistant, entity_id: str) -> dict[str, Any]:
         NOW_SWEEP,
         NOW_UNKNOWN,
         _unit_factor,
+        accepted_ranges,
         declared,
         listening_now,
         trusted,
@@ -246,6 +249,11 @@ def receiver_frequency(hass: HomeAssistant, entity_id: str) -> dict[str, Any]:
     else:
         form = FORM_NONE
 
+    accepts = (
+        [] if form in (FORM_FIXED, FORM_NONE)
+        else [[low, high] for low, high in accepted_ranges(hass, entity_id, decl, number)]
+    )
+
     windowed = state is not None and says_capture(state)
     listening = windowed and state.attributes.get("capturing") is True
     now: dict[str, Any] | None = None
@@ -272,6 +280,7 @@ def receiver_frequency(hass: HomeAssistant, entity_id: str) -> dict[str, Any]:
         "select": decl.select,
         "number": number_row,
         "now": now,
+        "accepts": accepts,
         "trusted": trusted(entity_id),
         "windowed": windowed,
         "listening": listening,

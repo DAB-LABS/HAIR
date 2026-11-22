@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A frequency typed into a radio receiver's "Other..." box that the receiver doesn't take is refused, and HAIR says which frequencies it does take. It used to be sent anyway.
 - A new remote shows in the Sniffer on its first press. It used to wait for three.
 - The Closet opens faster, and so does the brand list in Create Remote. HAIR re-checks only the wigs that changed since the last look, not every wig every time.
 - Device settings are laid out as cards. Each shows its name and a line saying what is set, and opens with a click. Inside the cards everything is in the panel's plain greys; blue marks only the open card's outline and its buttons. Power has one heading, with the Power button setting at its top.

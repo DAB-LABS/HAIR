@@ -7,8 +7,8 @@
  *
  *   select  the receiver's own presets in order, "Sweep" among them
  *           when it has one; "Other..." when its number feeds an option
- *   number  the common bands, greyed outside its limits or declared
- *           ranges but still a pick, then "Other..."
+ *   number  the common bands, then "Other..."; a band the receiver
+ *           doesn't accept is greyed and can't be picked
  *   both    the presets, then "Other..."
  *   fixed   one declared frequency (an Athom): that frequency, no menu,
  *           "This receiver only listens here." on hover
@@ -23,14 +23,18 @@
  * One click picks and closes the menu. When there is something to say
  * about the pick, a small note takes the menu's place:
  *
- *   outside the receiver's limits  "Outside what this receiver
- *                                   supports; trying anyway." (HAIR
- *                                   still tries)
+ *   a value it doesn't accept      "This receiver doesn't take 390
+ *                                   MHz. It takes 305 to 335 and 433.42
+ *                                   to 438 MHz." Typed in "Other...",
+ *                                   it stays in the box, outlined red,
+ *                                   and nothing is sent.
  *   it did not take                "This receiver did not change; it
  *                                   is still listening at {mhz} MHz."
  *   it cannot be tuned             "HAIR can't tune this receiver; it
  *                                   listens where its hardware does."
  *
+ * What a receiver accepts is the server's ``accepts`` (its declared
+ * ranges, or else its number's own limits); the box's hint shows it.
  * The server says what happened; nothing here guesses. Every click and
  * keydown stops here, because the pill around it is the press. The menu
  * follows its box when the page scrolls or the window resizes (a phone's
@@ -39,11 +43,11 @@
  */
 import { LitElement, html, css, nothing, svg } from "lit";
 import { customElement, property, state } from "./decorators.js";
-import { t } from "./localize.js";
+import { formatLanguage, t } from "./localize.js";
 import type { HairApi } from "./api.js";
 import type { ReceiverTuneResult, ReceiverTuning } from "./types.js";
 import { hzToMhz } from "./rf-code.js";
-import { listBands, outsideRange, type ListRow } from "./rf-frequency-control.js";
+import { listBands, type ListRow } from "./rf-frequency-control.js";
 
 /** A pick: a frequency, or a select option by name. */
 export type TunePick = { hz: number } | { option: string };
@@ -86,20 +90,47 @@ export function stillTitle(row: ReceiverTuning | null): string | null {
     return null;
 }
 
-/** Whether a frequency is outside what the receiver says it can do: its
- *  number's own limits, then the ranges it declares. Unknown limits are
- *  never "outside". Pure, for the node tests. */
+/** Whether a frequency is outside what the receiver accepts: the
+ *  server's ``accepts`` (its declared ranges, or else its number's own
+ *  limits). An empty list is no check. Pure, for the node tests. */
 export function outsideLimits(row: ReceiverTuning | null, hz: number): boolean {
-    if (!row) return false;
-    if (row.number && outsideRange(hz, row.number.min_hz, row.number.max_hz)) return true;
-    if (row.ranges.length > 0 && !row.ranges.some(([lo, hi]) => hz >= lo && hz <= hi)) return true;
-    return false;
+    const accepts: [number, number][] = row?.accepts ?? [];
+    return accepts.length > 0 && !accepts.some(([lo, hi]) => hz >= lo && hz <= hi);
+}
+
+/** What a receiver accepts, as words: "305 to 335 and 433.42 to 438"
+ *  (``and``) or "... or ..." (``or``), in the panel's language, without
+ *  trailing zeros. Pure, for the node tests. */
+export function rangesText(accepts: [number, number][], joiner: "and" | "or", lang: string): string {
+    const parts = accepts.map(([lo, hi]) =>
+        lo === hi ? hzToMhz(lo) : t("listen.tune_range", { low: hzToMhz(lo), high: hzToMhz(hi) }),
+    );
+    try {
+        const type = joiner === "and" ? "conjunction" : "disjunction";
+        // Intl.ListFormat joins in the panel's language ("y", "oder");
+        // the project's TypeScript lib predates its typing.
+        const ListFormat = (Intl as unknown as { ListFormat: new (l: string, o: object) => { format(p: string[]): string } })
+            .ListFormat;
+        return new ListFormat(lang || "en", { style: "long", type }).format(parts);
+    } catch {
+        return parts.join(", ");
+    }
+}
+
+/** The line for a frequency the receiver doesn't take. Pure, for the
+ *  node tests. */
+export function refusedLine(
+    accepts: [number, number][],
+    hz: number,
+    lang: string,
+): { key: string; params: Record<string, string> } {
+    return { key: "listen.tune_refused", params: { mhz: hzToMhz(hz), ranges: rangesText(accepts, "and", lang) } };
 }
 
 /** The menu for a receiver, or null when there is nothing to pick.
  *  - a select: its presets in order (the number's option is "Other...");
- *  - a number: the common bands, greyed outside its limits or ranges,
- *    then "Other...";
+ *  - a number: the common bands, then "Other..."; a band the receiver
+ *    doesn't accept is greyed and can't be picked;
  *  - both: the presets, then "Other...";
  *  - fixed or none: no menu.
  *  Pure, for the node tests. */
@@ -115,6 +146,8 @@ export function tuneMenu(row: ReceiverTuning | null): { rows: ListRow[]; other: 
                 option: null,
                 current: hz === nowHz,
                 dim: outsideLimits(row, hz),
+                blocked: outsideLimits(row, hz),
+                title: outsideLimits(row, hz) ? t("listen.tune_band_refused", { mhz: hzToMhz(hz) }) : undefined,
             })),
             other: true,
         };
@@ -132,14 +165,20 @@ export function tuneMenu(row: ReceiverTuning | null): { rows: ListRow[]; other: 
     return { rows, other: row.form === "both" || row.presets.some((p) => p.number === true) };
 }
 
-/** The one line under the control, or null. A pending set outside the
- *  limits says it is trying anyway; an answer says what came of it. */
+/** The one line under the control, or null: a typed frequency the
+ *  receiver doesn't take (refused before anything is sent), or what came
+ *  of a pick. ``lang`` is for joining the ranges. Pure, for the node
+ *  tests. */
 export function tuneNote(
-    pendingOutside: boolean,
+    refused: { hz: number; accepts: [number, number][] } | null,
     result: ReceiverTuneResult | null,
+    lang = "en",
 ): { key: string; params?: Record<string, string> } | null {
-    if (pendingOutside) return { key: "listen.tune_outside" };
+    if (refused) return refusedLine(refused.accepts, refused.hz, lang);
     if (!result) return null;
+    if (result.result === "not_accepted" && result.hz != null) {
+        return refusedLine(result.accepts ?? [], result.hz, lang);
+    }
     if (result.result === "cannot_tune") return { key: "listen.tune_cannot" };
     if (result.result === "did_not_change") {
         const mhz = result.current_mhz != null ? hzToMhz(Math.round(result.current_mhz * 1_000_000)) : "";
@@ -162,7 +201,9 @@ export class IrListenTune extends LitElement {
     @state() private _mode: "list" | "note" = "list";
     private _noteTimer: ReturnType<typeof setTimeout> | null = null;
     @state() private _pending: TunePick | null = null;
-    @state() private _pendingOutside = false;
+    /** A typed frequency the receiver doesn't take: refused here,
+     *  nothing sent; it stays in the box, outlined red. */
+    @state() private _refused: { hz: number; accepts: [number, number][] } | null = null;
     @state() private _result: ReceiverTuneResult | null = null;
 
     disconnectedCallback(): void {
@@ -214,7 +255,10 @@ export class IrListenTune extends LitElement {
         }
         this._panel = this._placeFor(box);
         this._mode = mode;
-        if (mode === "list") this._result = null;
+        if (mode === "list") {
+            this._result = null;
+            this._refused = null;
+        }
         document.addEventListener("click", this._outside, true);
         window.addEventListener("scroll", this._away, true);
         window.addEventListener("resize", this._away);
@@ -233,10 +277,9 @@ export class IrListenTune extends LitElement {
      *  there is something to say. */
     private async _tune(pick: TunePick): Promise<void> {
         this._pending = pick;
-        this._pendingOutside = "hz" in pick && outsideLimits(this.tuning, pick.hz);
+        this._refused = null;
         this._result = null;
-        if (this._pendingOutside) this._open("note");
-        else this._close();
+        this._close();
         let result: ReceiverTuneResult | null = null;
         try {
             result = await this.api.receiverTune(this.receiverEntityId, pick);
@@ -244,11 +287,16 @@ export class IrListenTune extends LitElement {
             const hz = this.tuning?.now.kind === "hz" ? this.tuning.now.hz : null;
             result = { result: "did_not_change", current_mhz: hz ? hz / 1_000_000 : null };
         }
+        // The door refuses what the panel should have: say so with the
+        // value that was tried.
+        if (result.result === "not_accepted") {
+            const tried =
+                "hz" in pick ? pick.hz : (this.tuning?.presets.find((p) => p.option === pick.option)?.hz ?? null);
+            if (tried !== null) result = { ...result, hz: tried };
+        }
         this._pending = null;
-        this._pendingOutside = false;
         this._result = result;
-        if (tuneNote(false, result)) this._showNote();
-        else if (this._mode === "note") this._close();
+        if (tuneNote(null, result)) this._showNote();
         // The row reads every receiver's tuning again, so the box shows
         // the value the receiver holds now.
         this.dispatchEvent(
@@ -285,7 +333,9 @@ export class IrListenTune extends LitElement {
                 </span>
             </span>`;
         }
-        const note = tuneNote(this._pendingOutside, this._result);
+        const lang = formatLanguage();
+        const note = tuneNote(this._refused, this._result, lang);
+        const accepts: [number, number][] = this.tuning?.accepts ?? [];
         const menu = tuneMenu(this.tuning);
         return html`<span class="wrap" @click=${this._stop} @keydown=${this._onKey}>
             <button
@@ -314,6 +364,8 @@ export class IrListenTune extends LitElement {
                                     form="list"
                                     .rows=${menu.rows}
                                     .other=${menu.other}
+                                    .accepts=${accepts}
+                                    .otherHint=${rangesText(accepts, "or", lang)}
                                     .label=${t("listen.tune_heading")}
                                     ?disabled=${this._pending !== null}
                                     @frequency-pick=${(e: CustomEvent<{ hz?: number; option?: string }>) =>
@@ -322,6 +374,9 @@ export class IrListenTune extends LitElement {
                                                 ? { option: e.detail.option }
                                                 : { hz: e.detail.hz as number },
                                         )}
+                                    @frequency-refused=${(e: CustomEvent<{ hz: number | null }>) => {
+                                        this._refused = e.detail.hz === null ? null : { hz: e.detail.hz, accepts };
+                                    }}
                                     @frequency-done=${() => {
                                         if (this._pending === null) this._close();
                                     }}

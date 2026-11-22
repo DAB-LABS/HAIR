@@ -19,7 +19,8 @@ SRC = FRONTEND / "src"
 LOCALES = SRC / "locales"
 
 KEYS = (
-    "listen.tune_heading", "listen.tune_title", "listen.tune_setting", "listen.tune_outside",
+    "listen.tune_heading", "listen.tune_title", "listen.tune_setting", "listen.tune_refused",
+    "listen.tune_band_refused", "listen.tune_range",
     "listen.tune_did_not_change", "listen.tune_cannot", "listen.src_signal",
     "listen.src_window", "listen.src_tuned", "listen.src_receiver", "listen.src_unknown",
     "listen.src_join",
@@ -94,4 +95,11 @@ class TestTheStrings:
         assert en["listen.tune_cannot"] == (
             "HAIR can't tune this receiver; it listens where its hardware does."
         )
-        assert en["listen.tune_outside"] == "Outside what this receiver supports; trying anyway."
+        # A value the receiver doesn't accept is refused; nothing is
+        # tried anyway any more.
+        assert "listen.tune_outside" not in en
+        assert en["listen.tune_refused"] == (
+            "This receiver doesn't take {mhz} MHz. It takes {ranges} MHz."
+        )
+        assert en["listen.tune_band_refused"] == "This receiver doesn't take {mhz} MHz."
+        assert en["listen.tune_range"] == "{low} to {high}"
