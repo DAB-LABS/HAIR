@@ -711,6 +711,8 @@ def capture_receivers(
             "window_mode": None,
             "unread_radio": unread["unread_radio"],
             "unread_window_opened_at": unread["unread_window_opened_at"],
+            "ambiguous_radio": unread["ambiguous_radio"],
+            "ambiguous_window_opened_at": unread["ambiguous_window_opened_at"],
         })
     rows.extend(_software_rows(hass, store))
     if include_always_on:
@@ -758,10 +760,17 @@ def _always_on_rows(hass: HomeAssistant, receivers: list[str]) -> list[dict[str,
             **_settings_row({}),
             "window_seconds": None,
             "window_mode": None,
-            "unread_radio": 0,
-            "unread_window_opened_at": None,
+            **_NO_UNREAD,
         })
     return rows
+
+
+_NO_UNREAD: dict[str, Any] = {
+    "unread_radio": 0,
+    "unread_window_opened_at": None,
+    "ambiguous_radio": 0,
+    "ambiguous_window_opened_at": None,
+}
 
 
 def _unread(hass: HomeAssistant, receiver: str) -> dict[str, Any]:
@@ -772,7 +781,7 @@ def _unread(hass: HomeAssistant, receiver: str) -> dict[str, Any]:
 
     always_on = rf_always_on(hass)
     if always_on is None or not receiver.startswith("radio_frequency."):
-        return {"unread_radio": 0, "unread_window_opened_at": None}
+        return dict(_NO_UNREAD)
     return always_on.unread.fields(receiver)
 
 

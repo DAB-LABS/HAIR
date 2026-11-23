@@ -519,6 +519,7 @@
     "listen.tune_cannot": "HAIR はこの受信機を調整できません。ハードウェアの周波数で受信します。",
     "listen.unread_radio": "HAIR がまだ読めない無線コードを受信しました。押すたびに変わるコードかもしれません。",
     "listen.unread_radio_hint": "押すたびに新しいコードを送るリモコンがあります。HAIR はまだそのすべてを読めません。",
+    "listen.ambiguous_radio": "HAIR は受信しましたが、どの種類のリモコンか判別できませんでした。もう一度ボタンを押してください。",
     "listen.tune_auto": "自動",
     "listen.tune_auto_title": "HAIR はこの受信機の受信周波数を設定できません。",
     "listen.tune_fixed_title": "この受信機はこの周波数でのみ受信します。",

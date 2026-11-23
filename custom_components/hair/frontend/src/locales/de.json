@@ -519,6 +519,7 @@
     "listen.tune_cannot": "HAIR kann diesen Empfänger nicht einstellen; er hört dort, wo seine Hardware hört.",
     "listen.unread_radio": "Ein Funkcode wurde empfangen, den HAIR noch nicht lesen kann. Er ändert sich vielleicht bei jedem Tastendruck.",
     "listen.unread_radio_hint": "Manche Fernbedienungen senden bei jedem Tastendruck einen neuen Code. HAIR kann noch nicht alle davon lesen.",
+    "listen.ambiguous_radio": "HAIR hat das empfangen, konnte aber nicht erkennen, welche Art Fernbedienung es ist. Drücke die Taste noch einmal.",
     "listen.tune_auto": "auto",
     "listen.tune_auto_title": "HAIR kann nicht einstellen, wo dieser Empfänger empfängt.",
     "listen.tune_fixed_title": "Dieser Empfänger empfängt nur hier.",

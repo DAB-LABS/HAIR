@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A radio code that fits two kinds of remote at once gets no family label, is never sent, and isn't filed by remote and button. The Sniffer asks you to press the button again. HAIR used to go by whichever kind it checked first.
+
 ## [1.4.0] - 2026-11-23 -- Waiting Room
 
 ### Changed

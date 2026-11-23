@@ -1234,6 +1234,11 @@ export interface RfReceiverItem {
     unread_radio: number;
     /** When that window opened: its key. Null while unread_radio is 0. */
     unread_window_opened_at: string | null;
+    /** Codes HAIR read but couldn't tell what kind of remote sent (two
+     *  family shapes fit), since that window's last clean code. */
+    ambiguous_radio: number;
+    /** When that window opened: its key. Null while ambiguous_radio is 0. */
+    ambiguous_window_opened_at: string | null;
 }
 
 export interface ReceiverInfo {
@@ -1385,6 +1390,9 @@ export interface CaptureReceiverRow {
      *  couldn't read, and when that window opened. 0 / null for IR. */
     unread_radio: number;
     unread_window_opened_at: string | null;
+    /** As on RfReceiverItem: codes two family shapes fit. 0 / null for IR. */
+    ambiguous_radio: number;
+    ambiguous_window_opened_at: string | null;
 }
 
 // ---------------------------------------------------------------------------

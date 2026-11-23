@@ -105,10 +105,14 @@ class TestTheLedger:
         opened = datetime(2026, 11, 21, 6, 0, tzinfo=UTC)
         ledger = UnreadLedger()
         ledger.opened("r", opened)
-        assert ledger.fields("r") == {"unread_radio": 0, "unread_window_opened_at": None}
+        assert ledger.fields("r") == {
+            "unread_radio": 0, "unread_window_opened_at": None,
+            "ambiguous_radio": 0, "ambiguous_window_opened_at": None,
+        }
         ledger.unread("r")
         assert ledger.fields("r") == {
             "unread_radio": 1, "unread_window_opened_at": "2026-11-21T06:00:00.000+00:00",
+            "ambiguous_radio": 0, "ambiguous_window_opened_at": None,
         }
 
     def test_receivers_are_apart(self):
@@ -212,4 +216,5 @@ class TestASoftwareWindow:
             )["unread_radio"] == 1
             assert receiver_window._unread(MagicMock(), "infrared.tv") == {
                 "unread_radio": 0, "unread_window_opened_at": None,
+                "ambiguous_radio": 0, "ambiguous_window_opened_at": None,
             }
