@@ -4150,8 +4150,8 @@ class SignalMonitor:
         kind: str,
         codes: list[Any],
         shape: str = SHAPE_PACKET_MAP,
-    ) -> dict[str, int]:
-        """Place one whole learned-code store onto plucked remotes.
+    ) -> dict[str, Any]:
+        """Place a learned-code store, or part of one, onto plucked remotes.
 
         One subdevice becomes one plucked remote, one command becomes one
         named signal, and the store itself gets a record so the Devices
@@ -4184,10 +4184,15 @@ class SignalMonitor:
         usable timings, and a code that will not validate each land in
         their own counter so the landing summary can say what happened to
         them. Nothing unconvertible is ever invented into a code.
+
+        ``codes`` may be one sub-device's (the Plucker's ghosts) or the
+        whole store's; nothing here tells them apart. ``device_ids`` in
+        the summary lists the remotes the codes landed on, new or
+        already there, in the order first reached.
         """
         from .learned_code_stores import RECEIPT_RF
 
-        summary = {
+        summary: dict[str, Any] = {
             "remotes": 0,
             "signals": 0,
             "washed": 0,
@@ -4198,7 +4203,7 @@ class SignalMonitor:
             "already_present": 0,
         }
         now_iso = datetime.now(UTC).isoformat()
-        touched: set[str] = set()
+        touched: dict[str, str] = {}  # subdevice -> device id, first reached first
 
         async with self._lock:
             # Existing remotes for THIS store, by subdevice. Built once
@@ -4254,7 +4259,7 @@ class SignalMonitor:
                     device.fingerprint = f"plucked:{device.id}"
                     self._signal_store.add_device(device)
                     by_subdevice[code.subdevice] = device
-                touched.add(code.subdevice)
+                touched.setdefault(code.subdevice, device.id)
 
                 frequency = (
                     round(result.frequency_khz * 1000)
@@ -4301,6 +4306,7 @@ class SignalMonitor:
                 device.last_seen = now_iso
 
             summary["remotes"] = len(touched)
+            summary["device_ids"] = list(touched.values())
             self._signal_store.record_plucked_store(
                 {
                     "integration": integration,
