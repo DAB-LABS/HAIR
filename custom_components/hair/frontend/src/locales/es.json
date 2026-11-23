@@ -1198,6 +1198,7 @@
     "adddc.tab_closet": "Armario",
     "adddc.preview_creates": "Crea un dispositivo con {count} comandos de {name}",
     "adddc.preview_select_source": "Selecciona un origen para ver qué se creará",
+    "adddc.preview_creates_matrix": "Crea un aire acondicionado de {name}, {states}",
     "adddc.pick_source_required": "Elige una peluca de tu armario.",
     "adddc.section_source": "Fuente",
     "adddc.type_label": "Tipo",

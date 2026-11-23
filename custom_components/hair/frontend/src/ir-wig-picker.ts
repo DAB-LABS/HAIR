@@ -19,15 +19,18 @@
  * and every `identifiers` value (mirrors ir-wigs.ts `_rowMatches()`);
  * library rows have neither and keep the label-only match.
  *
- * Matrix rule (2026-08-08, "the matrix rule"): a matrix-backed local
- * wig still renders -- full detail, legible -- but disabled with a
- * one-line reason ("Matrix wig -- Fan") instead of hidden or erroring.
- * The count badge on a matrix row reads the discrete-press subset only
- * (`wig.signal_count`, i.e. the wig's flat extra signals), never the
- * matrix's own cell count -- a matrix source has no single fireable
- * signal a trigger or a flat device-command list can point at. Library
- * codebooks never carry a matrix (WigsList's `library` entries have no
- * `matrix` field), so this only ever applies to local rows.
+ * Matrix wigs: a matrix-backed local wig renders
+ * with a one-line note ("Matrix wig -- Air conditioner") and its
+ * state count, the number the Closet itself shows for it. Whether it
+ * can be picked is the caller's choice, through `allowMatrix`. Add
+ * Device sets it: a matrix wig adopts as an AC device there, the same
+ * as ADOPT DEVICE on the Closet card. Add Trigger Remote leaves it off,
+ * since a matrix has no single signal a trigger can point at, so there
+ * the row stays visible but does not take a click. This replaces the
+ * earlier rule that refused matrix rows everywhere, from before
+ * matrix wigs could be adopted from a dialog. Library codebooks never
+ * carry a matrix (WigsList's `library` entries have no `matrix`
+ * field), so this only ever applies to local rows.
  *
  * Selection is presentational only: this component resolves and emits
  * the picked row, it does not call any create/import/use API itself --
@@ -40,7 +43,7 @@
 import { LitElement, html, css } from "lit";
 import { headerChipStyles } from "./ir-header-chip-styles.js";
 import { customElement, property, state } from "./decorators.js";
-import { t } from "./localize.js";
+import { t, tp } from "./localize.js";
 import type { HairApi } from "./api.js";
 import type {
     CodeBrand,
@@ -60,8 +63,8 @@ export interface WigPickRow {
     id: string;
     label: string;
     /** Discrete-press count: wig.signal_count for a local row (matrix
-     *  cells excluded, see module doc), functions.length for a library
-     *  codebook. */
+     *  cells excluded; the row's count column shows the cells instead,
+     *  see `_shownCount`), functions.length for a library codebook. */
     signalCount: number;
     wig: WigInfo | null;
     brand: CodeBrand | null;
@@ -78,6 +81,10 @@ export class IrWigPicker extends LitElement {
 
     /** Disable all interactions. */
     @property({ type: Boolean }) public disabled = false;
+
+    /** Let a matrix wig be picked. Off by default; Add Device turns it
+     *  on (see module doc). */
+    @property({ type: Boolean }) public allowMatrix = false;
 
     @state() private _wigs: WigInfo[] = [];
     @state() private _library: CodeBrand[] = [];
@@ -187,7 +194,7 @@ export class IrWigPicker extends LitElement {
     }
 
     private _pick(row: WigPickRow): void {
-        if (this.disabled || row.wig?.matrix) return;
+        if (this.disabled || this._blocked(row)) return;
         this.value = row.id;
         this.dispatchEvent(
             new CustomEvent("wig-picked", {
@@ -220,6 +227,17 @@ export class IrWigPicker extends LitElement {
             if (entry) return t(entry.label_key);
         }
         return raw.charAt(0).toUpperCase() + raw.slice(1);
+    }
+
+    /** A matrix row this caller does not take. */
+    private _blocked(row: WigPickRow): boolean {
+        return !!row.wig?.matrix && !this.allowMatrix;
+    }
+
+    /** The count column: a matrix wig's states, as the Closet shows
+     *  them, otherwise the row's signals. */
+    private _shownCount(row: WigPickRow): number {
+        return row.wig?.matrix ? row.wig.matrix.cells : row.signalCount;
     }
 
     private _matrixNote(wig: WigInfo): string {
@@ -289,7 +307,7 @@ export class IrWigPicker extends LitElement {
         const cls = [
             "row",
             selected ? "selected" : "",
-            isMatrix ? "matrix" : "",
+            this._blocked(row) ? "blocked" : "",
         ]
             .filter(Boolean)
             .join(" ");
@@ -309,10 +327,10 @@ export class IrWigPicker extends LitElement {
                     <div class="row-sub ${isMatrix ? "matrix-note" : ""}">
                         ${isMatrix
                             ? this._matrixNote(row.wig!)
-                            : t("wigs.states.other", { count: String(row.signalCount) })}
+                            : tp("wigs.signals", row.signalCount)}
                     </div>
                 </div>
-                <div class="row-count">${row.signalCount}</div>
+                <div class="row-count">${this._shownCount(row)}</div>
             </div>
         `;
     }
@@ -377,10 +395,10 @@ export class IrWigPicker extends LitElement {
             border-left: 3px solid var(--origin-closet, #8e3b3b);
             padding-left: 9px;
         }
-        .row.matrix {
+        .row.blocked {
             cursor: default;
         }
-        .row.matrix:hover {
+        .row.blocked:hover {
             background: transparent;
         }
         .row-main {

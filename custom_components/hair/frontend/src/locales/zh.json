@@ -1198,6 +1198,7 @@
     "adddc.tab_closet": "码库柜",
     "adddc.preview_creates": "从 {name} 创建一个包含 {count} 条命令的设备",
     "adddc.preview_select_source": "选择来源以查看将创建的内容",
+    "adddc.preview_creates_matrix": "从 {name} 创建一个空调设备（{states}）",
     "adddc.pick_source_required": "从码库柜中选择一个码组。",
     "adddc.section_source": "来源",
     "adddc.type_label": "类型",

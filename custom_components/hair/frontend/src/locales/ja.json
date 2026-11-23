@@ -1198,6 +1198,7 @@
     "adddc.tab_closet": "クローゼット",
     "adddc.preview_creates": "{name} から {count} 件のコマンドを持つデバイスを作成します",
     "adddc.preview_select_source": "作成される内容を確認するには、ソースを選択してください",
+    "adddc.preview_creates_matrix": "{name} からエアコンのデバイスを作成します（{states}）",
     "adddc.pick_source_required": "クローゼットからウィッグを選んでください。",
     "adddc.section_source": "ソース",
     "adddc.type_label": "種類",

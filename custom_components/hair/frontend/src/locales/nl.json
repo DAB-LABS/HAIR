@@ -1198,6 +1198,7 @@
     "adddc.tab_closet": "Kast",
     "adddc.preview_creates": "Maakt een apparaat met {count} commando's van {name}",
     "adddc.preview_select_source": "Selecteer een bron om te zien wat er wordt aangemaakt",
+    "adddc.preview_creates_matrix": "Maakt een airco van {name}, {states}",
     "adddc.pick_source_required": "Kies een pruik uit je kast.",
     "adddc.section_source": "Bron",
     "adddc.type_label": "Type",

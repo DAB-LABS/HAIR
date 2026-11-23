@@ -1198,6 +1198,7 @@
     "adddc.tab_closet": "Penderie",
     "adddc.preview_creates": "Crée un appareil avec {count} commandes à partir de {name}",
     "adddc.preview_select_source": "Sélectionnez une source pour voir ce qui sera créé",
+    "adddc.preview_creates_matrix": "Crée un climatiseur à partir de {name}, {states}",
     "adddc.pick_source_required": "Choisissez une perruque dans votre penderie.",
     "adddc.section_source": "Source",
     "adddc.type_label": "Type",
