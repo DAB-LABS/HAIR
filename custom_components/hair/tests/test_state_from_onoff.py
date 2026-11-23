@@ -4,10 +4,12 @@ A Device's state source can be a power sensor in watts or an on/off
 entity: a binary sensor, switch, input boolean or device tracker. The
 on/off kind is read by its state alone (``on`` and ``home`` are on,
 ``off`` and ``not_home`` are off, anything else holds) and everything
-after the verdict is shared with the watts kind: the settle window, the
-seed at subscribe, the handback that only trusts a reading reported
-after the send. Only the settle time's ceiling differs: 600 s for an
-on/off source, 120 s for watts.
+after the verdict is shared with the watts kind: the settle window and
+the seed at subscribe. Three things differ: the settle time's ceiling
+(600 s for an on/off source, 120 s for watts), its default (180 s and
+20 s), and the handback at the end of the window, where an on/off
+source's state wins whenever it was reported, since it may never report
+again (``test_onoff_source_wins.py``).
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ from homeassistant.core import State
 from custom_components.hair import power_monitor as pm
 from custom_components.hair.const import DOMAIN
 from custom_components.hair.models import (
+    DEFAULT_ON_OFF_SETTLE_S,
     MAX_ON_OFF_SETTLE_S,
     MAX_POWER_SETTLE_S,
     ON_OFF_DOMAINS,
@@ -172,22 +175,25 @@ class TestTrackerThroughTheWindow:
         assert rig.take() == [("fan-1", "off")]
         assert rig.monitor._windows == {}
 
-    def test_a_tracker_that_has_not_reported_holds_at_the_window_end(
+    def test_a_tracker_slower_than_its_window_wins_then_catches_up(
         self, rig
     ):
+        """The cost of a window shorter than the tracker's lag: at the
+        end the stale "home" wins, and the late "not_home" puts it
+        right."""
         rig.readings[TRACKER] = _tracker("home", seconds_from_send=-60)
         rig.start()
         rig.take()
 
         rig.send(command_id="c-off")
-        rig.loop.advance(20)
-        # Still the pre-send "home": not evidence about the send.
+        rig.loop.advance(DEFAULT_ON_OFF_SETTLE_S - 1)
         assert rig.take() == []
+        rig.loop.advance(1)
+        assert rig.take() == [("fan-1", "on")]
         assert rig.monitor._windows == {}
 
-        # The tracker catches up after the window and is dispatched.
-        rig.loop.advance(100)
-        _report(rig, "not_home", seconds_from_send=120)
+        rig.loop.advance(60)
+        _report(rig, "not_home", seconds_from_send=240)
         assert rig.take() == [("fan-1", "off")]
 
     def test_home_after_the_window_is_dispatched(self, rig):
@@ -203,9 +209,9 @@ class TestTrackerThroughTheWindow:
         _report(rig, "home", seconds_from_send=60)
         assert rig.take() == [("fan-1", "on")]
 
-    def test_a_late_home_after_turning_off_overrules_the_send(self, rig):
-        """The lag the settle help warns about: a tracker that still says
-        home after the window has the last word, as a plug would."""
+    def test_a_home_that_never_turns_off_overrules_the_send(self, rig):
+        """A tracker that still says home when the window ends has the
+        last word: held inside the window, it wins at the end."""
         rig.readings[TRACKER] = _tracker("home", seconds_from_send=-60)
         rig.start()
         rig.take()
@@ -213,6 +219,8 @@ class TestTrackerThroughTheWindow:
         rig.send(command_id="c-off")
         rig.loop.advance(25)
         _report(rig, "home", seconds_from_send=25)
+        assert rig.take() == []
+        rig.loop.advance(DEFAULT_ON_OFF_SETTLE_S - 25)
         assert rig.take() == [("fan-1", "on")]
 
     def test_a_zone_or_unavailable_reading_changes_nothing(self, rig):

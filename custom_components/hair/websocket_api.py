@@ -898,8 +898,8 @@ def _resolve_power_source(
             # it are cleared rather than refused.
             new_off_below = None
             new_on_above = None
-        # None is the default (DEFAULT_POWER_SETTLE_S); 0 is no window
-        # at all. The two are different and stay different.
+        # None is the source's default (default_power_settle_s); 0 is
+        # no window at all. The two are different and stay different.
         new_settle = msg.get("power_settle_s", current.power_settle_s)
     settle_cap = max_power_settle_s(new_sensor)
     if new_settle is not None and not 0 <= new_settle <= settle_cap:
