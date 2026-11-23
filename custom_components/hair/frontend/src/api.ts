@@ -1598,6 +1598,19 @@ export class HairApi {
     }
 
     /**
+     * Persist a new order for the named Remotes (the Remotes section's
+     * drag). ``remoteIds`` must be the complete current set, or the
+     * backend rejects it with ``invalid_format``. Mirrors
+     * ``reorderDevices``.
+     */
+    reorderTriggerRemotes(remoteIds: string[]): Promise<{ reordered: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ reordered: boolean }>({
+            type: "hair/trigger-remotes/reorder",
+            remote_ids: remoteIds,
+        });
+    }
+
+    /**
      * Add Popups signpost 2, Track 5: rename a named remote (the
      * expand view's header rename-in-place, same pattern as
      * renameTriggerDrawer above but scoped to one remote_id).

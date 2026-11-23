@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Remotes on the Devices tab can be dragged into any order, as Devices can. The HAIR Triggers card stays first, and a new Remote still lands at the end beside the "+" tile. Every list of Remotes elsewhere in the panel follows the same order.
+
 ## [1.4.0] - 2026-11-23 -- Waiting Room
 
 ### Changed
