@@ -188,6 +188,7 @@ These are not partnership SKUs, but HAIR will drive them once they expose HA's `
 |---|---|
 | Generic ESP32 + IR LED / receiver | DIY wiring: [`esphome/generic-esp32-c3/`](../esphome/generic-esp32-c3/), [`esphome/generic-esp32-doit/`](../esphome/generic-esp32-doit/) |
 | M5Stack IR Unit | In-repo config: [`esphome/m5stack-ir-unit/`](../esphome/m5stack-ir-unit/) |
+| ESP32 + CC1101 (radio) | DIY radio receiver and transmitter, 300 to 928 MHz receive with gaps, one fixed send frequency: [`esphome/esp32-cc1101-rf-proxy/`](../esphome/esp32-cc1101-rf-proxy/) |
 | Broadlink RM series | Core Broadlink integration; **pluck** only codes already learned into HA (`remote.learn_command`), not Broadlink-app cloud codes |
 | Tuya Local IR blasters | TX + **pluck** where supported |
 | SMLIGHT Ultima | Native RX since HA 2026.7 (see main README requirements table) |

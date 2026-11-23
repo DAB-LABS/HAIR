@@ -893,7 +893,9 @@ Receiver architecture:
   config carries a machine-readable header (device, GPIO map, tested versions,
   contributor) for easy discovery. Two-tier convention per device: minimal
   (just the IR pieces) and full (preserves device-specific features like touch
-  pads and status LEDs).
+  pads and status LEDs). Radio: esp32-cc1101-rf-proxy is a DIY ESP32 + CC1101
+  build that receives from 300 to 928 MHz (with the chip's gaps), retuned from
+  its Listen frequency number, and transmits on one fixed frequency.
 
 ## Releases
 
