@@ -1627,6 +1627,29 @@ export interface LearnedStore {
     ir_codes: number;
     rf_codes: number;
     error: string | null;
+    /** One entry per sub-device (Plucker ghosts, 1.4.1). Absent on a
+     *  server older than that; empty when ``error`` is set. */
+    remotes?: LearnedStoreRemote[];
+}
+
+/**
+ * One sub-device of a learned-code store (hair/pluck/stores/list).
+ *
+ * ``device_id`` is the plucked remote for this (integration, store,
+ * sub-device), found by that key and never by label, or null when there
+ * is none: null is what makes it a ghost on the Plucker tab.
+ */
+export interface LearnedStoreRemote {
+    subdevice: string;
+    /** What a pluck names the remote: "<store>: <sub-device>", or the
+     *  store's name alone for a flat code list. */
+    label: string;
+    codes: number;
+    ir_codes: number;
+    rf_codes: number;
+    pluckable: boolean;
+    reason: "empty" | "radio_only" | null;
+    device_id: string | null;
 }
 
 /**
@@ -1644,6 +1667,9 @@ export interface LearnedStoreImport {
     rf_receipted: number;
     no_timings: number;
     already_present: number;
+    /** The remote(s) this import touched (1.4.1), so the panel can put
+     *  a new one at the top. Absent on an older server. */
+    device_ids?: string[];
 }
 
 /** The record behind a plucked store's row on the Devices tab. */

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Plucker has no Add Blaster step. Under your plucked remotes it shows a faded tile for everything it could still pluck: one per appliance in a learned-code store, which you click to pluck, and one per blaster that pulls codes by name, which opens to an appliance and a command. A store HAIR can't read, or an appliance with nothing to pluck, shows why. A new remote goes to the top of the list.
 - A radio code that fits two kinds of remote at once gets no family label, is never sent, and isn't filed by remote and button. The Sniffer asks you to press the button again. HAIR used to go by whichever kind it checked first.
 
 ### Fixed

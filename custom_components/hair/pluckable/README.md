@@ -61,7 +61,7 @@ Every field, with `tuya_local.yaml` as the worked example:
 | `service.name` | yes | The send service's name. |
 | `service.target_param` | yes | The target parameter that receives the vendor blaster entity id (usually `entity_id`). |
 | `service.data` | yes | The service-call data. Values are templates (see below). |
-| `appliance_label` | no | Override the Add Blaster dialog's appliance field label. |
+| `appliance_label` | no | The vendor's own wording for the appliance field, shown as its tooltip on the blaster's Plucker tile. |
 | `appliance_help` | no | Override the appliance field help text. |
 | `error_map` | no | Map a raw vendor error substring to friendlier text. |
 
@@ -73,8 +73,9 @@ Every field, with `tuya_local.yaml` as the worked example:
 - `{appliance}` -- the appliance/group name set on the plucked blaster
 - `{tweezer}` -- the HAIR Tweezer entity id, filled in by HAIR
 
-The Add Blaster dialog collects exactly one free input (the appliance) and the
-Pluck dialog collects exactly one (the command name). A vendor whose service
+The blaster's Plucker tile collects exactly two free inputs, the appliance and
+the command name, and the Pluck dialog on a plucked remote collects one (the
+command name). A vendor whose service
 needs a third user-supplied input cannot be expressed in YAML alone. That
 needs a `schema_version` bump and new dialog work, not just a YAML file. If
 you think you need a third input or custom Python logic, talk to the
