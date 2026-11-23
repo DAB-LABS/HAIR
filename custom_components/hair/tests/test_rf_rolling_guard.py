@@ -103,7 +103,9 @@ class TestWhatIsRolling:
 
         with patch.object(rf_family, "_SHAPES", (broken,)), caplog.at_level(logging.WARNING):
             assert rf_family.rolling_family(KEELOQ) is None
-        assert "rolling-code check failed" in caplog.text
+        # The one decoder is skipped, logged; with no shape left the code
+        # is treated as fixed, as before.
+        assert "its shape is skipped" in caplog.text
 
     def test_an_infrared_row_is_never_rolling(self):
         row = types.SimpleNamespace(medium=MEDIUM_IR, raw_timings=list(KEELOQ))

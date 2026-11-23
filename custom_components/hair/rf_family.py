@@ -650,18 +650,63 @@ def family_of(
     return _family_of(tuple(int(v) for v in frame), include_hidden)
 
 
+def _fitting_reads(frame: tuple[int, ...]) -> tuple[_ShapeRead, ...]:
+    """Every shape that fits the frame, in ``_SHAPES`` order.
+
+    One walk shared by the label, the rolling check and the rolling
+    identity, each of which caches its own answer. Hidden families
+    count: a shape that fits only hidden families still fits. Two shapes
+    fitting one frame should not happen (each family's tests have every
+    other shape refuse its frames), but a damaged frame could, and then
+    nothing is taken from either.
+
+    A decoder that raises is skipped, logged at warning, and the other
+    shapes' reads are kept: one broken decoder must not throw away the
+    rolling answer of the shape that did fit.
+    """
+    # Not cached on purpose. The three readers above cache their own
+    # answers, and a cache here would outlive a test that swaps
+    # ``_SHAPES``. A frame goes through every decoder at most four times
+    # (the three readers and ``fits_two_shapes`` once per press), which
+    # is nothing at radio rates.
+    # ``_SHAPES`` is defined below its decoders.
+    reads = []
+    for decode in _SHAPES:
+        try:
+            read = decode(frame)
+        except Exception:
+            _LOGGER.warning(
+                "Radio family decoder %s failed; its shape is skipped",
+                getattr(decode, "__name__", decode), exc_info=True,
+            )
+            continue
+        if read is not None and read.fits:
+            reads.append(read)
+    return tuple(reads)
+
+
+def fits_two_shapes(frame: list[int] | tuple[int, ...] | None) -> bool:
+    """True when more than one shape fits the frame: HAIR can't tell
+    which kind of remote sent it, so it gets no family, no rolling
+    identity, and counts as rolling. Fails to False, logged at warning."""
+    if not frame:
+        return False
+    try:
+        return len(_fitting_reads(tuple(int(v) for v in frame))) > 1
+    except Exception:
+        _LOGGER.warning("Radio family check failed", exc_info=True)
+        return False
+
+
 @lru_cache(maxsize=1024)
 def _family_of(frame: tuple[int, ...], include_hidden: bool) -> RfFamily | None:
-    # ``_SHAPES`` is defined below its decoders. The first shape that
-    # fits ends the search, even when all it fits are hidden families
-    # (they still count, and they keep a later shape from claiming the
-    # frame). A new family whose edge count meets an earlier shape's
-    # needs a test that each shape refuses the other's frames.
-    for decode in _SHAPES:
-        read = decode(frame)
-        if read is not None and read.fits:
-            return _label(read, include_hidden)
-    return None
+    # One shape that fits gives the label, even when all it fits are
+    # hidden families. Two shapes that fit give none: no pill rather
+    # than a guess.
+    reads = _fitting_reads(frame)
+    if len(reads) != 1:
+        return None
+    return _label(reads[0], include_hidden)
 
 
 def _label(read: _ShapeRead, include_hidden: bool) -> RfFamily | None:
@@ -1219,14 +1264,12 @@ def rolling_family(frame: list[int] | tuple[int, ...] | None) -> str | None:
 
 @lru_cache(maxsize=1024)
 def _rolling_family(frame: tuple[int, ...]) -> str | None:
-    # The same walk as ``_family_of``: the first shape that fits decides.
-    for decode in _SHAPES:
-        read = decode(frame)
-        if read is not None and read.fits:
-            return next(
-                (fit.key for fit in read.fits if fit.key in ROLLING_FAMILIES),
-                None,
-            )
+    # Rolling if any shape that fits reads it as rolling, so a frame two
+    # shapes fit is refused when either says it changes on every press.
+    for read in _fitting_reads(frame):
+        for fit in read.fits:
+            if fit.key in ROLLING_FAMILIES:
+                return fit.key
     return None
 
 
@@ -1301,21 +1344,22 @@ def rolling_identity(
 
 @lru_cache(maxsize=1024)
 def _rolling_identity(frame: tuple[int, ...]) -> RollingIdentity | None:
-    for decode in _SHAPES:
-        read = decode(frame)
-        if read is None or not read.fits:
-            continue
-        if len(read.fits) != 1 or read.fits[0].key not in _ROLLING_FIXED:
-            return None
-        fit = read.fits[0]
-        values = dict(fit.fields)
-        remote_name, button_name = _ROLLING_FIXED[fit.key]
-        if remote_name not in values or button_name not in values:
-            return None
-        return RollingIdentity(
-            family=fit.key,
-            remote=values[remote_name],
-            button=values[button_name],
-            rolling=fit.rolling,
-        )
-    return None
+    # Only when exactly one shape fits: a frame two shapes fit keeps the
+    # identity every other radio frame has (and is still never sent).
+    reads = _fitting_reads(frame)
+    if len(reads) != 1:
+        return None
+    read = reads[0]
+    if len(read.fits) != 1 or read.fits[0].key not in _ROLLING_FIXED:
+        return None
+    fit = read.fits[0]
+    values = dict(fit.fields)
+    remote_name, button_name = _ROLLING_FIXED[fit.key]
+    if remote_name not in values or button_name not in values:
+        return None
+    return RollingIdentity(
+        family=fit.key,
+        remote=values[remote_name],
+        button=values[button_name],
+        rolling=fit.rolling,
+    )

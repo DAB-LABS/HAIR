@@ -553,6 +553,7 @@
     "listen.tune_cannot": "HAIR nie może dostroić tego odbiornika; nasłuchuje tam, gdzie pozwala jego sprzęt.",
     "listen.unread_radio": "Odebrano kod radiowy, którego HAIR jeszcze nie umie odczytać. Może zmieniać się przy każdym naciśnięciu.",
     "listen.unread_radio_hint": "Niektóre piloty wysyłają nowy kod przy każdym naciśnięciu. HAIR nie umie jeszcze odczytać ich wszystkich.",
+    "listen.ambiguous_radio": "HAIR to odebrał, ale nie rozpoznał, jaki to pilot. Naciśnij przycisk jeszcze raz.",
     "listen.tune_auto": "auto",
     "listen.tune_auto_title": "HAIR nie może ustawić, gdzie nasłuchuje ten odbiornik.",
     "listen.tune_fixed_title": "Ten odbiornik nasłuchuje tylko tutaj.",

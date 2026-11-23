@@ -519,6 +519,7 @@
     "listen.tune_cannot": "HAIR no puede sintonizar este receptor; escucha donde su hardware lo hace.",
     "listen.unread_radio": "Se oyó un código de radio que HAIR aún no puede leer. Puede cambiar con cada pulsación.",
     "listen.unread_radio_hint": "Algunos mandos envían un código nuevo con cada pulsación. HAIR aún no puede leerlos todos.",
+    "listen.ambiguous_radio": "HAIR lo oyó, pero no pudo saber qué tipo de mando es. Pulsa el botón otra vez.",
     "listen.tune_auto": "auto",
     "listen.tune_auto_title": "HAIR no puede ajustar dónde escucha este receptor.",
     "listen.tune_fixed_title": "Este receptor solo escucha aquí.",

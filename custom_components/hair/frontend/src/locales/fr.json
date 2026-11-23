@@ -519,6 +519,7 @@
     "listen.tune_cannot": "HAIR ne peut pas régler ce récepteur ; il écoute là où son matériel écoute.",
     "listen.unread_radio": "Un code radio entendu, que HAIR ne sait pas encore lire. Il change peut-être à chaque appui.",
     "listen.unread_radio_hint": "Certaines télécommandes envoient un nouveau code à chaque appui. HAIR ne sait pas encore tous les lire.",
+    "listen.ambiguous_radio": "HAIR l'a entendu, mais n'a pas pu savoir de quel type de télécommande il s'agit. Appuyez à nouveau sur le bouton.",
     "listen.tune_auto": "auto",
     "listen.tune_auto_title": "HAIR ne peut pas régler où ce récepteur écoute.",
     "listen.tune_fixed_title": "Ce récepteur n'écoute qu'ici.",

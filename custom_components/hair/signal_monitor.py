@@ -3055,7 +3055,7 @@ class SignalMonitor:
         and ``raw`` the capture as received (None for a burst, which
         never existed as one capture). Only the Candy Drawer reads them.
         """
-        from .rf_family import rolling_identity
+        from .rf_family import fits_two_shapes, rolling_identity
         from .rf_receive import frequency_of
         from .rf_replay import HELD, REPLAY
 
@@ -3064,7 +3064,10 @@ class SignalMonitor:
         ):
             # A code HAIR can read was heard in this window: no "can't
             # read" line for it.
-            self.rf_always_on.note_unread(receiver_entity_id, readable=True)
+            self.rf_always_on.note_unread(
+                receiver_entity_id, readable=True,
+                ambiguous=fits_two_shapes(analysis.frame),
+            )
         rolling = rolling_identity(analysis.frame)
         verdict = (
             self._rf_replay.check(rolling, time.monotonic())

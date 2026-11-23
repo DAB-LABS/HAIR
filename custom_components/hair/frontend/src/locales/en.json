@@ -519,6 +519,7 @@
     "listen.tune_cannot": "HAIR can't tune this receiver; it listens where its hardware does.",
     "listen.unread_radio": "Heard a radio code HAIR can't read yet. It may change on every press.",
     "listen.unread_radio_hint": "Some remotes send a new code on every press. HAIR can't read all of those yet.",
+    "listen.ambiguous_radio": "HAIR heard that but couldn't tell what kind of remote it is. Press the button again.",
     "listen.tune_auto": "auto",
     "listen.tune_auto_title": "HAIR can't set where this receiver listens.",
     "listen.tune_fixed_title": "This receiver only listens here.",

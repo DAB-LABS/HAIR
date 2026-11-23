@@ -519,6 +519,7 @@
     "listen.tune_cannot": "HAIR kan deze ontvanger niet afstemmen; hij luistert waar zijn hardware luistert.",
     "listen.unread_radio": "Een radiocode gehoord die HAIR nog niet kan lezen. Hij verandert misschien bij elke druk.",
     "listen.unread_radio_hint": "Sommige afstandsbedieningen sturen bij elke druk een nieuwe code. HAIR kan die nog niet allemaal lezen.",
+    "listen.ambiguous_radio": "HAIR heeft het gehoord, maar kon niet zien wat voor afstandsbediening het is. Druk nog een keer op de knop.",
     "listen.tune_auto": "auto",
     "listen.tune_auto_title": "HAIR kan niet instellen waar deze ontvanger luistert.",
     "listen.tune_fixed_title": "Deze ontvanger luistert alleen hier.",
