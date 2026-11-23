@@ -28,7 +28,7 @@ import {
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
-import { HairApi, pluckEmptyBlocks } from "./api.js";
+import { HairApi, canPluckByName, pluckEmptyBlocks } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-pluck-add-remote-dialog.js";
@@ -1189,13 +1189,15 @@ export class IrPluck extends LitElement {
             <div class="expanded">
                 <div class="signal-header">
                     <span>${t("sniffer.signals_head", { count: device.signals.length })}</span>
-                    <button
-                        class="create-signal-btn"
-                        title=${t("pluck.pluck_signal_title")}
-                        @click=${(e: Event) => this._openPluckSignal(device, e)}
-                    >
-                        ${t("pluck.pluck_signal")}
-                    </button>
+                    ${canPluckByName(device)
+                        ? html`<button
+                              class="create-signal-btn"
+                              title=${t("pluck.pluck_signal_title")}
+                              @click=${(e: Event) => this._openPluckSignal(device, e)}
+                          >
+                              ${t("pluck.pluck_signal")}
+                          </button>`
+                        : ""}
                 </div>
                 ${device.signals.length === 0
                     ? html`<div class="no-signals-row">

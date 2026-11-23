@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A pinned remote can track a device without sending to it. In a device's settings, each pinned remote has one choice: send every press, send every press except Power, or track only. Track only is for a device that hears the handset itself: HAIR follows every press so the device's state stays right, and sends nothing, so volume, channel and fan speed no longer step twice. Requested by @dgaus (#294).
 - Grouped signals: a command on a device that sends other commands, from any device, in order, with a delay between each. Add one with + Grouped Signals on a device's page. It maps to an action, gets a button, and Test runs it. The delay counts from the end of the previous signal, 300 ms at least. Grouped signals stay out of a wig export and Save to Closet.
 
+### Fixed
+
+- In the Plucker, a remote read from a learned-code store no longer offers "+ Pluck signal". It has no blaster to replay a command by name, so the button only ever ended in "This blaster's integration is not available right now". Its codes come from the store: add one there and pluck the store again.
+
 ## [1.3.1] - 2026-11-18 -- Permanent Wave
 
 ### Added
