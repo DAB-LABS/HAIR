@@ -43,6 +43,7 @@ import {
     pickerStep,
     placePanel,
     settleCapFor,
+    settleDefaultFor,
     settleOnPick,
     stateSourceCandidates,
     stateSourcePatch,
@@ -62,9 +63,6 @@ export interface PowerSource {
 
 const DEFAULT_OFF_BELOW_W = 5;
 const DEFAULT_ON_ABOVE_W = 10;
-// The settle window. Mirrors models.py DEFAULT_POWER_SETTLE_S; the
-// ceilings depend on the source (state-source.ts settleCapFor).
-const DEFAULT_SETTLE_S = 20;
 
 /** Is focus, through any shadow roots, on something a user types into
  * or presses? */
@@ -127,7 +125,8 @@ export class IrPowerSourceSection extends LitElement {
             source.power_on_above_w?.toString() ?? String(DEFAULT_ON_ABOVE_W);
         // ?? and not ||: a stored 0 is the opt-out and must show as 0.
         this._settle =
-            source.power_settle_s?.toString() ?? String(DEFAULT_SETTLE_S);
+            source.power_settle_s?.toString() ??
+            String(settleDefaultFor(source.power_sensor_entity_id));
     }
 
     updated(changed: Map<string, unknown>): void {
@@ -187,9 +186,10 @@ export class IrPowerSourceSection extends LitElement {
     /** A row of the state source picker was chosen ("" is None). */
     private _pickSource(entityId: string): void {
         if (this._busy || entityId === this._sensorChoice) return;
+        const previous = this._sensorChoice;
         this._sensorChoice = entityId;
         if (entityId) {
-            this._settle = settleOnPick(entityId, this._settle);
+            this._settle = settleOnPick(entityId, this._settle, previous);
         }
     }
 
@@ -340,17 +340,17 @@ export class IrPowerSourceSection extends LitElement {
         }
     }
 
-    /** What the settle field saves as. A device still on the default
-     * that nobody changed stays on the default (null), so it keeps
-     * following it; an empty field also means the default. Anything
-     * else is clamped into the range the backend accepts for the
-     * chosen source. */
+    /** What the settle field saves as. A device still on its source's
+     * default that nobody changed stays on the default (null), so it
+     * keeps following it; an empty field also means the default.
+     * Anything else is clamped into the range the backend accepts for
+     * the chosen source. */
     private _settleForSave(): number | null {
         const value = parseFloat(this._settle);
         if (Number.isNaN(value)) return null;
         if (
             this.source?.power_settle_s == null &&
-            value === DEFAULT_SETTLE_S
+            value === settleDefaultFor(this._sensorChoice)
         ) {
             return null;
         }
@@ -457,7 +457,9 @@ export class IrPowerSourceSection extends LitElement {
                               <p class="section-explainer">
                                   ${t(
                                       this.forRemote
-                                          ? "devsettings.settle_help_remote"
+                                          ? onOff
+                                              ? "devsettings.settle_help_onoff_remote"
+                                              : "devsettings.settle_help_remote"
                                           : onOff
                                             ? "devsettings.settle_help_onoff"
                                             : "devsettings.settle_help",

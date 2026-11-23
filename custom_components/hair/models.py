@@ -888,15 +888,27 @@ def is_on_off_entity(entity_id: str | None) -> bool:
     return entity_id.split(".", 1)[0] in ON_OFF_DOMAINS
 
 
-# The settle window's default and ceilings, in seconds (0.17.2). The
+# The settle window's defaults and ceilings, in seconds (0.17.2). A
 # default is a ceiling on the wait, not the wait: the monitor ends a
 # window early as soon as the source agrees with the send. A power
 # plug reports within seconds; a presence or network sensor can take
 # minutes to notice a device switched off, so an on/off source may wait
-# longer.
+# longer, and by default does: at the end of its window an on/off
+# source that still disagrees wins (power_monitor.py), so the window
+# must outlast the source's lag. 180 s is Home Assistant's default
+# consider_home for a router tracker.
 DEFAULT_POWER_SETTLE_S = 20.0
+DEFAULT_ON_OFF_SETTLE_S = 180.0
 MAX_POWER_SETTLE_S = 120.0
 MAX_ON_OFF_SETTLE_S = 600.0
+
+
+def default_power_settle_s(sensor_entity_id: str | None) -> float:
+    """The settle time a Device or Remote with this state source gets
+    while it has no value of its own."""
+    if is_on_off_entity(sensor_entity_id):
+        return DEFAULT_ON_OFF_SETTLE_S
+    return DEFAULT_POWER_SETTLE_S
 
 
 def max_power_settle_s(sensor_entity_id: str | None) -> float:
@@ -923,10 +935,11 @@ def power_settle_seconds(device: IRDevice | TriggerRemote) -> float:
     """The settle window a Device gets after a send, or a typed Remote
     after a heard power press, in seconds.
 
-    The one place a stored None becomes the default. 0 means none.
+    The one place a stored None becomes the default, which depends on
+    the source (``default_power_settle_s``). 0 means none.
     """
     if device.power_settle_s is None:
-        return DEFAULT_POWER_SETTLE_S
+        return default_power_settle_s(device.power_sensor_entity_id)
     return float(device.power_settle_s)
 
 
@@ -982,8 +995,9 @@ class IRDevice:
     power_on_above_w: float | None = None
     # Seconds after a HAIR send during which the power sensor cannot
     # overrule the entity (the settle window, 0.17.2). None is the
-    # default, read as DEFAULT_POWER_SETTLE_S, and is what every device
-    # stored before this field existed carries: those are the devices
+    # default, read as ``default_power_settle_s`` for the source, and
+    # is what every device stored before this field existed carries:
+    # those are the devices
     # that flickered, so they get the window without a store rewrite.
     # 0 is the opt-out and means no window at all. Never read None as
     # 0; use ``power_settle_seconds`` below.

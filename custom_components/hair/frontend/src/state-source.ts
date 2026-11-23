@@ -24,6 +24,14 @@ export const ON_OFF_DOMAINS: readonly string[] = [
 export const MAX_POWER_SETTLE_S = 120;
 export const MAX_ON_OFF_SETTLE_S = 600;
 
+/** Mirror models.py DEFAULT_POWER_SETTLE_S and DEFAULT_ON_OFF_SETTLE_S;
+ * a test checks they match. A stored null reads as the source's
+ * default, here and in the backend. An on/off source waits longer: at
+ * the end of its settle time it wins if it still disagrees, so the
+ * time must outlast its lag. */
+export const DEFAULT_POWER_SETTLE_S = 20;
+export const DEFAULT_ON_OFF_SETTLE_S = 180;
+
 /** What the settle field is set to when a device tracker is picked: a
  * presence or network tracker typically takes minutes to notice a
  * device switched off. The field stays editable. */
@@ -60,17 +68,34 @@ export function settleCapFor(sensorId: string | null | undefined): number {
     return isOnOffEntity(sensorId) ? MAX_ON_OFF_SETTLE_S : MAX_POWER_SETTLE_S;
 }
 
+/** The settle time a source gets while nothing is stored. */
+export function settleDefaultFor(sensorId: string | null | undefined): number {
+    return isOnOffEntity(sensorId)
+        ? DEFAULT_ON_OFF_SETTLE_S
+        : DEFAULT_POWER_SETTLE_S;
+}
+
 /**
- * The settle field after a new source is picked, from what it holds.
- * A device tracker presets TRACKER_SETTLE_PRESET_S. Any other source
- * keeps the field, brought down to that source's cap if it is over it,
- * so the field never shows a value the save would not send.
+ * The settle field after a new source is picked, from what it holds and
+ * the source picked before. A device tracker presets
+ * TRACKER_SETTLE_PRESET_S. A field that still holds the previous
+ * source's default takes the new source's default; an empty one stays
+ * empty, which saves as the default anyway. Anything else is kept,
+ * brought down to the new source's cap if it is over it, so the field
+ * never shows a value the save would not send.
  */
-export function settleOnPick(sensorId: string, current: string): string {
+export function settleOnPick(
+    sensorId: string,
+    current: string,
+    previous: string | null = null,
+): string {
     if (sensorId.startsWith("device_tracker.")) {
         return String(TRACKER_SETTLE_PRESET_S);
     }
     const value = parseFloat(current);
+    if (value === settleDefaultFor(previous)) {
+        return String(settleDefaultFor(sensorId));
+    }
     const cap = settleCapFor(sensorId);
     if (!Number.isNaN(value) && value > cap) return String(cap);
     return current;

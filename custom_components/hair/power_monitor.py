@@ -50,7 +50,24 @@ dispatching it would bring the flicker back at the end of the window.
 The window is closed either way, so the plug's next real report is
 dispatched as usual: a device that never got the IR is corrected at the
 end of the window when the plug has reported since the send, and at its
-next report otherwise. The latest send wins; a window is
+next report otherwise.
+
+An on/off source is the exception to that last rule: at the end of its
+window its current state wins, whenever it was reported. A helper or a
+template binary sensor writes its state only when it changes, so its
+reading at the end is nearly always from before the send, and it never
+reports again on its own: under the plug's rule a send the device
+never received would stand until somebody flipped the source. A
+watt plug reports on its own interval, which is why it keeps the rule.
+A source that comes round to the send ends the window early, and one
+that agreed all along changes nothing when it wins, so what matters at
+the end is a disagreement, or after a toggle, which promises nothing,
+whatever the source says. The cost is a source slower than its window:
+its stale state wins at the end and its late change puts it right
+again, so an on/off source defaults to a longer window
+(``models.default_power_settle_s``).
+
+The latest send wins; a window is
 never persisted, so after a restart there is none and the seed behaves
 as it always has. ``power_settle_s = 0`` is no window at all, which is
 the old behaviour exactly. ``docs/internal/plans/power-bands.md``
@@ -576,14 +593,17 @@ class PowerMonitor:
         sensor_id = owner.power_sensor_entity_id
         if not sensor_id:
             return
-        # The seed, with one difference: a reading the plug reported
-        # before the send is not evidence about it. On a plug slower
-        # than the settle time that reading is the pre-send draw, and
-        # dispatching it would flicker the entity here instead of at the
-        # plug's next report. Hold it; the window is closed, so that
-        # next report is dispatched as usual.
+        # The seed, with one difference for a power sensor: a reading
+        # the plug reported before the send is not evidence about it.
+        # On a plug slower than the settle time that reading is the
+        # pre-send draw, and dispatching it would flicker the entity
+        # here instead of at the plug's next report. Hold it; the
+        # window is closed, so that next report is dispatched as usual.
+        # An on/off source may never report again, so its state wins
+        # whenever it was reported (the module docstring).
         state = self._hass.states.get(sensor_id)
-        reported = getattr(state, "last_reported", None)
-        if reported is None or reported < window.sent_wall:
-            return
+        if not is_on_off_entity(sensor_id):
+            reported = getattr(state, "last_reported", None)
+            if reported is None or reported < window.sent_wall:
+                return
         self._evaluate(key, state)
