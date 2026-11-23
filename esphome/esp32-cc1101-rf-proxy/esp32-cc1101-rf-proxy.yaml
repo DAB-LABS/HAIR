@@ -1,0 +1,240 @@
+# ============================================================================
+# HAIR ESPHome Config
+# ----------------------------------------------------------------------------
+# Device:            ESP32 DevKit (ESP32-WROOM-32) + CC1101 module
+#                    (tested with an Ebyte E07-M1101D, 433 MHz matched)
+# Hardware revision: any ESP32-WROOM-32 DevKit
+# Variant:           minimal
+# Contributor:       DAB-LABS
+# Source:            in-house
+# License:           Apache 2.0
+# Tested against:
+#   HAIR:            1.3.1
+#   HA Core:         2026.11.1
+#   ESPHome:         2026.11.0
+# Last verified:     2026-11-22
+# Purpose:           RX+TX (radio, sub-GHz, ASK/OOK)
+# Hardware purchase: DIY
+# GPIO map:
+#   GPIO18           SPI SCK  -> CC1101 SCK
+#   GPIO23           SPI MOSI -> CC1101 MOSI
+#   GPIO19           SPI MISO -> CC1101 MISO/GDO1
+#   GPIO27           CC1101 CSN
+#   GPIO26           CC1101 GDO0 (transmit)
+#   GPIO25           CC1101 GDO2 (receive)
+#   3V3 / GND        CC1101 VCC / GND (3.3 V only)
+# Notes:
+#   - Other ESP32 boards work too, but need their own pin numbers below.
+#   - The CC1101 tunes 300-348, 387-464 and 779-928 MHz. The Listen
+#     frequency refuses anything in the gaps.
+#   - Transmit is fixed to one frequency (tx_frequency). Set it to a band
+#     that's legal where you live. Receive tunes anywhere the chip can.
+#   - The antenna and the module's matching decide how well each band works.
+#     A 433 MHz module hears 315 and 303.875 too, just less well.
+#   - Home Assistant shows the RF Transmitter from 2026.11 and the RF Receiver
+#     from 2026.12.
+# ============================================================================
+
+substitutions:
+  name: esp32-cc1101
+  friendly_name: ESP32 CC1101
+  # Pins, for an ESP32-WROOM-32 DevKit. Change these for other boards.
+  spi_clk_pin: GPIO18
+  spi_mosi_pin: GPIO23
+  spi_miso_pin: GPIO19
+  cc1101_cs_pin: GPIO27
+  cc1101_gdo0_pin: GPIO26   # transmit
+  cc1101_gdo2_pin: GPIO25   # receive
+  # The one frequency this device sends on.
+  tx_frequency: 433.92MHz
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.11.0
+  # Tell Home Assistant the receiver can tune 300 to 928 MHz. The YAML
+  # option `frequency:` only takes one value, so the range is set here,
+  # after the entities exist and before Home Assistant connects.
+  on_boot:
+    priority: 600
+    then:
+      - lambda: |-
+          id(rf_rx_entity).get_traits().set_frequency_min_hz(300000000);
+          id(rf_rx_entity).get_traits().set_frequency_max_hz(928000000);
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+  # No serial logging. On a noisy frequency, printing to the UART can slow
+  # the device down enough to drop off Wi-Fi. Wireless logs still work.
+  baud_rate: 0
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    encryption:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+sensor:
+  - platform: wifi_signal
+    name: WiFi signal
+    update_interval: 60s
+  - platform: uptime
+    name: Uptime
+    update_interval: 60s
+
+spi:
+  clk_pin: ${spi_clk_pin}
+  miso_pin: ${spi_miso_pin}
+  mosi_pin: ${spi_mosi_pin}
+
+cc1101:
+  id: rf_radio
+  cs_pin: ${cc1101_cs_pin}
+  frequency: 433.92MHz
+  modulation_type: ASK/OOK
+  # dBm. 0 is what this config was tested with.
+  output_power: 0
+
+remote_transmitter:
+  id: rf_tx
+  pin: ${cc1101_gdo0_pin}
+  rmt_symbols: 128
+  carrier_duty_percent: 100%
+  non_blocking: true
+  on_transmit:
+    then:
+      - cc1101.set_frequency:
+          id: rf_radio
+          value: ${tx_frequency}
+      - cc1101.begin_tx: rf_radio
+  on_complete:
+    then:
+      # Back to wherever it was listening.
+      - cc1101.set_frequency:
+          id: rf_radio
+          value: !lambda "return id(listen_frequency).state * 1000000.0f;"
+      - cc1101.begin_rx: rf_radio
+
+remote_receiver:
+  id: rf_rx
+  pin: ${cc1101_gdo2_pin}
+  filter: 100us
+  # The same receiver timing as every HAIR ESP32 config: 2.5 us ticks, and
+  # 80 ms of silence ends a capture, so a remote that repeats its code with
+  # short gaps arrives as one whole press. See docs/receiver-timing.md.
+  clock_resolution: 400000
+  idle: 80ms
+  # Room for long presses. ESPHome's default of 192 symbols cuts a capture
+  # at 384 timings. The original ESP32's RMT memory is 512 symbols,
+  # shared by this receiver and the transmitter: 384 + 128.
+  receive_symbols: 384
+  rmt_symbols: 384
+  # Drop captures of 10 pulse pairs or fewer before anything sees them.
+  # Most radio noise is shorter than that, and real remotes we've seen are
+  # longer (the shortest so far is 13).
+  filter_symbols: 10
+  # Prints each capture to the log, only while "Debug capture log" is on.
+  on_raw:
+    then:
+      - lambda: |-
+          if (!id(debug_dump).state) return;
+          std::string s;
+          bool first = true;
+          const size_t n = x.size();
+          for (size_t i = 0; i < n; i++) {
+            char b[16];
+            snprintf(b, sizeof(b), (i + 1 < n) ? "%d, " : "%d", (int) x[i]);
+            s += b;
+            if (s.size() > 200 || i + 1 == n) {
+              if (first) {
+                ESP_LOGI("remote.raw", "Received Raw: %s", s.c_str());
+              } else {
+                ESP_LOGI("remote.raw", "  %s", s.c_str());
+              }
+              first = false;
+              s.clear();
+            }
+          }
+
+switch:
+  - platform: template
+    id: debug_dump
+    name: Debug capture log
+    icon: mdi:text-box-search-outline
+    entity_category: diagnostic
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+
+select:
+  # How much to turn the receiver down. 0dB hears everything it can; higher
+  # values only hear things that are close. Back to 0dB after every restart.
+  - platform: template
+    id: rx_attenuation_select
+    name: RX attenuation
+    icon: mdi:signal-distance-variant
+    entity_category: config
+    options:
+      - "0dB"
+      - "6dB"
+      - "12dB"
+      - "18dB"
+    initial_option: "0dB"
+    optimistic: true
+    set_action:
+      - lambda: |-
+          auto v = esphome::cc1101::RxAttenuation::RX_ATTENUATION_0DB;
+          if (x == "6dB") v = esphome::cc1101::RxAttenuation::RX_ATTENUATION_6DB;
+          if (x == "12dB") v = esphome::cc1101::RxAttenuation::RX_ATTENUATION_12DB;
+          if (x == "18dB") v = esphome::cc1101::RxAttenuation::RX_ATTENUATION_18DB;
+          id(rf_radio).set_rx_attenuation(v);
+
+number:
+  # Where the receiver listens, in MHz. Starts at 433.92 after every restart.
+  - platform: template
+    id: listen_frequency
+    name: Listen frequency
+    unit_of_measurement: MHz
+    mode: box
+    min_value: 300
+    max_value: 928
+    step: 0.005
+    initial_value: 433.92
+    optimistic: false
+    set_action:
+      - lambda: |-
+          const bool gap = (x > 348.0f && x < 387.0f) || (x > 464.0f && x < 779.0f);
+          if (gap) {
+            ESP_LOGW("listen", "Refused %.3f MHz: the CC1101 can't tune 348-387 or 464-779 MHz", x);
+            id(listen_frequency).publish_state(id(listen_frequency).state);
+            return;
+          }
+          id(rf_radio).set_frequency(x * 1000000.0f);
+          id(rf_radio).begin_rx();
+          id(listen_frequency).publish_state(x);
+
+button:
+  - platform: restart
+    name: Restart
+
+radio_frequency:
+  - platform: ir_rf_proxy
+    id: rf_tx_entity
+    name: RF Transmitter
+    remote_transmitter_id: rf_tx
+    frequency: ${tx_frequency}
+  - platform: ir_rf_proxy
+    id: rf_rx_entity
+    name: RF Receiver
+    frequency: 433.92MHz
+    remote_receiver_id: rf_rx

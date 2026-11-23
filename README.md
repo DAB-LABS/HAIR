@@ -362,7 +362,7 @@ infrared:
 
 Reflash, and the Devices tab shows the emitter with a `TX-NATIVE` badge and the receiver with `RX-NATIVE`.
 
-For ready-made configs for common ESP32 boards (XIAO Smart IR Mate, Athom RF IR Remote, M5Stack IR Unit, generic ESP32s), see [`esphome/`](esphome/) in this repo. Not sure what to buy? [Recommended IR hardware](docs/recommended-hardware.md) compares them, with prices and where to buy.
+For ready-made configs for common ESP32 boards (XIAO Smart IR Mate, Athom RF IR Remote, M5Stack IR Unit, generic ESP32s, and an ESP32 + CC1101 radio receiver that tunes from 300 to 928 MHz), see [`esphome/`](esphome/) in this repo. Not sure what to buy? [Recommended IR hardware](docs/recommended-hardware.md) compares them, with prices and where to buy.
 
 <details>
 <summary><b>Starting from scratch? The complete minimal YAML (TX + RX + registration)</b></summary>

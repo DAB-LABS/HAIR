@@ -18,7 +18,7 @@ remote_receiver:
   rmt_symbols: 384          # original ESP32 only; leave this line out on any other chip
 ```
 
-A few cases are different. If your board is an original ESP32 that also has an RF receiver and transmitter, like the Athom RF IR Remote, use 320 instead of 384 for both buffer lines, so the RF side keeps enough room to work (the [Athom full config](../esphome/athom-rf-ir-remote/) shows how). An ESP32-S2 cannot hold the longest presses at all; the receive buffer section below explains why. And if you want to change any of these numbers, read the rest of this page first: most other values look fine when you check the config, then misbehave on the device.
+A few cases are different. If your board is an original ESP32 that also has an RF receiver and transmitter, like the Athom RF IR Remote, use 320 instead of 384 for both buffer lines, so the RF side keeps enough room to work (the [Athom full config](../esphome/athom-rf-ir-remote/) shows how). The [ESP32 + CC1101 radio proxy](../esphome/esp32-cc1101-rf-proxy/) uses the same timing for its radio receiver, so a remote that repeats its code with short gaps arrives as one whole press, with `receive_symbols: 384` and `rmt_symbols: 384` for the receiver and `rmt_symbols: 128` for its transmitter. An ESP32-S2 cannot hold the longest presses at all; the receive buffer section below explains why. And if you want to change any of these numbers, read the rest of this page first: most other values look fine when you check the config, then misbehave on the device.
 
 ## From my barber 💈
 
