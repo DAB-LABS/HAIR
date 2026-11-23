@@ -172,6 +172,11 @@ actions in a Device's or Remote's settings that build the matching other half:
 a Device can build the Remote for its own handset, and a Remote the Device its
 handset controls. HAIR then offers to pin the two together.
 
+**Grouped signal.** A command on a Device that sends other commands, from any
+device, in order, with a delay before each one. Added with **+ Grouped
+Signals** on the Device's page; it gets a button and an action like any other
+command.
+
 **Duplicate.** Copy a Device, commands and emitter assignments included, so you
 only have to rename the clone.
 
@@ -353,6 +358,11 @@ ever runs away, HAIR cuts that one pairing for a minute and writes a warning
 naming the Remote, the Device, and the command; the handset's triggers keep
 firing throughout.
 
+**Track only.** A pin's third choice, in the Device's settings beside **Send
+every press** and **Send every press except Power**. HAIR sends nothing and
+only moves the Device's state to match each press, for a device that hears the
+handset itself.
+
 **Echo.** Home Assistant hearing its own transmissions. If your house has both
 a blaster and a transceiver, your receivers hear what your emitters send. HAIR
 identifies these, routes them to the Mirror, and never lets them fire
@@ -374,8 +384,11 @@ above the higher one; an on/off entity counts as on when it is on or home and
 off when it is off or not_home. A reading that says on or off overrides what
 HAIR assumed from the last command sent, so a device switched off with its
 original remote stops claiming to be on. After each HAIR send the sensor waits out a settle time
-(20 seconds by default, 0 for none) before it can overrule the command, so
-a plug that has not reported the new draw yet cannot flip the device back.
+(20 seconds by default, 180 for a new on/off entity, 0 for none) before it can
+overrule the command, so a plug that has not reported the new draw yet cannot
+flip the device back. An on/off entity that still disagrees when the settle
+time ends wins. A typed Remote that is a media player, fan, light or switch can
+have its own power sensor, set in the Remote's settings.
 
 **Room sensors.** On a state-matrix climate Device, a temperature sensor, a
 humidity sensor, or both, shown live under the thermostat card. Display only.
