@@ -167,6 +167,12 @@ class HAIRLightEntity(RestoreEntity, LightEntity):
         """
         if device_id != self._device.id:
             return
+        self._apply_power_verdict(verdict)
+
+    @callback
+    def _apply_power_verdict(self, verdict: PowerVerdict) -> None:
+        """The verdict's effect, shared by a Device's entity and a
+        typed Remote's (``remote_state.RemoteStateMixin``)."""
         self._is_on = verdict == "on"
         self.async_write_ha_state()
 

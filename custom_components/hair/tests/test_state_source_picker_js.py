@@ -378,7 +378,8 @@ class TestPlacement:
 
 
 def _dialog() -> str:
-    return (SRC / "ir-device-settings-dialog.ts").read_text(encoding="utf-8")
+    """The Power section every settings dialog shares."""
+    return (SRC / "ir-power-source-section.ts").read_text(encoding="utf-8")
 
 
 def _method(name: str) -> str:

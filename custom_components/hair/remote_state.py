@@ -20,8 +20,9 @@ the restore; the mixin swaps in three things only:
 - what it listens to: ``SIGNAL_REMOTE_PRESSED``, sent by the trigger
   manager on every confirmed fire of one of the Remote's buttons
   (after min_hits and the receiver dedup, never for an echo, which the
-  signal monitor claims first), instead of the power verdict and the
-  Device's sends.
+  signal monitor claims first), instead of the Device's sends; and
+  ``SIGNAL_REMOTE_POWER_VERDICT`` instead of the Device's power
+  verdict, when the Remote has a state source of its own.
 
 A leaf apart from the model and helper imports: the platforms import
 this module, never the other way round. Entities are made through the
@@ -35,7 +36,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
 
 from .command_templates import get_action_options
 from .const import DOMAIN, DeviceType
@@ -52,6 +56,18 @@ _LOGGER = logging.getLogger(__name__)
 #: Sent with a ``RemotePressed`` on every confirmed fire of a trigger
 #: that belongs to a named Remote.
 SIGNAL_REMOTE_PRESSED = "hair_remote_pressed"
+
+#: A typed Remote's state source has a verdict: sent as
+#: ``(remote_id, verdict)`` by the power monitor, the Remote twin of
+#: ``power_monitor.SIGNAL_POWER_VERDICT``. Its own signal, so a Device's
+#: entity never has to tell a Remote's id from a Device's.
+SIGNAL_REMOTE_POWER_VERDICT = "hair_remote_power_verdict"
+
+#: A Remote's state entity has just started listening: sent as
+#: ``(remote_id,)`` so the power monitor evaluates the current reading
+#: for it. An entity made after the monitor subscribed (the type set on
+#: a Remote that already has a source) would otherwise miss the seed.
+SIGNAL_REMOTE_POWER_RESEED = "hair_remote_power_reseed"
 
 
 @dataclass(frozen=True)
@@ -94,6 +110,16 @@ REMOTE_TRACKED_KEYS: dict[str, frozenset[str]] = {
     DeviceType.SCREEN: frozenset({"open_cover", "close_cover", "stop_cover"}),
 }
 
+#: The Remote types a state source can correct: a Device's power types
+#: less AC, whose state matrix is its state. A screen has no power
+#: state, as a screen Device has none.
+REMOTE_POWER_TYPES: tuple[str, ...] = (
+    DeviceType.MEDIA_PLAYER,
+    DeviceType.FAN,
+    DeviceType.LIGHT,
+    DeviceType.SWITCH,
+)
+
 #: Every platform a Remote's state entity can live on.
 REMOTE_PLATFORMS: tuple[str, ...] = tuple(
     sorted({DEVICE_TYPE_TO_PLATFORM[t] for t in REMOTE_TYPES})
@@ -109,6 +135,13 @@ def remote_platform(remote: TriggerRemote) -> str | None:
     if remote.climate_matrix or remote.device_type not in REMOTE_TYPES:
         return None
     return DEVICE_TYPE_TO_PLATFORM[remote.device_type]
+
+
+def remote_power_eligible(remote: TriggerRemote) -> bool:
+    """Whether this Remote's state source is read: a typed Remote of a
+    type that has power. An untyped, AC or screen Remote keeps whatever
+    source it stores, unread, until its type can use it again."""
+    return remote_platform(remote) is not None and remote.device_type in REMOTE_POWER_TYPES
 
 
 def tracked_mapping(
@@ -412,6 +445,7 @@ class RemoteStateMixin:
         self._attr_name = None
         self._init_state()  # type: ignore[attr-defined]
         self._remote_pressed_unsub: CALLBACK_TYPE | None = None
+        self._remote_power_unsub: CALLBACK_TYPE | None = None
 
     @property
     def remote_id(self) -> str:
@@ -432,11 +466,34 @@ class RemoteStateMixin:
             SIGNAL_REMOTE_PRESSED,
             self._handle_remote_pressed,
         )
+        if hasattr(self, "_apply_power_verdict"):
+            # Every platform but the screen's can show power.
+            self._remote_power_unsub = async_dispatcher_connect(
+                self.hass,  # type: ignore[attr-defined]
+                SIGNAL_REMOTE_POWER_VERDICT,
+                self._handle_remote_power_verdict,
+            )
+            async_dispatcher_send(
+                self.hass,  # type: ignore[attr-defined]
+                SIGNAL_REMOTE_POWER_RESEED,
+                self._remote.id,
+            )
 
     async def async_will_remove_from_hass(self) -> None:
         if self._remote_pressed_unsub is not None:
             self._remote_pressed_unsub()
             self._remote_pressed_unsub = None
+        if self._remote_power_unsub is not None:
+            self._remote_power_unsub()
+            self._remote_power_unsub = None
+
+    @callback
+    def _handle_remote_power_verdict(self, remote_id: str, verdict: str) -> None:
+        """Apply this Remote's state source's verdict with the Device's
+        rules (each platform's ``_apply_power_verdict``)."""
+        if remote_id != self._remote.id:
+            return
+        self._apply_power_verdict(verdict)  # type: ignore[attr-defined]
 
     @callback
     def _handle_remote_pressed(self, pressed: RemotePressed) -> None:

@@ -17,27 +17,34 @@
  * colour. A new section adds a card and its summary, and no colour of
  * its own.
  *
- * The host sets the "dark" attribute from hass.themes.darkMode, as
- * the Devices list does, and lays its cards out in this order: where
- * the state comes from (Power, Climate sensors), how the device is
- * driven (Speed cycle), other remotes (Pinned remotes), then actions.
+ * The dialog sets the "dark" attribute from hass.themes.darkMode, as
+ * the Devices list does, includes sectionAccentHost, and lays its cards
+ * out in this order: where the state comes from (Power, Climate
+ * sensors), how the device is driven (Speed cycle), other remotes
+ * (Pinned remotes), then actions. An element inside a card (the Power
+ * section's fields, ir-power-source-section.ts) includes
+ * settingsSectionStyles only and inherits the accent.
  */
 import { css, unsafeCSS } from "lit";
 import { SECTION_ACCENT_DARK, SECTION_ACCENT_LIGHT } from "./hair-colors.js";
+import { ONLINE_VAR } from "./ir-header-chip-styles.js";
 
 /** The one chevron, drawn as a mask so it takes a CSS colour. */
 const CHEVRON = unsafeCSS(
     "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
 );
 
-export const settingsSectionStyles = css`
+/** The accent, on the dialog only: an element inside it inherits it. */
+export const sectionAccentHost = css`
     :host {
         --section-accent: ${unsafeCSS(SECTION_ACCENT_LIGHT)};
     }
     :host([dark]) {
         --section-accent: ${unsafeCSS(SECTION_ACCENT_DARK)};
     }
+`;
 
+export const settingsSectionStyles = css`
     /* The cards. */
     .card {
         --section-wash: color-mix(
@@ -163,5 +170,82 @@ export const settingsSectionStyles = css`
         white-space: nowrap;
         border-color: var(--section-accent);
         color: var(--section-accent);
+    }
+
+    /* The field anatomy every section shares. */
+    .check-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0 12px;
+        font-size: 14px;
+        color: var(--primary-text-color);
+        cursor: pointer;
+    }
+    .pair-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        column-gap: 10px;
+    }
+    /* Indented 8px, so an explainer's text lines up with the text in
+     * the picker or select above or below it (dialogStyles pads those
+     * by 8px). */
+    .section-explainer {
+        margin: 0 0 12px;
+        padding-left: 8px;
+        font-size: 0.8rem;
+        color: var(--secondary-text-color);
+    }
+    /* An explainer under a field stands a little off its box. */
+    .field > .section-explainer {
+        margin-top: 6px;
+    }
+    /* dialogStyles styles input[type="text"] and select only; number
+     * inputs need the same anatomy. */
+    input[type="number"] {
+        width: 100%;
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid var(--divider-color);
+        background: var(--card-background-color);
+        color: var(--primary-text-color);
+        font-size: 0.95rem;
+        font-family: inherit;
+        box-sizing: border-box;
+    }
+    input[type="number"]:focus {
+        outline: none;
+        border-color: var(--primary-color);
+    }
+    .settings-section select option {
+        color: var(--primary-text-color);
+        background: var(--card-background-color);
+    }
+    .live-readout {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0 0;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: var(--section-wash, var(--secondary-background-color));
+        font-size: 0.85rem;
+        color: var(--primary-text-color);
+    }
+    .readout-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex: 0 0 auto;
+    }
+    /* Green whenever the readout has a live number, whatever it says:
+     * a reading in the hysteresis band is as live as one past a
+     * threshold. */
+    .readout-live {
+        background: ${ONLINE_VAR};
+    }
+    .readout-unknown {
+        background: var(--disabled-text-color);
+        opacity: 0.5;
     }
 `;

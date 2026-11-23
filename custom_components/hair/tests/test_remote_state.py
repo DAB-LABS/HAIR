@@ -55,6 +55,8 @@ from custom_components.hair.models import (
 )
 from custom_components.hair.remote_state import (
     REMOTE_PLATFORMS,
+    SIGNAL_REMOTE_POWER_RESEED,
+    SIGNAL_REMOTE_POWER_VERDICT,
     SIGNAL_REMOTE_PRESSED,
     RemotePressed,
     register_remote_platform,
@@ -128,12 +130,25 @@ class _Live:
     async def add(self, last_state=None):
         self.entity.async_get_last_state = AsyncMock(return_value=last_state)
 
+        self.power_handler = None
+        self.reseeds: list[str] = []
+
         def _connect(hass, signal, fn):
+            if signal == SIGNAL_REMOTE_POWER_VERDICT:
+                self.power_handler = fn
+                return MagicMock()
             assert signal == SIGNAL_REMOTE_PRESSED
             self.handler = fn
             return MagicMock()
 
-        with patch.object(remote_state, "async_dispatcher_connect", side_effect=_connect):
+        def _send(hass, signal, *args):
+            assert signal == SIGNAL_REMOTE_POWER_RESEED
+            self.reseeds.append(args[0])
+
+        with (
+            patch.object(remote_state, "async_dispatcher_connect", side_effect=_connect),
+            patch.object(remote_state, "async_dispatcher_send", side_effect=_send),
+        ):
             await self.entity.async_added_to_hass()
         return self
 

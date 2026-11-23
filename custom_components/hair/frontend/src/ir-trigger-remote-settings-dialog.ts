@@ -1,57 +1,63 @@
 /**
- * Remote settings dialog (Add Popups signpost 3, Track 1 item 6, s10
- * "Settings + header pin management").
+ * Remote settings dialog: the Remote-detail sibling of
+ * ir-device-settings-dialog.ts, opened from the gear in the Remote
+ * detail header (ir-device-list.ts). A separate, smaller component
+ * rather than a "kind" prop on the Device dialog. The Remote's name and
+ * receivers live in its header, not here.
  *
- * The Remote-detail sibling of ir-device-settings-dialog.ts, opened
- * from the new universal gear button in ir-device-list.ts's inline
- * Remote detail header (.trh-header). A separate, smaller component
- * rather than a generalized "kind" prop bolted onto the Device
- * dialog: a Remote has no power/climate sections (those are strictly
- * Device-only, gated by settingsSections()) and, per s10, no Save
- * button either -- there is nothing left for a Remote to save through
- * Settings once name (the header's own inline rename) and receiver
- * scope (the header's Receivers: chip group, Track 1 item 5) both
- * already live outside this dialog. s10's own frame still draws a
- * Save button on the Remote settings popup, but nothing in that frame
- * is actually editable through it -- shipping a Save button with
- * nothing behind it would be exactly the "control that visibly does
- * nothing" this arc's PINNING_UI_ENABLED gate exists to avoid
- * elsewhere (ir-pin-flag.ts), so it's omitted here rather than copied
- * for pixel parity with the mockup. Flag at the bench checkpoint if
- * the owner wants it back for visual symmetry with the Device dialog.
+ * Its sections are cards (settings-section-styles.ts), as the Device
+ * dialog's are:
+ *   - Power, for a typed Remote whose type has power (a media player,
+ *     fan, light or switch): the Device's own fields
+ *     (ir-power-source-section.ts), so a state source corrects the
+ *     Remote's entity as it corrects a Device's. It is never copied to
+ *     or from a Device; each is set on its own.
+ *   - Make a Device, a card with its button: this dialog only asks for
+ *     the mint (request-make-device) and ir-device-list.ts's
+ *     <ir-promote-dialog> makes it.
  *
- * Holds, per s10:
- *   - the "Make a Device" mirror-door row (description + fixed-width
- *     button cell) -- wired since signpost 3 Track 3.5 (owner-directed
- *     2026-08-15) to hair/trigger-remote/make-device via
- *     ir-device-list.ts's <ir-promote-dialog> (sourceRemoteId mode).
- *     The gap flagged at the Track 3.4 checkpoint (Track 2.2 covered
- *     Sniffer/Clipper/Plucker/Closet-wig sources but never a live
- *     Remote's own triggers) is now closed; this dialog only asks for
- *     the mint (_requestMakeDevice) and gets out of the way, same as
- *     Duplicate/Delete below.
- *   - Duplicate (outlined GREEN_PEAK #43a047) and Delete (outlined
- *     ember #e65100) -- both dual-entry with the Remote card's own
- *     existing corner actions (_openDuplicateRemoteDialog /
- *     _requestDeleteRemote in ir-device-list.ts). This dialog
- *     implements neither itself; it dispatches request-duplicate /
- *     request-delete (composed, bubbling straight up since this
- *     component -- unlike ir-device-settings-dialog.ts -- is
- *     instantiated directly in ir-device-list.ts's own template, no
- *     intermediate host to pass through) and lets ir-device-list.ts's
- *     already-tested dialogs and confirm flow do the actual work --
- *     the same "one flow, two doors" pattern s10's callout calls for.
- *   - Close, quiet/grey, same anatomy as the Device dialog.
+ * The footer is the Device dialog's: Delete on the left; Duplicate and,
+ * with the Power card only, Save on the right. A Remote with nothing to
+ * save here gets no Save. Delete and Duplicate dispatch request-delete
+ * and request-duplicate, so the Remote card's own flows do the work.
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property } from "./decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import type { HairApi } from "./api.js";
 import type { TriggerRemoteInfo } from "./types.js";
+import {
+    sectionAccentHost,
+    settingsSectionStyles,
+} from "./settings-section-styles.js";
+import type { IrPowerSourceSection } from "./ir-power-source-section.js";
+import "./ir-power-source-section.js";
 
 @customElement("ir-trigger-remote-settings-dialog")
 export class IrTriggerRemoteSettingsDialog extends LitElement {
+    @property({ attribute: false }) public api?: HairApi;
+    @property({ attribute: false }) public hass: any;
     @property({ attribute: false }) public remote!: TriggerRemoteInfo;
+
+    @state() private _busy = false;
+    @state() private _error: string | null = null;
+    /** The Power card starts open; it is the only card that opens. */
+    @state() private _powerOpen = true;
+
+    updated(): void {
+        this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));
+    }
+
+    /** A typed Remote whose type has power gets the Power card, and Save
+     * with it. */
+    private get _hasPower(): boolean {
+        return this.remote.power_eligible === true;
+    }
+
+    private get _power(): IrPowerSourceSection | null {
+        return this.renderRoot?.querySelector("ir-power-source-section") ?? null;
+    }
 
     private _close(): void {
         this.dispatchEvent(
@@ -73,11 +79,10 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
         this._close();
     }
 
-    /** "Make a Device" mirror-door mint (signpost 3, Track 3.5,
-     *  owner-directed 2026-08-15). Same ask-and-get-out-of-the-way
-     *  shape as _requestDuplicate/_requestDelete above -- this dialog
-     *  does not mint anything itself, ir-device-list.ts's
-     *  <ir-promote-dialog> (sourceRemoteId mode) does. */
+    /** "Make a Device": this dialog does not mint anything itself,
+     *  ir-device-list.ts's <ir-promote-dialog> (sourceRemoteId mode)
+     *  does, the same ask-and-get-out-of-the-way shape as Duplicate and
+     *  Delete. */
     private _requestMakeDevice(): void {
         this.dispatchEvent(
             new CustomEvent("request-make-device", { bubbles: true, composed: true }),
@@ -85,7 +90,36 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
         this._close();
     }
 
+    private async _save(): Promise<void> {
+        const power = this._power;
+        if (this._busy || !this.api || !power) return;
+        const validation = power.validationError;
+        if (validation) {
+            this._error = validation;
+            this._powerOpen = true;
+            return;
+        }
+        this._busy = true;
+        this._error = null;
+        try {
+            await this.api.setTriggerRemotePower(this.remote.id, power.patch());
+            this.dispatchEvent(
+                new CustomEvent("remote-power-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+            this._close();
+        } catch (err) {
+            this._error = (err as Error).message;
+        } finally {
+            this._busy = false;
+        }
+    }
+
     render() {
+        const power = this._power;
+        const problem = power?.validationError ?? null;
         return html`
             <ha-dialog
                 open
@@ -93,30 +127,71 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                <section class="settings-section section-convert">
-                    <div class="convert-row">
-                        <div class="convert-text">
-                            <h3 class="section-label convert-label">
+                <div ?hidden=${!this._error}>
+                    <ha-alert alert-type="error">${this._error}</ha-alert>
+                </div>
+                <div
+                    class="card card-power ${this._powerOpen ? "open" : ""}"
+                    ?hidden=${!this._hasPower}
+                >
+                    <h3 class="card-heading">
+                        <button
+                            type="button"
+                            class="card-head"
+                            aria-expanded=${this._powerOpen ? "true" : "false"}
+                            aria-controls="card-body-power"
+                            @click=${() => (this._powerOpen = !this._powerOpen)}
+                        >
+                            <span class="card-text">
+                                <span class="card-title"
+                                    >${t("devsettings.power_title")}</span
+                                >
+                                <span class="card-sum"
+                                    >${problem ?? power?.summary ?? ""}</span
+                                >
+                            </span>
+                            <span class="card-fold" aria-hidden="true"></span>
+                        </button>
+                    </h3>
+                    <div
+                        class="card-body"
+                        id="card-body-power"
+                        ?hidden=${!this._powerOpen}
+                    >
+                        ${this._hasPower
+                            ? html`<ir-power-source-section
+                                  .hass=${this.hass}
+                                  .source=${this.remote}
+                                  .busy=${this._busy}
+                                  forRemote
+                                  @power-source-change=${() => this.requestUpdate()}
+                              ></ir-power-source-section>`
+                            : ""}
+                    </div>
+                </div>
+                <div class="card card-action section-convert">
+                    <div class="card-row">
+                        <div class="card-text">
+                            <h3 class="card-heading card-title">
                                 ${t("devsettings.make_device_title")}
                             </h3>
-                            <p class="section-explainer convert-desc">
+                            <span class="card-sum">
                                 ${t("devsettings.make_device_desc")}
-                            </p>
+                            </span>
                         </div>
-                        <div class="convert-btn-cell">
-                            <button
-                                class="action-btn convert-btn"
-                                @click=${this._requestMakeDevice}
-                            >
-                                ${t("devsettings.make_device_btn")}
-                            </button>
-                        </div>
+                        <button
+                            class="action-btn convert-btn card-action-btn"
+                            @click=${this._requestMakeDevice}
+                        >
+                            ${t("devsettings.make_device_btn")}
+                        </button>
                     </div>
-                </section>
+                </div>
                 <div class="dialog-actions">
                     <button
                         class="action-btn delete-btn"
                         @click=${this._requestDelete}
+                        ?disabled=${this._busy}
                     >
                         ${t("devsettings.delete")}
                     </button>
@@ -124,9 +199,19 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
                     <button
                         class="action-btn duplicate-btn"
                         @click=${this._requestDuplicate}
+                        ?disabled=${this._busy}
                     >
                         ${t("devsettings.duplicate")}
                     </button>
+                    ${this._hasPower
+                        ? html`<button
+                              class="action-btn save-btn"
+                              @click=${this._save}
+                              ?disabled=${this._busy || !!problem}
+                          >
+                              ${this._busy ? t("common.saving") : t("common.save")}
+                          </button>`
+                        : ""}
                 </div>
             </ha-dialog>
         `;
@@ -135,49 +220,14 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
     static styles = [
         dialogStyles,
         css`
-            .settings-section {
-                margin: 16px 0;
+            ha-alert {
+                display: block;
+                margin: 8px 0;
             }
-            .section-label {
-                margin: 0 0 4px;
-                font-size: 0.95rem;
-                font-weight: 500;
-            }
-            .convert-label {
-                color: var(--primary-color);
-            }
-            .section-explainer {
-                margin: 0;
-                padding-left: 8px;
-                font-size: 0.8rem;
-                color: var(--secondary-text-color);
-            }
-            .convert-row {
-                display: flex;
-                align-items: center;
-                gap: 14px;
-            }
-            .convert-text {
-                flex: 1;
-            }
-            .convert-btn-cell {
-                flex: 0 0 116px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            .convert-btn {
-                width: 100%;
-            }
-            /* The same footer as the Device settings dialog (punch
-             * list item 20), so the two popups read as one family:
-             * Delete alone on the left, the constructive side on the
-             * right, the grey Close gone. This dialog has no Save
-             * (see the file header -- a Remote has nothing to save
-             * through here), so the right side is Duplicate by
-             * itself; the shape is the rule, not the button count.
-             * The spacer does the work, so no justify-content
-             * override is needed. */
+            /* The same footer as the Device settings dialog, so the two
+             * read as one family: Delete alone on the left, the
+             * constructive side on the right. Save shows only with the
+             * Power card; the shape is the rule, not the button count. */
             .duplicate-btn {
                 background: none;
                 border-color: #43a047;
@@ -194,7 +244,17 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
             .delete-btn:hover:not(:disabled) {
                 background: rgba(230, 81, 0, 0.14);
             }
+            .save-btn {
+                background: #3f8a4b;
+                color: #fff;
+                border-color: #3f8a4b;
+            }
+            .save-btn:hover:not(:disabled) {
+                opacity: 0.9;
+            }
         `,
+        sectionAccentHost,
+        settingsSectionStyles,
     ];
 }
 

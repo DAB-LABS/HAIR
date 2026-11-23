@@ -182,12 +182,12 @@ class TestTheDotRule:
         editor = _read("ir-signal-editor.ts")
         assert "${this._rxDot(current.entityId, true)}" in editor
         assert "${this._rxDot(c.entityId)}" in editor
-        settings = _read("ir-device-settings-dialog.ts")
+        settings = _read("ir-power-source-section.ts")
         assert "this._renderSourceDot(id, true)" in settings
         assert "this._renderSourceDot(entityId)" in settings
 
     def test_the_readout_dot_is_the_online_green(self):
-        settings = _read("ir-device-settings-dialog.ts")
+        settings = _read("settings-section-styles.ts")
         assert "background: ${ONLINE_VAR};" in _block(settings, ".readout-live")
         assert "#66bb6a" not in settings
 

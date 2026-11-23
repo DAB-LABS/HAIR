@@ -152,8 +152,15 @@ class _Rig:
                 self.unsubs[entity_id] = unsub
             return unsub
 
+        self.other_handlers: dict[str, object] = {}
+
         def _connect(hass, signal, fn):
-            assert signal == SIGNAL_DEVICE_SENT
+            # A Device's window opens on its sends; the monitor also
+            # listens for typed Remotes' presses and re-seeds, which
+            # these Device rigs never send.
+            if signal != SIGNAL_DEVICE_SENT:
+                self.other_handlers[signal] = fn
+                return MagicMock()
             self.sent_handler = fn
             return self.sent_unsub
 

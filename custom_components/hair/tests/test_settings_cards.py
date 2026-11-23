@@ -40,6 +40,7 @@ def _method(text: str, name: str) -> str:
 
 DIALOG = "ir-device-settings-dialog.ts"
 STYLES = "settings-section-styles.ts"
+POWER = "ir-power-source-section.ts"
 
 
 class TestTheCards:
@@ -104,7 +105,9 @@ class TestWhatOpens:
         assert "if (!this._validationError) return null;" in problem
         assert "Number.isNaN(speedStepsForSave(this._speedSteps))" in problem
         validation = _method(text, "private get _validationError()")
-        assert validation.index("speedStepsForSave") < validation.index("this._sensorChoice")
+        assert validation.index("speedStepsForSave") < validation.index(
+            "this._power?.validationError"
+        )
 
     def test_a_problem_card_says_the_problem(self):
         text = _read(DIALOG)
@@ -169,8 +172,13 @@ class TestOneAccent:
 
 
 def _rules(styles: str) -> dict[str, str]:
-    """Each rule's selector and body, comments dropped."""
+    """Each rule's selector and body in the card styles, comments and
+    interpolations dropped."""
+    marker = "export const settingsSectionStyles = css`"
+    if marker in styles:
+        styles = styles.split(marker, 1)[1]
     styles = re.sub(r"/\*.*?\*/", "", styles, flags=re.S)
+    styles = re.sub(r"\$\{[^}]*\}", "", styles)
     return {
         " ".join(sel.split()): body
         for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", styles)
@@ -205,9 +213,10 @@ class TestTheAccentStaysOnTheEdges:
 
 class TestPowerHasOneHeading:
     def test_no_heading_inside_any_section(self):
+        assert "<h3" not in _method(_read(POWER), "private _renderPowerSection()")
         text = _read(DIALOG)
         for name in (
-            "private _renderPowerSection()",
+            "private _renderPowerCard()",
             "private _renderClimateSection()",
             "private _renderSpeedCycleSection()",
             "private _renderRelaySection()",
@@ -215,9 +224,9 @@ class TestPowerHasOneHeading:
             assert "<h3" not in _method(text, name), name
 
     def test_the_tick_comes_before_the_source(self):
-        power = _method(_read(DIALOG), "private _renderPowerSection()")
+        power = _method(_read(DIALOG), "private _renderPowerCard()")
         assert power.index('t("devsettings.power_toggles_label")') < power.index(
-            'id="source-label"'
+            "<ir-power-source-section"
         )
 
     def test_the_old_heading_keys_are_gone(self):
@@ -262,6 +271,6 @@ class TestTheWords:
         assert "devsettings.power_button_label" not in data
 
     def test_the_summaries_use_their_keys(self):
-        text = _read(DIALOG)
+        text = _read(DIALOG) + _read(POWER)
         for key in NEW_KEYS:
             assert f'"{key}"' in text, key
