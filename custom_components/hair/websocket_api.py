@@ -234,6 +234,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
 
     # Trigger Remotes (Add Popups signpost 2, Track 1B-B2/B3)
     websocket_api.async_register_command(hass, ws_list_trigger_remotes)
+    websocket_api.async_register_command(hass, ws_reorder_trigger_remotes)
     websocket_api.async_register_command(hass, ws_create_trigger_remote)
     websocket_api.async_register_command(hass, ws_wig_make_remote)
     websocket_api.async_register_command(hass, ws_device_make_remote)
@@ -4995,6 +4996,37 @@ def _register_trigger_remote_ha_device(
         model="IR Triggers",
     )
     return ha_device.id
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remotes/reorder",
+    vol.Required("remote_ids"): [str],
+})
+@websocket_api.async_response
+async def ws_reorder_trigger_remotes(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Reorder the named Remotes to match the given id list.
+
+    The Remotes section's drag, the twin of ``hair/devices/reorder``. The
+    order is the store's, so every list of Remotes follows it: the
+    section itself and the Remote pickers elsewhere in the panel.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    try:
+        store.reorder_trigger_remotes(list(msg["remote_ids"]))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    await store.async_save()
+    connection.send_result(msg["id"], {"reordered": True})
 
 
 @websocket_api.require_admin

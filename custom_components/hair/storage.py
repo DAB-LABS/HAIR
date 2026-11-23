@@ -1357,6 +1357,40 @@ class HAIRStore:
     def update_trigger_remote(self, remote: TriggerRemote) -> None:
         self._trigger_remotes[remote.id] = remote
 
+    def reorder_trigger_remotes(self, ordered_ids: list[str]) -> None:
+        """Reorder the named Remotes to match ``ordered_ids``.
+
+        The Remotes section of the Devices tab drags its cards into
+        place. The order is the dict's insertion order, which is what
+        ``_serialize`` writes and ``async_load`` reads back, so the dict
+        is rebuilt in the requested sequence (no schema change), as
+        ``reorder_devices`` does. A new Remote is added at the end, beside
+        the "+" tile. The list must be exactly the current set of Remote
+        ids: no duplicates, unknown or missing. The drag UI always sends
+        the complete list, so any divergence is a stale client.
+
+        Raises :class:`ValueError` on mismatch and changes nothing.
+        """
+        if len(ordered_ids) != len(set(ordered_ids)):
+            raise ValueError("Duplicate remote ids in reorder list")
+        current = set(self._trigger_remotes.keys())
+        requested = set(ordered_ids)
+        if requested != current:
+            missing = current - requested
+            unknown = requested - current
+            details: list[str] = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if unknown:
+                details.append(f"unknown {sorted(unknown)}")
+            raise ValueError(
+                "Reorder list does not match current remotes: "
+                + ", ".join(details)
+            )
+        self._trigger_remotes = {
+            remote_id: self._trigger_remotes[remote_id] for remote_id in ordered_ids
+        }
+
     def remove_trigger_remote(self, remote_id: str) -> list[IRTrigger] | None:
         """Delete a named remote AND every trigger it owns.
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Remotes on the Devices tab can be dragged into any order, as Devices can. The HAIR Triggers card stays first, and a new Remote still lands at the end beside the "+" tile. Every list of Remotes elsewhere in the panel follows the same order.
+
 ### Changed
 
 - A radio code that fits two kinds of remote at once gets no family label, is never sent, and isn't filed by remote and button. The Sniffer asks you to press the button again. HAIR used to go by whichever kind it checked first.

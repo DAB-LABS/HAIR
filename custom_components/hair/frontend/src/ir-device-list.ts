@@ -408,6 +408,16 @@ export class IrDeviceList extends LitElement {
     private _devicesSortable: Sortable | null = null;
     private _pendingDevicesSave: number | null = null;
 
+    // Drag-to-reorder for the named Remote cards, the same pattern as the
+    // device cards above. The HAIR Triggers drawer card shares their grid
+    // but is not a Remote: it stays first and never drags.
+    // ``_localRemotes`` holds the optimistic order between a drop and the
+    // parent's refresh of ``triggerRemotes``.
+    @state() private _remotesVersion = 0;
+    @state() private _localRemotes: TriggerRemoteInfo[] | null = null;
+    private _remotesSortable: Sortable | null = null;
+    private _pendingRemotesSave: number | null = null;
+
     /** The trigger-fired subscription, held as the PROMISE rather
      * than as the unsubscribe it resolves to (issue 125).
      *
@@ -441,6 +451,9 @@ export class IrDeviceList extends LitElement {
         this._devicesSortable?.destroy();
         this._devicesSortable = null;
         if (this._pendingDevicesSave !== null) clearTimeout(this._pendingDevicesSave);
+        this._remotesSortable?.destroy();
+        this._remotesSortable = null;
+        if (this._pendingRemotesSave !== null) clearTimeout(this._pendingRemotesSave);
         this._triggerSortable?.destroy();
         this._triggerSortable = null;
         if (this._pendingTriggerReorderSave !== null) {
@@ -456,6 +469,9 @@ export class IrDeviceList extends LitElement {
         // source of truth and drop any optimistic local ordering.
         if (changed.has("devices")) {
             this._localDevices = null;
+        }
+        if (changed.has("triggerRemotes")) {
+            this._localRemotes = null;
         }
     }
 
@@ -494,9 +510,11 @@ export class IrDeviceList extends LitElement {
             void this._loadExpandedDevice();
         }
         this._syncDevicesSortable();
+        this._syncRemotesSortable();
         this._syncTriggerSortable();
         if (changed.has("_mediaShow")) {
             this._devicesSortable?.option("disabled", !mediaShowsEverything(this._mediaShow.devices));
+            this._remotesSortable?.option("disabled", !mediaShowsEverything(this._mediaShow.remotes));
         }
     }
 
@@ -571,6 +589,84 @@ export class IrDeviceList extends LitElement {
                     }),
                 );
             }
+        }, REORDER_DEBOUNCE_MS);
+    }
+
+    /** Attach / detach the Remotes grid's SortableJS instance. */
+    private _syncRemotesSortable(): void {
+        const grid = this.renderRoot.querySelector(".remote-grid") as HTMLElement | null;
+        if (grid && !this._remotesSortable) {
+            this._attachRemotesSortable(grid);
+        } else if (!grid && this._remotesSortable) {
+            this._remotesSortable.destroy();
+            this._remotesSortable = null;
+        }
+    }
+
+    private _attachRemotesSortable(grid: HTMLElement): void {
+        this._remotesSortable = Sortable.create(grid, {
+            // As the device grid: a filtered section is not the whole
+            // order, so dragging waits until both glyphs are lit.
+            disabled: !mediaShowsEverything(this._mediaShow.remotes),
+            // Only a Remote card drags; the drawer card and the "+" tile
+            // match neither ``draggable`` nor ``onMove`` below, so the
+            // drawer stays first and the tile last.
+            draggable: ".trigger-remote-card",
+            filter: ".card-action",
+            preventOnFilter: false,
+            delay: 150,
+            delayOnTouchOnly: true,
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            onMove: (evt) =>
+                (evt.related as HTMLElement).classList.contains("trigger-remote-card"),
+            onEnd: () => {
+                // The order straight from the DOM, Remote cards only (an
+                // open Remote's detail and the drawer share the grid).
+                const ids = Array.from(grid.querySelectorAll(".trigger-remote-card"))
+                    .map((el) => (el as HTMLElement).dataset.id)
+                    .filter((id): id is string => !!id);
+                const base = this._localRemotes ?? this.triggerRemotes;
+                const byId = new Map(base.map((r) => [r.id, r]));
+                const reordered = ids
+                    .map((id) => byId.get(id))
+                    .filter((r): r is TriggerRemoteInfo => !!r);
+                if (reordered.length !== base.length) return;
+                this._localRemotes = reordered;
+                this._remotesSortable?.destroy();
+                this._remotesSortable = null;
+                // SortableJS moved a node lit's repeat owns: drop the
+                // Remote cards and their details and render them afresh.
+                for (const el of Array.from(
+                    grid.querySelectorAll(".trigger-remote-card, .trigger-remote-detail"),
+                )) {
+                    el.remove();
+                }
+                this._remotesVersion++;
+                this._scheduleRemotesSave(reordered.map((r) => r.id));
+            },
+        });
+    }
+
+    private _scheduleRemotesSave(remoteIds: string[]): void {
+        if (this._pendingRemotesSave !== null) clearTimeout(this._pendingRemotesSave);
+        this._pendingRemotesSave = window.setTimeout(async () => {
+            this._pendingRemotesSave = null;
+            if (!this.api) return;
+            try {
+                await this.api.reorderTriggerRemotes(remoteIds);
+            } catch {
+                // Refused (a stale set): the refresh below brings back
+                // the stored order.
+            }
+            // Saved or not, the panel fetches the list again, so every
+            // Remote picker that reads it follows the stored order.
+            this.dispatchEvent(
+                new CustomEvent("remotes-reordered", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
         }, REORDER_DEBOUNCE_MS);
     }
 
@@ -2568,7 +2664,7 @@ export class IrDeviceList extends LitElement {
                 </div>
                 ${this._renderMediaGlyphs("remotes")}
             </div>
-            <div class="grid">
+            <div class="grid remote-grid">
                 <div
                     class="card trigger-drawer-card ${this.expandedDeviceId === TRIGGER_DRAWER_ID ? "expanded" : ""} ${this._drawerTriggers.some((t) => this._glowTriggerIds.has(t.id)) ? "bloom" : ""}"
                     tabindex="0"
@@ -2703,12 +2799,15 @@ export class IrDeviceList extends LitElement {
                           </div>
                       `
                     : nothing}
-                ${repeat(
-                    this.triggerRemotes.filter((r) => mediaShows(this._mediaShow.remotes, r.media)),
+                ${keyed(
+                    this._remotesVersion,
+                    repeat(
+                    (this._localRemotes ?? this.triggerRemotes).filter((r) => mediaShows(this._mediaShow.remotes, r.media)),
                     (remote) => remote.id,
                     (remote) => html`
                         <div
                             class="card trigger-remote-card ${remote.id === this.expandedDeviceId ? "expanded" : ""} ${this._remoteTriggers(remote.id).some((t) => this._glowTriggerIds.has(t.id)) ? "bloom" : ""}"
+                            data-id=${remote.id}
                             tabindex="0"
                             @click=${() => this._select(remote.id)}
                             @keydown=${(e: KeyboardEvent) => {
@@ -2922,6 +3021,7 @@ export class IrDeviceList extends LitElement {
                               `
                             : nothing}
                     `,
+                    ),
                 )}
                 <!-- Always compact (0.10.1 item 6). The Remotes grid is
                      never truly empty -- the HAIR Triggers drawer always

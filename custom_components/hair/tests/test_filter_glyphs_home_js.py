@@ -217,9 +217,13 @@ class TestTheWiring:
         assert '${this._renderMediaGlyphs("devices")}' in flat
         assert '${this._renderMediaGlyphs("remotes")}' in flat
         assert "devices.filter((d) => mediaShows(this._mediaShow.devices, d.media))" in flat
-        remotes = "this.triggerRemotes.filter((r) => mediaShows(this._mediaShow.remotes, r.media))"
+        remotes = (
+            "(this._localRemotes ?? this.triggerRemotes)"
+            ".filter((r) => mediaShows(this._mediaShow.remotes, r.media))"
+        )
         assert remotes in flat
         assert "disabled: !mediaShowsEverything(this._mediaShow.devices)," in flat
+        assert "disabled: !mediaShowsEverything(this._mediaShow.remotes)," in flat
         assert "saveMediaShow(" in flat and "loadMediaShow(" in flat
 
     def test_no_hidden_glyph_on_the_homepage(self):
