@@ -20405,13 +20405,13 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
             <div class="expanded">
                 <div class="signal-header">
                     <span>${De("sniffer.signals_head",{count:e.signals.length})}</span>
-                    <button
-                        class="create-signal-btn"
-                        title=${De("pluck.pluck_signal_title")}
-                        @click=${t=>this._openPluckSignal(e,t)}
-                    >
-                        ${De("pluck.pluck_signal")}
-                    </button>
+                    ${function(e){return"plucked"===e?.source&&!!e.vendor_entity_id&&!!e.appliance}(e)?V`<button
+                              class="create-signal-btn"
+                              title=${De("pluck.pluck_signal_title")}
+                              @click=${t=>this._openPluckSignal(e,t)}
+                          >
+                              ${De("pluck.pluck_signal")}
+                          </button>`:""}
                 </div>
                 ${0===e.signals.length?V`<div class="no-signals-row">
                           <span class="no-signals"

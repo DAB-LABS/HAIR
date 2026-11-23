@@ -4097,6 +4097,19 @@ class SignalMonitor:
             if device.source != "plucked":
                 return {"success": False, "code": "not_plucked",
                         "error": "Can only add plucked signals to a plucked blaster"}
+            # A remote read from a learned-code store has no vendor
+            # entity or appliance, so nothing was replayed by name to
+            # land here: its codes come from the store, and new ones
+            # come the same way.
+            if device.store_integration is not None:
+                return {
+                    "success": False,
+                    "code": "store_remote",
+                    "error": (
+                        "This remote was read from a learned-code store. "
+                        "Add the code there, then pluck the store again."
+                    ),
+                }
 
             now_iso = datetime.now(UTC).isoformat()
             frequency = (

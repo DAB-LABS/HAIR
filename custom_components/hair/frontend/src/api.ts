@@ -2168,6 +2168,29 @@ export function landedManyNotice(
     };
 }
 
+/**
+ * Can this Plucker remote take "+ Pluck signal"?
+ *
+ * Plucking a signal replays one command by name through the remote's
+ * vendor entity and appliance, so only a remote made with both (a
+ * blaster made on this tab) can. A remote read from a learned-code
+ * store has neither: its codes came from the store, and new ones come
+ * the same way, by plucking the store again. A blaster whose vendor
+ * integration is not loaded still shows the button, and the tab says
+ * why it can't run.
+ */
+export function canPluckByName(device: {
+    source?: string | null;
+    vendor_entity_id?: string | null;
+    appliance?: string | null;
+} | null | undefined): boolean {
+    return (
+        device?.source === "plucked" &&
+        !!device.vendor_entity_id &&
+        !!device.appliance
+    );
+}
+
 export function anyPluckReadyNow(sources: PluckSource[] | null | undefined): boolean {
     return (sources ?? []).some((source) =>
         Object.values(source.ready).includes(true),
