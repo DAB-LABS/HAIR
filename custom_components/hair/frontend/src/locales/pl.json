@@ -1292,6 +1292,7 @@
     "adddc.tab_closet": "Szafa",
     "adddc.preview_creates": "Tworzy urządzenie z {count} poleceniami z {name}",
     "adddc.preview_select_source": "Wybierz źródło, aby zobaczyć, co zostanie utworzone",
+    "adddc.preview_creates_matrix": "Tworzy klimatyzator z {name}, {states}",
     "adddc.pick_source_required": "Wybierz perukę z szafy.",
     "adddc.section_source": "Źródło",
     "adddc.type_label": "Typ",

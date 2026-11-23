@@ -1198,6 +1198,7 @@
     "adddc.tab_closet": "Schrank",
     "adddc.preview_creates": "Erstellt ein Gerät mit {count} Befehlen aus {name}",
     "adddc.preview_select_source": "Wähle eine Quelle aus, um zu sehen, was erstellt wird",
+    "adddc.preview_creates_matrix": "Erstellt eine Klimaanlage aus {name}, {states}",
     "adddc.pick_source_required": "Wähle eine Perücke aus deinem Schrank.",
     "adddc.section_source": "Quelle",
     "adddc.type_label": "Typ",

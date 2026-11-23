@@ -1293,6 +1293,7 @@
     "adddc.tab_closet": "Шкаф",
     "adddc.preview_creates": "Создаёт устройство с {count} командами из {name}",
     "adddc.preview_select_source": "Выберите источник, чтобы увидеть, что будет создано",
+    "adddc.preview_creates_matrix": "Создаёт кондиционер из {name}, {states}",
     "adddc.pick_source_required": "Выберите парик из шкафа.",
     "adddc.section_source": "Источник",
     "adddc.type_label": "Тип",

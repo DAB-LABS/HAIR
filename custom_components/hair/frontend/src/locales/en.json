@@ -1198,6 +1198,7 @@
     "adddc.tab_closet": "Closet",
     "adddc.preview_creates": "Creates a device with {count} commands from {name}",
     "adddc.preview_select_source": "Select a source to see what it creates",
+    "adddc.preview_creates_matrix": "Creates an AC device from {name}, {states}",
     "adddc.pick_source_required": "Pick a wig from your closet.",
     "adddc.section_source": "Source",
     "adddc.type_label": "Type",

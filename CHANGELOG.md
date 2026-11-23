@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A frequency typed into a radio receiver's "Other..." box that the receiver doesn't take is refused, and HAIR says which frequencies it does take. It used to be sent anyway.
 - A new remote shows in the Sniffer on its first press. It used to wait for three.
+- A matrix wig can be picked in the Closet tab of Add Device. It makes an AC device, as Adopt Device on the Closet card does, and the list shows its states where it used to show 0. The list also says signals, not states, for every other wig.
 - The Closet opens faster, and so does the brand list in Create Remote. HAIR re-checks only the wigs that changed since the last look, not every wig every time.
 - Device settings are laid out as cards. Each shows its name and a line saying what is set, and opens with a click. Inside the cards everything is in the panel's plain greys; blue marks only the open card's outline and its buttons. Power has one heading, with the Power button setting at its top.
 - With an on/off power source (a binary sensor, switch, helper or device tracker), a Device or Remote that the source still disagrees with at the end of the settle time follows the source. A Power press the TV never got is undone even if the source never reports again. A new on/off source waits 180 seconds by default, enough for a presence tracker to notice; watt sensors are unchanged.

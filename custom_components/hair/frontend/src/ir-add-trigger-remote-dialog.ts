@@ -93,7 +93,8 @@
  * hatch back to a source picker. Seeding rides the same `_seedFromWig()`
  * path the Closet tab uses. As with the Device dialog, this is the one
  * path that can carry a matrix wig at all: ir-wig-picker's own `_pick()`
- * refuses matrix rows, so `dropSource` (assigned programmatically by the
+ * refuses matrix rows here (this dialog leaves `allowMatrix` off; Add
+ * Device turns it on), so `dropSource` (assigned programmatically by the
  * caller, not by a picker click) is what makes `_isMatrixSource` a live
  * case here instead of dead defensive code. A matrix wig legitimately
  * seeds zero triggers via `_seedFromWig()` (matrix cells aren't discrete
