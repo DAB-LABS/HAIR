@@ -63,6 +63,30 @@ export function unreadLines(
     return out;
 }
 
+/** The "press it again" lines: one per radio receiver whose last
+ *  window heard a code HAIR could read but couldn't tell what kind of
+ *  remote sent it (two family shapes fit), with no clean code after it.
+ *  The same rules as the "can't read" lines: not while that receiver's
+ *  window is open, keyed by the window's open time, dismissible. Pure,
+ *  for the node tests. */
+export function ambiguousLines(
+    rows: CaptureReceiverRow[],
+    items: Record<string, RfReceiverItem>,
+    open: (row: CaptureReceiverRow) => boolean,
+    dismissed: ReadonlySet<string>,
+): { receiver: string; name: string; key: string }[] {
+    const out: { receiver: string; name: string; key: string }[] = [];
+    for (const row of rows) {
+        if (row.medium !== "rf" || open(row)) continue;
+        const src = row.software_window ? (items[row.receiver_entity_id] ?? row) : row;
+        if (!src.ambiguous_radio || src.ambiguous_radio < 1) continue;
+        const key = `again:${row.receiver_entity_id}@${src.ambiguous_window_opened_at ?? ""}`;
+        if (dismissed.has(key)) continue;
+        out.push({ receiver: row.receiver_entity_id, name: row.name, key });
+    }
+    return out;
+}
+
 /** What the radio receivers' rows depend on in Home Assistant: each
  *  receiver's select and number, and the receiver's own window. When
  *  this changes, the rows are read again. Pure, for the node tests. */
@@ -185,12 +209,10 @@ export class IrListenRow extends LitElement {
             pillShown(this.show, row, pillLive(states, row, this._items[row.receiver_entity_id] ?? null)),
         );
         if (rows.length === 0) return nothing;
-        const unread = unreadLines(
-            rows,
-            this._items,
-            (row) => pillLive(states, row, this._items[row.receiver_entity_id] ?? null).on,
-            this._dismissed,
-        );
+        const isOpen = (row: CaptureReceiverRow) =>
+            pillLive(states, row, this._items[row.receiver_entity_id] ?? null).on;
+        const unread = unreadLines(rows, this._items, isOpen, this._dismissed);
+        const again = ambiguousLines(rows, this._items, isOpen, this._dismissed);
         // No "Listen" label (fix round 1, item 6): the row is the
         // receivers, live; the group keeps the word for screen readers.
         return html`
@@ -218,6 +240,19 @@ export class IrListenRow extends LitElement {
                         <span class="unread-name">${line.name}:</span>
                         ${t("listen.unread_radio")}
                         <span class="unread-hint">${t("listen.unread_radio_hint")}</span>
+                    </span>
+                    <button
+                        class="unread-x"
+                        aria-label=${t("common.close")}
+                        @click=${() => (this._dismissed = new Set([...this._dismissed, line.key]))}
+                    >×</button>
+                </div>`,
+            )}
+            ${again.map(
+                (line) => html`<div class="unread again">
+                    <span class="unread-text">
+                        <span class="unread-name">${line.name}:</span>
+                        ${t("listen.ambiguous_radio")}
                     </span>
                     <button
                         class="unread-x"

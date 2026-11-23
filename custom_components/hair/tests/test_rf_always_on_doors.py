@@ -277,7 +277,8 @@ class TestTheDoors:
         (item,) = conn.send_result.call_args.args[1]
         assert set(item) == {"receiver_entity_id", "capturing", "window_ends_at",
                              "capture_mode", "counters", "unread_radio",
-                             "unread_window_opened_at"}
+                             "unread_window_opened_at", "ambiguous_radio",
+                             "ambiguous_window_opened_at"}
         assert item["capturing"] is False and item["counters"]["captures"] == 0
         # A window change: at once.
         always_on.window(ALWAYS_ON).open()
