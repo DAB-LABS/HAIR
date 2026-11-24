@@ -274,16 +274,17 @@ class TestLocalizedTable:
         assert table["stopp"] == "stop"
 
 
-class TestKnownGap:
-    def test_a_screens_stop_maps_to_the_media_players_stop(self):
-        """Pinned on purpose. One key per name: Stop is ``stop`` on a media
-        player and ``stop_cover`` on a screen, so a screen's Stop lands on
-        ``stop``, which its type does not offer and the cover does not
-        read. A later round that maps only keys a type offers or its
-        entity reads flips this test."""
+class TestAScreensOwnActions:
+    def test_a_screens_stop_is_the_covers_stop(self):
+        """GH #313. One key per name in the shared table: Stop is ``stop``,
+        the media player's. On a screen it is translated to ``stop_cover``
+        after the lookup, so every key a screen gets is one it offers."""
         mapping = _map(DeviceType.SCREEN, ["Open", "Close", "Stop"])
         assert mapping == {
-            "open_cover": "Open", "close_cover": "Close", "stop": "Stop",
+            "open_cover": "Open", "close_cover": "Close", "stop_cover": "Stop",
         }
         offered = {k for k, _ in ACTION_OPTIONS[DeviceType.SCREEN]}
-        assert set(mapping) - offered == {"stop"}
+        assert set(mapping) <= offered
+
+    def test_a_media_players_stop_is_unchanged(self):
+        assert _map(DeviceType.MEDIA_PLAYER, ["Stop"]) == {"stop": "Stop"}
