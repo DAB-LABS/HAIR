@@ -4189,16 +4189,28 @@ class SignalMonitor:
         (``already_present``). There is no separate refresh path to keep
         in step with this one.
 
-        Receipts are counted, never swallowed: an RF code, a code with no
-        usable timings, and a code that will not validate each land in
-        their own counter so the landing summary can say what happened to
-        them. Nothing unconvertible is ever invented into a code.
+        Receipts are counted, never swallowed: a radio code HAIR cannot
+        read, a code with no usable timings, and a code that will not
+        validate each land in their own counter so the landing summary
+        can say what happened to them. Nothing unconvertible is ever
+        invented into a code.
+
+        A radio code the reader can read (``code.rf_code``) becomes a
+        radio row on the same remote as its sub-device's infrared codes,
+        written by ``rf_paste.apply_code`` exactly as a Clipper paste of
+        the same code is, so the plucked row, the pasted row and the
+        heard press share one identity. A rolling code is filed by its
+        fixed part and is never sent (``rf_send`` refuses it, as it does
+        everywhere). ``signals`` counts both media; ``rf_imported`` and
+        ``rf_rolling`` say how many of them are radio, and rolling;
+        ``washed`` and ``kept_raw`` are infrared only.
 
         ``codes`` may be one sub-device's (the Plucker's ghosts) or the
         whole store's; nothing here tells them apart. ``device_ids`` in
         the summary lists the remotes the codes landed on, new or
         already there, in the order first reached.
         """
+        from . import rf_paste
         from .learned_code_stores import RECEIPT_RF
 
         summary: dict[str, Any] = {
@@ -4207,6 +4219,8 @@ class SignalMonitor:
             "washed": 0,
             "kept_raw": 0,
             "toggle_pairs": 0,
+            "rf_imported": 0,
+            "rf_rolling": 0,
             "rf_receipted": 0,
             "no_timings": 0,
             "already_present": 0,
@@ -4227,7 +4241,72 @@ class SignalMonitor:
                 ):
                     by_subdevice[device.store_subdevice or ""] = device
 
+            def remote_for(code: Any) -> UnknownDevice:
+                """The plucked remote for a code's sub-device, made once."""
+                device = by_subdevice.get(code.subdevice)
+                if device is None:
+                    device = UnknownDevice(
+                        label=_plucked_remote_label(
+                            friendly_name, code.subdevice, shape
+                        ),
+                        source="plucked",
+                        store_integration=integration,
+                        store_id=store_id,
+                        store_subdevice=code.subdevice,
+                        first_seen=now_iso,
+                        last_seen=now_iso,
+                        hit_count=0,
+                    )
+                    # Synthetic fingerprint, same as every other plucked
+                    # or clipped remote: live sniffed signals must never
+                    # group into a remote that was never heard.
+                    device.fingerprint = f"plucked:{device.id}"
+                    self._signal_store.add_device(device)
+                    by_subdevice[code.subdevice] = device
+                touched.setdefault(code.subdevice, device.id)
+                return device
+
             for code in codes:
+                rf_code = getattr(code, "rf_code", None)
+                if rf_code is not None and code.receipt_kind is None:
+                    rf = rf_paste.validate(rf_code)
+                    if not rf["ok"]:
+                        # The reader read it; this should not fire. A
+                        # receipt, not a silent drop.
+                        summary["rf_receipted"] += 1
+                        continue
+                    device = remote_for(code)
+                    signal = UnknownSignal(
+                        fingerprint=rf["fingerprint"],
+                        byte_hash=rf["frame_hash"],
+                        protocol=RF_PROTOCOL,
+                        code=None,
+                        raw_timings=[],
+                        hit_count=1,
+                        first_seen=now_iso,
+                        last_seen=now_iso,
+                        source="plucked",
+                        alias=code.command_name.strip(),
+                        plucked_command_name=code.command_name,
+                    )
+                    rf_paste.apply_code(signal, rf)
+                    summary["signals"] += 1
+                    summary["rf_imported"] += 1
+                    if rf.get("rf_rolling"):
+                        summary["rf_rolling"] += 1
+                    if code.is_toggle_alt:
+                        summary["toggle_pairs"] += 1
+                    if device.get_signal(
+                        signal.fingerprint,
+                        signal.byte_hash,
+                        signal.decoded_fingerprint,
+                    ) is not None:
+                        summary["already_present"] += 1
+                        continue
+                    device.signals.insert(0, signal)
+                    self._signal_store.index_signal(device, signal)
+                    device.last_seen = now_iso
+                    continue
                 if code.receipt_kind == RECEIPT_RF:
                     summary["rf_receipted"] += 1
                     continue
@@ -4247,28 +4326,7 @@ class SignalMonitor:
                     )
                     continue
 
-                device = by_subdevice.get(code.subdevice)
-                if device is None:
-                    label = _plucked_remote_label(
-                        friendly_name, code.subdevice, shape
-                    )
-                    device = UnknownDevice(
-                        label=label,
-                        source="plucked",
-                        store_integration=integration,
-                        store_id=store_id,
-                        store_subdevice=code.subdevice,
-                        first_seen=now_iso,
-                        last_seen=now_iso,
-                        hit_count=0,
-                    )
-                    # Synthetic fingerprint, same as every other plucked
-                    # or clipped remote: live sniffed signals must never
-                    # group into a remote that was never heard.
-                    device.fingerprint = f"plucked:{device.id}"
-                    self._signal_store.add_device(device)
-                    by_subdevice[code.subdevice] = device
-                touched.setdefault(code.subdevice, device.id)
+                device = remote_for(code)
 
                 frequency = (
                     round(result.frequency_khz * 1000)
@@ -4329,8 +4387,8 @@ class SignalMonitor:
 
         _LOGGER.info(
             "Plucked %s (%s): %d remotes, %d signals, %d washed, %d kept raw, "
-            "%d toggle pairs, %d RF set aside, %d with no usable timings, "
-            "%d already in the catalog",
+            "%d toggle pairs, %d radio (%d rolling), %d radio unread, "
+            "%d with no usable timings, %d already in the catalog",
             friendly_name or store_id,
             integration,
             summary["remotes"],
@@ -4338,6 +4396,8 @@ class SignalMonitor:
             summary["washed"],
             summary["kept_raw"],
             summary["toggle_pairs"],
+            summary["rf_imported"],
+            summary["rf_rolling"],
             summary["rf_receipted"],
             summary["no_timings"],
             summary["already_present"],

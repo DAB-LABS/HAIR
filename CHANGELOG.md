@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Remotes on the Devices tab can be dragged into any order, as Devices can. The HAIR Triggers card stays first, and a new Remote still lands at the end beside the "+" tile. Every list of Remotes elsewhere in the panel follows the same order.
 - A screen can say what kind of cover it is: awning, blind, curtain, shade, shutter, garage door or gate. Pick it in the new Cover card in the settings of a screen Device, or of a Remote typed as a screen, and Home Assistant shows the matching icon and words. Shade is still the default. Asked for by @platini76 (#313).
+- The Plucker plucks radio codes out of a Broadlink store, on any frequency the remote learned them at. They land on the same remote as that appliance's infrared codes, the same as if you had pasted them. A rolling code (a garage or gate remote) is kept so HAIR knows the button when it hears it, but is never sent.
 
 ### Changed
 
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A cover (screen or shade) now has Stop. A command or button named Stop, in any of the panel's languages, maps to the cover's own Stop instead of a media player's, and so does a French shade remote's "Arrêt". Up and Down map to open and close. Covers set up before this get their Stop back on the next restart. Reported by @platini76 (#313).
 - A matrix air conditioner whose code file has its own "on" code now turns on from off when you pick a mode: HAIR sends On first, then the mode and temperature, as SmartIR does. It used to send the mode alone, which some units ignore while off. A new tick in the device's Power settings turns this off. Thanks @dsojoes (#323).
 - A 40 kHz Pioneer infrared code pasted or edited into HAIR is sent as written, at 40 kHz, and its protocol chip shows it. It used to be rebuilt as a 38 kHz NEC code. Any NEC-shaped code stored at a carrier well away from 38 kHz is now sent as written too. Reported by @meisanerd (#325).
+- A radio code in a Tuya Local store is set aside as radio when plucked. It could be read as a nonsense infrared code before.
 
 ## [1.4.0] - 2026-11-23 -- Waiting Room
 

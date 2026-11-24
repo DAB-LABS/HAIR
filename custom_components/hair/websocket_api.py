@@ -3273,7 +3273,8 @@ async def ws_pluck_stores_import(
 
     The result is the landing summary, so every clause the panel can
     print has a counter here (remotes, signals, washed, kept_raw,
-    toggle_pairs, rf_receipted, no_timings, already_present), plus
+    toggle_pairs, rf_imported, rf_rolling, rf_receipted, no_timings,
+    already_present), plus
     ``device_ids``: the remotes this import landed on, new or already
     there. ``unknown_subdevice`` means the store no longer has it.
     """

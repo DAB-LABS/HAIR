@@ -94,35 +94,30 @@ ASSUMED_CARRIER_HZ = TUYA_CARRIER_HZ
 # broadlink/remote.py does the same check).
 _BROADLINK_IR = 0x26
 _BROADLINK_RF = (0xB2, 0xD7)
-# An RM4 Pro capture, as core stores it whole, header and all. Its
-# first byte follows the carrier it was learned on (0xB1 at 433.92, but
-# 0x78 at 315, 0xB0 at 433.42 and others), so the first byte can't
-# say it is radio. The header can: byte 1 is 0xC0 and bytes 4 to 7
-# hold the carrier in kHz. The same test broadlink-async 1.4.1 uses,
-# copied rather than imported, since core owns that library.
-_RM4_HEADER_MARK = 0xC0
-_RM4_CARRIER_KHZ = (300_000, 950_000)
+
+# Tuya Local writes a learned radio code into the same store as its IR
+# codes, as "rf:" followed by the hub's own sub-GHz study string (its
+# remote.py, ``_async_learn_command``). That string is not the plain
+# timing array an IR code is, and HAIR has no reader for it, so it is
+# set aside as radio rather than read as IR.
+_TUYA_RF_PREFIX = "rf:"
 
 
 def _is_broadlink_rf(packet: bytes) -> bool:
     """True when a stored Broadlink packet is a radio code.
 
-    Used for counting only (the per-sub-device split and the ghosts'
-    ``radio_only``). The decoder still sets aside only 0xB2 and 0xD7 as
-    radio; reading RM4 Pro radio out of a store is separate work.
+    The 4-byte types (0xB2, 0xD7) by their first byte, and an RM4 Pro
+    capture, which core stores whole, by its header
+    (``rf_paste.is_rm4_header``). Its first byte follows the carrier it
+    was learned on (0xB1 at 433.92, but 0x78 at 315, 0xB0 at 433.42 and
+    others), so that byte alone can't say it is radio. One rule for the
+    count, the import and a paste, so the three can't part.
     """
+    from .rf_paste import is_rm4_header
+
     if not packet:
         return False
-    if packet[0] in _BROADLINK_RF:
-        return True
-    if len(packet) < 8 or packet[1] != _RM4_HEADER_MARK:
-        return False
-    # The length field (bytes 2 and 3) counts what follows the first
-    # four bytes, and it has to fit in the packet.
-    if 4 + int.from_bytes(packet[2:4], "little") > len(packet):
-        return False
-    khz = int.from_bytes(packet[4:8], "little")
-    return _RM4_CARRIER_KHZ[0] <= khz <= _RM4_CARRIER_KHZ[1]
+    return packet[0] in _BROADLINK_RF or is_rm4_header(packet)
 
 # The suffix every code store carries. The sibling ``_flags`` store is
 # deliberately not read: it holds which half of a toggle pair goes out
@@ -157,6 +152,9 @@ _OPENIRBLASTER_TRAILING_GAP_US = -38000
 RECEIPT_RF = "rf"
 RECEIPT_NO_TIMINGS = "no_timings"
 RECEIPT_UNREADABLE = "unreadable"
+# Not a receipt: what a packet decoder hands back, in the kind slot, for
+# a radio code it can read. ``read_store`` turns it into ``rf_code``.
+KIND_RADIO = "radio"
 
 
 @dataclass
@@ -174,10 +172,20 @@ class PluckedCode:
     is_toggle_alt: bool = False
     receipt: str | None = None
     receipt_kind: str | None = None
+    # A radio code, as the store holds it, when the reader can read it.
+    # The import reads it with ``rf_paste.validate`` and writes a radio
+    # row the way a Clipper paste of the same code is written.
+    rf_code: str | None = None
 
     @property
     def imported(self) -> bool:
+        """An infrared code that converted."""
         return self.pronto is not None and self.receipt is None
+
+    @property
+    def radio(self) -> bool:
+        """A radio code the import can place."""
+        return self.rf_code is not None and self.receipt is None
 
 
 @dataclass
@@ -268,13 +276,18 @@ def decode_broadlink_code(value: str) -> tuple[str | None, list[int], str | None
     if not packet:
         return None, [], "could not read this code", RECEIPT_UNREADABLE
     first = packet[0]
-    if first in _BROADLINK_RF:
-        return (
-            None,
-            [],
-            "RF code set aside -- HAIR plucks IR today",
-            RECEIPT_RF,
-        )
+    if _is_broadlink_rf(packet):
+        from .rf_paste import validate
+
+        result = validate(value)
+        if not result["ok"]:
+            return (
+                None,
+                [],
+                f"radio code HAIR could not read ({result.get('error', 'unreadable')})",
+                RECEIPT_RF,
+            )
+        return None, list(result["frame"]), None, KIND_RADIO
     if first != _BROADLINK_IR:
         return (
             None,
@@ -297,7 +310,18 @@ def decode_tuya_local_code(value: str) -> tuple[str | None, list[int], str | Non
     the 0.10.2 reader handles, with no container around it. There is no
     type byte and no header, so nothing here inspects the first byte:
     see this module's rule zero.
+
+    A radio code, which Tuya Local writes as ``rf:`` and its hub's study
+    string, is set aside before that: base64 decoding skips the colon,
+    so read as IR it could come out as a nonsense code.
     """
+    if isinstance(value, str) and value.startswith(_TUYA_RF_PREFIX):
+        return (
+            None,
+            [],
+            "Tuya radio code set aside -- HAIR can't read its format yet",
+            RECEIPT_RF,
+        )
     timings = plain_b64_to_timings(value)
     if not timings:
         return None, [], "no usable timings", RECEIPT_NO_TIMINGS
@@ -649,7 +673,10 @@ def discover_stores(config_dir: str | Path) -> list[StoreInfo]:
                         if not isinstance(packet, str):
                             continue
                         if provider.integration != "broadlink":
-                            counts.ir_codes += 1
+                            if packet.startswith(_TUYA_RF_PREFIX):
+                                counts.rf_codes += 1
+                            else:
+                                counts.ir_codes += 1
                             continue
                         kind = _broadlink_packet_kind(packet)
                         if kind == "rf":
@@ -711,6 +738,7 @@ def read_store(info: StoreInfo) -> list[PluckedCode]:
         for index, packet in enumerate(packets):
             name = command_name if index == 0 else f"{command_name} (alt)"
             pronto, timings, receipt, kind = packet_decoder(packet)
+            radio = kind == KIND_RADIO
             out.append(
                 PluckedCode(
                     subdevice=subdevice,
@@ -720,7 +748,8 @@ def read_store(info: StoreInfo) -> list[PluckedCode]:
                     timings=timings,
                     is_toggle_alt=is_pair and index > 0,
                     receipt=receipt,
-                    receipt_kind=kind,
+                    receipt_kind=None if radio else kind,
+                    rf_code=packet if radio else None,
                 )
             )
             if receipt is not None:

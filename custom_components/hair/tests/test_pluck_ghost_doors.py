@@ -184,9 +184,13 @@ class TestRemotesOnTheList:
     async def test_a_short_or_wrong_header_is_not_counted_as_radio(
         self, fake_hass, tmp_path
     ):
-        good = base64.b64decode(_rm4_capture(0xB1, 433920))
-        too_long = bytearray(good)
-        too_long[2:4] = (len(good)).to_bytes(2, "little")  # does not fit
+        """The one rule (``rf_paste.is_rm4_header``), the same as the
+        paste reader's. A length field that runs past the packet is still
+        a capture there, so a cut copy keeps its carrier; one too short
+        to cover the carrier field is not."""
+        good = base64.b64decode(_rm4_capture(0x78, 315000))
+        too_short = bytearray(good)
+        too_short[2:4] = (2).to_bytes(2, "little")
         no_mark = bytearray(good)
         no_mark[1] = 0x00
         off_band = bytearray(good)
@@ -197,7 +201,7 @@ class TestRemotesOnTheList:
             {
                 "odd": {
                     f"c{i}": base64.b64encode(bytes(p)).decode("ascii")
-                    for i, p in enumerate((too_long, no_mark, off_band))
+                    for i, p in enumerate((too_short, no_mark, off_band))
                 }
             },
         )
@@ -308,8 +312,10 @@ class TestPluckedOrGhost:
         plucked = {
             r["subdevice"] for r in broadlink["remotes"] if r["device_id"]
         }
-        # The radio-only and empty sub-devices never became remotes.
-        assert plucked == {"tv", "soundbar"}
+        # The garage's radio codes read, so it is a remote too. The gate's
+        # one radio code doesn't read and the spare is empty, so neither
+        # became a remote.
+        assert plucked == {"tv", "soundbar", "garage"}
 
 
 class TestImportOneSubDevice:
@@ -367,10 +373,11 @@ class TestImportOneSubDevice:
     ):
         store = _wire(fake_hass, stores_dir)
         summary = _result(await _import(fake_hass, BROADLINK_ID))
-        assert summary["remotes"] == 2
-        assert summary["signals"] == 4
-        # Counted as radio on the list; reading them is separate work,
-        # so the import still sets them aside as before.
+        assert summary["remotes"] == 3
+        # tv's three and soundbar's one, and garage's two radio codes.
+        assert summary["signals"] == 6
+        assert (summary["rf_imported"], summary["rf_rolling"]) == (2, 0)
+        # The gate's code is radio but too short to read.
         assert summary["rf_receipted"] == 1
         assert sorted(summary["device_ids"]) == sorted(
             d.id for d in store.get_all_devices()
