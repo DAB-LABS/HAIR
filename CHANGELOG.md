@@ -13,11 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Plucker has no Add Blaster step. Under your plucked remotes it shows a faded tile for everything it could still pluck: one per appliance in a learned-code store, which you click to pluck, and one per blaster that pulls codes by name, which opens to an appliance and a command. A store HAIR can't read, or an appliance with nothing to pluck, shows why. A new remote goes to the top of the list.
 - A radio code that fits two kinds of remote at once gets no family label, is never sent, and isn't filed by remote and button. The Sniffer asks you to press the button again. HAIR used to go by whichever kind it checked first.
 
 ### Fixed
 
 - A Broadlink RM4 Pro radio code learned on a frequency other than 433.92 MHz can be pasted. A 315 MHz code used to be refused as "Not a Broadlink radio packet", and a 433.42 or 438 MHz code was saved at 433.92 MHz with a few stray timings at its start. It now keeps the frequency it was learned on.
+- A Broadlink RM4 Pro radio code pasted into an infrared code box now says it's a radio code, with its frequency, and to add it with Add Signal. It used to be refused as unreadable.
 - A cover (screen or shade) now has Stop. A command or button named Stop, in any of the panel's languages, maps to the cover's own Stop instead of a media player's, and so does a French shade remote's "Arrêt". Up and Down map to open and close. Covers set up before this get their Stop back on the next restart. Reported by @platini76 (#313).
 
 ## [1.4.0] - 2026-11-23 -- Waiting Room

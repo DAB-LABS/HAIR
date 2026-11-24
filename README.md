@@ -172,14 +172,14 @@ If the comb flags a cell, it stays in the matrix and shows up under **Needs atte
 
 If you taught your remotes to another integration, the Plucker copies those codes into HAIR without sending anything over the air.
 
-1. Open the **Plucker** tab and click **+ Add Blaster**.
-2. Every code store HAIR finds in Home Assistant gets its own card, Broadlink first. Click a card to pluck it. Clicking it again later is safe: codes already plucked are not added twice.
-3. The codes land as cards on the Plucker tab. Click **USE** to make a Device or Remote from them (see [Turn signals into a device](#turn-signals-into-a-device)).
+1. Open the **Plucker** tab. Under your plucked remotes it shows a faded tile for every appliance it finds in a code store in Home Assistant, Broadlink first.
+2. Click a tile to pluck that appliance. It becomes a remote at the top of the list. Delete the remote and its tile comes back.
+3. Click **USE** on the remote to make a Device or Remote from it (see [Turn signals into a device](#turn-signals-into-a-device)).
 
 What the Plucker reads:
 
 - **Broadlink:** codes learned with `remote.learn_command`, which the integration keeps in Home Assistant's storage. Codes learned in the Broadlink phone app stay in Broadlink's cloud and cannot be plucked. RF codes in the same store are set aside, since HAIR works with infrared.
-- **Tuya Local:** the codes your Tuya hub captured, or one code at a time by replaying it into a silent listener (the last card in the dialog).
+- **Tuya Local:** the codes your Tuya hub captured, or one code at a time by replaying it into a silent listener. Each Tuya blaster has its own tile for that: click it, type the appliance and the command as you named them in Tuya, and press **Pluck** or Enter. The first code makes the remote; further commands use its **+ Pluck Signal**.
 - **OpenIRBlaster:** the code library it learned, with the carrier it measured for each code.
 
 ## Import codes (SmartIR and the closet)

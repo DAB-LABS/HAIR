@@ -1376,8 +1376,9 @@ export class HairApi {
     /**
      * Learned-code stores found under .storage (0.10.3).
      *
-     * Cheap: counts only, no decoding, so the Add Blaster dialog can
-     * call it every time it opens.
+     * Cheap: counts only, no decoding, so the Plucker can call it on
+     * every load. Each store also lists its sub-devices (1.4.1), which
+     * is what the Plucker's ghosts are drawn from.
      */
     listLearnedStores(): Promise<{
         stores: LearnedStore[];
@@ -1391,11 +1392,17 @@ export class HairApi {
         });
     }
 
-    /** Import one whole store and return its landing numbers. */
-    importLearnedStore(storeId: string): Promise<LearnedStoreImport> {
+    /** Import a store and return its landing numbers: one sub-device
+     *  when ``subdevice`` is given (a Plucker ghost), the whole store
+     *  when it is not. */
+    importLearnedStore(
+        storeId: string,
+        subdevice?: string,
+    ): Promise<LearnedStoreImport> {
         return this.hass.connection.sendMessagePromise<LearnedStoreImport>({
             type: "hair/pluck/stores/import",
             store_id: storeId,
+            ...(subdevice !== undefined ? { subdevice } : {}),
         });
     }
 

@@ -601,6 +601,8 @@ export class HaPanelIrDevices extends LitElement {
                                     .api=${this._api}
                                     .hass=${this.hass}
                                     .pendingEntity=${this._pendingPluckEntity}
+                                    @plucker-pending-consumed=${() =>
+                                        (this._pendingPluckEntity = "")}
                                     @navigate-device=${this._onNavigateDevice}
                                 ></ir-pluck>
                             `

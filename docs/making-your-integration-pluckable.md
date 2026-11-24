@@ -74,8 +74,8 @@ To be pluckable, expose one Home Assistant service that meets all of the
 following. Tuya Local's `send_learned_ir_command` is the reference shape.
 
 1. Replay a stored code by name. The user picks a command by the name it was
-   learned under (for example "pwr_on"), not by pasting a raw code blob. HAIR's
-   pluck dialog collects exactly that one name and passes it to your service.
+   learned under (for example "pwr_on"), not by pasting a raw code blob. HAIR
+   collects exactly that one name and passes it to your service.
 
 2. Accept a caller-chosen target emitter. The service must take an emitter
    entity id and route the code to that emitter via

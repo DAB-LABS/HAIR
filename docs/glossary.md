@@ -96,6 +96,14 @@ them live. Also where a remote built from your installed code library lands.
 without re-learning each one at a receiver. Nothing is broadcast over the air
 during a pluck.
 
+**Plucker ghost.** A faded tile on the Plucker tab, the Add tile's look, for
+something that could still be plucked. A store ghost is one appliance in a
+learned-code store: click it and it becomes a remote at the top of the list. A
+blaster that pulls codes by name has its own ghost: click it, type the
+appliance and a command, and its first code makes the remote. A ghost with no
+plus can't be plucked and says why. Delete a plucked remote and its ghost comes
+back.
+
 **Closet.** Your shelf of portable code sets. Holds both the code library that
 ships with Home Assistant's infrared library and your own files, organized by
 brand.

@@ -83,8 +83,15 @@ Key components:
   that can replay a stored code by name through a caller-chosen emitter; Tuya Local
   (send_learned_ir_command) is the first. New vendors are added as a single YAML
   file in custom_components/hair/pluckable/ with no HAIR code changes, validated
-  against a versioned schema. The Plucker tab and a Blasters (Pluckable) section on
-  the Devices page appear only when a compatible blaster is configured. Requires HA
+  against a versioned schema. The Plucker tab shows its plucked remotes first and,
+  under them, a faded ghost tile for everything it could still pluck: one per
+  un-plucked appliance (sub-device) of a learned-code store, plucked with a click and
+  landing at the top as a remote; one per blaster that replays by name, which opens
+  in place to Appliance and Command fields and becomes a remote with its first code
+  (a failed command creates nothing); and a disabled ghost, with its reason, for a
+  store that can't be read, one with nothing in it, or an appliance with only radio
+  codes. There is no separate add step. A Blasters (Pluckable) section on the
+  Devices page appears only when a compatible blaster is configured. Requires HA
   2026.6+, where the infrared platform exports InfraredEmitterEntity. Plucked
   signals share the same catalog as sniffed and clipped ones, distinguished by the
   source field.
@@ -925,4 +932,4 @@ Receiver architecture:
 - [DAB-LABS](https://github.com/DAB-LABS): Other open-source Home Assistant and
   homelab projects by the same author, including SMART Sniffer (disk health
   monitoring) and esphome-ld2411s (mmWave presence sensor component).
-The Plucker also reads learned-code stores other integrations persist in Home Assistant storage (Broadlink, Tuya Local, OpenIRBlaster; pluckable mechanism: storage), importing named commands read-only, with canonical re-encode where codes decode.
+The Plucker also reads learned-code stores other integrations persist in Home Assistant storage (Broadlink, Tuya Local, OpenIRBlaster; pluckable mechanism: storage), importing named commands read-only, with canonical re-encode where codes decode. Each appliance in a store is plucked on its own, as its own remote; a deleted remote's ghost comes back, and plucking it again is safe.
