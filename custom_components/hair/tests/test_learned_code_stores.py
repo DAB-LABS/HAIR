@@ -929,7 +929,7 @@ class TestOpenIRBlasterNeverMisroutes:
             "plain_b64_to_timings",
             "_b64_bytes",
             "_iter_commands",
-            "_broadlink_packet_type",
+            "_broadlink_packet_kind",
         ):
             monkeypatch.setattr(lcs, name, _tripwire(name))
 

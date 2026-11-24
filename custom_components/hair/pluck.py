@@ -24,6 +24,7 @@ from .learned_code_stores import (
     PROVIDERS,
     PROVIDERS_BY_INTEGRATION,
     StoreInfo,
+    SubdeviceCounts,
     discover_stores,
     read_store,
 )
@@ -381,17 +382,93 @@ async def _discover(
     return infos
 
 
+# Why a sub-device can't be plucked, in ``remotes[].reason``.
+REASON_EMPTY = "empty"  # no commands at all
+REASON_RADIO_ONLY = "radio_only"  # only Broadlink RF, which a store pluck sets aside
+
+
+def _remote_entry(
+    info: StoreInfo,
+    counts: SubdeviceCounts,
+    plucked: dict[tuple[str, str, str], str],
+) -> dict[str, Any]:
+    """One ``remotes`` entry: a sub-device as the Plucker shows it."""
+    from .signal_monitor import _plucked_remote_label
+
+    shape = PROVIDERS_BY_INTEGRATION[info.integration].shape
+    reason: str | None = None
+    if counts.codes == 0:
+        reason = REASON_EMPTY
+    elif counts.ir_codes == 0 and counts.rf_codes > 0:
+        reason = REASON_RADIO_ONLY
+    return {
+        "subdevice": counts.subdevice,
+        # What a pluck would name the remote, so the naming rule lives
+        # in one place and the ghost reads the same as the remote.
+        "label": _plucked_remote_label(
+            info.friendly_name, counts.subdevice, shape
+        ),
+        "codes": counts.codes,
+        "ir_codes": counts.ir_codes,
+        "rf_codes": counts.rf_codes,
+        "pluckable": reason is None,
+        "reason": reason,
+        "device_id": plucked.get(
+            (info.integration, info.store_id, counts.subdevice)
+        ),
+    }
+
+
+def _plucked_by_key(signal_store: Any) -> dict[tuple[str, str, str], str]:
+    """Plucked remotes by (integration, store id, sub-device).
+
+    The key the import finds remotes by, never the label: a remote the
+    user renamed is still the same remote.
+    """
+    if signal_store is None:
+        return {}
+    out: dict[tuple[str, str, str], str] = {}
+    for device in signal_store.get_all_devices():
+        if device.source != "plucked" or not device.store_id:
+            continue
+        key = (
+            device.store_integration or "",
+            device.store_id,
+            device.store_subdevice or "",
+        )
+        out.setdefault(key, device.id)
+    return out
+
+
 async def list_stores(
-    hass: HomeAssistant, registry: list[dict[str, Any]]
+    hass: HomeAssistant,
+    registry: list[dict[str, Any]],
+    signal_store: Any = None,
 ) -> list[dict[str, Any]]:
     """Every discovered learned-code store, counted but not decoded.
 
     Cheap by construction: one file read and a first-byte peek per code,
     no decoding. A store that will not parse comes back carrying its
     receipt instead of vanishing, and never takes its siblings with it.
+
+    Each store also carries ``remotes``, one entry per sub-device in
+    file order: its counts, the label a pluck would give it, whether
+    there is anything to pluck (``pluckable`` and ``reason``), and
+    ``device_id``, the plucked remote it already is, or None. The
+    Plucker shows a ghost for every entry without one, so deleting a
+    plucked remote brings its ghost back on the next list. An
+    unreadable store, and one with nothing in it, has ``remotes: []``.
     """
     infos = await _discover(hass, registry)
-    return [info.to_dict() for info in infos]
+    plucked = _plucked_by_key(signal_store)
+    out = []
+    for info in infos:
+        entry = info.to_dict()
+        entry["remotes"] = [
+            _remote_entry(info, counts, plucked) for counts in info.remotes
+        ]
+        out.append(entry)
+    return out
 
 
 # ---------------------------------------------------------------------
@@ -504,11 +581,14 @@ async def run_store_pluck(
     entry_data: dict[str, Any],
     registry: list[dict[str, Any]],
     store_id: str,
+    subdevice: str | None = None,
 ) -> dict[str, Any]:
-    """Import one whole store: every subdevice, every code.
+    """Import one store, or one sub-device of it.
 
-    Import-all by owner ruling -- there is no subdevice picker, and
-    pruning is a delete afterwards, which users already know how to do.
+    Without ``subdevice``, every sub-device and every code, as the
+    whole-store pluck has always done. With it, only that sub-device:
+    the Plucker's ghosts pluck one remote at a time. Either way it is
+    the same landing, so a repeat adds nothing (``already_present``).
     Returns the import summary, or ``{"error": code, "message": text}``
     for the WS layer to turn into an error result.
     """
@@ -526,12 +606,27 @@ async def run_store_pluck(
     if info.parse_error:
         return {"error": "unreadable_store", "message": info.parse_error}
 
+    if subdevice is not None and subdevice not in {
+        counts.subdevice for counts in info.remotes
+    }:
+        # The file changed between the list and the click.
+        return {
+            "error": "unknown_subdevice",
+            "message": "That remote is no longer in the store",
+        }
+
     provider = PROVIDERS_BY_INTEGRATION[info.integration]
     codes = await hass.async_add_executor_job(read_store, info)
+    if subdevice is not None:
+        codes = [code for code in codes if code.subdevice == subdevice]
     if not codes:
         return {
             "error": "empty_store",
-            "message": "That store has no codes in it",
+            "message": (
+                "That remote has no codes in it"
+                if subdevice is not None
+                else "That store has no codes in it"
+            ),
         }
     return await monitor.import_learned_store(
         integration=info.integration,

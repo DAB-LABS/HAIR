@@ -3211,7 +3211,7 @@ async def ws_pluck_stores_list(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     registry = data.get("pluckable_registry", [])
-    stores = await pluck.list_stores(hass, registry)
+    stores = await pluck.list_stores(hass, registry, data.get("signal_store"))
     sources = await pluck.list_sources(hass, registry)
     connection.send_result(msg["id"], {"stores": stores, "sources": sources})
 
@@ -3220,6 +3220,7 @@ async def ws_pluck_stores_list(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/pluck/stores/import",
     vol.Required("store_id"): str,
+    vol.Optional("subdevice"): str,
 })
 @websocket_api.async_response
 async def ws_pluck_stores_import(
@@ -3227,13 +3228,18 @@ async def ws_pluck_stores_import(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Import one whole store and return the landing numbers.
+    """Import one store, or one sub-device of it, and return the numbers.
 
-    Import-all by owner ruling: no subdevice picker, and pruning is a
-    delete afterwards. The result is the summary the dialog renders as
-    its landing sentence, so every clause it can print has a counter
-    here (remotes, signals, washed, kept_raw, toggle_pairs,
-    rf_receipted, no_timings, already_present).
+    Without ``subdevice`` the whole store lands, as it always has. With
+    it, one sub-device lands as one remote: the Plucker's ghosts pluck
+    that way. ``subdevice`` is the key from ``stores/list`` exactly as
+    sent, never trimmed, since it is a key in someone else's file.
+
+    The result is the landing summary, so every clause the panel can
+    print has a counter here (remotes, signals, washed, kept_raw,
+    toggle_pairs, rf_receipted, no_timings, already_present), plus
+    ``device_ids``: the remotes this import landed on, new or already
+    there. ``unknown_subdevice`` means the store no longer has it.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3245,6 +3251,7 @@ async def ws_pluck_stores_import(
         entry_data=data,
         registry=registry,
         store_id=msg["store_id"].strip(),
+        subdevice=msg.get("subdevice"),
     )
     if "error" in result:
         connection.send_error(

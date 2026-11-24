@@ -94,6 +94,35 @@ ASSUMED_CARRIER_HZ = TUYA_CARRIER_HZ
 # broadlink/remote.py does the same check).
 _BROADLINK_IR = 0x26
 _BROADLINK_RF = (0xB2, 0xD7)
+# An RM4 Pro capture, as core stores it whole, header and all. Its
+# first byte follows the carrier it was learned on (0xB1 at 433.92, but
+# 0x78 at 315, 0xB0 at 433.42 and others), so the first byte can't
+# say it is radio. The header can: byte 1 is 0xC0 and bytes 4 to 7
+# hold the carrier in kHz. The same test broadlink-async 1.4.1 uses,
+# copied rather than imported, since core owns that library.
+_RM4_HEADER_MARK = 0xC0
+_RM4_CARRIER_KHZ = (300_000, 950_000)
+
+
+def _is_broadlink_rf(packet: bytes) -> bool:
+    """True when a stored Broadlink packet is a radio code.
+
+    Used for counting only (the per-sub-device split and the ghosts'
+    ``radio_only``). The decoder still sets aside only 0xB2 and 0xD7 as
+    radio; reading RM4 Pro radio out of a store is separate work.
+    """
+    if not packet:
+        return False
+    if packet[0] in _BROADLINK_RF:
+        return True
+    if len(packet) < 8 or packet[1] != _RM4_HEADER_MARK:
+        return False
+    # The length field (bytes 2 and 3) counts what follows the first
+    # four bytes, and it has to fit in the packet.
+    if 4 + int.from_bytes(packet[2:4], "little") > len(packet):
+        return False
+    khz = int.from_bytes(packet[4:8], "little")
+    return _RM4_CARRIER_KHZ[0] <= khz <= _RM4_CARRIER_KHZ[1]
 
 # The suffix every code store carries. The sibling ``_flags`` store is
 # deliberately not read: it holds which half of a toggle pair goes out
@@ -152,6 +181,23 @@ class PluckedCode:
 
 
 @dataclass
+class SubdeviceCounts:
+    """One sub-device of a discovered store, counted but not decoded.
+
+    A plucked remote is one sub-device, so this is what the Plucker
+    shows a ghost for. ``subdevice`` is the key exactly as the file
+    has it, which is also the third part of a plucked remote's key.
+    The counts follow the store's own: ``codes`` counts commands (a
+    toggle pair is one), ``ir_codes`` and ``rf_codes`` count packets.
+    """
+
+    subdevice: str
+    codes: int = 0
+    ir_codes: int = 0
+    rf_codes: int = 0
+
+
+@dataclass
 class StoreInfo:
     """A discovered code store, counted but not decoded."""
 
@@ -167,6 +213,12 @@ class StoreInfo:
     # The pure layer has no way to know a device's friendly name and
     # never guesses one; empty means "caller, resolve this".
     friendly_name: str = ""
+    # Per sub-device, in file order. Empty for an unreadable store and
+    # for a store with nothing in it. ``to_dict`` leaves it out: the
+    # hass layer adds what a ghost needs (the label a pluck would give
+    # and whether that remote already exists), which this layer cannot
+    # know.
+    remotes: list[SubdeviceCounts] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -345,10 +397,14 @@ def decode_openirblaster_code(
     return pronto, timings, frequency, assumed, None, None
 
 
-def _broadlink_packet_type(value: str) -> int | None:
-    """First byte of a stored code, for cheap IR/RF counting."""
+def _broadlink_packet_kind(value: str) -> str | None:
+    """"ir", "rf" or None for a stored code, for cheap counting."""
     packet = _b64_bytes(value)
-    return packet[0] if packet else None
+    if not packet:
+        return None
+    if _is_broadlink_rf(packet):
+        return "rf"
+    return "ir" if packet[0] == _BROADLINK_IR else None
 
 
 # The two decoder signatures, one per shape. A packet-map decoder takes
@@ -566,34 +622,45 @@ def discover_stores(config_dir: str | Path) -> list[StoreInfo]:
                 info.subdevices = 1 if count else 0
                 info.codes = count
                 info.ir_codes = count
+                if count:
+                    # The one remote a flat list becomes, under the
+                    # same name the reader files its codes under, so a
+                    # sub-device import finds them. That name is the
+                    # device record inside the file; should it ever
+                    # change, a remote plucked under the old one no
+                    # longer matches and its ghost would show beside
+                    # it. Every install writes "OpenIRBlaster" there,
+                    # so this is noted and not built for.
+                    info.remotes = [
+                        SubdeviceCounts(
+                            _code_list_subdevice(data), count, count, 0
+                        )
+                    ]
                 out.append(info)
                 continue
-            subdevices = 0
-            codes = 0
-            ir_codes = 0
-            rf_codes = 0
-            for commands in data.values():
+            for subdevice, commands in data.items():
                 if not isinstance(commands, dict):
                     continue
-                subdevices += 1
+                counts = SubdeviceCounts(str(subdevice))
                 for _name, value in commands.items():
-                    codes += 1
+                    counts.codes += 1
                     packets = value if isinstance(value, list) else [value]
                     for packet in packets:
                         if not isinstance(packet, str):
                             continue
                         if provider.integration != "broadlink":
-                            ir_codes += 1
+                            counts.ir_codes += 1
                             continue
-                        first = _broadlink_packet_type(packet)
-                        if first in _BROADLINK_RF:
-                            rf_codes += 1
-                        elif first == _BROADLINK_IR:
-                            ir_codes += 1
-            info.subdevices = subdevices
-            info.codes = codes
-            info.ir_codes = ir_codes
-            info.rf_codes = rf_codes
+                        kind = _broadlink_packet_kind(packet)
+                        if kind == "rf":
+                            counts.rf_codes += 1
+                        elif kind == "ir":
+                            counts.ir_codes += 1
+                info.remotes.append(counts)
+            info.subdevices = len(info.remotes)
+            info.codes = sum(r.codes for r in info.remotes)
+            info.ir_codes = sum(r.ir_codes for r in info.remotes)
+            info.rf_codes = sum(r.rf_codes for r in info.remotes)
             out.append(info)
     return out
 
