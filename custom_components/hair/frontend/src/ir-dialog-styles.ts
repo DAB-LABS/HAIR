@@ -28,12 +28,12 @@
  *
  * Consumers: ir-confirm-dialog, ir-trigger-dialog,
  * ir-assign-signal-dialog, ir-promote-dialog,
- * ir-create-remote-dialog, ir-pluck-add-remote-dialog,
- * ir-pluck-signal-dialog, ir-test-emitter-dialog, ir-signal-editor
+ * ir-create-remote-dialog, ir-pluck-signal-dialog, ir-test-emitter-dialog, ir-signal-editor
  * (not exhaustive -- ir-add-controlled-device-dialog.ts and
  * ir-add-trigger-remote-dialog.ts are consumers too, added
  * add-popups signpost 2; ir-add-device-dialog.ts, listed here
- * before, retired in Track 4).
+ * before, retired in Track 4; ir-pluck-add-remote-dialog.ts
+ * retired in 1.4.1, for the Plucker's ghosts).
  */
 import { css } from "lit";
 

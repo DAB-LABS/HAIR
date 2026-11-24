@@ -840,7 +840,6 @@ EMBER_COPIES = {
     "ir-icons.ts": 3,
     "ir-matrix-card.ts": 10,
     "ir-mirror.ts": 2,
-    "ir-pluck-add-remote-dialog.ts": 1,
     "ir-pluck.ts": 2,
     "ir-save-perfect-dialog.ts": 1,
     "ir-signal-alias.ts": 2,
