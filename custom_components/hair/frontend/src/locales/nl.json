@@ -665,7 +665,6 @@
     "clips.adopt_wig": "Liever de pruik gebruiken",
     "pluck.vendor_unavailable": "De integratie van deze blaster is momenteel niet beschikbaar. Controleer of de fabrikantintegratie is geladen.",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "Nog niet geplukt",
     "pluck.ghost.tweezer_hint": "Typ een apparaat en een commando om codes een voor een te plukken",
     "pluck.ghost.tweezer_open_title": "Openen om op naam te plukken",
     "pluck.ghost.by_name": "{source}, op naam",

@@ -69,7 +69,7 @@ Every field, with `tuya_local.yaml` as the worked example:
 
 `service.data` template values may use ONLY this fixed placeholder set:
 
-- `{command_name}` -- the command name the user types in the Pluck dialog
+- `{command_name}` -- the command name the user types on the blaster's Plucker tile, or in the Pluck dialog on a plucked remote
 - `{appliance}` -- the appliance/group name set on the plucked blaster
 - `{tweezer}` -- the HAIR Tweezer entity id, filled in by HAIR
 
@@ -109,7 +109,7 @@ It prints `OK` or `INVALID: <reason>`.
 Real-blaster check without a HAIR dev setup, on a running HA that has HAIR
 installed: call your vendor's send service from Developer Tools, Actions, with
 the emitter target set to the HAIR Tweezer entity, and confirm a signal
-appears in the Pluck dialog or the Sniffer. This validates the service shape,
+appears in the Pluck dialog on a plucked remote or in the Sniffer. This validates the service shape,
 which is the only vendor-specific risk.
 
 ## `error_map` policy

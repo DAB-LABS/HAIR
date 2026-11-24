@@ -286,9 +286,26 @@ class TestThePanel:
         assert ":host" not in css_body
 
     def test_dimmer_at_rest_than_the_devices_tile(self):
+        """The text and glyph sit at 0.3; the edge and the plus are drawn
+        at about the text's strength rather than dimmed with it."""
         body = self._pluck()
+        assert ".gt-tile.pk:not(.pk-open) > :not(.pk-plus) {\n            opacity: 0.3;" in body
         block = body.split(".gt-tile.pk {", 1)[1].split("}", 1)[0]
-        assert "opacity: 0.3;" in block
+        assert "opacity: 1;" in block
+        assert "--gt-edge-color: var(--pk-rest);" in block
+        assert "color-mix(in srgb, var(--secondary-text-color) 30%, transparent)" in block
+
+    def test_no_label_over_the_ghosts(self):
+        body = self._pluck()
+        assert "ghost-label" not in body
+        assert "not_plucked_yet" not in body
+
+    def test_clear_all_sits_above_the_ghosts(self):
+        """It only ever removes plucked remotes, so it belongs with them."""
+        body = self._pluck()
+        render = body.split("    render() {", 1)[1].split("private _renderGhosts(", 1)[0]
+        assert render.index('class="clear-all-row"') < render.index("this._renderGhosts(ghosts)")
+        assert render.count('class="clear-all-row"') == 1
 
     def test_ghosts_sit_outside_the_sortable_list(self):
         """Sortable maps drag indices onto _devices; a ghost inside

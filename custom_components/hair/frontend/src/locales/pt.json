@@ -665,7 +665,6 @@
     "clips.adopt_wig": "Melhor usar a peruca",
     "pluck.vendor_unavailable": "A integração deste emissor não está disponível no momento. Verifique se a integração do fabricante está carregada.",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "Ainda não extraídos",
     "pluck.ghost.tweezer_hint": "Escreva um equipamento e um comando para extrair códigos um a um",
     "pluck.ghost.tweezer_open_title": "Abrir para extrair pelo nome",
     "pluck.ghost.by_name": "{source}, pelo nome",

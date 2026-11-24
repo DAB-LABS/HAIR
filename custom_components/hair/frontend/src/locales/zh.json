@@ -665,7 +665,6 @@
     "clips.adopt_wig": "改用码组",
     "pluck.vendor_unavailable": "此 Blaster 的集成当前不可用。请确认厂商集成已加载。",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "尚未提取",
     "pluck.ghost.tweezer_hint": "输入电器和命令，逐个提取码",
     "pluck.ghost.tweezer_open_title": "打开以按名称提取",
     "pluck.ghost.by_name": "{source}，按名称",

@@ -665,7 +665,6 @@
     "clips.adopt_wig": "Usa invece la parrucca",
     "pluck.vendor_unavailable": "L'integrazione di questo trasmettitore non è al momento disponibile. Verifica che l'integrazione del produttore sia caricata.",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "Non ancora estratti",
     "pluck.ghost.tweezer_hint": "Scrivi un apparecchio e un comando per estrarre i codici uno alla volta",
     "pluck.ghost.tweezer_open_title": "Apri per estrarre per nome",
     "pluck.ghost.by_name": "{source}, per nome",

@@ -665,7 +665,6 @@
     "clips.adopt_wig": "Utiliser plutôt la perruque",
     "pluck.vendor_unavailable": "L'intégration de ce blaster n'est pas disponible pour le moment. Vérifiez que l'intégration du fabricant est chargée.",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "Pas encore cueilli",
     "pluck.ghost.tweezer_hint": "Saisissez un équipement et une commande pour cueillir les codes un par un",
     "pluck.ghost.tweezer_open_title": "Ouvrir pour cueillir par nom",
     "pluck.ghost.by_name": "{source}, par nom",

@@ -172,7 +172,7 @@ If the comb flags a cell, it stays in the matrix and shows up under **Needs atte
 
 If you taught your remotes to another integration, the Plucker copies those codes into HAIR without sending anything over the air.
 
-1. Open the **Plucker** tab. Under your plucked remotes, under **Not plucked yet**, it shows a faded tile for every appliance it finds in a code store in Home Assistant, Broadlink first.
+1. Open the **Plucker** tab. Under your plucked remotes it shows a faded tile for every appliance it finds in a code store in Home Assistant, Broadlink first.
 2. Click a tile to pluck that appliance. It becomes a remote at the top of the list. Delete the remote and its tile comes back.
 3. Click **USE** on the remote to make a Device or Remote from it (see [Turn signals into a device](#turn-signals-into-a-device)).
 

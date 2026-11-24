@@ -705,7 +705,6 @@
     "clips.adopt_wig": "Użyj zamiast tego peruki",
     "pluck.vendor_unavailable": "Integracja tego nadajnika jest obecnie niedostępna. Upewnij się, że integracja producenta jest załadowana.",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "Jeszcze nie wyciągnięte",
     "pluck.ghost.tweezer_hint": "Wpisz sprzęt i polecenie, aby wyciągać kody po jednym",
     "pluck.ghost.tweezer_open_title": "Otwórz, aby wyciągnąć po nazwie",
     "pluck.ghost.by_name": "{source}, po nazwie",

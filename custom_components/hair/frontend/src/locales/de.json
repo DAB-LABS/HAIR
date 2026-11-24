@@ -665,7 +665,6 @@
     "clips.adopt_wig": "Stattdessen die Perücke verwenden",
     "pluck.vendor_unavailable": "Die Integration dieses Blasters ist gerade nicht verfügbar. Stelle sicher, dass die Hersteller-Integration geladen ist.",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "Noch nicht gezogen",
     "pluck.ghost.tweezer_hint": "Gerät und Befehl eingeben, um Codes einzeln zu ziehen",
     "pluck.ghost.tweezer_open_title": "Öffnen, um nach Namen zu ziehen",
     "pluck.ghost.by_name": "{source}, nach Namen",

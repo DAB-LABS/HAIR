@@ -1274,22 +1274,20 @@ export class IrPluck extends LitElement {
                                   )}
                               </div>`
                             : ""}
+                        ${count > 0
+                            ? html`<div class="clear-all-row">
+                                  <button
+                                      class="action-btn delete-btn"
+                                      title=${t("pluck.clear_all_title")}
+                                      @click=${() => (this._confirmClearAll = true)}
+                                  >
+                                      ${t("sniffer.clear_all")}
+                                  </button>
+                              </div>`
+                            : ""}
                         ${this._renderGhosts(ghosts)}
                     `}
 
-            ${count > 0
-                ? html`
-                      <div class="clear-all-row">
-                          <button
-                              class="action-btn delete-btn"
-                              title=${t("pluck.clear_all_title")}
-                              @click=${() => (this._confirmClearAll = true)}
-                          >
-                              ${t("sniffer.clear_all")}
-                          </button>
-                      </div>
-                  `
-                : ""}
 
             ${this._toast
                 ? html`<div class="bottom-toast" role="status">${this._toast}</div>`
@@ -1301,13 +1299,13 @@ export class IrPluck extends LitElement {
 
     /**
      * Everything that could still be plucked, under the plucked remotes
-     * and outside their sortable list, so a drag never counts a ghost.
-     * One quiet label over them.
+     * (and their Clear All, which only ever removes plucked ones) and
+     * outside their sortable list, so a drag never counts a ghost. No
+     * label: the faded look says what they are.
      */
     private _renderGhosts(ghosts: PluckGhost[]) {
         if (ghosts.length === 0) return "";
         return html`
-            <div class="ghost-label">${t("pluck.not_plucked_yet")}</div>
             <div class="ghost-list">
                 ${repeat(
                     ghosts,
@@ -1941,28 +1939,28 @@ export class IrPluck extends LitElement {
            page add tile's own sheet; these rules only lay it out as a
            row the width of the list, and set two things of the
            Plucker's own:
-             - dimmer at rest: 0.3 against the Devices tile's 0.55, so
-               the ghosts fade into the background, and full strength
-               on hover and keyboard focus. Opacity on the existing
-               colours only; picked by eye in both themes.
+             - dimmer at rest: the ghost's TEXT and glyph sit at 0.3
+               (the Devices tile dims everything to 0.55), so the
+               ghosts fade into the background. The dashed edge, the
+               plus and the plus's square are drawn at about the same
+               strength as that text instead of being dimmed with it,
+               so the tile still reads as a tile: the secondary text
+               token mixed to 30%, no new colour. Everything comes up
+               to full on hover and keyboard focus. Picked by eye in
+               both themes.
              - the hover colour is the Plucker's own slate (#78909c, the
                old Add Blaster button's), where the Devices tiles use
                their section colours. */
-        .ghost-label {
-            font-size: 0.8rem;
-            font-weight: 500;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            color: var(--secondary-text-color);
-            margin: 14px 4px 6px;
-        }
         .ghost-list {
             display: flex;
             flex-direction: column;
             gap: 8px;
+            margin-top: 16px;
         }
         .gt-tile.pk {
-            opacity: 0.3;
+            --pk-rest: color-mix(in srgb, var(--secondary-text-color) 30%, transparent);
+            opacity: 1;
+            --gt-edge-color: var(--pk-rest);
             flex-direction: row;
             flex-wrap: wrap;
             justify-content: flex-start;
@@ -1973,16 +1971,30 @@ export class IrPluck extends LitElement {
             box-sizing: border-box;
             cursor: pointer;
         }
+        .gt-tile.pk:not(.pk-open) > :not(.pk-plus) {
+            opacity: 0.3;
+            transition: opacity 150ms ease;
+        }
+        .gt-tile.pk .pk-plus {
+            color: var(--pk-rest);
+        }
         .gt-tile.pk:hover,
         .gt-tile.pk:focus-visible {
-            opacity: 1;
             --gt-edge-color: #78909c;
             color: #78909c;
             background: var(--secondary-background-color);
             outline: none;
         }
-        .gt-tile.pk.gt-busy {
+        .gt-tile.pk:hover > :not(.pk-plus),
+        .gt-tile.pk:focus-visible > :not(.pk-plus),
+        .gt-tile.pk.gt-busy > :not(.pk-plus) {
             opacity: 1;
+        }
+        .gt-tile.pk:hover .pk-plus,
+        .gt-tile.pk:focus-visible .pk-plus {
+            color: inherit;
+        }
+        .gt-tile.pk.gt-busy {
             cursor: progress;
         }
         /* A disabled ghost lifts only to the tile's old rest on hover,
@@ -1991,10 +2003,12 @@ export class IrPluck extends LitElement {
             cursor: default;
         }
         .gt-tile.pk.pk-disabled:hover {
-            opacity: 0.55;
-            --gt-edge-color: var(--divider-color);
+            --gt-edge-color: var(--pk-rest);
             color: var(--secondary-text-color);
             background: none;
+        }
+        .gt-tile.pk.pk-disabled:hover > * {
+            opacity: 0.55;
         }
         .gt-tile.pk .gt-tile-title {
             white-space: nowrap;

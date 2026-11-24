@@ -665,7 +665,6 @@
     "clips.adopt_wig": "Use the wig instead",
     "pluck.vendor_unavailable": "This blaster's integration is not available right now. Make sure the vendor integration is loaded.",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "Not plucked yet",
     "pluck.ghost.tweezer_hint": "Type an appliance and a command to pluck codes one at a time",
     "pluck.ghost.tweezer_open_title": "Open to pluck by name",
     "pluck.ghost.by_name": "{source}, by name",

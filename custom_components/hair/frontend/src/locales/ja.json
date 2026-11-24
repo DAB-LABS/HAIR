@@ -665,7 +665,6 @@
     "clips.adopt_wig": "代わりにウィッグを使う",
     "pluck.vendor_unavailable": "このブラスターの統合は現在利用できません。ベンダー統合が読み込まれているか確認してください。",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "未引き抜き",
     "pluck.ghost.tweezer_hint": "対象機器とコマンドを入力すると、コードを1つずつ引き抜けます",
     "pluck.ghost.tweezer_open_title": "名前で引き抜くには開く",
     "pluck.ghost.by_name": "{source}、名前で",

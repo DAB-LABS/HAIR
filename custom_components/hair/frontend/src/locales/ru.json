@@ -706,7 +706,6 @@
     "clips.adopt_wig": "Лучше использовать парик",
     "pluck.vendor_unavailable": "Интеграция этого передатчика сейчас недоступна. Убедитесь, что интеграция производителя загружена.",
     "pluck.title": "Plucker",
-    "pluck.not_plucked_yet": "Ещё не извлечено",
     "pluck.ghost.tweezer_hint": "Введите прибор и команду, чтобы извлекать коды по одному",
     "pluck.ghost.tweezer_open_title": "Открыть, чтобы извлечь по имени",
     "pluck.ghost.by_name": "{source}, по имени",
