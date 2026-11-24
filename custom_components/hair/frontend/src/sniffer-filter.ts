@@ -27,12 +27,6 @@ export function snifferShows(
     return d.medium === "rf" ? show.rf : show.ir;
 }
 
-/** Whether every remote the server sent is shown, which is when the
- *  remote list can be reordered. */
-export function snifferShowsEverything(show: SnifferShow): boolean {
-    return show.ir && show.rf && !show.hidden;
-}
-
 /** What a row's carrier column says: a radio band in MHz ("433.92"),
  *  an infrared carrier in kHz, or nothing for a radio row heard with no
  *  carrier. */

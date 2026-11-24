@@ -8,7 +8,7 @@ import {
     bandNumber, currentFrequency, currentLength, currentMode, frequencyChoices,
     lengthChoices, modeChoices, pickersActive, pillBadge, pillLive, pillLook, pillPressable,
 } from "./ir-listen-state.js";
-import { carrierParts, snifferShows, snifferShowsEverything } from "./sniffer-filter.js";
+import { carrierParts, snifferShows } from "./sniffer-filter.js";
 import { bandHz, bandKey, bandLabel } from "./rf-band.js";
 
 const NOW = Date.parse("__NOW__");
@@ -203,7 +203,6 @@ const out = {
             ["none", { ir: false, rf: false, hidden: false }],
         ].map(([name, show]) => [name, {
             rows: ["ir", "rf", "hidden_ir", "none"].map((k) => snifferShows(show, R[k])),
-            everything: snifferShowsEverything(show),
         }]),
     ),
     carriers: [

@@ -8,9 +8,10 @@ panel follows it. A new Remote is still added at the end, beside the
 "+" tile.
 
 The panel side is the device grid's drag, on the Remotes grid: only
-Remote cards drag, the HAIR Triggers drawer stays first, dragging waits
-while the IR/RF glyphs filter the section, and the save is debounced and
-followed by a refresh of the list. The panel is a Lit element with no
+Remote cards drag, the HAIR Triggers drawer stays first, under an IR/RF
+filter the Remotes showing move among their own slots
+(``test_drag_under_a_filter.py``), and the save is debounced and followed
+by a refresh of the list. The panel is a Lit element with no
 node driver, so its wiring is checked by reading the source.
 """
 from __future__ import annotations
@@ -210,21 +211,17 @@ class TestThePanel:
         card = grid[cards: grid.index("tabindex", cards)]
         assert "data-id=${remote.id}" in card
 
-    def test_dragging_waits_while_the_glyphs_filter(self):
-        text = _read("ir-device-list.ts")
-        assert "disabled: !mediaShowsEverything(this._mediaShow.remotes)," in _method(
-            text, "private _attachRemotesSortable"
-        )
-        assert (
-            'this._remotesSortable?.option("disabled", '
-            "!mediaShowsEverything(this._mediaShow.remotes));"
-        ) in text
+    def test_dragging_goes_on_under_a_filter(self):
+        attach = _method(_read("ir-device-list.ts"), "private _attachRemotesSortable")
+        assert "disabled" not in attach
+        assert "const reordered = reorderInSlots(base, shown, (r) => r.id);" in attach
 
     def test_the_drop_reads_the_cards_and_saves_later(self):
         text = _read("ir-device-list.ts")
         attach = _method(text, "private _attachRemotesSortable")
         assert 'grid.querySelectorAll(".trigger-remote-card")' in attach
-        assert "if (reordered.length !== base.length) return;" in attach
+        assert "if (shown.length !== ids.length) return;" in attach
+        assert "if (!reordered) return;" in attach
         assert "this._remotesVersion++;" in attach
         save = _method(text, "private _scheduleRemotesSave")
         assert "REORDER_DEBOUNCE_MS" in save

@@ -206,15 +206,15 @@ class TestThePickers:
 class TestTheShowChips:
     def test_each_glyph_is_its_own_toggle(self, run):
         # Remotes: infrared, radio, a hidden infrared one, one with no
-        # medium. Hidden adds the hidden remotes of the lit media; the
-        # list can be reordered only with the defaults.
+        # medium. Hidden adds the hidden remotes of the lit media. The
+        # list reorders under any of them (test_drag_under_a_filter.py).
         assert run["shows"] == {
-            "default": {"rows": [True, True, False, True], "everything": True},
-            "ir_only": {"rows": [True, False, False, True], "everything": False},
-            "rf_only": {"rows": [False, True, False, False], "everything": False},
-            "with_hidden": {"rows": [True, True, True, True], "everything": False},
-            "rf_and_hidden": {"rows": [False, True, False, False], "everything": False},
-            "none": {"rows": [False, False, False, False], "everything": False},
+            "default": {"rows": [True, True, False, True]},
+            "ir_only": {"rows": [True, False, False, True]},
+            "rf_only": {"rows": [False, True, False, False]},
+            "with_hidden": {"rows": [True, True, True, True]},
+            "rf_and_hidden": {"rows": [False, True, False, False]},
+            "none": {"rows": [False, False, False, False]},
         }
 
     def test_the_carrier_column(self, run):
@@ -238,11 +238,10 @@ class TestTheSources:
         assert "${activity.dot ? html`<span class=\"hidden-dot\"" in monitor
         assert 'class="show-glyph ${this._show[g.kind] ? "on" : ""}' in monitor
 
-    def test_reordering_only_with_every_remote_shown(self):
+    def test_reordering_under_any_filter_by_the_handle(self):
         monitor = _src("ir-signal-monitor.ts")
-        assert (
-            'this._remotesSortable?.option("disabled", !snifferShowsEverything(this._show));'
-        ) in monitor
+        assert "snifferShowsEverything" not in monitor
+        assert 'option("disabled"' not in monitor
         assert 'handle: ".remote-handle",' in monitor
 
     def test_the_handle_is_a_button_with_the_glyph_then_the_grip(self):
