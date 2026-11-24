@@ -384,7 +384,9 @@ async def _discover(
 
 # Why a sub-device can't be plucked, in ``remotes[].reason``.
 REASON_EMPTY = "empty"  # no commands at all
-REASON_RADIO_ONLY = "radio_only"  # only Broadlink RF, which a store pluck sets aside
+# Only radio of a kind the import can't place (Tuya Local's "rf:" study
+# strings today). Broadlink radio is placed, so it never gives this.
+REASON_RADIO_ONLY = "radio_only"
 
 
 def _remote_entry(
@@ -399,7 +401,11 @@ def _remote_entry(
     reason: str | None = None
     if counts.codes == 0:
         reason = REASON_EMPTY
-    elif counts.ir_codes == 0 and counts.rf_codes > 0:
+    elif (
+        counts.ir_codes == 0
+        and counts.rf_codes > 0
+        and counts.rf_placeable == 0
+    ):
         reason = REASON_RADIO_ONLY
     return {
         "subdevice": counts.subdevice,

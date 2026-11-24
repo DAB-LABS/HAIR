@@ -197,12 +197,18 @@ class SubdeviceCounts:
     has it, which is also the third part of a plucked remote's key.
     The counts follow the store's own: ``codes`` counts commands (a
     toggle pair is one), ``ir_codes`` and ``rf_codes`` count packets.
+    ``rf_placeable`` is the part of ``rf_codes`` of a kind the import
+    reads into radio rows (Broadlink's); the rest, such as Tuya Local's
+    ``rf:`` study strings, is set aside. It goes by kind, not by
+    decoding, so a Broadlink radio code that turns out not to read is
+    still counted here and lands as a receipt.
     """
 
     subdevice: str
     codes: int = 0
     ir_codes: int = 0
     rf_codes: int = 0
+    rf_placeable: int = 0
 
 
 @dataclass
@@ -681,6 +687,7 @@ def discover_stores(config_dir: str | Path) -> list[StoreInfo]:
                         kind = _broadlink_packet_kind(packet)
                         if kind == "rf":
                             counts.rf_codes += 1
+                            counts.rf_placeable += 1
                         elif kind == "ir":
                             counts.ir_codes += 1
                 info.remotes.append(counts)

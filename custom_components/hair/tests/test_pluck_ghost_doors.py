@@ -158,17 +158,44 @@ class TestRemotesOnTheList:
             "IR Remote Garage: candles"
         ]
 
-    async def test_an_empty_and_a_radio_only_sub_device_cannot_be_plucked(
+    async def test_an_empty_sub_device_cannot_be_plucked(
         self, fake_hass, stores_dir
     ):
         _wire(fake_hass, stores_dir)
         broadlink = _store(await _list(fake_hass), BROADLINK_ID)
-        gate = _remote(broadlink, "gate")
-        assert (gate["pluckable"], gate["reason"]) == (False, "radio_only")
         spare = _remote(broadlink, "spare")
         assert (spare["pluckable"], spare["reason"]) == (False, "empty")
         tv = _remote(broadlink, "tv")
         assert (tv["pluckable"], tv["reason"]) == (True, None)
+
+    async def test_broadlink_radio_alone_can_be_plucked(
+        self, fake_hass, stores_dir
+    ):
+        """The import places Broadlink radio as radio rows, so a
+        sub-device of only radio is a ghost like any other."""
+        _wire(fake_hass, stores_dir)
+        gate = _remote(_store(await _list(fake_hass), BROADLINK_ID), "gate")
+        assert (gate["ir_codes"], gate["rf_codes"]) == (0, 1)
+        assert (gate["pluckable"], gate["reason"]) == (True, None)
+
+    async def test_radio_the_import_sets_aside_is_radio_only(
+        self, fake_hass, tmp_path
+    ):
+        """Tuya Local's "rf:" study strings are counted as radio but not
+        read, so a sub-device of only those still can't be plucked."""
+        _write_store(tmp_path, TUYA_STORE, {
+            "fan": {"on": "rf:" + _tuya_code([400, 800] * 30)},
+            "mixed": {
+                "on": "rf:" + _tuya_code([400, 800] * 30),
+                "off": _tuya_code([806, 806, 806, 1600, 806, 806, 806, _TUYA_TAIL]),
+            },
+        })
+        _wire(fake_hass, tmp_path)
+        tuya = _store(await _list(fake_hass), TUYA_ID)
+        fan = _remote(tuya, "fan")
+        assert (fan["pluckable"], fan["reason"]) == (False, "radio_only")
+        mixed = _remote(tuya, "mixed")
+        assert (mixed["pluckable"], mixed["reason"]) == (True, None)
 
     async def test_an_rm4_pro_store_is_radio_by_its_header(
         self, fake_hass, stores_dir
@@ -179,7 +206,7 @@ class TestRemotesOnTheList:
         _wire(fake_hass, stores_dir)
         garage = _remote(_store(await _list(fake_hass), BROADLINK_ID), "garage")
         assert (garage["codes"], garage["ir_codes"], garage["rf_codes"]) == (2, 0, 2)
-        assert (garage["pluckable"], garage["reason"]) == (False, "radio_only")
+        assert (garage["pluckable"], garage["reason"]) == (True, None)
 
     async def test_a_short_or_wrong_header_is_not_counted_as_radio(
         self, fake_hass, tmp_path
