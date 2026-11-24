@@ -8,8 +8,10 @@ radio code as text. Three shapes are read (plan 5.3):
 - a bare list of signed integers, the platform's own convention (mark
   positive), as an ESPHome ``dump: raw`` line prints it; and
 - Broadlink RF base64, the packets an RM pro learns and SmartIR-style
-  files hold: ``0xB1`` (an RM4 Pro capture, which records its carrier),
-  and the ``0xB_`` and ``0xD_`` sends, whose band is assumed from the type.
+  files hold: an RM4 Pro capture, which records its carrier and is
+  known by its header, not its first byte (``0xB1`` at 433.92, ``0x78``
+  at 315, and so on), and the ``0xB_`` and ``0xD_`` sends, whose band is
+  assumed from the type.
 
 Whatever was pasted, the timings are put in HAIR's form before anything
 reads them: leading spaces and zeros dropped, and a capture that began
@@ -61,6 +63,16 @@ SOURCE_USER = "user"
 # reach a fingerprint.
 _BROADLINK_TICK_US = 1_000_000 / 32_768
 _RM4_CAPTURE = 0xB1
+# An RM4 Pro capture's header: byte 1 is 0xC0 and bytes 4 to 7 hold the
+# carrier in kHz. Its first byte follows the carrier (0x78 at 315,
+# 0xB0 at 433.42, 0xB1 at 433.92, ...), so the header is recognised by
+# its structure, never by that byte alone. The same rule as
+# broadlink-async 1.4.1's ``is_rm4_rf_packet``, kept here because Home
+# Assistant ships an older library until its 1.4.1 bump releases.
+_RM4_HEADER_LEN = 8
+_RM4_BYTE1 = 0xC0
+_RM4_CARRIER_KHZ = (300_000, 950_000)
+_BROADLINK_IR = 0x26
 # Core's own Broadlink transmitter writes a 315 MHz send as 0xB4
 # (homeassistant/components/broadlink/radio_frequency.py,
 # _RF_315_TYPE_BYTE), so a packet HA sent at 315 MHz reads back as one.
@@ -218,27 +230,51 @@ def _read_broadlink(text: str) -> PasteRead:
     return read
 
 
+def is_rm4_header(packet: bytes) -> bool:
+    """Whether a Broadlink packet has an RM4 Pro capture's header.
+
+    An ``0xB1`` packet always has it. Any other packet has it when byte 1
+    is ``0xC0``, its length field covers at least the carrier field, and
+    bytes 4 to 7 hold a carrier between 300 and 950 MHz. IR codes
+    (``0x26``) never have it, and neither do the ``0xB2``, ``0xB4`` and
+    ``0xD7`` packets with a 4-byte header, whose byte 1 is a repeat
+    count.
+    """
+    if len(packet) < _RM4_HEADER_LEN:
+        return False
+    if packet[0] == _RM4_CAPTURE:
+        return True
+    if packet[0] == _BROADLINK_IR or packet[1] != _RM4_BYTE1:
+        return False
+    if int.from_bytes(packet[2:4], "little") < 4:
+        return False
+    khz = int.from_bytes(packet[4:8], "little")
+    return _RM4_CARRIER_KHZ[0] <= khz <= _RM4_CARRIER_KHZ[1]
+
+
 def broadlink_rf_packet(packet: bytes) -> PasteRead | None:
     """A Broadlink radio packet's timings and carrier, or None.
 
-    ``0xB1``, an RM4 Pro capture, records the carrier it was learned on
-    in kHz at offsets 4 to 7, and its timings start at offset 8. Every
-    other radio type starts at offset 4 and carries no carrier: its band
-    is assumed from the type: ``0xB4`` is 315 MHz (core's own Broadlink
-    transmitter writes a 315 MHz send so), any other ``0xB_`` 433.92 MHz,
-    ``0xD_`` 315 MHz. A recorded carrier outside 1 MHz to 10 GHz is not
-    believed, and the type decides.
+    An RM4 Pro capture (``is_rm4_header``) records the carrier it was
+    learned on in kHz at offsets 4 to 7, and its timings start at offset
+    8, whatever its first byte. Every other radio type starts at offset 4
+    and carries no carrier: its band is assumed from the type: ``0xB4``
+    is 315 MHz (core's own Broadlink transmitter writes a 315 MHz send
+    so), any other ``0xB_`` 433.92 MHz, ``0xD_`` 315 MHz. A recorded
+    carrier outside 1 MHz to 10 GHz is not believed, and the type
+    decides.
     Durations are ticks, read by ``wig_adapters``' one tick reader.
     """
     if len(packet) < 4:
         return None
+    rm4 = is_rm4_header(packet)
     kind = packet[0] & 0xF0
-    if kind not in (0xB0, 0xD0):
+    if not rm4 and kind not in (0xB0, 0xD0):
         return None
     offset = 4
     frequency: int | None = None
     source: str | None = None
-    if packet[0] == _RM4_CAPTURE and len(packet) >= 8:
+    if rm4:
         khz = int.from_bytes(packet[4:8], "little")
         offset = 8
         if _believable(khz * 1000):

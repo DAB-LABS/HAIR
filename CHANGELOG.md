@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A radio code that fits two kinds of remote at once gets no family label, is never sent, and isn't filed by remote and button. The Sniffer asks you to press the button again. HAIR used to go by whichever kind it checked first.
 
+### Fixed
+
+- A Broadlink RM4 Pro radio code learned on a frequency other than 433.92 MHz can be pasted. A 315 MHz code used to be refused as "Not a Broadlink radio packet", and a 433.42 or 438 MHz code was saved at 433.92 MHz with a few stray timings at its start. It now keeps the frequency it was learned on.
+
 ## [1.4.0] - 2026-11-23 -- Waiting Room
 
 ### Changed
