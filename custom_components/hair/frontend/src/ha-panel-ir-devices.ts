@@ -574,6 +574,7 @@ export class HaPanelIrDevices extends LitElement {
                               @remote-created=${this._onRemoteChanged}
                               @remote-type-changed=${this._onRemoteChanged}
                               @remote-power-changed=${this._onRemoteChanged}
+                              @remote-cover-changed=${this._onRemoteChanged}
                               @remotes-reordered=${this._onRemoteChanged}
                               @device-created=${this._onDeviceChanged}
                           ></ir-device-list>

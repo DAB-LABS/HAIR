@@ -861,10 +861,23 @@ export interface EntityConfig {
     fan_speed_steps?: number | null;
     speed_cycle_includes_off?: boolean;
     speed_cycle_turn_on?: SpeedCycleTurnOn;
+    // A screen's kind of cover (GH #313). Absent while it is the
+    // default, shade.
+    cover_device_class?: CoverDeviceClass | null;
 }
 
 /** Where a fan whose speed cycle has no off lands when turned on. */
 export type SpeedCycleTurnOn = "resume" | "speed_1";
+
+/** The kinds of cover a screen can be (cover-class.ts). */
+export type CoverDeviceClass =
+    | "awning"
+    | "blind"
+    | "curtain"
+    | "shade"
+    | "shutter"
+    | "garage"
+    | "gate";
 
 /** Add Popups signpost 2, Track 1B/3: a named trigger remote --
  * position-independent from any single device, position-dependent on
@@ -934,6 +947,9 @@ export interface TriggerRemoteInfo {
     power_off_below_w: number | null;
     power_on_above_w: number | null;
     power_settle_s: number | null;
+    // A screen Remote's kind of cover, null for the default, shade.
+    // Optional: a payload from before the field simply omits it.
+    cover_device_class?: CoverDeviceClass | null;
 }
 
 /** A radio button "Make a Device" made with nothing to send yet (radio

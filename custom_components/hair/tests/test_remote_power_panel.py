@@ -86,12 +86,14 @@ class TestTheRemotesDialog:
         assert 'class="card card-power ${this._powerOpen ? "open" : ""}"' in text
         assert "?hidden=${!this._hasPower}" in text
 
-    def test_save_comes_with_the_power_card_only(self):
+    def test_save_comes_with_the_power_or_the_cover_card(self):
         text = _read(REMOTE)
         footer = text[text.index('<div class="dialog-actions">'):]
         footer = footer[: footer.index("</ha-dialog>")]
-        assert footer.index("${this._hasPower") < footer.index('class="action-btn save-btn"')
+        assert footer.index("${this._saves") < footer.index('class="action-btn save-btn"')
         assert "?disabled=${this._busy || !!problem}" in footer
+        saves = text[text.index("private get _saves()"):]
+        assert "return this._hasPower || this._hasCover;" in saves[: saves.index("}")]
 
     def test_its_words_are_the_remotes(self):
         assert "                                  forRemote\n" in _read(REMOTE)

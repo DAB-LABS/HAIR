@@ -459,7 +459,16 @@ class _CoverEntityFeature:
     def __int__(self): return self._val
 
 class _CoverDeviceClass(StrEnum):
+    AWNING = "awning"
+    BLIND = "blind"
+    CURTAIN = "curtain"
+    DAMPER = "damper"
+    DOOR = "door"
+    GARAGE = "garage"
+    GATE = "gate"
     SHADE = "shade"
+    SHUTTER = "shutter"
+    WINDOW = "window"
 
 class _CoverEntity:
     _attr_has_entity_name = True
