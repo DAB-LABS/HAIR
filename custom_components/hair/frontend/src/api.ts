@@ -180,6 +180,8 @@ export class HairApi {
             // Toggle power (GH #183): a matrix device's power code
             // toggles. Refused on a device without a matrix.
             power_toggles: boolean;
+            // GH #323: send the file's "on" before a state from off.
+            wake_with_on: boolean;
         }>,
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({

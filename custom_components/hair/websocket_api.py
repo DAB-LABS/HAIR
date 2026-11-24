@@ -938,6 +938,9 @@ def _resolve_power_source(
     vol.Optional("speed_cycle_turn_on"): str,
     # Toggle power (GH #183): a matrix device's power code toggles.
     vol.Optional("power_toggles"): bool,
+    # GH #323: a matrix device with its own "on" code sends it before a
+    # state when the unit is believed off.
+    vol.Optional("wake_with_on"): bool,
 })
 @websocket_api.async_response
 async def ws_update_device(
@@ -1108,6 +1111,8 @@ async def ws_update_device(
         config.speed_cycle_includes_off = msg["speed_cycle_includes_off"]
     if "speed_cycle_turn_on" in msg:
         config.speed_cycle_turn_on = msg["speed_cycle_turn_on"]
+    if "wake_with_on" in msg:
+        config.wake_with_on = msg["wake_with_on"]
 
     await manager.async_update_device(device)
     connection.send_result(msg["id"], await _device_full(hass, device))

@@ -161,6 +161,9 @@ export class IrDeviceSettingsDialog extends LitElement {
     // Toggle power (GH #183): the matrix setting. Per pinning Remote,
     // what the pin does with its presses (GH #294, ``pin-mode.ts``).
     @state() private _powerToggles = false;
+    // GH #323: a matrix with its own "on" code sends it before a state
+    // from off. Absent in the stored config reads as ticked.
+    @state() private _wakeWithOn = true;
     @state() private _modes: Record<string, PinMode> = {};
     @state() private _busy = false;
     @state() private _error: string | null = null;
@@ -174,6 +177,7 @@ export class IrDeviceSettingsDialog extends LitElement {
 
     firstUpdated(): void {
         this._powerToggles = this.device.power_toggles === true;
+        this._wakeWithOn = this.device.entity_config?.wake_with_on !== false;
         this._modes = Object.fromEntries(
             this._pinningRemotes().map((r) => [r.id, pinModeOf(r, this.device.id)]),
         );
@@ -359,6 +363,9 @@ export class IrDeviceSettingsDialog extends LitElement {
         if (this.device.matrix) {
             patch.power_toggles = this._powerToggles;
         }
+        if (this.device.matrix?.has_on) {
+            patch.wake_with_on = this._wakeWithOn;
+        }
         if (sections.includes("climate")) {
             patch.temperature_sensor_entity_id = this._temperatureChoice || null;
             patch.humidity_sensor_entity_id = this._humidityChoice || null;
@@ -520,14 +527,29 @@ export class IrDeviceSettingsDialog extends LitElement {
         `;
     }
 
-    /** The Power card's body: a matrix Device's Power button tick,
-     * then the source and what is read from it, which every settings
-     * dialog with a Power section shares (ir-power-source-section.ts). */
+    /** Whether the "wake with On" tick shows (GH #323): a matrix with its
+     * own "on" code, and not while the one-Power-button tick is on,
+     * whose path already sends its power code first. */
+    private _showsWakeWithOn(): boolean {
+        return this.device.matrix?.has_on === true && !this._powerToggles;
+    }
+
+    /** The Power card's body, in two groups. "How the unit turns on":
+     * a matrix Device's Power button tick and, when its file has an
+     * "on" code, the wake tick. "Power state": the source and what is
+     * read from it, which every settings dialog with a Power section
+     * shares (ir-power-source-section.ts). A device with nothing in the
+     * first group (no matrix) shows the source alone, as before, with
+     * no group headings. */
     private _renderPowerCard() {
+        const turnsOn = Boolean(this.device.matrix);
         return html`
-            <section class="settings-section section-power">
-                ${this.device.matrix
-                    ? html`
+            ${turnsOn
+                ? html`
+                      <section class="settings-section section-power power-group">
+                          <h4 class="power-group-head">
+                              ${t("devsettings.power_group_turns_on")}
+                          </h4>
                           <label class="check-row">
                               <input
                                   type="checkbox"
@@ -543,9 +565,32 @@ export class IrDeviceSettingsDialog extends LitElement {
                           <p class="section-explainer">
                               ${t("devsettings.power_toggles_help")}
                           </p>
-                      `
-                    : ""}
-            </section>
+                          ${this._showsWakeWithOn()
+                              ? html`
+                                    <label class="check-row">
+                                        <input
+                                            type="checkbox"
+                                            class="wake-with-on"
+                                            .checked=${this._wakeWithOn}
+                                            @change=${(e: Event) =>
+                                                (this._wakeWithOn = (
+                                                    e.target as HTMLInputElement
+                                                ).checked)}
+                                            ?disabled=${this._busy}
+                                        />
+                                        <span>${t("devsettings.wake_with_on_label")}</span>
+                                    </label>
+                                    <p class="section-explainer">
+                                        ${t("devsettings.wake_with_on_help")}
+                                    </p>
+                                `
+                              : ""}
+                      </section>
+                      <h4 class="power-group-head power-group-divided">
+                          ${t("devsettings.power_group_state")}
+                      </h4>
+                  `
+                : ""}
             <ir-power-source-section
                 .hass=${this.hass}
                 .source=${this.device}
@@ -917,6 +962,22 @@ export class IrDeviceSettingsDialog extends LitElement {
             }
             .pin-desc {
                 margin: 6px 0 0;
+            }
+            /* The Power card's two groups (GH #323): a quiet small-caps
+             * heading in the text colours the cards already use, and a
+             * thin divider above the second. No new colour values. */
+            .power-group-head {
+                margin: 0 0 8px;
+                font-size: 0.7rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                color: var(--secondary-text-color);
+            }
+            .power-group-divided {
+                margin-top: 4px;
+                padding-top: 12px;
+                border-top: 1px solid var(--divider-color);
             }
             .save-btn {
                 background: #3f8a4b;

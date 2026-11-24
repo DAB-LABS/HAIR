@@ -90,14 +90,21 @@ def _device() -> IRDevice:
     )
 
 
-async def _entity(matrix=..., **device_over):
-    """A matrix-mode entity with the manager mocked and matrix loaded."""
+async def _entity(matrix=..., *, wake_with_on: bool = False, **device_over):
+    """A matrix-mode entity with the manager mocked and matrix loaded.
+
+    The "send On before a state from off" setting (GH #323) is unticked
+    here, so these tests keep checking the cell a send resolves to
+    alone; the wake path has its own tests in test_wake_with_on.py.
+    """
     if matrix is ...:
         matrix = _matrix()
     mgr = MagicMock()
     mgr.async_send_matrix_cell = AsyncMock()
     mgr.async_get_matrix = AsyncMock(return_value=matrix)
-    entity = HAIRClimateEntity(_device(), mgr)
+    device = _device()
+    device.entity_config.wake_with_on = wake_with_on
+    entity = HAIRClimateEntity(device, mgr)
     entity.async_write_ha_state = MagicMock()
     entity.hass = MagicMock()
     await entity.async_added_to_hass()
