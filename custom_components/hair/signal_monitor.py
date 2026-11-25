@@ -72,6 +72,7 @@ from .const import (
     RF_GAP_ASSUMED,
     RF_GAP_MEASURED,
     RF_MIN_BODY_EDGES,
+    RF_MIN_FRAMES,
     RF_PROTOCOL,
     RF_ROLLING_CODE,
     RF_ROLLING_CODE_MESSAGE,
@@ -721,6 +722,11 @@ class SignalMonitor:
         from .rf_replay import RollingReplay
 
         self._rf_replay = RollingReplay()
+        # Security+ 1.0's two half-words, put back together per receiver
+        # when they arrive as separate bursts (``rf_secplus``).
+        from .rf_secplus import HalfHolder
+
+        self._secplus_halves = HalfHolder(on_dropped=self._secplus_half_dropped)
 
         # Per-device-fingerprint rate limit for the dismiss-activity bus
         # event push. Separate from ``_rate_buckets`` so the dismiss-activity
@@ -2890,6 +2896,7 @@ class SignalMonitor:
         assembler = self._rf_bursts.pop(receiver_entity_id, None)
         if assembler is not None:
             assembler.discard()
+        self._secplus_halves.forget(receiver_entity_id)
         # Its held frames would never see their burst end.
         self._candy_hold.pop(receiver_entity_id, None)
         self.rf_always_on.detach(receiver_entity_id)
@@ -2912,6 +2919,10 @@ class SignalMonitor:
             )
             self._rf_bursts[receiver_entity_id] = assembler
         return assembler
+
+    def _secplus_half_dropped(self, receiver_entity_id: str, _analysis: Any) -> None:
+        """A Security+ half whose other half never came: a lone frame."""
+        self.rf_always_on.count(receiver_entity_id, "lone_frames")
 
     def _rf_listening(self, receiver_entity_id: str) -> bool:
         """A window the user opened is listening on this radio receiver:
@@ -2981,6 +2992,7 @@ class SignalMonitor:
         with nobody pressing anything.
         """
         from .rf_frames import bodied_pieces, frame_fingerprint, split_frames, vote
+        from .rf_secplus import pair_in_capture
 
         started = time.perf_counter_ns()
         always_on = self.rf_always_on.attached(receiver_entity_id)
@@ -3010,7 +3022,9 @@ class SignalMonitor:
                     "(%d values); dropped", receiver_entity_id, len(timings),
                 )
             return
-        analysis = vote(bodied)
+        # A capture holding a whole Security+ 1.0 press votes its two
+        # halves apart and goes on as one word; anything else votes as one.
+        analysis = pair_in_capture(bodied, vote, RF_MIN_FRAMES) or vote(bodied)
         if analysis is None and any(
             len(parts.body) >= RF_UNREAD_MIN_EDGES for _piece, parts in bodied
         ) and self._rf_listening(receiver_entity_id):
@@ -3063,6 +3077,15 @@ class SignalMonitor:
         from .rf_receive import frequency_of
         from .rf_replay import HELD, REPLAY
 
+        word, held_with, passthrough = self._secplus_halves.offer(
+            receiver_entity_id, analysis, (signal, frames, raw), time.monotonic()
+        )
+        if passthrough is None:
+            if word is None:
+                # A Security+ half-word: it waits for the other half.
+                return
+            analysis = word
+            signal, frames, raw = held_with
         if analysis.body_edges >= RF_MIN_BODY_EDGES and self._rf_listening(
             receiver_entity_id
         ):

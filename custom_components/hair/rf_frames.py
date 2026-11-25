@@ -435,7 +435,9 @@ def analyze(timings: list[int] | None) -> RfCapture | None:
     return vote(whole_frames(split_frames(timings)))
 
 
-def vote(frames: list[tuple[FramePiece, FrameParts]]) -> RfCapture | None:
+def vote(
+    frames: list[tuple[FramePiece, FrameParts]], min_frames: int = RF_MIN_FRAMES,
+) -> RfCapture | None:
     """The vote over whole frames, wherever they came from.
 
     ``analyze`` hands it the whole frames of one capture. The burst
@@ -443,6 +445,9 @@ def vote(frames: list[tuple[FramePiece, FrameParts]]) -> RfCapture | None:
     a receiver delivered one per capture; those carry no gap, because
     the capture's last value (the receiver's idle) is stripped, so their
     gap is assumed, never read from the joins between captures.
+
+    ``min_frames`` is how many frames must agree. Only the Security+
+    reader asks for fewer, for a half whose word it can check itself.
     """
     frames = _modal(frames)
     if not frames:
@@ -452,7 +457,7 @@ def vote(frames: list[tuple[FramePiece, FrameParts]]) -> RfCapture | None:
         by_print.setdefault(frame_fingerprint(parts), []).append((piece, parts))
     # Most votes wins; the earliest fingerprint breaks a tie.
     winner_print, winners = max(by_print.items(), key=lambda item: len(item[1]))
-    if len(winners) < RF_MIN_FRAMES:
+    if len(winners) < min_frames:
         return None
 
     gaps = [piece.gap for piece, _ in winners if piece.gap is not None]

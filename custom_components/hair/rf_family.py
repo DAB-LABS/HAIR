@@ -544,6 +544,14 @@ FAMILIES: dict[str, FamilySpec] = {
                      "real capture (ruling 2026-11-14); detection only",
         ),
         FamilySpec(
+            "secplus_v1", "Security+",
+            aliases=("Chamberlain", "LiftMaster", "Craftsman"),
+            shown=False,
+            evidence="US patent 6,980,655 and public write-ups (facts "
+                     "only); checked against a bench capture, not kept; "
+                     "detection only",
+        ),
+        FamilySpec(
             "dooya", "Dooya",
             shown=False,
             evidence="ESPHome dooya_protocol.cpp (facts only), Flipper forum "
@@ -1222,7 +1230,35 @@ def _distance_1_5(frame: tuple[int, ...]) -> _ShapeRead | None:
     return _ShapeRead(round(t), (_Fit("nexa_sl", tuple(fields)),))
 
 
+def _secplus_v1(frame: tuple[int, ...]) -> _ShapeRead | None:
+    """A whole Security+ 1.0 word as HAIR stores it: the first half, the
+    gap, the second half (``rf_secplus``). A word reads as Security+
+    whether or not its fixed code decodes, so it is never sent."""
+    from .rf_secplus import FAMILY, decode, read_word
+
+    word = read_word(frame)
+    if word is None or FAMILY not in FAMILIES:
+        return None
+    decoded = decode(*word)
+    if decoded is None:
+        return _ShapeRead(500, (_Fit(FAMILY, ()),))
+    fixed, rolling = decoded
+    if (fixed // 9) % 3 == 2:
+        # A remote's layout: the lowest digit names the button and the
+        # digits above the third name the remote, so its buttons share a
+        # card. Seven hex digits hold any remote number and eight any
+        # whole code, so the two never key the same card.
+        fields = (("remote", f"{fixed // 27:07X}"), ("button", str(fixed % 3)))
+    else:
+        # Any other layout isn't known: the whole fixed code keys one
+        # card and one row, one per button, and nothing says two buttons
+        # share a remote.
+        fields = (("code", f"{fixed:08X}"),)
+    return _ShapeRead(500, (_Fit(FAMILY, fields, rolling),))
+
+
 _SHAPES = (
+    _secplus_v1,
     _pt2262_ev1527, _space_first_1_2, _mark_first_1_2, _manchester_somfy,
     _header_mark_first_1_2, _distance_1_5,
 )
@@ -1234,7 +1270,7 @@ _SHAPES = (
 
 # The families whose code changes on every press. HAIR never sends one:
 # a saved one won't work a second time.
-ROLLING_FAMILIES = frozenset({"keeloq", "somfy_rts"})
+ROLLING_FAMILIES = frozenset({"keeloq", "somfy_rts", "secplus_v1"})
 
 
 def rolling_family(frame: list[int] | tuple[int, ...] | None) -> str | None:
@@ -1278,11 +1314,15 @@ def _rolling_family(frame: tuple[int, ...]) -> str | None:
 # ---------------------------------------------------------------------------
 
 # The fixed fields of each rolling family, in identity order: who sent it
-# and which button. KeeLoq's low battery and repeat bits sit in the clear
-# part too but change between presses, so they are left out.
+# and which button, one pair per layout the family may use, tried in
+# turn. KeeLoq's low battery and repeat bits sit in the clear part too but
+# change between presses, so they are left out.
 _ROLLING_FIXED = {
-    "keeloq": ("serial", "buttons"),
-    "somfy_rts": ("address", "command"),
+    "keeloq": (("serial", "buttons"),),
+    "somfy_rts": (("address", "command"),),
+    # A remote and its button where the layout is known, else the whole
+    # fixed code with no button: one card and one row per button.
+    "secplus_v1": (("remote", "button"), ("code", None)),
 }
 # What a KeeLoq word with all four buttons carries: a seed, sent to pair a
 # receiver, in place of the encrypted part.
@@ -1354,12 +1394,12 @@ def _rolling_identity(frame: tuple[int, ...]) -> RollingIdentity | None:
         return None
     fit = read.fits[0]
     values = dict(fit.fields)
-    remote_name, button_name = _ROLLING_FIXED[fit.key]
-    if remote_name not in values or button_name not in values:
-        return None
-    return RollingIdentity(
-        family=fit.key,
-        remote=values[remote_name],
-        button=values[button_name],
-        rolling=fit.rolling,
-    )
+    for remote_name, button_name in _ROLLING_FIXED[fit.key]:
+        if remote_name in values and (button_name is None or button_name in values):
+            return RollingIdentity(
+                family=fit.key,
+                remote=values[remote_name],
+                button=values[button_name] if button_name else "",
+                rolling=fit.rolling,
+            )
+    return None
