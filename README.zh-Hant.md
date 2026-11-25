@@ -46,4 +46,4 @@
 
 ---
 
-*譯自英文 README，對應 v1.3.1。本檔案由程式設計助理起草，並隨每次發布更新。歡迎母語使用者接手，詳見 [Adding a language](CONTRIBUTING.md#adding-a-language)。*
+*譯自英文 README，對應 v1.4.0。本檔案由程式設計助理起草，並隨每次發布更新。歡迎母語使用者接手，詳見 [Adding a language](CONTRIBUTING.md#adding-a-language)。*
