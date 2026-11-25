@@ -13,7 +13,7 @@ from .const import (
     STORAGE_VERSION_MINOR,
 )
 from .identity import NormFpIndex
-from .models import IRDevice, IRTrigger, TriggerRemote
+from .models import IRDevice, IRTrigger, TriggerRemote, is_group
 from .store_health import StoreHealth
 
 _LOGGER = logging.getLogger(__name__)
@@ -354,6 +354,8 @@ class HAIRStore:
         self._idx_norm_fp = NormFpIndex()
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 try:
                     self._index_one_command(device, cmd)
                 except Exception:
@@ -417,6 +419,8 @@ class HAIRStore:
         filled = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if fill_spacing_block(cmd):
                     filled += 1
         if filled:
@@ -463,6 +467,7 @@ class HAIRStore:
                 remote.pinned_device_ids
                 or remote.bindings
                 or remote.follow_only_device_ids
+                or remote.track_only_device_ids
             ):
                 changed = self._prune_dangling_pins(remote) or changed
             if not remote.pinned_device_ids:
@@ -509,7 +514,15 @@ class HAIRStore:
         unfollowed = len(follow) != len(remote.follow_only_device_ids)
         if unfollowed:
             remote.follow_only_device_ids = follow
-        return bool(dangling or stale or unfollowed)
+        # Nor does a Track only mark (GH #294).
+        track = [
+            device_id for device_id in remote.track_only_device_ids
+            if device_id in remote.pinned_device_ids
+        ]
+        untracked = len(track) != len(remote.track_only_device_ids)
+        if untracked:
+            remote.track_only_device_ids = track
+        return bool(dangling or stale or unfollowed or untracked)
 
     def _backfill_trigger_decoded(self) -> bool:
         """Decode stored trigger codes into ``decoded_fingerprint`` in place.
@@ -614,6 +627,8 @@ class HAIRStore:
             return None
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if (
                     cmd.protocol == RF_PROTOCOL
                     and cmd.byte_hash == byte_hash
@@ -652,6 +667,8 @@ class HAIRStore:
         mended = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if (
                     cmd.protocol == RF_PROTOCOL
                     and not cmd.raw_timings
@@ -676,6 +693,8 @@ class HAIRStore:
         whole: dict[str, Any] = {}
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if cmd.protocol == RF_PROTOCOL and cmd.raw_timings and cmd.byte_hash:
                     whole.setdefault(cmd.byte_hash, cmd)
         return whole
@@ -834,6 +853,8 @@ class HAIRStore:
         changed = False
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if cmd.byte_hash is not None:
                     continue
                 # Canonical (wire) form, like every other hash in HAIR
@@ -880,6 +901,8 @@ class HAIRStore:
         changed = commands = triggers = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 # HASHABLE IS THE BAR, NOT CANONICALIZABLE (GH #125).
                 # This used to skip any row whose code did not
                 # canonicalize, which sounds conservative and is not: a
@@ -1035,6 +1058,8 @@ class HAIRStore:
         commands = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if not stored_identity_is_stale(
                     cmd.decoded_fingerprint, timings_of(cmd.raw_timings, cmd.code)
                 ):
@@ -1078,6 +1103,8 @@ class HAIRStore:
         changed = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 # A radio row never meets an infrared decoder (RF hear,
                 # round 1): its frame would only ever false-match.
                 if cmd.decoded_fingerprint or is_rf(cmd):
@@ -1116,6 +1143,8 @@ class HAIRStore:
         judged = 0
         for device in self._data.values():
             for cmd in device.commands:
+                if is_group(cmd):
+                    continue  # a grouped command has no code (grouped-signals.md)
                 if cmd.decode_covers is not None or is_rf(cmd):
                     continue
                 raw = cmd.raw_timings
@@ -1327,6 +1356,40 @@ class HAIRStore:
 
     def update_trigger_remote(self, remote: TriggerRemote) -> None:
         self._trigger_remotes[remote.id] = remote
+
+    def reorder_trigger_remotes(self, ordered_ids: list[str]) -> None:
+        """Reorder the named Remotes to match ``ordered_ids``.
+
+        The Remotes section of the Devices tab drags its cards into
+        place. The order is the dict's insertion order, which is what
+        ``_serialize`` writes and ``async_load`` reads back, so the dict
+        is rebuilt in the requested sequence (no schema change), as
+        ``reorder_devices`` does. A new Remote is added at the end, beside
+        the "+" tile. The list must be exactly the current set of Remote
+        ids: no duplicates, unknown or missing. The drag UI always sends
+        the complete list, so any divergence is a stale client.
+
+        Raises :class:`ValueError` on mismatch and changes nothing.
+        """
+        if len(ordered_ids) != len(set(ordered_ids)):
+            raise ValueError("Duplicate remote ids in reorder list")
+        current = set(self._trigger_remotes.keys())
+        requested = set(ordered_ids)
+        if requested != current:
+            missing = current - requested
+            unknown = requested - current
+            details: list[str] = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if unknown:
+                details.append(f"unknown {sorted(unknown)}")
+            raise ValueError(
+                "Reorder list does not match current remotes: "
+                + ", ".join(details)
+            )
+        self._trigger_remotes = {
+            remote_id: self._trigger_remotes[remote_id] for remote_id in ordered_ids
+        }
 
     def remove_trigger_remote(self, remote_id: str) -> list[IRTrigger] | None:
         """Delete a named remote AND every trigger it owns.

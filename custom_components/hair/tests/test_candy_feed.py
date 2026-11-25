@@ -401,7 +401,16 @@ class TestCost:
     @pytest.mark.asyncio
     async def test_the_store_and_the_mirror_are_the_same_open_or_closed(self):
         async def run(open_drawer: bool) -> str:
+            # Still clocks for both runs. Whether the second NEC press is
+            # a repeat or a new press depends on how long the machine took
+            # to reach it (the repeat window and the press cue), so a slow
+            # first run would count one more hit than the second.
+            with patch.object(sm.time, "monotonic", return_value=1_000.0):
+                return await _run(open_drawer)
+
+        async def _run(open_drawer: bool) -> str:
             monitor, hass, store = _monitor()
+            monitor._press_cues._clock = lambda: 1_000.0
             if open_drawer:
                 _subscribe(monitor)
             hass.async_create_task = MagicMock(side_effect=lambda coro: coro)

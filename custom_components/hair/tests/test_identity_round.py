@@ -782,6 +782,7 @@ class TestTheGroupsFollowTheMerge:
             (name, matrix) for name, matrix in shapes.golden_sources()
             if name not in (
                 "synth-extra-pair-settings", "synth-mitsubishi144-sl-scope",
+                "DAIKIN64.json",
             )
         ]
         assert len(sources) == 24
@@ -844,7 +845,11 @@ def test_every_comb_receipt_is_unchanged():
     receipts and nothing else: their findings are the same 49 and 54,
     and only their coverage changed, which now counts the new
     provisional ``temperature_fahrenheit`` field. The other 30 receipts
-    hash as they did before the pass."""
+    hash as they did before the pass.
+
+    The DAIKIN64 pack joined with its own map (GH #183) and is left out
+    of both digests; it combs clean, since every field it has is
+    provisional."""
     from custom_components.hair import wig_comb
     from custom_components.hair.wig_format import parse_wig
 
@@ -866,7 +871,11 @@ def test_every_comb_receipt_is_unchanged():
             [findings, result.coverage.to_dict()], sort_keys=True,
             default=str,
         )
-    assert len(rendered) == 32
+    new = {"DAIKIN64.json"}
+    assert len(rendered) == 33
+    findings, coverage = json.loads(rendered["DAIKIN64.json"])
+    assert findings == []
+    rendered = {k: v for k, v in rendered.items() if k not in new}
 
     def digest(names) -> str:
         return hashlib.sha256(

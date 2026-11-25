@@ -32,6 +32,68 @@ export type CommandCategoryId =
     | "media_control"
     | "custom";
 
+/** One step of a grouped command, as the server resolves it. */
+export interface GroupStepView {
+    device_id: string;
+    command_id: string;
+    delay_ms: number;
+    device_name: string;
+    command_name: string;
+    /** Its command (or device) was deleted: it shows its last names. */
+    missing: boolean;
+    medium?: Medium;
+    protocol?: string | null;
+    rf_frequency_hz?: number | null;
+}
+
+export interface GroupView {
+    steps: GroupStepView[];
+    devices: string[];
+    missing: number;
+    run_ms: number;
+}
+
+/** What one Test of a grouped command did. */
+export interface GroupRunResult {
+    total: number;
+    sent: number;
+    busy: boolean;
+    failures: {
+        index: number;
+        device_name: string;
+        command_name: string;
+        reason: "missing" | "group" | "failed";
+        detail: string;
+    }[];
+}
+
+/** The step picker's list (``hair/command/group/candidates``). */
+export interface GroupCandidateDevice {
+    id: string;
+    name: string;
+    here: boolean;
+    blaster: boolean;
+    /** A climate matrix device: its cells are not commands. */
+    matrix: boolean;
+    /** The media its commands use, infrared first (the Devices page's). */
+    media: Medium[];
+    commands: {
+        id: string;
+        name: string;
+        reason: "group" | "rolling" | "lattice" | "no_blaster" | null;
+        medium: Medium;
+        protocol?: string | null;
+        rf_frequency_hz?: number | null;
+    }[];
+}
+
+export interface GroupUser {
+    device_id: string;
+    device_name: string;
+    command_id: string;
+    command_name: string;
+}
+
 export interface ActionOption {
     key: string;
     label: string;
@@ -119,6 +181,10 @@ export interface IRCommand {
     // Protocol state beyond the identity (v0.6.0): RC-5/Marantz toggle,
     // Sharp extension. Server-managed; surfaced for display only.
     decoded_extras?: Record<string, number> | null;
+    /** A grouped command (grouped-signals.md): its steps, resolved by
+     *  the server. Present only on a grouped command, whose protocol is
+     *  "GROUP"; `isGroup` (group-steps.ts) is the one test. */
+    group?: GroupView;
     // Byte-level identity (v0.3.4 tiebreaker; identity since v0.5.8).
     // Was missing from this interface -- the device-detail trigger dialog
     // reads it -- which surfaced as a TS2339 build warning.
@@ -830,6 +896,9 @@ export interface TriggerRemoteInfo {
     // Toggle power (GH #183): pinned devices that follow a heard power
     // toggle instead of being sent it. Absent from the list = relays.
     follow_only_device_ids?: string[];
+    // Track only (GH #294): pinned devices sent nothing; their state
+    // follows every press. Wins over the list above.
+    track_only_device_ids?: string[];
     pin_map: Record<string, PinMapEntry[]>;
     // Where this remote came from. Both are backend fields the payload
     // has always carried; they are declared here as of signpost 4,
@@ -858,6 +927,13 @@ export interface TriggerRemoteInfo {
     command_mapping: Record<string, string>;
     action_options: ActionOption[];
     state_entity_id: string | null;
+    // A typed Remote's state source: whether its type reads one, and
+    // the Device's four fields, null while there is none.
+    power_eligible: boolean;
+    power_sensor_entity_id: string | null;
+    power_off_below_w: number | null;
+    power_on_above_w: number | null;
+    power_settle_s: number | null;
 }
 
 /** A radio button "Make a Device" made with nothing to send yet (radio
@@ -1153,6 +1229,16 @@ export interface RfReceiverItem {
     window_ends_at: string | null;
     capture_mode: WindowMode | null;
     counters: Record<string, number | string> | null;
+    /** Radio codes the current or last window heard and HAIR couldn't
+     *  read; 0 when that window also heard one it could. */
+    unread_radio: number;
+    /** When that window opened: its key. Null while unread_radio is 0. */
+    unread_window_opened_at: string | null;
+    /** Codes HAIR read but couldn't tell what kind of remote sent (two
+     *  family shapes fit), since that window's last clean code. */
+    ambiguous_radio: number;
+    /** When that window opened: its key. Null while ambiguous_radio is 0. */
+    ambiguous_window_opened_at: string | null;
 }
 
 export interface ReceiverInfo {
@@ -1187,7 +1273,7 @@ export type CaptureSwitchSource = "user" | "declared" | "device" | "software";
 /** One capture device (``hair/receivers/capture``): an infrared receiver
  *  that hears only while a capture window is open, from any
  *  integration that says so with a boolean ``capturing`` attribute
- *  (docs/windowed-receivers.md). The panel reads the window's live
+ *  (docs/receivers.md). The panel reads the window's live
  *  state from the receiver entity in ``hass``. */
 /** One radio receiver's tuning, as HAIR finds it (``hair/rf/receiver_tuning``,
  *  listening PR 1): tunable when its device has one enabled frequency
@@ -1205,13 +1291,58 @@ export interface ReceiverTuning {
     /** A receiver with no tuning number that declares one frequency:
      *  ``current_mhz`` is that frequency, and it cannot be changed. */
     fixed?: boolean;
+    /** The one receiver description (``rf_receive.receiver_frequency``).
+     *  How the frequency is set: a select of presets, a number for any
+     *  value, both, one fixed value, or nothing. All in Hz. */
+    form: "select" | "number" | "both" | "fixed" | "none";
+    /** Where the receiver says it can listen, [[min, max], ...]. */
+    ranges: [number, number][];
+    /** What HAIR will set on it, in Hz: the declared ranges, or else
+     *  its number's own limits; empty when there's nothing to set. */
+    accepts: [number, number][];
+    /** The select's options in order; ``hz`` null is a sweep, and the
+     *  ``number`` one is the option the number feeds ("Other..."). */
+    presets: FrequencyPreset[];
+    select: string | null;
+    number: {
+        entity_id: string;
+        min_hz: number | null;
+        max_hz: number | null;
+        step_hz: number | null;
+        source: "declared" | "found";
+    } | null;
+    /** Where it listens now, by the server's order of sources. */
+    now: {
+        kind: "hz" | "sweep" | "unknown" | "none";
+        hz: number | null;
+        source: "receiver" | "number" | "select" | "fixed" | null;
+    };
+    /** False for a moment after HAIR set it, while codes heard are not
+     *  stamped with it. The panel shows ``now`` regardless. */
+    trusted: boolean;
+    windowed: boolean;
+    listening: boolean;
+}
+
+/** One option of a receiver's frequency select. */
+export interface FrequencyPreset {
+    option: string;
+    hz: number | null;
+    current: boolean;
+    number?: boolean;
 }
 
 /** What a tune came to (``hair/rf/receiver_tune``): always an answer,
  *  never an error, for each outcome. */
 export interface ReceiverTuneResult {
-    result: "confirmed" | "did_not_change" | "cannot_tune";
+    result: "confirmed" | "did_not_change" | "cannot_tune" | "not_accepted";
     current_mhz: number | null;
+    /** On ``not_accepted``: what the receiver takes, in Hz. */
+    accepts?: [number, number][];
+    /** On ``not_accepted``: the value tried (the panel adds it). */
+    hz?: number;
+    /** The receiver's row, read after the set. */
+    row?: ReceiverTuning;
 }
 
 export interface CaptureReceiverRow {
@@ -1255,6 +1386,13 @@ export interface CaptureReceiverRow {
     /** A software window's next length and mode (null on a capture device). */
     window_seconds: number | null;
     window_mode: WindowMode | null;
+    /** As on RfReceiverItem: radio codes the current or last window
+     *  couldn't read, and when that window opened. 0 / null for IR. */
+    unread_radio: number;
+    unread_window_opened_at: string | null;
+    /** As on RfReceiverItem: codes two family shapes fit. 0 / null for IR. */
+    ambiguous_radio: number;
+    ambiguous_window_opened_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1489,6 +1627,29 @@ export interface LearnedStore {
     ir_codes: number;
     rf_codes: number;
     error: string | null;
+    /** One entry per sub-device (Plucker ghosts, 1.4.1). Absent on a
+     *  server older than that; empty when ``error`` is set. */
+    remotes?: LearnedStoreRemote[];
+}
+
+/**
+ * One sub-device of a learned-code store (hair/pluck/stores/list).
+ *
+ * ``device_id`` is the plucked remote for this (integration, store,
+ * sub-device), found by that key and never by label, or null when there
+ * is none: null is what makes it a ghost on the Plucker tab.
+ */
+export interface LearnedStoreRemote {
+    subdevice: string;
+    /** What a pluck names the remote: "<store>: <sub-device>", or the
+     *  store's name alone for a flat code list. */
+    label: string;
+    codes: number;
+    ir_codes: number;
+    rf_codes: number;
+    pluckable: boolean;
+    reason: "empty" | "radio_only" | null;
+    device_id: string | null;
 }
 
 /**
@@ -1506,6 +1667,9 @@ export interface LearnedStoreImport {
     rf_receipted: number;
     no_timings: number;
     already_present: number;
+    /** The remote(s) this import touched (1.4.1), so the panel can put
+     *  a new one at the top. Absent on an older server. */
+    device_ids?: string[];
 }
 
 /** The record behind a plucked store's row on the Devices tab. */

@@ -6,15 +6,27 @@ frequency it listens at, in MHz. HAIR finds that number, reads it when a
 capture arrives so the code is stamped with the band it was really heard
 on, and sets it from the Sniffer's receiver chip.
 
-WHICH NUMBER. The one enabled ``number`` on the receiver's device whose
-unit is a frequency (MHz, kHz or Hz). None, or more than one, and the
-receiver is not tunable from HAIR: it then listens where its hardware
-does, and HAIR says so. A user-chosen link for the ambiguous case is a
-later step.
+WHICH NUMBER. The receiver's declared ``frequency_number``, when it
+passes the safety rule (a ``number`` on the receiver's own device,
+enabled, whose unit is MHz, kHz or Hz). Otherwise, for a receiver that
+declares no frequency select either, the one enabled ``number`` on its
+device whose unit is a frequency: the convention a CC1101 board on
+ESPHome needs, since ESPHome cannot declare the number. None, or more
+than one, and the number is not HAIR's to set. A receiver that declares
+a select and no number is set through its presets only.
+
+THE SELECT. A declared ``frequency_select`` with its ``frequency_options``
+sets the presets. When the receiver also declares
+``frequency_number_option``, that option is the one the number feeds:
+the number is in force only while the select is on it, and the other
+options are presets.
 
 THE STAMP, ``tuned``. Between the open capture window's frequency and the
-receiver's declared fixed one (``rf_receive.frequency_of``). Read when the
-capture arrives, not cached. For a press delivered one frame per capture,
+receiver's declared fixed one (``rf_receive.frequency_of``): what the
+receiver says it listens at now, in this order: an always-on receiver's
+declared ``frequency_hz``; the select's preset while one is in force
+(a sweep is band unknown); the number's value. Read when the capture
+arrives, not cached. For a press delivered one frame per capture,
 the reading of its FIRST frame stamps the whole press, so a retune during
 the burst hold does not move a press heard before it (``rf_burst``). A
 tuning number that is unavailable gives "band unknown", never the
@@ -24,9 +36,16 @@ HAIR itself set the number: a receiver can deliver a capture heard on the
 old frequency after the new one is set, and a set can make a stray
 pulse of its own.
 
-SETTING IT. ``number.set_value`` in the number's own unit, then a wait
-of up to ``RF_TUNE_CONFIRM_S`` for the number's state to read the asked
-value, compared after rounding to the number's step. ``confirmed`` means
+SETTING IT (``async_set_frequency``). A value one of the presets
+carries picks that preset; any other value sets the number (and, when
+the number feeds an option, picks that option too); a preset can also be
+picked by name, the only way to pick a sweep. A value outside what the
+receiver accepts (``accepted_ranges``) is refused and nothing is set;
+presets are the device's own and are never refused. A number is set with
+``number.set_value`` in its own unit, then a wait of up to
+``RF_TUNE_CONFIRM_S`` for its state to read the asked value, compared
+after rounding to its step; a select the same way, until it reads the
+asked option. ``confirmed`` means
 the request reached the device; it does not prove the chip tuned (an
 optimistic number reads back what it was given). ``did_not_change`` gives
 the value the number still holds, which is what a receiver that refuses a
@@ -46,6 +65,18 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
+from .receiver_window import (
+    ATTR_CAPTURE_PHASE,
+    ATTR_FREQUENCY_HZ,
+    ATTR_FREQUENCY_NUMBER,
+    ATTR_FREQUENCY_NUMBER_OPTION,
+    ATTR_FREQUENCY_OPTIONS,
+    ATTR_FREQUENCY_SELECT,
+    PHASE_SWEEPING,
+    declared_settings,
+    says_capture,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 # A HAIR set's captures are not trusted for this long (see the docstring).
@@ -59,6 +90,8 @@ _UNITS = {"MHz": 1_000_000, "kHz": 1_000, "Hz": 1}
 TUNE_CONFIRMED = "confirmed"
 TUNE_DID_NOT_CHANGE = "did_not_change"
 TUNE_CANNOT = "cannot_tune"
+# A value the receiver doesn't accept (``accepted_ranges``): nothing is set.
+TUNE_NOT_ACCEPTED = "not_accepted"
 
 # What a reading at a capture's arrival can be.
 READING_NONE = "none"        # the receiver has no tuning number
@@ -85,6 +118,7 @@ _last_set: dict[str, float] = {}
 
 def reset_for_test() -> None:
     _last_set.clear()
+    _refused.clear()
 
 
 def _unit_factor(state: Any) -> int | None:
@@ -93,8 +127,81 @@ def _unit_factor(state: Any) -> int | None:
     return _UNITS.get(state.attributes.get("unit_of_measurement"))
 
 
-def tuning_number(hass: HomeAssistant, receiver_entity_id: str) -> str | None:
-    """The receiver's tuning number, or None (no device, none, or several)."""
+SOURCE_DECLARED = "declared"
+SOURCE_FOUND = "found"
+
+
+@dataclass(frozen=True)
+class Declared:
+    """A receiver's frequency declarations that pass the safety rule."""
+
+    select: str | None = None
+    # (option, Hz or None for a sweep), in the select's order.
+    options: tuple[tuple[str, int | None], ...] = ()
+    number: str | None = None
+    number_option: str | None = None
+
+
+NOTHING_DECLARED = Declared()
+
+# Declared numbers already logged as refused, so each is said once.
+_refused: set[tuple[str, str]] = set()
+
+
+def declared(
+    hass: HomeAssistant, receiver_entity_id: str, state: Any = None
+) -> Declared:
+    """What the receiver declares about its frequency. Never raises.
+
+    Read on every capture, so a receiver that declares neither a select
+    nor a number costs no registry read.
+    """
+    try:
+        if state is None:
+            state = hass.states.get(receiver_entity_id)
+        if state is None:
+            return NOTHING_DECLARED
+        attributes = state.attributes
+        if not isinstance(attributes.get(ATTR_FREQUENCY_SELECT), str) and not isinstance(
+            attributes.get(ATTR_FREQUENCY_NUMBER), str
+        ):
+            return NOTHING_DECLARED
+        registry = er.async_get(hass)
+        entry = registry.async_get(receiver_entity_id)
+        settings = declared_settings(registry, state, getattr(entry, "device_id", None))
+        number = settings.get(ATTR_FREQUENCY_NUMBER)
+        if number is not None and not _usable_number(hass, registry, number):
+            if (receiver_entity_id, number) not in _refused:
+                _refused.add((receiver_entity_id, number))
+                _LOGGER.debug(
+                    "%s declares %s as its frequency number, which is disabled "
+                    "or not in MHz, kHz or Hz; ignored", receiver_entity_id, number,
+                )
+            number = None
+        return Declared(
+            select=settings.get(ATTR_FREQUENCY_SELECT),
+            options=tuple(
+                (o["option"], o["hz"]) for o in settings.get(ATTR_FREQUENCY_OPTIONS, [])
+            ),
+            number=number,
+            number_option=settings.get(ATTR_FREQUENCY_NUMBER_OPTION) if number else None,
+        )
+    except Exception:
+        _LOGGER.debug("Could not read %s's declarations", receiver_entity_id, exc_info=True)
+        return NOTHING_DECLARED
+
+
+def _usable_number(hass: HomeAssistant, registry: Any, entity_id: str) -> bool:
+    entry = registry.async_get(entity_id)
+    return (
+        entry is not None
+        and getattr(entry, "disabled_by", None) is None
+        and _unit_factor(hass.states.get(entity_id)) is not None
+    )
+
+
+def _found_number(hass: HomeAssistant, receiver_entity_id: str) -> str | None:
+    """The convention: the one frequency number on the receiver's device."""
     try:
         registry = er.async_get(hass)
         entry = registry.async_get(receiver_entity_id)
@@ -114,6 +221,26 @@ def tuning_number(hass: HomeAssistant, receiver_entity_id: str) -> str | None:
     return found[0] if len(found) == 1 else None
 
 
+def tuning_source(
+    hass: HomeAssistant, receiver_entity_id: str, decl: Declared | None = None
+) -> tuple[str | None, str | None]:
+    """The receiver's tuning number and how HAIR knows it (declared or
+    found), or (None, None)."""
+    decl = declared(hass, receiver_entity_id) if decl is None else decl
+    if decl.number is not None:
+        return decl.number, SOURCE_DECLARED
+    if decl.select is not None:
+        # It declares how it is set, and no number: presets only.
+        return None, None
+    found = _found_number(hass, receiver_entity_id)
+    return (found, SOURCE_FOUND) if found else (None, None)
+
+
+def tuning_number(hass: HomeAssistant, receiver_entity_id: str) -> str | None:
+    """The receiver's tuning number, or None (no device, none, or several)."""
+    return tuning_source(hass, receiver_entity_id)[0]
+
+
 def number_hz(hass: HomeAssistant, number_entity_id: str) -> int | None:
     """The frequency a tuning number holds now, in Hz, or None."""
     state = hass.states.get(number_entity_id)
@@ -126,6 +253,74 @@ def number_hz(hass: HomeAssistant, number_entity_id: str) -> int | None:
         return None
 
 
+# Where a receiver listens now, as ``listening_now`` says it.
+NOW_HZ = "hz"
+NOW_SWEEP = "sweep"
+NOW_UNKNOWN = "unknown"  # there is a way to set it, but no value now
+NOW_NONE = "none"        # nothing says, and nothing sets it
+
+NOW_SOURCE_RECEIVER = "receiver"
+NOW_SOURCE_NUMBER = "number"
+NOW_SOURCE_SELECT = "select"
+
+
+def trusted(receiver_entity_id: str) -> bool:
+    """False in the first ``RF_TUNE_SETTLE_S`` after HAIR set the receiver."""
+    set_at = _last_set.get(receiver_entity_id)
+    return set_at is None or time.monotonic() - set_at >= RF_TUNE_SETTLE_S
+
+
+def _positive_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def listening_now(
+    hass: HomeAssistant,
+    receiver_entity_id: str,
+    decl: Declared | None = None,
+    number: str | None = None,
+) -> tuple[str, int | None, str | None]:
+    """What the receiver says it listens at now, outside an open window:
+    ``(kind, hz, source)``.
+
+    An always-on receiver's declared ``frequency_hz`` first (not while it
+    says it is sweeping); then the
+    select's preset while one is in force (a windowed receiver's next
+    window listens there); then the number's value. A fixed range is
+    not read here (``rf_receive.frequency_of`` and the row read it).
+    """
+    state = hass.states.get(receiver_entity_id)
+    if decl is None:
+        decl = declared(hass, receiver_entity_id, state)
+        number = tuning_source(hass, receiver_entity_id, decl)[0]
+    if (
+        state is not None
+        and not says_capture(state)
+        and state.attributes.get(ATTR_CAPTURE_PHASE) != PHASE_SWEEPING
+    ):
+        hz = state.attributes.get(ATTR_FREQUENCY_HZ)
+        if _positive_int(hz):
+            return NOW_HZ, hz, NOW_SOURCE_RECEIVER
+    if decl.select is not None:
+        select_state = hass.states.get(decl.select)
+        current = getattr(select_state, "state", None)
+        if not (number is not None and current == decl.number_option):
+            options = dict(decl.options)
+            if current in options:
+                hz = options[current]
+                if hz is None:
+                    return NOW_SWEEP, None, NOW_SOURCE_SELECT
+                return NOW_HZ, hz, NOW_SOURCE_SELECT
+            if number is None:
+                return NOW_UNKNOWN, None, None
+    if number is not None:
+        hz = number_hz(hass, number)
+        if hz:
+            return NOW_HZ, hz, NOW_SOURCE_NUMBER
+        return NOW_UNKNOWN, None, None
+    return NOW_NONE, None, None
+
+
 def reading(hass: HomeAssistant, receiver_entity_id: str) -> Reading:
     """What the receiver's tuning number says about a capture arriving now.
 
@@ -133,14 +328,12 @@ def reading(hass: HomeAssistant, receiver_entity_id: str) -> Reading:
     stamped captures before this existed.
     """
     try:
-        number = tuning_number(hass, receiver_entity_id)
-        if number is None:
+        kind, hz, _source = listening_now(hass, receiver_entity_id)
+        if kind == NOW_NONE:
             return NO_TUNING
-        set_at = _last_set.get(receiver_entity_id)
-        if set_at is not None and time.monotonic() - set_at < RF_TUNE_SETTLE_S:
+        if not trusted(receiver_entity_id):
             return UNKNOWN_BAND
-        hz = number_hz(hass, number)
-        return Reading(READING_HZ, hz) if hz else UNKNOWN_BAND
+        return Reading(READING_HZ, hz) if kind == NOW_HZ and hz else UNKNOWN_BAND
     except Exception:
         _LOGGER.debug("Could not read %s's tuning", receiver_entity_id, exc_info=True)
         return NO_TUNING
@@ -269,3 +462,151 @@ async def async_tune(
         "result": TUNE_CONFIRMED if matches() else TUNE_DID_NOT_CHANGE,
         "current_mhz": current,
     }
+
+
+async def _async_pick(
+    hass: HomeAssistant, receiver_entity_id: str, select: str, option: str
+) -> str:
+    """Pick one of the frequency select's options; confirmed or not."""
+
+    def matches() -> bool:
+        return getattr(hass.states.get(select), "state", None) == option
+
+    changed = asyncio.Event()
+
+    @callback
+    def _on_change(_event: Any) -> None:
+        if matches():
+            changed.set()
+
+    unsub = async_track_state_change_event(hass, [select], _on_change)
+    try:
+        _last_set[receiver_entity_id] = time.monotonic()
+        await hass.services.async_call(
+            "select", "select_option",
+            {"entity_id": select, "option": option},
+            blocking=True,
+        )
+        if not matches():
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(changed.wait(), RF_TUNE_CONFIRM_S)
+    finally:
+        unsub()
+    _last_set[receiver_entity_id] = time.monotonic()
+    return TUNE_CONFIRMED if matches() else TUNE_DID_NOT_CHANGE
+
+
+# A value this close to a preset's carrier picks the preset.
+_PRESET_MATCH_HZ = 500
+
+
+def accepted_ranges(
+    hass: HomeAssistant,
+    receiver_entity_id: str,
+    decl: Declared | None = None,
+    number: str | None = None,
+) -> list[tuple[int, int]]:
+    """The values HAIR will set this receiver to, as Hz ranges.
+
+    Its declared ranges when it declares any; otherwise its tuning
+    number's own minimum and maximum (a CC1101 on ESPHome, which can't
+    declare a range from YAML); otherwise none, and nothing is checked
+    (a receiver with nothing to set has no box to type in). Presets are
+    the device's own and are never checked against these.
+    """
+    from .rf_receive import supported_ranges
+
+    ranges = [
+        (int(low), int(high))
+        for low, high in (supported_ranges(hass, receiver_entity_id) or [])
+    ]
+    if ranges:
+        return ranges
+    if decl is None:
+        decl = declared(hass, receiver_entity_id)
+        number = tuning_source(hass, receiver_entity_id, decl)[0]
+    if number is None:
+        return []
+    state = hass.states.get(number)
+    factor = _unit_factor(state)
+    attrs = getattr(state, "attributes", {}) or {}
+    try:
+        low = round(float(attrs["min"]) * factor)
+        high = round(float(attrs["max"]) * factor)
+    except (KeyError, TypeError, ValueError):
+        return []
+    return [(low, high)] if low <= high else []
+
+
+def is_accepted(frequency_hz: int, ranges: list[tuple[int, int]]) -> bool:
+    """Whether a value is inside one of the ranges (no ranges: anything)."""
+    return not ranges or any(low <= frequency_hz <= high for low, high in ranges)
+
+
+async def async_set_frequency(
+    hass: HomeAssistant,
+    receiver_entity_id: str,
+    *,
+    frequency_hz: int | None = None,
+    option: str | None = None,
+) -> dict[str, Any]:
+    """Set where the receiver listens: a value, or a preset by name.
+
+    The one set path for every receiver (see the module docstring). The
+    answer says what it came to, and ``current_mhz`` is where the
+    receiver says it listens afterwards.
+    """
+    decl = declared(hass, receiver_entity_id)
+    number, _source = tuning_source(hass, receiver_entity_id, decl)
+    presets = dict(decl.options)
+    accepts = accepted_ranges(hass, receiver_entity_id, decl, number)
+    if option is not None:
+        if decl.select is None or option not in presets:
+            return _answer(hass, receiver_entity_id, TUNE_CANNOT)
+        if number is not None and option == decl.number_option:
+            # The number's own option isn't a preset: what it holds now
+            # is checked as a typed value would be.
+            held = number_hz(hass, number)
+            if held is not None and not is_accepted(held, accepts):
+                return _not_accepted(hass, receiver_entity_id, accepts)
+        result = await _async_pick(hass, receiver_entity_id, decl.select, option)
+        return _answer(hass, receiver_entity_id, result)
+    if frequency_hz is None:
+        return _answer(hass, receiver_entity_id, TUNE_CANNOT)
+    if decl.select is not None:
+        for name, hz in decl.options:
+            if (
+                hz is not None
+                and name != decl.number_option
+                and abs(hz - frequency_hz) <= _PRESET_MATCH_HZ
+            ):
+                result = await _async_pick(hass, receiver_entity_id, decl.select, name)
+                return _answer(hass, receiver_entity_id, result)
+    if number is None:
+        return _answer(hass, receiver_entity_id, TUNE_CANNOT)
+    if not is_accepted(frequency_hz, accepts):
+        return _not_accepted(hass, receiver_entity_id, accepts)
+    tuned = await async_tune(hass, receiver_entity_id, frequency_hz)
+    result = tuned["result"]
+    if decl.select is not None and decl.number_option is not None:
+        picked = await _async_pick(
+            hass, receiver_entity_id, decl.select, decl.number_option
+        )
+        if picked != TUNE_CONFIRMED:
+            result = picked
+    return _answer(hass, receiver_entity_id, result)
+
+
+def _not_accepted(
+    hass: HomeAssistant, receiver_entity_id: str, accepts: list[tuple[int, int]]
+) -> dict[str, Any]:
+    """A value outside what the receiver accepts: nothing was set."""
+    answer = _answer(hass, receiver_entity_id, TUNE_NOT_ACCEPTED)
+    answer["accepts"] = [[low, high] for low, high in accepts]
+    return answer
+
+
+def _answer(hass: HomeAssistant, receiver_entity_id: str, result: str) -> dict[str, Any]:
+    kind, hz, _source = listening_now(hass, receiver_entity_id)
+    current = round(hz / 1_000_000, 6) if kind == NOW_HZ and hz else None
+    return {"result": result, "current_mhz": current}

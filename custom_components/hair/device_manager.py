@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -27,7 +28,7 @@ from .const import (
 )
 from .device_registry_compat import device_by_identifier
 from .entity_factory import EntityFactory
-from .models import IRCommand, IRDevice, is_rf
+from .models import IRCommand, IRDevice, is_group, is_rf
 from .power_monitor import PowerMonitor
 from .rf_send import SendRefusedError, is_radio_entity
 from .storage import HAIRStore
@@ -152,13 +153,33 @@ AUTO_MAP_RULES: dict[str, str] = {
     "vol down": "volume_down",
     "volume +": "volume_up",
     "volume -": "volume_down",
-    # A media player's Stop. A screen's Stop is ``stop_cover``, which a
-    # one-key-per-name table cannot give it: on a screen this maps to
-    # ``stop``, which the cover does not read (a known gap).
+    # A media player's Stop. On a screen ``auto_map_feature`` turns it
+    # into the cover's own ``stop_cover`` (``_SCREEN_ACTIONS`` below).
     "stop": "stop",
     "fan speed up": "speed_up",
     "fan speed down": "speed_down",
     "oscillation": "oscillate",
+}
+
+
+# The table above gives a name one key for every type, so a few names a
+# screen's remote uses land on another type's action, which the cover
+# does not read (GH #313). On a screen the key is translated to the
+# cover's own after the lookup, so every locale's synonym and the Screen
+# template's "Stop" follow at once. Up is open and Down is close, the
+# shade and blind convention; an awning or a projector screen that runs
+# the other way is one Map action away.
+_SCREEN_ACTIONS: dict[str, str] = {
+    "stop": "stop_cover",
+    "navigate_up": "open_cover",
+    "navigate_down": "close_cover",
+}
+
+# Names that mean Stop only on a screen. French "Arrêt" is Off in the
+# shared table (a TV's power key); on a shade remote it is the stop key.
+_SCREEN_NAMES: dict[str, str] = {
+    "arrêt": "stop_cover",
+    "arret": "stop_cover",
 }
 
 
@@ -167,12 +188,18 @@ def auto_map_feature(name: str, device_type: str | None) -> str | None:
 
     The one lookup behind auto-map: the English rules, then the
     localized synonyms every shipped locale adds (vocabulary.py), then,
-    on an air conditioner, the "Temp 24" pattern. Pure, so a Device's
-    commands (``DeviceManager._auto_map_command``) and a typed Remote's
-    buttons (``remote_state.fill_mapping``, round 2a) map the same name
-    to the same key.
+    on an air conditioner, the "Temp 24" pattern. On a screen, the few
+    keys that belong to another type's action are translated to the
+    cover's own (``_SCREEN_ACTIONS``, ``_SCREEN_NAMES``). Pure, so a
+    Device's commands (``DeviceManager._auto_map_command``) and a typed
+    Remote's buttons (``remote_state.fill_mapping``, round 2a) map the
+    same name to the same key.
     """
     folded = name.casefold()
+    if device_type == DeviceType.SCREEN:
+        own = _SCREEN_NAMES.get(folded.strip())
+        if own is not None:
+            return own
     feature = AUTO_MAP_RULES.get(folded)
     if feature is None:
         feature = localized_auto_map(AUTO_MAP_RULES).get(folded)
@@ -180,7 +207,51 @@ def auto_map_feature(name: str, device_type: str | None) -> str | None:
         match = _TEMP_COMMAND_PATTERN.fullmatch(name.strip())
         if match is not None:
             feature = f"temp_{int(match.group(1))}"
+    if feature is not None and device_type == DeviceType.SCREEN:
+        feature = _SCREEN_ACTIONS.get(feature, feature)
     return feature
+
+
+def heal_screen_stop(store: HAIRStore) -> bool:
+    """Put a screen's Stop on the cover's own action (GH #313). True if
+    anything changed, so the caller saves once.
+
+    Before ``_SCREEN_ACTIONS``, a screen Device's "Stop" command was
+    auto-mapped to ``stop``, which the cover does not read, so the cover
+    had no Stop. Here a Screen Device's ``stop`` key becomes
+    ``stop_cover``, or is dropped when ``stop_cover`` is already mapped
+    (a user who fixed it by hand keeps that). A typed screen Remote never
+    stored the wrong key (its fill keeps only keys the cover tracks), so
+    it lost its Stop button outright: it gets ``stop_cover`` from a
+    button whose name now maps there, when nothing holds that key and
+    the button holds no other. Run at setup, after the localized table
+    is primed; nothing to heal costs one walk and no save.
+    """
+    changed = False
+    for device in store.get_all_devices():
+        if device.device_type != DeviceType.SCREEN:
+            continue
+        mapping = device.entity_config.command_mapping
+        if "stop" not in mapping:
+            continue
+        name = mapping.pop("stop")
+        mapping.setdefault("stop_cover", name)
+        changed = True
+    for remote in store.get_all_trigger_remotes():
+        if remote.device_type != DeviceType.SCREEN or remote.climate_matrix:
+            continue
+        mapping = remote.entity_config.command_mapping
+        if "stop_cover" in mapping:
+            continue
+        held = set(mapping.values())
+        for trigger in store.get_triggers_for_remote(remote.id):
+            if trigger.id in held:
+                continue
+            if auto_map_feature(trigger.name or "", DeviceType.SCREEN) == "stop_cover":
+                mapping["stop_cover"] = trigger.id
+                changed = True
+                break
+    return changed
 
 
 class DeviceManager:
@@ -216,6 +287,13 @@ class DeviceManager:
         # setting the card is already on rather than the one the file
         # listed last. Never read for bytes.
         self._climate_states: dict[str, Callable[[], dict | None]] = {}
+        # When each device's last send stops occupying the air
+        # (monotonic seconds): the blasters ack before they finish
+        # sending, and a grouped command counts its delay from the end.
+        self._air_end: dict[str, float] = {}
+        # Grouped commands running now, as (device id, command id): one
+        # run per group at a time (grouped-signals.md).
+        self._groups_running: set[tuple[str, str]] = set()
 
     # --- The climate entity's current state ------------------------------
 
@@ -614,9 +692,7 @@ class DeviceManager:
             remote.pinned_device_ids = [
                 d for d in remote.pinned_device_ids if d != device_id
             ]
-            remote.follow_only_device_ids = [
-                d for d in remote.follow_only_device_ids if d != device_id
-            ]
+            remote.drop_pin_mode(device_id)
             remote.bindings.pop(device_id, None)
             remote.updated_at = datetime.now(UTC).isoformat()
             self._store.update_trigger_remote(remote)
@@ -684,6 +760,30 @@ class DeviceManager:
         self._store.update_device(device)
         await self._store.async_save()
         await self._entity_factory.async_update_entities(device)
+        return command
+
+    async def async_set_group_steps(
+        self, device_id: str, command_id: str, steps: list[Any]
+    ) -> IRCommand:
+        """Replace a grouped command's steps, checked (``grouped``)."""
+        from .grouped import check_steps
+
+        device = self._store.get_device(device_id)
+        if device is None:
+            raise KeyError(f"Unknown device {device_id}")
+        command = device.get_command(command_id)
+        if command is None or not is_group(command):
+            raise KeyError(f"Unknown grouped command {command_id}")
+        check_steps(self, steps)
+        for step in steps:
+            target = self._store.get_device(step.device_id)
+            row = target.get_command(step.command_id) if target else None
+            if target is not None and row is not None:
+                step.device_name = target.name
+                step.command_name = row.name
+        command.steps = steps
+        self._store.update_device(device)
+        await self._store.async_save()
         return command
 
     async def async_apply_auto_map(
@@ -921,8 +1021,14 @@ class DeviceManager:
         heard_future: Any | None = None,
         pinned: bool = False,
         origin: str | None = None,
-    ) -> None:
+        group_label: str | None = None,
+    ) -> Any:
         """Send a stored IR command via all configured emitters (broadcast).
+
+        A grouped command runs its steps instead (``grouped.py``), each
+        one back through this method, and the run's ``GroupResult`` is
+        returned; every other command returns None. ``group_label`` is
+        the group a step belongs to, for the Mirror's label.
 
         Uses ``homeassistant.components.infrared.async_send_command``
         (HA 2026.4+) which accepts an ``infrared_protocols.Command``
@@ -937,6 +1043,17 @@ class DeviceManager:
         command = device.get_command(command_id)
         if command is None:
             raise KeyError(f"Unknown command {command_id} on device {device_id}")
+
+        # A GROUPED COMMAND sends nothing of its own: its steps go out
+        # through their own devices, so it needs no emitter here.
+        if is_group(command):
+            from .grouped import async_run_group
+            from .send_signal import ORIGIN_MANAGER
+
+            return await async_run_group(
+                self, device, command,
+                pinned=pinned, origin=origin or ORIGIN_MANAGER,
+            )
 
         if not device.emitter_entity_ids:
             raise RuntimeError(f"Device {device_id} has no emitters configured")
@@ -959,8 +1076,9 @@ class DeviceManager:
                 sent=self._sent_for_command(
                     device, command, origin or ORIGIN_MANAGER
                 ),
+                group_label=group_label,
             )
-            return
+            return None
 
         from .ir_command import (
             build_command,
@@ -1090,6 +1208,7 @@ class DeviceManager:
             sent=self._sent_for_command(
                 device, command, origin or ORIGIN_MANAGER
             ),
+            group_label=group_label,
         )
 
         # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
@@ -1124,6 +1243,15 @@ class DeviceManager:
             if advanced:
                 self._store.update_device(device)
                 await self._store.async_save()
+
+    def _note_air_end(self, device_id: str, air_s: float) -> None:
+        """Record when this device's send stops occupying the air."""
+        self._air_end[device_id] = time.monotonic() + max(0.0, air_s)
+
+    def air_left_s(self, device_id: str) -> float:
+        """Seconds until this device's last send is off the air, or 0."""
+        end = self._air_end.get(device_id)
+        return max(0.0, end - time.monotonic()) if end is not None else 0.0
 
     def async_follow_heard(self, sent: Any) -> None:
         """Move a pinned device's entity for a press it was not sent.
@@ -1172,6 +1300,7 @@ class DeviceManager:
         pinned: bool = False,
         sent: Any | None = None,
         command_name: str | None = None,
+        group_label: str | None = None,
     ) -> set[str]:
         """The shared all-emitters transmit path (GH #65 semantics).
 
@@ -1334,11 +1463,7 @@ class DeviceManager:
                 # the panel". The prefix is the channel; ir-mirror.ts
                 # reads it the same way it already reads the test and
                 # fitting prefixes.
-                (
-                    f"Pinned send: {device.name} / {send_name}"
-                    if pinned
-                    else f"{device.name} / {send_name}"
-                ),
+                _mirror_label(device.name, send_name, pinned, group_label),
                 attempt_ids,
                 decoded_fingerprint=decoded_fingerprint,
                 # Passed explicitly: send_count is this method's loop
@@ -1380,6 +1505,9 @@ class DeviceManager:
         from .ir_command import TerminatedCommand
 
         failures: dict[str, str] = {}
+        # How long the last call that went out keeps the air busy after
+        # its ack: a grouped command waits for it before its next step.
+        last_air_s = 0.0
         if send_spacing_ms is None:
             # OLD ROW: today's path, line for line. Frame-outer loop,
             # SEND_REPEAT_GAP between frames, emitters alternating, one
@@ -1401,6 +1529,7 @@ class DeviceManager:
                             timeout=ASSIGN_SERVICE_TIMEOUT_S,
                         )
                         landed.add(emitter_id)
+                        last_air_s = (block_us + TERMINATOR_SPACE_US) / 1_000_000
                     except TimeoutError:
                         failures[emitter_id] = "timed out"
                     except Exception as err:
@@ -1439,6 +1568,7 @@ class DeviceManager:
                             timeout=ASSIGN_SERVICE_TIMEOUT_S,
                         )
                         landed.add(emitter_id)
+                        last_air_s = call.air_s
                     except TimeoutError:
                         failures[emitter_id] = "timed out"
                     except Exception as err:
@@ -1472,6 +1602,7 @@ class DeviceManager:
             self._notify_emitter_degraded(
                 device, {**skipped, **failures}
             )
+        self._note_air_end(device.id, last_air_s)
         # Self-healing: an emitter that answered clears its own
         # notification, so a Broadlink coming back from a power blip
         # tidies up without the user hunting for a dismiss button.
@@ -1495,6 +1626,7 @@ class DeviceManager:
         heard_future: Any | None = None,
         pinned: bool = False,
         sent: Any | None = None,
+        group_label: str | None = None,
     ) -> set[str]:
         """The radio twin of ``_async_broadcast`` (RF send, T1).
 
@@ -1527,11 +1659,7 @@ class DeviceManager:
             monitor.record_send_rf(
                 command,
                 plan,
-                (
-                    f"Pinned send: {device.name} / {send_name}"
-                    if pinned
-                    else f"{device.name} / {send_name}"
-                ),
+                _mirror_label(device.name, send_name, pinned, group_label),
                 heard_future=heard_future,
                 device_name=device.name,
                 command_name=send_name,
@@ -1561,6 +1689,7 @@ class DeviceManager:
                 self._notify_emitter_degraded(
                     device, {**unavailable, **plan.failures}, medium="rf"
                 )
+        self._note_air_end(device.id, plan.air_s)
         for entity_id in plan.landed:
             self._dismiss_emitter_notification(entity_id)
         if sent is not None:
@@ -1862,6 +1991,10 @@ class DeviceManager:
         )
 
     def _auto_map_command(self, device: IRDevice, command: IRCommand) -> None:
+        if is_group(command):
+            # A group never grabs an action by its name; it is mapped by
+            # hand (grouped-signals.md).
+            return
         # The name lookup is ``auto_map_feature``: the English rules, the
         # localized template names (v0.6.8 "French Braid": accepting a
         # localized template stores the localized string as the command
@@ -1945,6 +2078,17 @@ class DeviceManager:
 
     def get_all_devices(self) -> list[IRDevice]:
         return self._store.get_all_devices()
+
+
+def _mirror_label(
+    device_name: str, send_name: str, pinned: bool, group_label: str | None
+) -> str:
+    """The Mirror's label for a send: "<device> / <command>", with the
+    pinned prefix, and the group it ran in when it was a group's step."""
+    label = f"{device_name} / {send_name}"
+    if group_label:
+        label = f"{group_label}: {label}"
+    return f"Pinned send: {label}" if pinned else label
 
 
 def prime_localized_auto_map() -> None:

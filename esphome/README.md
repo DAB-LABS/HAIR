@@ -8,6 +8,7 @@ Curated, HAIR-tested ESPHome configurations for common IR hardware. Each config 
 |---|---|---|---|---|---|---|---|
 | Athom RF IR Remote | esp32dev | minimal | 0.2.0 | 2026.5.2 | 2026.9.1 | DAB-LABS | [athom-rf-ir-remote/](athom-rf-ir-remote/) |
 | Athom RF IR Remote | esp32dev | full | 0.2.0 | 2026.5.2 | 2026.9.1 | DAB-LABS | [athom-rf-ir-remote/](athom-rf-ir-remote/) |
+| ESP32 + CC1101 radio proxy | esp32dev | minimal | 1.3.1 | 2026.11.1 | 2026.11.0 | DAB-LABS | [esp32-cc1101-rf-proxy/](esp32-cc1101-rf-proxy/) |
 | Generic ESP32-C3 dev kit | esp32-c3-devkitm-1 | minimal | 0.1.2 | 2026.5.2 | 2026.9.1 | DAB-LABS | [generic-esp32-c3/](generic-esp32-c3/) |
 | Generic ESP32 doit dev kit | esp32doit-devkit-v1 | minimal | 0.1.2 | 2026.5.2 | 2026.9.1 | DAB-LABS | [generic-esp32-doit/](generic-esp32-doit/) |
 | KinCony KC868-AGv3 | esp32-s3-devkitc-1 | minimal | pending | pending | 2026.9.1 | DAB-LABS | [kincony-kc868-agv3/](kincony-kc868-agv3/) |
@@ -21,6 +22,8 @@ Curated, HAIR-tested ESPHome configurations for common IR hardware. Each config 
 **I have a dev board and want to wire up IR LEDs:** Pick one of the generic configs. The ESP32-C3 and ESP32 doit configs are both DIY paths -- you supply the IR LED (with transistor driver) and IR receiver module.
 
 **I want commercial off-the-shelf with no soldering:** The [Athom RF IR Remote](https://www.athom.tech/) and [XIAO Smart IR Mate](https://www.seeedstudio.com/Seeed-XIAO-Smart-IR-Mate.html) are the easiest paths. Both have IR LED, receiver, and status LED built in. The Athom also has 433 MHz RF hardware. Start with the minimal variant.
+
+**I want a radio receiver that tunes most sub-GHz bands:** The [ESP32 + CC1101 radio proxy](esp32-cc1101-rf-proxy/) is a DIY build of an ESP32 dev board and a CC1101 module. It listens from 300 to 928 MHz (with two gaps) and sends on one frequency you pick. Radio only, no IR.
 
 **I have not bought anything yet:** [Recommended IR hardware](../docs/recommended-hardware.md) compares the boards above and a few more, with prices and where to buy.
 

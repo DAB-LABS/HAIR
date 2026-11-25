@@ -14,7 +14,7 @@ HAIR toggles a switch and reads ``capturing`` from the receiver's state.
 An always-on receiver has neither, so HAIR keeps the window itself. It
 has the same three modes and the same fields as a hardware one
 (``capturing``, ``window_ends_at``, ``capture_mode``, the meanings in
-``docs/windowed-receivers.md``): ``sliding`` moves its end out by its
+``docs/receivers.md``): ``sliding`` moves its end out by its
 length at every code HAIR accepts from the receiver, ``multiple`` keeps
 its end, ``single`` closes after the first accepted code. HAIR holds the
 state, not HA, so the panel reads it from HAIR's doors and its push
@@ -40,6 +40,22 @@ agreeing frames, nearly all of them noise); rows minted; presses that
 reached a known row or a trigger; and new codes dropped because the
 window was closed. Cheap integers, pushed at most once a second, so a
 noisy receiver can be seen being handled.
+
+UNREAD CODES (``UnreadLedger``). A radio code heard inside a window the
+user opened, on any radio receiver, that had a body long enough to be a
+remote's and passed no vote: a rolling code HAIR has no reader for,
+heard as a different code on every press. Nothing is kept of it. The
+receiver's row and push carry ``unread_radio``, how many were heard in
+the current or last window, or 0 when that window also heard a code
+HAIR could read; the panel says "Heard a radio code HAIR can't read
+yet" for a non-zero count. It starts again at 0 when a window opens.
+
+A code that voted but that two family shapes fit (``rf_family``) is one
+HAIR could read but couldn't tell what kind of remote sent it. The row
+and push carry ``ambiguous_radio``, how many of those came since the
+window's last clean code, and the panel asks for the button again. A
+clean code or a new window sets it back to 0. Nothing decides anything
+from it.
 """
 from __future__ import annotations
 
@@ -214,6 +230,76 @@ class SoftwareWindow:
         self.close()
 
 
+class UnreadLedger:
+    """Per receiver: codes heard in the current or last window that HAIR
+    could not read, whether that window also heard one it could, and when
+    that window opened (the panel's key for it)."""
+
+    def __init__(self, wall_now: Callable[[], datetime] | None = None) -> None:
+        self._wall_now = wall_now or (lambda: datetime.now(UTC))
+        # receiver -> [unread, readable, opened_at, ambiguous]
+        self._windows: dict[str, list[Any]] = {}
+
+    def count(self, receiver: str) -> int:
+        record = self._windows.get(receiver)
+        if record is None or record[1]:
+            return 0
+        return record[0]
+
+    def opened_at(self, receiver: str) -> str | None:
+        """When the counted window opened, or None while the count is 0."""
+        if not self.count(receiver):
+            return None
+        return _iso(self._windows[receiver][2])
+
+    def ambiguous(self, receiver: str) -> int:
+        """Codes two family shapes fit since the window's last clean one."""
+        record = self._windows.get(receiver)
+        return 0 if record is None else record[3]
+
+    def fields(self, receiver: str) -> dict[str, Any]:
+        ambiguous = self.ambiguous(receiver)
+        return {
+            "unread_radio": self.count(receiver),
+            "unread_window_opened_at": self.opened_at(receiver),
+            "ambiguous_radio": ambiguous,
+            "ambiguous_window_opened_at": (
+                _iso(self._windows[receiver][2]) if ambiguous else None
+            ),
+        }
+
+    def _state(self, receiver: str) -> tuple[int, int]:
+        return self.count(receiver), self.ambiguous(receiver)
+
+    def opened(self, receiver: str, at: datetime | None = None) -> bool:
+        """A window opened on the receiver. True if its counts changed."""
+        before = self._state(receiver)
+        self._windows[receiver] = [0, False, at or self._wall_now(), 0]
+        return before != (0, 0)
+
+    def _record(self, receiver: str) -> list[Any]:
+        # A window HAIR didn't see open (it was open before HAIR started):
+        # keyed from its first code.
+        return self._windows.setdefault(receiver, [0, False, self._wall_now(), 0])
+
+    def unread(self, receiver: str) -> bool:
+        before = self._state(receiver)
+        self._record(receiver)[0] += 1
+        return self._state(receiver) != before
+
+    def readable(self, receiver: str, *, ambiguous: bool = False) -> bool:
+        """A code HAIR could read. ``ambiguous`` when two family shapes
+        fit it: counted until a clean one comes."""
+        before = self._state(receiver)
+        record = self._record(receiver)
+        record[1] = True
+        record[3] = record[3] + 1 if ambiguous else 0
+        return self._state(receiver) != before
+
+    def forget(self, receiver: str) -> None:
+        self._windows.pop(receiver, None)
+
+
 class RfAlwaysOn:
     """Every always-on receiver HAIR is hearing: windows and counters.
 
@@ -237,6 +323,12 @@ class RfAlwaysOn:
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
         self._dirty: set[str] = set()
         self._push_handle: Any = None
+        # Codes heard in a window that HAIR could not read, for every
+        # radio receiver (windowed ones too); see the module docstring.
+        self.unread = UnreadLedger(self._wall_now)
+        # When each software window last opened, to tell a new window
+        # from a moved end.
+        self._opened_at: dict[str, datetime | None] = {}
         # Debug-only timing over the capture path, for the load number.
         self.time_ns: dict[str, int] = {}
         self._timed: dict[str, int] = {}
@@ -271,6 +363,8 @@ class RfAlwaysOn:
         window.close()
         self._counters.pop(receiver, None)
         self.time_ns.pop(receiver, None)
+        self._opened_at.pop(receiver, None)
+        self.unread.forget(receiver)
         self._dirty.discard(receiver)
         self._send({
             "receiver_entity_id": receiver,
@@ -278,6 +372,10 @@ class RfAlwaysOn:
             "window_ends_at": None,
             "capture_mode": None,
             "counters": None,
+            "unread_radio": 0,
+            "unread_window_opened_at": None,
+            "ambiguous_radio": 0,
+            "ambiguous_window_opened_at": None,
         })
 
     # -- windows ----------------------------------------------------------
@@ -349,6 +447,7 @@ class RfAlwaysOn:
             "receiver_entity_id": receiver,
             **window.state(),
             "counters": self.counters(receiver),
+            **self.unread.fields(receiver),
         }
 
     def _send(self, item: dict[str, Any]) -> None:
@@ -364,7 +463,29 @@ class RfAlwaysOn:
             self._send(self._item(receiver))
 
     def _window_changed(self, receiver: str) -> None:
+        window = self._windows.get(receiver)
+        if window is not None and window.capturing:
+            if window.opened_at != self._opened_at.get(receiver):
+                self.unread.opened(receiver, window.opened_at)
+            self._opened_at[receiver] = window.opened_at
         self._push(receiver)
+
+    def note_unread(
+        self, receiver: str, *, readable: bool, ambiguous: bool = False
+    ) -> None:
+        """A radio code in an open window: one HAIR could read or not,
+        and if it could, whether two family shapes fit it. A software
+        receiver's push goes out when a count changes."""
+        changed = (
+            self.unread.readable(receiver, ambiguous=ambiguous)
+            if readable else self.unread.unread(receiver)
+        )
+        if changed:
+            self._push(receiver)
+
+    def window_opened(self, receiver: str) -> None:
+        """A windowed receiver opened its own window: start again."""
+        self.unread.opened(receiver)
 
     def _schedule_counter_push(self) -> None:
         if self._push_handle is not None or not self._subscribers:
@@ -388,6 +509,8 @@ class RfAlwaysOn:
             window = self._windows.pop(receiver)
             window.close()
         self._counters.clear()
+        self._opened_at.clear()
+        self.unread = UnreadLedger(self._wall_now)
         self._subscribers.clear()
 
 

@@ -498,14 +498,28 @@ def _broadlink_rf_band(token: str) -> str | None:
     enough to be a code, not all hex digits, and a packet whose declared
     payload is all present with only padding after it. A type byte alone
     is not enough; plenty of words decode to a first byte of 0xb2 or 0xd7.
+
+    An RM4 Pro capture is known by its header, not its first byte (which
+    follows the carrier), as the radio reader knows it
+    (``rf_paste.is_rm4_header``), and its band is the carrier it records.
     """
+    from .rf_paste import is_rm4_header
+
     if len(token) < MIN_BASE64_CHARS or _HEX_ONLY.match(token.rstrip("=")):
         return None
     packet = _decode(token)
-    if packet is None or len(packet) < 6 or packet[0] not in _BROADLINK_RF:
+    if packet is None or len(packet) < 6:
+        return None
+    rm4 = is_rm4_header(packet)
+    if not rm4 and packet[0] not in _BROADLINK_RF:
         return None
     if not _whole_packet(packet):
         return None
+    if rm4:
+        khz = int.from_bytes(packet[4:8], "little")
+        # An 0xB1 whose carrier field is not a carrier is 433, as the
+        # radio reader assumes it.
+        return f"{khz / 1000:g} MHz" if 300_000 <= khz <= 950_000 else "433 MHz"
     return _BROADLINK_RF[packet[0]]
 
 

@@ -189,6 +189,64 @@ _RF_INT_FIELDS = frozenset({
 _RF_KNOWN = frozenset({"medium", *RF_ROW_FIELDS, "band"})
 
 
+# A grouped command's protocol (grouped-signals.md). It has no code of
+# its own, and an older build that meets one refuses to send it ("unknown
+# protocol") rather than sending something it does not understand.
+GROUP_PROTOCOL = "GROUP"
+
+
+def is_group(row: Any) -> bool:
+    """Whether a command is a grouped command: steps, no code."""
+    return (
+        getattr(row, "steps", None) is not None
+        or getattr(row, "protocol", None) == GROUP_PROTOCOL
+    )
+
+
+@dataclass
+class GroupStep:
+    """One step of a grouped command: another device's command.
+
+    A REFERENCE, NOT A COPY. The step names a device and a command by
+    id, so a rename or a code edit reaches every group using it, and a
+    deleted command leaves a missing step rather than a frozen code.
+    ``device_name`` and ``command_name`` are only what the step was,
+    for showing a missing one; refreshed whenever the step resolves and
+    never used to send.
+    """
+
+    device_id: str
+    command_id: str
+    # Pause before the next step, counted from the end of this step's
+    # signal. Unused on the last step.
+    delay_ms: int = 500
+    device_name: str = ""
+    command_name: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "device_id": self.device_id,
+            "command_id": self.command_id,
+            "delay_ms": self.delay_ms,
+            "device_name": self.device_name,
+            "command_name": self.command_name,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GroupStep:
+        try:
+            delay = int(data.get("delay_ms", 500))
+        except (TypeError, ValueError):
+            delay = 500
+        return cls(
+            device_id=str(data.get("device_id") or ""),
+            command_id=str(data.get("command_id") or ""),
+            delay_ms=delay,
+            device_name=str(data.get("device_name") or ""),
+            command_name=str(data.get("command_name") or ""),
+        )
+
+
 def is_rf(row: Any) -> bool:
     """Whether a row (command, signal, capture, trigger) is radio."""
     return getattr(row, "medium", MEDIUM_IR) == MEDIUM_RF
@@ -367,6 +425,8 @@ _KNOWN_COMMAND = frozenset({
     "tx_force_raw",
     "plucked_command_name", "matrix_cell", "sent_state", "comb_suspect",
     "comb_finding", "created_at",
+    # A grouped command's steps (grouped-signals.md).
+    "steps",
     # DERIVED, listed so from_dict drops it (GH #144). to_dict computes
     # the copyable form of the code on every write; a stale one riding
     # back in through _extra would describe a code this row no longer
@@ -417,7 +477,13 @@ def clone_command(
         if isinstance(value, dict):
             value = dict(value)
         elif isinstance(value, list):
-            value = list(value)
+            # A grouped command's steps are records of their own: a copy
+            # that shared them would edit the original's steps.
+            value = [
+                GroupStep.from_dict(item.to_dict())
+                if isinstance(item, GroupStep) else item
+                for item in value
+            ]
         setattr(fresh, key, value)
     # A newer build's fields ride the copy too (0.10.1 item 2); dropping
     # them here would make duplicating a device the same quiet data loss
@@ -550,6 +616,12 @@ class IRCommand:
     # actually found rather than a generic "suspect" -- the comb knows,
     # so the row should say (bench 2026-08-03).
     comb_finding: str | None = None
+    # A GROUPED COMMAND (grouped-signals.md): other commands, from any
+    # device, sent in order with a delay between them. Set only on a
+    # grouped command, which has protocol GROUP_PROTOCOL and no code;
+    # None on every other row, and never written for one. ``is_group``
+    # is the one test.
+    steps: list[GroupStep] | None = None
     created_at: str = field(default_factory=_now_iso)
     # Radio rows (RF hear, round 1): see RF_ROW_FIELDS. Infrared rows
     # leave every one of these at its default and never write them.
@@ -616,6 +688,12 @@ class IRCommand:
             if self.sent_state else None,
             "comb_suspect": self.comb_suspect,
             "comb_finding": self.comb_finding,
+            # Written only on a grouped command, so every other row's
+            # record stays byte-identical to what it was.
+            **(
+                {"steps": [step.to_dict() for step in self.steps]}
+                if self.steps is not None else {}
+            ),
             "created_at": self.created_at,
             **_rf_out(self),
         }, self._extra)
@@ -652,6 +730,11 @@ class IRCommand:
             sent_state=data.get("sent_state") or None,
             comb_suspect=bool(data.get("comb_suspect", False)),
             comb_finding=data.get("comb_finding") or None,
+            steps=(
+                [GroupStep.from_dict(item) for item in data["steps"]
+                 if isinstance(item, dict)]
+                if isinstance(data.get("steps"), list) else None
+            ),
             created_at=data.get("created_at") or _now_iso(),
             **_rf_in(data),
         ), data, _KNOWN_COMMAND)
@@ -805,15 +888,27 @@ def is_on_off_entity(entity_id: str | None) -> bool:
     return entity_id.split(".", 1)[0] in ON_OFF_DOMAINS
 
 
-# The settle window's default and ceilings, in seconds (0.17.2). The
+# The settle window's defaults and ceilings, in seconds (0.17.2). A
 # default is a ceiling on the wait, not the wait: the monitor ends a
 # window early as soon as the source agrees with the send. A power
 # plug reports within seconds; a presence or network sensor can take
 # minutes to notice a device switched off, so an on/off source may wait
-# longer.
+# longer, and by default does: at the end of its window an on/off
+# source that still disagrees wins (power_monitor.py), so the window
+# must outlast the source's lag. 180 s is Home Assistant's default
+# consider_home for a router tracker.
 DEFAULT_POWER_SETTLE_S = 20.0
+DEFAULT_ON_OFF_SETTLE_S = 180.0
 MAX_POWER_SETTLE_S = 120.0
 MAX_ON_OFF_SETTLE_S = 600.0
+
+
+def default_power_settle_s(sensor_entity_id: str | None) -> float:
+    """The settle time a Device or Remote with this state source gets
+    while it has no value of its own."""
+    if is_on_off_entity(sensor_entity_id):
+        return DEFAULT_ON_OFF_SETTLE_S
+    return DEFAULT_POWER_SETTLE_S
 
 
 def max_power_settle_s(sensor_entity_id: str | None) -> float:
@@ -836,13 +931,15 @@ def _settle_or_none(value: Any, sensor_entity_id: str | None) -> float | None:
     return float(value)
 
 
-def power_settle_seconds(device: IRDevice) -> float:
-    """The settle window a device gets after a send, in seconds.
+def power_settle_seconds(device: IRDevice | TriggerRemote) -> float:
+    """The settle window a Device gets after a send, or a typed Remote
+    after a heard power press, in seconds.
 
-    The one place a stored None becomes the default. 0 means none.
+    The one place a stored None becomes the default, which depends on
+    the source (``default_power_settle_s``). 0 means none.
     """
     if device.power_settle_s is None:
-        return DEFAULT_POWER_SETTLE_S
+        return default_power_settle_s(device.power_sensor_entity_id)
     return float(device.power_settle_s)
 
 
@@ -898,8 +995,9 @@ class IRDevice:
     power_on_above_w: float | None = None
     # Seconds after a HAIR send during which the power sensor cannot
     # overrule the entity (the settle window, 0.17.2). None is the
-    # default, read as DEFAULT_POWER_SETTLE_S, and is what every device
-    # stored before this field existed carries: those are the devices
+    # default, read as ``default_power_settle_s`` for the source, and
+    # is what every device stored before this field existed carries:
+    # those are the devices
     # that flickered, so they get the window without a store rewrite.
     # 0 is the opt-out and means no window at all. Never read None as
     # 0; use ``power_settle_seconds`` below.
@@ -1106,7 +1204,7 @@ class IRDevice:
             ),
             _extra=dict(self.entity_config._extra),
         )
-        return IRDevice(
+        clone = IRDevice(
             name=new_name,
             device_type=self.device_type,
             manufacturer=self.manufacturer,
@@ -1138,6 +1236,19 @@ class IRDevice:
             # (0.10.1 item 2).
             _extra=dict(self._extra),
         )
+        # A grouped command's steps that pointed at this device's own
+        # commands point at the copies; steps on other devices stay.
+        copies = {
+            old.id: new.id
+            for old, new in zip(self.commands, cloned_commands, strict=True)
+        }
+        for command in cloned_commands:
+            for step in command.steps or ():
+                if step.device_id == self.id and step.command_id in copies:
+                    step.device_id = clone.id
+                    step.command_id = copies[step.command_id]
+                    step.device_name = new_name
+        return clone
 
     def reorder_commands(self, command_ids: list[str]) -> None:
         """Reorder ``self.commands`` to match the given ID list.
@@ -1600,6 +1711,11 @@ _KNOWN_REMOTE = frozenset({
     "device_type", "entity_config",
     # Toggle power piece 2 (GH #183).
     "follow_only_device_ids",
+    # Track only (GH #294).
+    "track_only_device_ids",
+    # A typed Remote's state source.
+    "power_sensor_entity_id", "power_off_below_w", "power_on_above_w",
+    "power_settle_s",
 })
 
 
@@ -1677,6 +1793,17 @@ class TriggerRemote:
     # device``). A subset of ``pinned_device_ids``: unpin and delete
     # drop an id from both.
     follow_only_device_ids: list[str] = field(default_factory=list)
+    # PINS THAT TRACK ONLY (GH #294). A pinned device in this list is
+    # sent nothing: it hears this remote itself, so every press, power
+    # and the rest, is followed (its entity moves as the send would have
+    # moved it) and nothing goes to the air. A pin's mode is read as:
+    # here, Track only; else in ``follow_only_device_ids``, every press
+    # but Power; else every press. A device is never in both: the door
+    # writes the two lists together, and load drops a device from the
+    # follow list when it is here too, so Track only wins. Set only by
+    # the user; a new pin never starts in it. A subset of
+    # ``pinned_device_ids``: unpin and delete drop an id from all three.
+    track_only_device_ids: list[str] = field(default_factory=list)
     # THE HEAR-SIDE LATTICE (signpost 4, Track M). The exact mirror of
     # IRDevice.climate_matrix, and a boolean for the same reason: the
     # matrix itself lives in its own file at
@@ -1712,6 +1839,16 @@ class TriggerRemote:
     # makes a rename free. Kept when the type is cleared, so setting
     # it back restores the mapping.
     entity_config: EntityConfig = field(default_factory=EntityConfig)
+    # A TYPED REMOTE'S STATE SOURCE: the Device's four fields under the
+    # Device's names and with the Device's meaning (a power sensor with
+    # its two thresholds, or an on/off entity, and the settle window).
+    # Read only while the Remote's type can show power
+    # (``remote_state.remote_power_eligible``); kept when the type is
+    # cleared, as the mapping is. Never copied to or from a Device.
+    power_sensor_entity_id: str | None = None
+    power_off_below_w: float | None = None
+    power_on_above_w: float | None = None
+    power_settle_s: float | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     # Keys this parser did not consume, written back last so a newer
@@ -1726,12 +1863,22 @@ class TriggerRemote:
         # stores exactly what it stored before.
         if self.follow_only_device_ids:
             out["follow_only_device_ids"] = list(self.follow_only_device_ids)
+        # The same for Track only (GH #294).
+        if self.track_only_device_ids:
+            out["track_only_device_ids"] = list(self.track_only_device_ids)
         # Omitted while unset, so an untyped Remote stores exactly what
         # it stored before round 2a.
         if self.device_type is not None:
             out["device_type"] = self.device_type
         if self.device_type is not None or self.entity_config.command_mapping:
             out["entity_config"] = self.entity_config.to_dict()
+        # Omitted while no source is set, so a Remote without one stores
+        # exactly what it stored before.
+        if self.power_sensor_entity_id:
+            out["power_sensor_entity_id"] = self.power_sensor_entity_id
+            out["power_off_below_w"] = self.power_off_below_w
+            out["power_on_above_w"] = self.power_on_above_w
+            out["power_settle_s"] = self.power_settle_s
         return _with_extra(out, self._extra)
 
     def _base_dict(self) -> dict[str, Any]:
@@ -1754,8 +1901,51 @@ class TriggerRemote:
             "updated_at": self.updated_at,
         }
 
+    def pin_mode(self, device_id: str) -> str:
+        """What this remote does with its presses for one pinned device:
+        ``track`` (send nothing), ``except_power`` (send all but the
+        power toggle) or ``send``. Track only wins over the follow list."""
+        from .const import PIN_MODE_EXCEPT_POWER, PIN_MODE_SEND, PIN_MODE_TRACK
+
+        if device_id in self.track_only_device_ids:
+            return PIN_MODE_TRACK
+        if device_id in self.follow_only_device_ids:
+            return PIN_MODE_EXCEPT_POWER
+        return PIN_MODE_SEND
+
+    def set_pin_mode(self, device_id: str, mode: str) -> bool:
+        """Write one pin's mode to both lists together, so a device is
+        never in both. True when anything changed."""
+        from .const import PIN_MODE_EXCEPT_POWER, PIN_MODE_TRACK
+
+        before = self.pin_mode(device_id)
+        self.track_only_device_ids = [
+            d for d in self.track_only_device_ids if d != device_id
+        ]
+        self.follow_only_device_ids = [
+            d for d in self.follow_only_device_ids if d != device_id
+        ]
+        if mode == PIN_MODE_TRACK:
+            self.track_only_device_ids.append(device_id)
+        elif mode == PIN_MODE_EXCEPT_POWER:
+            self.follow_only_device_ids.append(device_id)
+        return before != mode
+
+    def drop_pin_mode(self, device_id: str) -> None:
+        """Forget how a pin behaves: it goes with the pin."""
+        self.track_only_device_ids = [
+            d for d in self.track_only_device_ids if d != device_id
+        ]
+        self.follow_only_device_ids = [
+            d for d in self.follow_only_device_ids if d != device_id
+        ]
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TriggerRemote:
+        track_only = [
+            str(d) for d in (data.get("track_only_device_ids") or [])
+            if isinstance(d, str)
+        ]
         return _carry_extra(cls(
             id=data.get("id") or _new_id(),
             name=data.get("name", ""),
@@ -1770,8 +1960,11 @@ class TriggerRemote:
             # 2: every pin relays, as it always did.
             follow_only_device_ids=[
                 str(d) for d in (data.get("follow_only_device_ids") or [])
-                if isinstance(d, str)
+                if isinstance(d, str) and d not in track_only
             ],
+            # Absent on every remote written before Track only (GH #294):
+            # no pin tracks only. Track only wins over the follow list.
+            track_only_device_ids=track_only,
             # Absent on every remote written before signpost 4, and on
             # any remote pinned during signpost 3's dark period --
             # both resolve to {} and are filled by the load-time
@@ -1802,6 +1995,15 @@ class TriggerRemote:
                 EntityConfig.from_dict(ec)
                 if isinstance(ec := data.get("entity_config"), dict)
                 else EntityConfig()
+            ),
+            # Absent on every Remote written before a Remote could have
+            # a state source: none, read the way a Device's is.
+            power_sensor_entity_id=data.get("power_sensor_entity_id") or None,
+            power_off_below_w=data.get("power_off_below_w"),
+            power_on_above_w=data.get("power_on_above_w"),
+            power_settle_s=_settle_or_none(
+                data.get("power_settle_s"),
+                data.get("power_sensor_entity_id") or None,
             ),
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
@@ -1857,6 +2059,11 @@ class TriggerRemote:
             # (ws_duplicate_trigger_remote).
             device_type=self.device_type,
             entity_config=EntityConfig.from_dict(self.entity_config.to_dict()),
+            # Its state source too, as a Device's duplicate keeps its.
+            power_sensor_entity_id=self.power_sensor_entity_id,
+            power_off_below_w=self.power_off_below_w,
+            power_on_above_w=self.power_on_above_w,
+            power_settle_s=self.power_settle_s,
             # Whatever a newer build knew and this one does not
             # (0.10.1 item 2). Same argument as climate_matrix: it is
             # part of what this remote IS.

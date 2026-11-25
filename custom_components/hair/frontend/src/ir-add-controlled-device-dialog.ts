@@ -84,15 +84,12 @@
  * this dialog opens in drop mode the source is already resolved to a
  * real WigPickRow, not a raw File.
  *
- * Note this dialog's `_isMatrixSource` gate now covers a real case:
- * ir-wig-picker.ts's own `_pick()` refuses to select a matrix row
- * (matrix wigs are Adopt-only, never Closet-tab-pickable), so before
- * drop mode existed the Closet tab could never actually reach a
- * matrix `_pickedWig` -- this getter's `_activeTab === "closet"` half
- * was future-proofing with no live path to it. Drop mode is that
- * path: `dropSource` is assigned programmatically (the caller already
- * resolved the wig via the funnel), bypassing the picker's own click
- * restriction, so a matrix wig CAN arrive here now.
+ * A matrix wig reaches this dialog by either door: the Closet tab,
+ * whose picker this dialog opens with `allowMatrix` (the picker used to
+ * refuse matrix rows outright), or drop mode, whose
+ * `dropSource` is assigned programmatically. Both lock the Type to
+ * `ac` and preview the matrix's state count, and Create rides the same
+ * `wigMakeDevice()` that ADOPT DEVICE on the Closet card uses.
  *
  * Actually catching a file drop, running it through the funnel, and
  * opening this dialog with `.dropSource` set is Track 2 item 3 / Track
@@ -550,16 +547,19 @@ export class IrAddControlledDeviceDialog extends LitElement {
                     .api=${this.api}
                     .value=${this._pickedWig?.id ?? null}
                     ?disabled=${this._busy}
+                    allowMatrix
                     @wig-picked=${this._onWigPicked}
                 ></ir-wig-picker>
             </div>
 
             <div class="dlg-preview-line ${this._pickedWig ? "" : "none"}">
                 ${this._pickedWig
-                    ? html`${t("adddc.preview_creates", {
-                          count: String(this._pickedWig.signalCount),
-                          name: this._pickedWig.label,
-                      })}`
+                    ? html`${this._pickedWig.wig?.matrix
+                          ? this._matrixPreview(this._pickedWig)
+                          : t("adddc.preview_creates", {
+                                count: String(this._pickedWig.signalCount),
+                                name: this._pickedWig.label,
+                            })}`
                     : t("adddc.preview_select_source")}
             </div>
         `;
@@ -649,13 +649,24 @@ export class IrAddControlledDeviceDialog extends LitElement {
      *  it, so word order still varies safely per locale. No tab row, no
      *  picker; the header wrapping this now comes from
      *  _renderSourceSectionShell(), not this method. */
+    /** What a matrix wig creates: an AC device and its states (the
+     *  cells), since its flat signal count is usually 0. */
+    private _matrixPreview(wig: WigPickRow): string {
+        return t("adddc.preview_creates_matrix", {
+            name: wig.label,
+            states: tp("wigs.states", wig.wig?.matrix?.cells ?? 0),
+        });
+    }
+
     private _renderDropSourceBody() {
         const wig = this._effectiveWig;
         if (!wig) return html``;
-        const text = t("adddc.preview_dropped", {
-            name: wig.label,
-            count: String(wig.signalCount),
-        });
+        const text = wig.wig?.matrix
+            ? this._matrixPreview(wig)
+            : t("adddc.preview_dropped", {
+                  name: wig.label,
+                  count: String(wig.signalCount),
+              });
         const idx = text.indexOf(wig.label);
         return html`
             <div class="dlg-preview-line">

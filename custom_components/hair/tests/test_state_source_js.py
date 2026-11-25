@@ -33,8 +33,10 @@ toolchain = pytest.mark.skipif(
 
 DRIVER = """
 import {
+    DEFAULT_ON_OFF_SETTLE_S, DEFAULT_POWER_SETTLE_S,
     MAX_ON_OFF_SETTLE_S, MAX_POWER_SETTLE_S, TRACKER_SETTLE_PRESET_S,
-    filterSourceGroups, isOnOffEntity, settleCapFor, settleOnPick,
+    filterSourceGroups, isOnOffEntity, settleCapFor, settleDefaultFor,
+    settleOnPick,
     stateSourceCandidates, stateSourcePatch,
 } from "./state-source.js";
 
@@ -118,6 +120,29 @@ for (const [id, field] of [
 ]) {
     picks[`${id} ${field}`] = settleOnPick(id, field);
 }
+const picksFrom = {};
+for (const [previous, id, field] of [
+    ["sensor.tv_plug_power", "input_boolean.tv_on", "20"],
+    ["sensor.tv_plug_power", "binary_sensor.tv_on", "45"],
+    ["sensor.tv_plug_power", "switch.amp_plug", ""],
+    ["input_boolean.tv_on", "sensor.tv_plug_power", "180"],
+    ["input_boolean.tv_on", "binary_sensor.tv_on", "180"],
+    ["input_boolean.tv_on", "sensor.tv_plug_power", "300"],
+    ["input_boolean.tv_on", "sensor.tv_plug_power", "60"],
+    ["binary_sensor.tv_on", "device_tracker.living_room_tv", "180"],
+    ["device_tracker.living_room_tv", "binary_sensor.tv_on", "300"],
+    ["", "binary_sensor.tv_on", "20"],
+]) {
+    picksFrom[`${previous} > ${id} ${field}`] = settleOnPick(id, field, previous);
+}
+const defaults = {};
+for (const id of [
+    "sensor.tv_plug_power", "binary_sensor.tv_on", "switch.amp_plug",
+    "input_boolean.tv_on", "device_tracker.living_room_tv", "",
+]) {
+    defaults[id] = settleDefaultFor(id);
+}
+defaults["null"] = settleDefaultFor(null);
 const all = stateSourceCandidates(states, entities, null);
 const search = {};
 for (const [query, current] of [
@@ -135,9 +160,11 @@ const twins = ids(stateSourceCandidates({
 const settle = {
     power: MAX_POWER_SETTLE_S, onOff: MAX_ON_OFF_SETTLE_S,
     preset: TRACKER_SETTLE_PRESET_S,
+    defaultPower: DEFAULT_POWER_SETTLE_S, defaultOnOff: DEFAULT_ON_OFF_SETTLE_S,
 };
 console.log(JSON.stringify({
-    groups, kinds, patches, caps, picks, settle, search, same, twins,
+    groups, kinds, patches, caps, picks, picksFrom, defaults, settle,
+    search, same, twins,
 }));
 """
 
@@ -163,6 +190,11 @@ def run(tmp_path_factory):
 
 
 def _dialog() -> str:
+    """The Power section every settings dialog shares."""
+    return (SRC / "ir-power-source-section.ts").read_text(encoding="utf-8")
+
+
+def _device_dialog() -> str:
     return (SRC / "ir-device-settings-dialog.ts").read_text(encoding="utf-8")
 
 
@@ -175,7 +207,7 @@ def _panel() -> str:
 def _power_section() -> str:
     text = _dialog()
     body = text[text.index("private _renderPowerSection()"):]
-    return body[: body.index("private _renderSpeedCycleSection()")]
+    return body[: body.index("private _renderSourceField")]
 
 
 POWER = ["sensor.amp_watts", "sensor.heater_kw", "sensor.tv_plug_power"]
@@ -353,12 +385,55 @@ class TestTheSettleTime:
         assert picks["binary_sensor.tv_on 300"] == "300"
         assert picks["binary_sensor.tv_on 600"] == "600"
         assert picks["binary_sensor.tv_on 900"] == "600"
-        assert picks["switch.amp_plug 20"] == "20"
+        # 20 is the default of no source, so it becomes the on/off one.
+        assert picks["switch.amp_plug 20"] == "180"
         assert picks["sensor.tv_plug_power 300"] == "120"
         assert picks["sensor.tv_plug_power 120"] == "120"
         assert picks["sensor.tv_plug_power 20"] == "20"
         assert picks["sensor.tv_plug_power "] == ""
         assert picks["sensor.tv_plug_power 0"] == "0"
+
+
+    def test_the_defaults_match_the_backend(self, run):
+        from custom_components.hair.models import (
+            DEFAULT_ON_OFF_SETTLE_S,
+            DEFAULT_POWER_SETTLE_S,
+        )
+
+        assert run["settle"]["defaultPower"] == DEFAULT_POWER_SETTLE_S == 20
+        assert run["settle"]["defaultOnOff"] == DEFAULT_ON_OFF_SETTLE_S == 180
+
+    def test_the_default_follows_the_source(self, run):
+        assert run["defaults"] == {
+            "sensor.tv_plug_power": 20,
+            "binary_sensor.tv_on": 180,
+            "switch.amp_plug": 180,
+            "input_boolean.tv_on": 180,
+            "device_tracker.living_room_tv": 180,
+            "": 20,
+            "null": 20,
+        }
+
+    def test_a_field_on_the_old_default_takes_the_new_one(self, run):
+        picks = run["picksFrom"]
+        assert picks["sensor.tv_plug_power > input_boolean.tv_on 20"] == "180"
+        assert picks["input_boolean.tv_on > sensor.tv_plug_power 180"] == "20"
+        assert picks["input_boolean.tv_on > binary_sensor.tv_on 180"] == "180"
+        assert picks[" > binary_sensor.tv_on 20"] == "180"
+
+    def test_a_value_somebody_typed_is_kept(self, run):
+        picks = run["picksFrom"]
+        assert picks["sensor.tv_plug_power > binary_sensor.tv_on 45"] == "45"
+        assert picks["input_boolean.tv_on > sensor.tv_plug_power 60"] == "60"
+        # Kept, but brought under the new source's cap.
+        assert picks["input_boolean.tv_on > sensor.tv_plug_power 300"] == "120"
+        # An empty field stays empty: it saves as the default.
+        assert picks["sensor.tv_plug_power > switch.amp_plug "] == ""
+
+    def test_a_tracker_still_presets_300(self, run):
+        picks = run["picksFrom"]
+        assert picks["binary_sensor.tv_on > device_tracker.living_room_tv 180"] == "300"
+        assert picks["device_tracker.living_room_tv > binary_sensor.tv_on 300"] == "300"
 
 
 class TestTheDialog:
@@ -428,11 +503,12 @@ class TestTheDialog:
         assert '"devsettings.onoff_explainer"' in section
         assert '"devsettings.power_explainer"' in section
         assert '"devsettings.settle_help_onoff"' in section
+        assert '"devsettings.settle_help_onoff_remote"' in section
         assert '"devsettings.settle_help"' in section
 
     def test_validation_skips_the_thresholds_for_an_on_off_source(self):
         text = _dialog()
-        body = text[text.index("private get _validationError()"):]
+        body = text[text.index("get validationError()"):]
         body = body[: body.index("\n    }\n")]
         assert "if (isOnOffEntity(this._sensorChoice)) return null;" in body
 
@@ -443,14 +519,22 @@ class TestTheDialog:
         pick = text[text.index("private _pickSource"):]
         pick = pick[: pick.index("\n    }\n")]
         assert "this._sensorChoice = entityId;" in pick
-        assert "settleOnPick(entityId, this._settle)" in pick
+        assert "const previous = this._sensorChoice;" in pick
+        assert "settleOnPick(entityId, this._settle, previous)" in pick
         save = text[text.index("private _settleForSave"):]
         save = save[: save.index("\n    }\n")]
         assert "settleCapFor(this._sensorChoice)" in save
+        assert "value === settleDefaultFor(this._sensorChoice)" in save
+        assert "DEFAULT_SETTLE_S" not in text
+        assert "String(settleDefaultFor(source.power_sensor_entity_id))" in text
         assert "max=${settleCapFor(this._sensorChoice)}" in _power_section()
 
     def test_the_save_uses_the_shared_patch(self):
         text = _dialog()
-        body = text[text.index("private async _save"):]
+        body = text[text.index("patch(): PowerSource"):]
         body = body[: body.index("\n    }\n")]
         assert "stateSourcePatch(" in body
+        save = _device_dialog()
+        save = save[save.index("private async _save"):]
+        save = save[: save.index("\n    }\n")]
+        assert "Object.assign(patch, this._power.patch());" in save

@@ -48,6 +48,25 @@ SEND_REPEAT_GAP = 0.1
 # wig reader); the editor reads them off the payload rather than hardcoding.
 SEND_SPACING_MIN_MS = 20
 SEND_SPACING_MAX_MS = 1000
+
+# --- Grouped signals ----------------------------------------------------------
+# A grouped command runs other commands in order with a delay between
+# them (grouped-signals.md). The delay is counted from the END of the
+# previous step's signal, not its start: the blasters accept a code
+# before they finish sending it, and a long frame or a burst of Send
+# times can stay on the air for up to SEND_AIR_TIME_MAX_MS after that.
+# The floor is the quiet the transmit gate already leaves between two
+# blasters (EMITTER_STAGGER_GAP_S), which also covers the pipeline
+# wobble the bench measured and keeps two steps' Mirror echoes apart.
+GROUP_DELAY_MIN_MS = 300
+GROUP_DELAY_MAX_MS = 60_000
+# A new step starts at the floor, with its minus greyed, so the row
+# shows it can only go bigger.
+GROUP_DELAY_DEFAULT_MS = 300
+GROUP_MAX_STEPS = 20
+# Delays plus each step's air time. Stops a typo turning a button into a
+# ten-minute job; a button press waits for the whole run.
+GROUP_RUN_MAX_MS = 120_000
 # Floor for the silence inserted between blocks. A spacing shorter than the
 # block itself cannot be honoured -- the code is simply longer than the
 # number -- so the blocks go out back to back separated by this much and
@@ -179,7 +198,10 @@ SIGNAL_MAX_SIGNALS_PER_DEVICE = 200
 SIGNAL_MAX_TOTAL_SIGNALS = 20000
 SIGNAL_EVICT_AGE_DAYS = 30
 SIGNAL_EVICT_MIN_HITS = 5
-SIGNAL_CLUSTER_THRESHOLD = 3
+# How many presses a sniffed remote needs before the Sniffer lists its
+# card. One: a code only reaches the catalog through a capture window (or
+# matches a row already there), so the first press is the user's own.
+SIGNAL_CLUSTER_THRESHOLD = 1
 SIGNAL_REPEAT_SUPPRESS_MS = 300
 SIGNAL_SAVE_DEBOUNCE_S = 30
 SIGNAL_SAVE_MAX_DELAY_S = 300
@@ -459,6 +481,14 @@ PINNED_ECHO_GUARD_S = 1.0
 PINNED_LOOP_WINDOW_S = 20.0
 PINNED_LOOP_MAX_SENDS = 20
 PINNED_LOOP_COOLDOWN_S = 60.0
+
+# What a pinned remote does with a press it hears, per pinned device
+# (GH #294; GH #183 for except Power). Stored as two lists on the remote
+# (``TriggerRemote.pin_mode``), named here for the door and the panel.
+PIN_MODE_SEND = "send"
+PIN_MODE_EXCEPT_POWER = "except_power"
+PIN_MODE_TRACK = "track"
+PIN_MODES = (PIN_MODE_SEND, PIN_MODE_EXCEPT_POWER, PIN_MODE_TRACK)
 # TOGGLE POWER ON (GH #183). A matrix device whose power code toggles is
 # turned on with two sends: the power code, then the wanted cell. The
 # power code is a full state frame of its own (orthobots' DAIKIN64 file
@@ -555,6 +585,11 @@ RF_MIN_FRAMES = 2
 # within a burst; no fixed-code remote's body comes near this. Known rows
 # are not affected: a match counts and fires whatever its length.
 RF_MIN_BODY_EDGES = 8
+# A radio code that passed no vote counts as "heard, can't read" only when
+# its body has at least this many edges: a rolling code's word is long
+# (KeeLoq's 66 bits are 132), and the receiver noise that sometimes
+# clears the floor above stays well short of this.
+RF_UNREAD_MIN_EDGES = 48
 # The inter-frame gap stored for a code whose gap was never seen inside a
 # capture. PROVISIONAL: long enough for every fixed-code family the plan
 # lists (a longer gap is accepted where a shorter one is not); the send

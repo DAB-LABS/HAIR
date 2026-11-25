@@ -43,6 +43,15 @@ export const DEEP_GREEN = "#2e7d32";
  *  Remote and trigger origin. */
 export const HAIR_GOLD = "#f5a623";
 
+/** The settings dialogs' one accent, on the edges of a card only: the
+ *  open card's outline, its action buttons and the focus ring; inside,
+ *  the cards use the panel's neutral colours. Home Assistant's blue on
+ *  a dark theme; a deeper blue on a light one, where the lighter blue
+ *  is too faint to read on white. settings-section-styles.ts applies
+ *  them. */
+export const SECTION_ACCENT_DARK = "#03a9f4";
+export const SECTION_ACCENT_LIGHT = "#0277bd";
+
 /** The S/L diamonds (owner, 2026-11-15 13:53 PT): long in HA's primary
  *  colour, short in its warning colour, as the infrared rows have always
  *  drawn them. Radio uses the same two for now; a radio variant later is

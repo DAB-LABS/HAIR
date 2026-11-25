@@ -1,0 +1,163 @@
+schema_version: "0.7"
+protocol_id: DAIKIN64
+aliases:
+  - "Daikin 64-bit single frame (power button toggles)"
+  - "FTV20AXV14 (GH #183); DGS01 remote, FFN-C/FCN-F series, FTWX35AXV1"
+status: draft
+
+frame:
+  total_bits: 64
+  frames_per_command: 1
+  frame_layout: [64]
+  payload_frame: 0
+  setting_frames: [0]
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [4600, 2500]
+  bit0_us: {mark: 365, space: 365}
+  bit1_us: {mark: 365, space: 944}
+  carrier_hz: 38000
+  bits_tolerance: 0
+  header_tolerance_us: 700
+  identity_bytes: [[0, 0, 0x16]]
+  timing:
+    classify: space
+    unit_mark_us:    {nominal: 365, min: 170, max: 700}
+    space_zero_us:   {nominal: 365, min: 250, max: 650}
+    space_one_us:    {nominal: 944, min: 651, max: 1300}
+    header_mark_us:  {nominal: 4600, min: 3000, max: 6000}
+    header_space_us: {nominal: 2500, min: 1500, max: 3500}
+    # Between the 2500 header space and the 9800 leader space, low
+    # enough for a leader space a receiver brings back at 0.7. Each
+    # leader pair (9800 / 9800, sent twice) then closes an empty frame,
+    # which the reader drops, and the 20300 space after the last bit
+    # closes the one frame that carries bits.
+    frame_gap_us:    {min: 6000}
+
+integrity:
+  - type: nibble_sum
+    description: >
+      The high nibble of byte 7 is the sum of the fifteen nibbles before it
+      (bits 0 to 59), mod 16.
+    params:
+      frame: 0
+      target_byte: 7
+      bits: high_nibble
+      offset: 0
+      nibbles: [[0, low], [0, high], [1, low], [1, high], [2, low], [2, high],
+                [3, low], [3, high], [4, low], [4, high], [5, low], [5, high],
+                [6, low], [6, high], [7, low]]
+    verified_on: "271/271 codes of the GH #183 file (100%), and the published known-good
+                  state 0x7C16161607204216."
+    confidence: ratified
+
+fields:
+  - name: mode
+    frame: 0
+    byte: 1
+    bits: low_nibble
+    encoding: "4-bit one-hot enum."
+    encoding_ref:
+      name: enum_nibble
+      params: {vocabulary: {dry: 0x1, cool: 0x2, fan_only: 0x4, fan: 0x4, heat: 0x8}}
+    confidence: provisional
+    vocabulary: {dry: 0x1, cool: 0x2, fan_only: 0x4, fan: 0x4, heat: 0x8}
+    vocabulary_notes:
+      heat: "Published value; the GH #183 file has no heat mode, so unverified here."
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: varies, fan: forced}
+      fan_only: {temp: invariant, fan: forced, sentinel: 0x30}
+    agreement:
+      pass: 270
+      checked: 270
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  - name: fan_speed
+    frame: 0
+    byte: 1
+    bits: high_nibble
+    encoding: "4-bit enum."
+    encoding_ref:
+      name: enum_nibble
+      params: {vocabulary: {auto: 0x1, quiet: 0x9, low: 0x8, medium: 0x4, med: 0x4,
+                            high: 0x2, turbo: 0x3}}
+    confidence: provisional
+    vocabulary: {auto: 0x1, quiet: 0x9, low: 0x8, medium: 0x4, med: 0x4, high: 0x2,
+                 turbo: 0x3}
+    agreement:
+      pass: 90
+      checked: 90
+      rate: "100.00% in cool; dry is forced to auto; fan_only pairs the labels (see notes)"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  - name: temperature
+    frame: 0
+    byte: 6
+    bits: full_byte
+    encoding: "BCD degrees Celsius, 16 to 30."
+    encoding_ref:
+      name: enum_byte
+      params:
+        vocabulary: {16: 0x16, 17: 0x17, 18: 0x18, 19: 0x19, 20: 0x20, 21: 0x21,
+                     22: 0x22, 23: 0x23, 24: 0x24, 25: 0x25, 26: 0x26, 27: 0x27,
+                     28: 0x28, 29: 0x29, 30: 0x30}
+    confidence: provisional
+    domain: "T in 16..30 C"
+    agreement:
+      pass: 180
+      checked: 180
+      rate: "100.00% in cool and dry"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  # Schema v0.7: a role field is read beside the state, never as part of
+  # it. A handset sets this bit on the Power press and nowhere else; the
+  # rest of that frame is the state the unit is in.
+  - name: power_toggle
+    role: power_toggle
+    frame: 0
+    byte: 7
+    bits: "mask:0x08"
+    encoding: "1 on the press of the Power button, which toggles the unit."
+    encoding_ref:
+      name: bitflag
+      params: {true_values: ["on"]}
+    confidence: provisional
+
+synthesis:
+  template: [[0x16, 0x12, 0x00, 0x00, 0x54, 0x23, 0x24, 0x07]]
+  fixture_coordinates:
+    mode: [cool, dry, fan_only]
+    fan: [auto, quiet, low, medium, high, turbo]
+    temp: [16, 20, 24, 30]
+
+derivation:
+  files_used:
+    - {repo: "GH #183", file: Daikin.json, md5: bfdcda8c874702f8500ffa7c6fad8cdd,
+       manufacturer: Daikin, models: ["FTV20AXV14"]}
+  external_sources:
+    - "IRremoteESP8266 ir_Daikin.h / ir_Daikin.cpp, Daikin64 (its issue 1064), LGPL-2.1:
+       layout, timing and checksum taken as facts; no code."
+  open_questions:
+    - "Swing (byte 7 bit 0) and sleep (bit 1) are set in every code of the one file, so
+       nothing can check them. They are NOT fields: as fields they would join the state
+       key, and a handset with swing off would then match no cell of a file that only
+       ever sends swing on. Map them when a capture shows them moving."
+    - "Byte 7 bit 2 is set in every code and in the published known-good state; meaning
+       unknown."
+    - "fan_only stores six labels as three codes: auto and medium are 0x4, quiet and low
+       are 0x8, high and turbo are 0x2. Whether the unit has six speeds in fan_only is a
+       handset question; the comb will name the pairs."
+    - "Timing windows are measured on Broadlink-quantised file codes, widened for the
+       receiver skew in research doc 22. A handset capture over the air is the check."
+  notes:
+    - "Bytes 2 and 3 are the handset clock (BCD minutes, hours) and bytes 4 and 5 its
+       on and off timers. No field reads them, so they never enter a key: the file's own
+       codes carry 18:xx to 20:xx clocks, and a handset sends the time of the press."
+    - "There is no on/off state in the frame. The file's off code is cool / auto / 16
+       with the power bit set and nothing else changed (16 12 13 18 54 23 16 BF)."

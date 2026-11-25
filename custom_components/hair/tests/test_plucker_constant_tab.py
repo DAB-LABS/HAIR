@@ -193,13 +193,14 @@ class TestTheEmptyCard:
         assert "ha-alert" not in card
         assert "alert-type" not in card
 
-    def test_the_add_remote_dialog_says_the_same_thing(self):
-        """Same question, same answer, same helper -- answering 'nothing
-        found' two ways would be two chances to drift. The dialog asks
-        for its own variant, which is the only difference."""
-        dialog = _read("ir-pluck-add-remote-dialog.ts")
-        assert 'pluckEmptyBlocks(this._pluckSources, t, "dialog")' in dialog
-        assert 'class="empty-source-name"' in dialog
+    def test_the_add_remote_dialog_is_gone(self):
+        """1.4.1: the Plucker shows its ghosts instead of an Add Blaster
+        dialog, so the dialog and its toolbar button are gone, and the
+        empty card is the only place that answers 'nothing found'."""
+        assert not (SRC / "ir-pluck-add-remote-dialog.ts").exists()
+        body = _read("ir-pluck.ts")
+        assert "ir-pluck-add-remote-dialog" not in body
+        assert "pluck.add_blaster" not in body
 
     def test_the_blocks_follow_the_plans_rule(self):
         """ready anywhere -> silent; loaded -> its own body; not loaded
@@ -284,7 +285,7 @@ class TestTheOwnersCopy:
             assert key not in locale, f"{name}.json still carries {key}"
 
     def test_nothing_still_renders_a_dead_key(self):
-        for name in ("ir-pluck.ts", "ir-pluck-add-remote-dialog.ts"):
+        for name in ("ir-pluck.ts", "pluck-ghosts.ts"):
             source = _read(name)
             for key in DEAD_KEYS:
                 assert key not in source, f"{name} still renders {key}"

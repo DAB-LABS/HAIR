@@ -32,7 +32,7 @@ The Devices tab lists yours under Receivers.
 **Capture device.** A receiver that hears only while a capture window is
 open, for a few seconds at a time, such as a Broadlink with BroadSniff
 installed. Any integration can make its receiver one (see
-[Windowed receivers](windowed-receivers.md)). The Devices tab marks it
+[Receivers](receivers.md)). The Devices tab marks it
 RX-CAPTURE: click the chip to listen, or its arrow to choose which switch
 opens the window.
 
@@ -95,6 +95,14 @@ them live. Also where a remote built from your installed code library lands.
 **Plucker.** Pull codes that already live inside a vendor blaster into HAIR,
 without re-learning each one at a receiver. Nothing is broadcast over the air
 during a pluck.
+
+**Plucker ghost.** A faded tile on the Plucker tab, the Add tile's look, for
+something that could still be plucked. A store ghost is one appliance in a
+learned-code store: click it and it becomes a remote at the top of the list. A
+blaster that pulls codes by name has its own ghost: click it, type the
+appliance and a command, and its first code makes the remote. A ghost with no
+plus can't be plucked and says why. Delete a plucked remote and its ghost comes
+back.
 
 **Closet.** Your shelf of portable code sets. Holds both the code library that
 ships with Home Assistant's infrared library and your own files, organized by
@@ -171,6 +179,11 @@ A count dot on the button says how many you have already made from that set.
 actions in a Device's or Remote's settings that build the matching other half:
 a Device can build the Remote for its own handset, and a Remote the Device its
 handset controls. HAIR then offers to pin the two together.
+
+**Grouped signal.** A command on a Device that sends other commands, from any
+device, in order, with a delay before each one. Added with **+ Grouped
+Signals** on the Device's page; it gets a button and an action like any other
+command.
 
 **Duplicate.** Copy a Device, commands and emitter assignments included, so you
 only have to rename the clone.
@@ -353,6 +366,11 @@ ever runs away, HAIR cuts that one pairing for a minute and writes a warning
 naming the Remote, the Device, and the command; the handset's triggers keep
 firing throughout.
 
+**Track only.** A pin's third choice, in the Device's settings beside **Send
+every press** and **Send every press except Power**. HAIR sends nothing and
+only moves the Device's state to match each press, for a device that hears the
+handset itself.
+
 **Echo.** Home Assistant hearing its own transmissions. If your house has both
 a blaster and a transceiver, your receivers hear what your emitters send. HAIR
 identifies these, routes them to the Mirror, and never lets them fire
@@ -374,8 +392,11 @@ above the higher one; an on/off entity counts as on when it is on or home and
 off when it is off or not_home. A reading that says on or off overrides what
 HAIR assumed from the last command sent, so a device switched off with its
 original remote stops claiming to be on. After each HAIR send the sensor waits out a settle time
-(20 seconds by default, 0 for none) before it can overrule the command, so
-a plug that has not reported the new draw yet cannot flip the device back.
+(20 seconds by default, 180 for a new on/off entity, 0 for none) before it can
+overrule the command, so a plug that has not reported the new draw yet cannot
+flip the device back. An on/off entity that still disagrees when the settle
+time ends wins. A typed Remote that is a media player, fan, light or switch can
+have its own power sensor, set in the Remote's settings.
 
 **Room sensors.** On a state-matrix climate Device, a temperature sensor, a
 humidity sensor, or both, shown live under the thermostat card. Display only.

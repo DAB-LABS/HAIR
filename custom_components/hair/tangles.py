@@ -265,7 +265,11 @@ def project_device(
     tangle listing reads exactly the bytes a Save to Closet would write.
     Porthole rows are dropped first (see the module docstring).
     """
-    flat = [c for c in device.commands if not is_porthole(c)]
+    from .models import is_group
+
+    flat = [
+        c for c in device.commands if not is_porthole(c) and not is_group(c)
+    ]
     build = build_wig_from_device(replace(device, commands=flat), matrix)
     if build.wig is None:
         return None, {}
@@ -1496,7 +1500,9 @@ def record_holders(device: IRDevice, matrix: ClimateMatrix | None) -> list:
             (PowerHolder(matrix, key) for key in POWER_KEYS)
             if holder.pronto
         ]
-    return holders + list(device.commands)
+    from .models import is_group
+
+    return holders + [c for c in device.commands if not is_group(c)]
 
 
 def target_is_gone(kind: str, key: str) -> str:

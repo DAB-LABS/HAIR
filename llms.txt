@@ -34,7 +34,13 @@ Key components:
   the remote's chip family (EV1527, PT2262, HT12E, HT6P20 or KeeLoq) when HAIR
   recognizes it; an unrecognized radio code shows no pill. A receiver that can
   be retuned (a CC1101) shows where it listens on its Sniffer pill and can be
-  retuned there; codes it hears are filed at that frequency. Radio codes send
+  retuned there; codes it hears are filed at that frequency. Since 1.4.0 HAIR
+  sets only a frequency the receiver accepts: its declared ranges, else its
+  tuning number's own limits (rf_tune.accepted_ranges); anything else is
+  refused with the ranges it does take. A KeeLoq or Somfy RTS press is filed by
+  its fixed part (remote and button), so each button can be a trigger, and a
+  window that heard a code HAIR could not read says so (unread_radio on the
+  receiver's row). Radio codes send
   through any radio_frequency transmitter, such as a Broadlink RM pro or RM4 pro
   or an ESPHome radio transmitter. HAIR never sends a rolling code: a KeeLoq or
   Somfy RTS code is kept but cannot become a device command. The sniffed catalog is capped (200 signals per
@@ -77,8 +83,15 @@ Key components:
   that can replay a stored code by name through a caller-chosen emitter; Tuya Local
   (send_learned_ir_command) is the first. New vendors are added as a single YAML
   file in custom_components/hair/pluckable/ with no HAIR code changes, validated
-  against a versioned schema. The Plucker tab and a Blasters (Pluckable) section on
-  the Devices page appear only when a compatible blaster is configured. Requires HA
+  against a versioned schema. The Plucker tab shows its plucked remotes first and,
+  under them, a faded ghost tile for everything it could still pluck: one per
+  un-plucked appliance (sub-device) of a learned-code store, plucked with a click and
+  landing at the top as a remote; one per blaster that replays by name, which opens
+  in place to Appliance and Command fields and becomes a remote with its first code
+  (a failed command creates nothing); and a disabled ghost, with its reason, for a
+  store that can't be read, one with nothing in it, or an appliance with only radio
+  codes. There is no separate add step. A Blasters (Pluckable) section on the
+  Devices page appears only when a compatible blaster is configured. Requires HA
   2026.6+, where the infrared platform exports InfraredEmitterEntity. Plucked
   signals share the same catalog as sniffed and clipped ones, distinguished by the
   source field.
@@ -548,6 +561,10 @@ Key components:
   breaker additionally cuts a single pairing for one minute and logs
   the Remote, Device and command if a pairing ever does run away,
   leaving the Remote's triggers firing throughout.
+  Each pin has a mode (since 1.4.0): send every press, send every press
+  except Power, or track only. Track only sends nothing and moves the
+  Device's state through the same mapping, for a device that hears the
+  handset itself.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
   commands. Assigning a sniffed or pasted signal copies it into the device as a
@@ -556,7 +573,10 @@ Key components:
   remove a signal. A device command can be renamed (its action mappings follow the
   new name) and given a send count so HAIR transmits the whole command more than once
   per press for a device that needs a repeat. The editor edits the command copy, not
-  the catalog signal it came from.
+  the catalog signal it came from. A grouped signal (since 1.4.0) is a command
+  that sends other commands, from any device, in order, with a delay of at least
+  300 ms before each, counted from the end of the previous one; it maps and
+  tests like any command and stays out of wig exports and Save to Closet.
 - Entity Factory: automatically creates native HA entities based on device type --
   media_player, climate, fan, light, switch, cover, plus a universal remote entity
   for raw Pronto hex sending and a button entity for every learned command.
@@ -582,7 +602,12 @@ Key components:
   id) gets a state entity hair_remote_<id>_<platform>, a subclass of the Device
   platform's entity (RemoteStateMixin) that applies its own presses
   (SIGNAL_REMOTE_PRESSED from _fire_trigger) with the Device rules and sends no IR.
-  The Device's state and the Remote's are never synced.
+  The Device's state and the Remote's are never synced. Since 1.4.0 a typed
+  media_player, fan, light or switch Remote can carry its own power source, as a
+  Device can; after a handset Power press the source waits the settle time
+  before it can overrule the press. With an on/off source, a Device or Remote
+  the source still disagrees with at the end of the settle time follows the
+  source; a new on/off source waits 180 seconds by default.
   Location-aware (v0.5.7): the fire payload also carries receiver_entity_id plus
   receiver_area_id and receiver_area_name, resolved from the entity/device/area
   registry chain at fire time (so area renames and device moves need no migration).
@@ -834,7 +859,7 @@ Receiver architecture:
   is open, such as a Broadlink RM through BroadSniff (DAB-LABS/broadsniff).
   Any integration marks its infrared receiver as one through state
   attributes: capturing (required), capture_switch, window_ends_at and
-  capture_mode. The contract is docs/windowed-receivers.md, and
+  capture_mode. The contract is docs/receivers.md, and
   receiver_window.py is all HAIR knows of it; no integration is named in
   code. HAIR toggles only a switch on the receiver's own device or one the
   user chose, and a declared capture_switch is final. hair/receivers/capture
@@ -893,7 +918,9 @@ Receiver architecture:
   config carries a machine-readable header (device, GPIO map, tested versions,
   contributor) for easy discovery. Two-tier convention per device: minimal
   (just the IR pieces) and full (preserves device-specific features like touch
-  pads and status LEDs).
+  pads and status LEDs). Radio: esp32-cc1101-rf-proxy is a DIY ESP32 + CC1101
+  build that receives from 300 to 928 MHz (with the chip's gaps), retuned from
+  its Listen frequency number, and transmits on one fixed frequency.
 
 ## Releases
 
@@ -905,4 +932,4 @@ Receiver architecture:
 - [DAB-LABS](https://github.com/DAB-LABS): Other open-source Home Assistant and
   homelab projects by the same author, including SMART Sniffer (disk health
   monitoring) and esphome-ld2411s (mmWave presence sensor component).
-The Plucker also reads learned-code stores other integrations persist in Home Assistant storage (Broadlink, Tuya Local, OpenIRBlaster; pluckable mechanism: storage), importing named commands read-only, with canonical re-encode where codes decode.
+The Plucker also reads learned-code stores other integrations persist in Home Assistant storage (Broadlink, Tuya Local, OpenIRBlaster; pluckable mechanism: storage), importing named commands read-only, with canonical re-encode where codes decode. Each appliance in a store is plucked on its own, as its own remote; a deleted remote's ghost comes back, and plucking it again is safe.

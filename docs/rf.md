@@ -2,12 +2,13 @@
 
 Home Assistant 2026.11 adds a radio frequency platform beside the infrared one. HAIR listens to every radio receiver on it, the same way it listens to infrared receivers. Press a button on a radio remote, such as a keyfob, a ceiling fan remote, a plug's handset or a doorbell, and the code shows up in the Sniffer as a row of its own. From there it works like any other code: give it an alias, assign it to a device, or make it a trigger.
 
-This page covers what HAIR hears, which receivers work, and what to expect from different kinds of radio remote. [Windowed receivers](windowed-receivers.md) is the contract for integration authors.
+This page covers what HAIR hears, which receivers work, and what to expect from different kinds of radio remote. [Receivers](receivers.md) is the contract for integration authors.
 
 ## What you need
 
 - **A Broadlink RM pro or RM4 pro** with [BroadSniff](https://github.com/DAB-LABS/broadsniff) 0.3.0 or later installed beside it, on Home Assistant 2026.11 or later. BroadSniff gives the Broadlink a radio receiver that is a capture device: it hears while a capture window is open.
 - **An ESPHome radio receiver**, such as the Athom RF IR Remote in [`esphome/`](../esphome/), on Home Assistant 2026.12; ESPHome 2026.5 or later has the receiver side. It is an always-on receiver: it hears all the time.
+  - **A receiver that tunes:** the [ESP32 + CC1101 radio proxy](../esphome/esp32-cc1101-rf-proxy/) listens anywhere from 300 to 348, 387 to 464 and 779 to 928 MHz (ASK/OOK), set from its Listen frequency, which HAIR shows on the receiver's pill. An RX attenuation select turns it down so it hears only nearby remotes. It sends on one fixed frequency, set in its YAML. It was tested with one module, matched for 433 MHz, at 433.92 and 303.875 MHz, and it heard 315; other bands depend on the module and antenna. It hears rolling codes like any other receiver, and HAIR never sends them.
 - **To send, a radio transmitter:** a Broadlink RM pro or RM4 pro through Home Assistant's Broadlink integration, or an ESPHome radio transmitter such as the same Athom puck, on Home Assistant 2026.11 or later.
 
 On older Home Assistant releases, HAIR runs as before, with no radio. HAIR picks up a new receiver on its own; there is nothing to turn on.
@@ -71,6 +72,7 @@ A radio row sends the way an infrared one does: assign it to a device and press 
 - **A refused Test** says so at the bottom of the panel, naming the transmitter and the band, and the row keeps its Test button.
 - **How many times a press is sent.** A remote repeats its code several times for each press, and a receiver often needs more than one of them. A new radio command starts from the number of repeats HAIR heard in one press, from 2 to 10, or 4 when the press was not measured. Send times in the code's editor changes it.
 - **The Mirror** shows each radio send with the band it went out on.
+- **Rolling codes are never sent.** HAIR keeps a KeeLoq or Somfy RTS code, and it can be a trigger, but a saved rolling code won't work a second time, so HAIR never sends one.
 
 A send is bounded: HAIR never holds the air for more than 3 seconds, and never repeats a send on its own. Transmit power and the band rules where you live are the hardware's and yours.
 

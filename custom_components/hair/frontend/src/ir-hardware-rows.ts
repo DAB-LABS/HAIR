@@ -46,7 +46,8 @@ export interface CapabilityRow {
     entity_id: string;
     available: boolean;
     /** A radio or infrared receiver whose window is pressed open on the
-     *  Sniffer (a capture device). Only the card icon reads it. */
+     *  Sniffer (a capture device). The card icon and the row's own
+     *  badge read it. */
     capture_device: boolean;
     fact: RowFact;
 }

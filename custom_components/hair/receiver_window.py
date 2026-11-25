@@ -7,7 +7,7 @@ card and the code editor's Listen. This module is everything HAIR knows
 about such receivers, and it knows no integration by name: a receiver
 says it is a capture device through its own state attributes, and any
 integration can say so. The published contract is
-``docs/windowed-receivers.md``; the attribute names are chosen to map
+``docs/receivers.md``; the attribute names are chosen to map
 onto a capture feature on HA core's infrared receiver if core adopts
 one, and the contract will follow core if it does.
 
@@ -86,10 +86,16 @@ ATTR_FREQUENCY_SELECT = "frequency_select"
 ATTR_WINDOW_LENGTH = "window_length"
 ATTR_CAPTURE_MODE_SELECT = "capture_mode_select"
 ATTR_FREQUENCY_OPTIONS = "frequency_options"
+# Optional, on any radio receiver: a number on its own device that sets
+# any carrier, and the frequency select's option that number feeds (the
+# select's other options are presets).
+ATTR_FREQUENCY_NUMBER = "frequency_number"
+ATTR_FREQUENCY_NUMBER_OPTION = "frequency_number_option"
 SWEEP = "sweep"
 # The domain each declared setting must be in.
 SETTING_DOMAINS = {
     ATTR_FREQUENCY_SELECT: "select",
+    ATTR_FREQUENCY_NUMBER: "number",
     ATTR_WINDOW_LENGTH: "number",
     ATTR_CAPTURE_MODE_SELECT: "select",
 }
@@ -414,6 +420,9 @@ def _clean_settings(settings: Any) -> dict[str, Any]:
         value = settings.get(key)
         if isinstance(value, str) and value:
             out[key] = value
+    option = settings.get(ATTR_FREQUENCY_NUMBER_OPTION)
+    if ATTR_FREQUENCY_NUMBER in out and isinstance(option, str) and option:
+        out[ATTR_FREQUENCY_NUMBER_OPTION] = option
     options = settings.get(ATTR_FREQUENCY_OPTIONS)
     if ATTR_FREQUENCY_SELECT in out and isinstance(options, list):
         kept = [
@@ -435,8 +444,10 @@ def declared_settings(
 
     Each must name an entity on the receiver's own device, in its
     domain (a select for the frequency and the mode, a number for the
-    length), the rule ``capture_switch`` follows. The frequency options
-    count only beside a valid frequency select.
+    length and the frequency number), the rule ``capture_switch``
+    follows. The frequency options count only beside a valid frequency
+    select, and the number's option only when it names one of them
+    beside a valid frequency number.
     """
     if state is None or not device_id:
         return {}
@@ -452,6 +463,13 @@ def declared_settings(
         options = frequency_options(state.attributes.get(ATTR_FREQUENCY_OPTIONS))
         if options:
             out[ATTR_FREQUENCY_OPTIONS] = options
+    option = state.attributes.get(ATTR_FREQUENCY_NUMBER_OPTION)
+    if (
+        ATTR_FREQUENCY_NUMBER in out
+        and isinstance(option, str)
+        and any(o["option"] == option for o in out.get(ATTR_FREQUENCY_OPTIONS, []))
+    ):
+        out[ATTR_FREQUENCY_NUMBER_OPTION] = option
     return out
 
 
@@ -657,6 +675,7 @@ def capture_receivers(
             settings = store.settings(found.entry_id) if store is not None else {}
         phase = attributes.get(ATTR_CAPTURE_PHASE)
         frequency_hz = attributes.get(ATTR_FREQUENCY_HZ)
+        unread = _unread(hass, receiver)
         rows.append({
             "receiver_entity_id": receiver,
             "name": _name(hass, found.device_id, receiver),
@@ -690,6 +709,10 @@ def capture_receivers(
             **_settings_row(settings),
             "window_seconds": None,
             "window_mode": None,
+            "unread_radio": unread["unread_radio"],
+            "unread_window_opened_at": unread["unread_window_opened_at"],
+            "ambiguous_radio": unread["ambiguous_radio"],
+            "ambiguous_window_opened_at": unread["ambiguous_window_opened_at"],
         })
     rows.extend(_software_rows(hass, store))
     if include_always_on:
@@ -737,8 +760,29 @@ def _always_on_rows(hass: HomeAssistant, receivers: list[str]) -> list[dict[str,
             **_settings_row({}),
             "window_seconds": None,
             "window_mode": None,
+            **_NO_UNREAD,
         })
     return rows
+
+
+_NO_UNREAD: dict[str, Any] = {
+    "unread_radio": 0,
+    "unread_window_opened_at": None,
+    "ambiguous_radio": 0,
+    "ambiguous_window_opened_at": None,
+}
+
+
+def _unread(hass: HomeAssistant, receiver: str) -> dict[str, Any]:
+    """How many radio codes HAIR couldn't read in the receiver's current
+    or last window, and when that window opened
+    (``rf_window.UnreadLedger``). Infrared rows carry 0."""
+    from .rf_window import rf_always_on
+
+    always_on = rf_always_on(hass)
+    if always_on is None or not receiver.startswith("radio_frequency."):
+        return dict(_NO_UNREAD)
+    return always_on.unread.fields(receiver)
 
 
 def _software_rows(
@@ -787,6 +831,7 @@ def _software_rows(
             **_settings_row({}),
             "window_seconds": seconds,
             "window_mode": mode,
+            **always_on.unread.fields(receiver),
         })
     return rows
 

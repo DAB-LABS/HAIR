@@ -9,11 +9,34 @@
  *
  * Plucked blasters are never dismissed or evicted; the refresh model is
  * delete-and-recreate, so there is no Show Dismissed / Promote machinery.
+ *
+ * GHOSTS, NOT A DIALOG (1.4.1). There is no Add Blaster step. Under the plucked remotes the tab
+ * shows a ghost for everything it could still pluck, built by
+ * pluck-ghosts.ts: one per un-plucked sub-device of a learned-code
+ * store, one tweezer ghost per blaster that replays by name, and a
+ * disabled ghost, with its reason, for what can never pluck. A ghost is
+ * the Devices page add tile (ghost-tile-styles.ts, the same sheet),
+ * dimmer at rest, and the whole tile is the click:
+ *   - a store ghost plucks that sub-device on click, and the new remote
+ *     takes the top of the list;
+ *   - a tweezer ghost opens in place to Appliance and Command; Pluck or
+ *     Enter runs it, and only a code that came back makes a remote, so
+ *     a failed first pluck leaves nothing behind. The ghost stays for
+ *     the next appliance.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
 import { toolbarStyles } from "./ir-toolbar-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { popoverStyles } from "./ir-popover-styles.js";
+import { ghostTileStyles } from "./ghost-tile-styles.js";
+import { BOTTOM_TOAST_MS, bottomToastStyles } from "./bottom-toast-styles.js";
+import {
+    buildGhosts,
+    idsToTop,
+    landingSentence,
+    tweezerRemoteName,
+    type PluckGhost,
+} from "./pluck-ghosts.js";
 import { mediaFor, unknownKind } from "./media-kind.js";
 import type { Medium } from "./types.js";
 import { customElement, property, state } from "./decorators.js";
@@ -28,10 +51,9 @@ import {
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
-import { HairApi, pluckEmptyBlocks } from "./api.js";
+import { HairApi, canPluckByName, pluckEmptyBlocks } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
-import "./ir-pluck-add-remote-dialog.js";
 import "./ir-pluck-signal-dialog.js";
 import "./ir-promote-dialog.js";
 import "./ir-promote-remote-dialog.js";
@@ -51,6 +73,7 @@ import type {
     AssignResult,
     DeviceSummary,
     IRDevice,
+    LearnedStore,
     IRTrigger,
     LinkedEntry,
     PluckSource,
@@ -68,6 +91,13 @@ import { singleOppositeLink } from "./ir-pin-link-match.js";
 // Tweezers (SVG Repo, scaled to a 24x24 box), the Plucker / HAIR Tweezer motif.
 const ICON_PLUCK =
     "M0.861,24c-0.22,0-0.441-0.084-0.609-0.252c-0.336-0.336-0.336-0.882,0-1.218l1.563-1.563c1.648-1.649,3.474-4.166,5.588-7.082c2.984-4.116,6.367-8.781,10.695-13.109c0.081-0.081,0.178-0.145,0.284-0.189l1.283-0.523c0.441-0.18,0.943,0.032,1.123,0.472l-0.472,1.123L19.194,2.116c-4.175,4.199-7.478,8.755-10.397,12.78c-0.275,0.379-0.545,0.752-0.811,1.117c0.365-0.266,0.738-0.536,1.117-0.811C13.128,12.284,17.685,8.98,21.884,4.806l0.457-1.121L23.464,3.212c0.44,0.18,0.652,0.682,0.472,1.123l-0.523,1.283c-0.043,0.106-0.107,0.203-0.188,0.284c-4.329,4.329-8.994,7.711-13.109,10.695c-2.915,2.114-5.433,3.939-7.082,5.588l-1.563,1.563C1.302,23.916,1.082,24,0.861,24z";
+// Tray with an arrow into it (moved from the retired Add Blaster
+// dialog): a store ghost, codes coming out of a file and into HAIR.
+const ICON_TRAY_DOWN =
+    "M2,12H4V17H20V12H22V17A2,2 0 0,1 20,19H4A2,2 0 0,1 2,17V12M12,15L17,10H14V3H10V10H7L12,15Z";
+// MDI alert-circle: a ghost that can't pluck, and says why.
+const ICON_ALERT =
+    "M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 12,2Z";
 const ICON_CLOSE =
     "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z";
 const ICON_GRIP =
@@ -104,8 +134,22 @@ export class IrPluck extends LitElement {
     @state() private _editingDeviceId: string | null = null;
     @state() private _editLabel = "";
 
+    // Ghosts (1.4.1). The stores and vendors are what they are drawn
+    // from; the rest is per-ghost state, keyed by PluckGhost.key.
+    @state() private _stores: LearnedStore[] = [];
+    @state() private _vendors: PluckVendor[] = [];
+    @state() private _ghostBusy: string | null = null;
+    @state() private _ghostErrors: Record<string, string> = {};
+    @state() private _openTweezer: string | null = null;
+    @state() private _twAppliance = "";
+    @state() private _twCommand = "";
+    @state() private _toast: string | null = null;
+    private _toastTimer: number | null = null;
+    // The Devices tab's "open in Plucker" names a blaster once; it is
+    // acted on when the ghosts first arrive, then forgotten.
+    private _pendingHandled = "";
+
     // Dialog state
-    @state() private _createRemoteOpen = false;
     @state() private _promoteTarget: UnknownDeviceSummary | null = null;
     // USE fork (signpost 3, Track 3 item 1): the Plucker entry point.
     // No matrix-clip signpost on this surface (plucked rows never
@@ -194,6 +238,7 @@ export class IrPluck extends LitElement {
         this._signalsSortableContainer = null;
         if (this._pendingRemotesSave !== null) clearTimeout(this._pendingRemotesSave);
         if (this._pendingSignalsSave !== null) clearTimeout(this._pendingSignalsSave);
+        if (this._toastTimer !== null) clearTimeout(this._toastTimer);
     }
 
     protected updated(changed: PropertyValues): void {
@@ -204,6 +249,7 @@ export class IrPluck extends LitElement {
             input?.select();
         }
         this._syncSortables();
+        this._consumePending();
     }
 
     private _syncSortables(): void {
@@ -345,6 +391,8 @@ export class IrPluck extends LitElement {
             this._hairDevices = hairDevs;
             this._triggers = triggers;
             this._vendorIntegration = this._mapIntegrations(vendors.vendors);
+            this._vendors = vendors.vendors;
+            this._stores = learned.stores ?? [];
             this._pluckSources = learned.sources ?? [];
             this._error = null;
             this.api
@@ -382,30 +430,197 @@ export class IrPluck extends LitElement {
         }
     }
 
-    // --- Add Remote / Pluck Signal ---
+    // --- Ghosts (1.4.1) ---
 
-    /** Public so the panel's tab-bar "+ Add Remote" button can open it. */
-    openCreateRemote(): void {
-        this._createRemoteOpen = true;
+    private get _ghosts(): PluckGhost[] {
+        return buildGhosts(this._stores, this._vendors, this._pluckSources);
     }
 
-    private async _onBlasterCreated(e: CustomEvent<UnknownDevice>): Promise<void> {
-        this._createRemoteOpen = false;
-        this.pendingEntity = "";
+    private _showToast(text: string): void {
+        this._toast = text;
+        if (this._toastTimer !== null) clearTimeout(this._toastTimer);
+        this._toastTimer = window.setTimeout(() => {
+            this._toast = null;
+            this._toastTimer = null;
+        }, BOTTOM_TOAST_MS);
+    }
+
+    private _setGhostError(key: string, message: string | null): void {
+        const next = { ...this._ghostErrors };
+        if (message) next[key] = message;
+        else delete next[key];
+        this._ghostErrors = next;
+    }
+
+    /** Reload, then put these remotes at the top of the plucked list.
+     *  New remotes land at the top. The order is
+     *  saved through the same door a drag uses. */
+    private async _landAtTop(ids: string[]): Promise<void> {
         await this._load();
-        this._expandedId = e.detail.id;
-        await this._refreshExpanded();
+        if (ids.length === 0) return;
+        const order = idsToTop(
+            this._devices.map((d) => d.id),
+            ids,
+        );
+        if (order.join() === this._devices.map((d) => d.id).join()) return;
+        const byId = new Map(this._devices.map((d) => [d.id, d]));
+        this._devices = order
+            .map((id) => byId.get(id))
+            .filter((d): d is UnknownDeviceSummary => d !== undefined);
+        this._remotesVersion++;
+        try {
+            await this.api.reorderUnknownDevices("plucked", order);
+        } catch (err) {
+            this._error = `Reorder failed: ${(err as Error).message}`;
+            await this._load();
+        }
+    }
+
+    /** A store ghost: the whole tile is the click. A busy ghost ignores
+     *  further clicks until its own pluck resolves; the server also
+     *  answers a repeat with "already present", so nothing doubles. */
+    private async _pluckGhost(g: PluckGhost): Promise<void> {
+        if (g.kind !== "store" || !g.storeId || this._ghostBusy === g.key) return;
+        this._ghostBusy = g.key;
+        this._setGhostError(g.key, null);
+        try {
+            const summary = await this.api.importLearnedStore(g.storeId, g.subdevice);
+            this._showToast(landingSentence(summary, t, tp));
+            await this._landAtTop(summary.device_ids ?? []);
+        } catch (err) {
+            this._setGhostError(g.key, (err as Error).message);
+        } finally {
+            if (this._ghostBusy === g.key) this._ghostBusy = null;
+        }
+    }
+
+    private _onGhostKey(g: PluckGhost, e: KeyboardEvent): void {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        if (g.kind === "store") void this._pluckGhost(g);
+        else if (g.kind === "tweezer") this._toggleTweezer(g);
+    }
+
+    private _toggleTweezer(g: PluckGhost): void {
+        if (this._openTweezer === g.key) {
+            this._openTweezer = null;
+            return;
+        }
+        this._openTweezer = g.key;
+        this._twAppliance = "";
+        this._twCommand = "";
+        this._setGhostError(g.key, null);
+        void this.updateComplete.then(() =>
+            this.renderRoot
+                .querySelector<HTMLInputElement>(".pk-open .pk-appliance")
+                ?.focus(),
+        );
     }
 
     /**
-     * A learned-code store landed while the dialog is still open.
-     *
-     * The dialog stays open on purpose -- someone with three stores is
-     * likely to click the next one -- so the tab behind it refreshes in
-     * place rather than waiting for a close.
+     * A tweezer ghost's Pluck (or Enter). The order is the point: run
+     * the command first, and only when codes came back create the
+     * remote and its signals. Creating the remote first would leave an
+     * empty "blaster: appliance" behind every time a first command
+     * failed. Every code that came back is kept, under its suggested
+     * alias; a signal that isn't wanted is deleted on the remote.
      */
-    private async _onStoresPlucked(): Promise<void> {
-        await this._load();
+    private async _runTweezer(g: PluckGhost): Promise<void> {
+        if (g.kind !== "tweezer" || !g.entityId || this._ghostBusy === g.key) return;
+        const appliance = this._twAppliance.trim();
+        const command = this._twCommand.trim();
+        if (!appliance) {
+            this._setGhostError(g.key, t("pluckdlg.appliance_required"));
+            return;
+        }
+        if (!command) {
+            this._setGhostError(g.key, t("assign.command_required"));
+            return;
+        }
+        this._ghostBusy = g.key;
+        this._setGhostError(g.key, null);
+        try {
+            const result = await this.api.runPluck({
+                integration: g.integration,
+                vendor_entity_id: g.entityId,
+                appliance,
+                command_name: command,
+            });
+            if (result.error) {
+                this._setGhostError(g.key, result.message ?? t("pluckdlg.pluck_failed"));
+                return;
+            }
+            const caps = result.signals ?? [];
+            if (caps.length === 0) {
+                this._setGhostError(g.key, t("pluckdlg.no_response"));
+                return;
+            }
+            const device = await this.api.createPluckedBlaster({
+                vendor_entity_id: g.entityId,
+                appliance,
+                name: tweezerRemoteName(g.blasterName ?? g.name, appliance),
+            });
+            for (const cap of caps) {
+                await this.api.createPluckedSignal({
+                    device_id: device.id,
+                    pronto: cap.code ?? "",
+                    command_name: cap.plucked_command_name,
+                    alias: cap.suggested_alias,
+                });
+            }
+            this._openTweezer = null;
+            await this._landAtTop([device.id]);
+            this._expandedId = device.id;
+            await this._refreshExpanded();
+        } catch (err) {
+            this._setGhostError(g.key, (err as Error).message);
+        } finally {
+            if (this._ghostBusy === g.key) this._ghostBusy = null;
+        }
+    }
+
+    private _onTweezerKey(g: PluckGhost, e: KeyboardEvent): void {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+            e.preventDefault();
+            void this._runTweezer(g);
+        } else if (e.key === "Escape") {
+            this._openTweezer = null;
+        }
+    }
+
+    /**
+     * The Devices tab's "open in Plucker" for a blaster that replays by
+     * name: open its tweezer ghost and bring it into view. It used to
+     * preselect that blaster in the Add Blaster dialog, which is gone.
+     * Acted on once per request, when the ghosts first include it.
+     */
+    private _consumePending(): void {
+        const entity = this.pendingEntity;
+        if (!entity) {
+            // Cleared by the panel once handled, so the same blaster can
+            // be asked for again later.
+            this._pendingHandled = "";
+            return;
+        }
+        if (entity === this._pendingHandled || this._loading) return;
+        const g = this._ghosts.find(
+            (x) => x.kind === "tweezer" && x.entityId === entity,
+        );
+        this._pendingHandled = entity;
+        this.dispatchEvent(
+            new CustomEvent("plucker-pending-consumed", {
+                bubbles: true,
+                composed: true,
+            }),
+        );
+        if (!g) return;
+        this._toggleTweezer(g);
+        void this.updateComplete.then(() =>
+            this.renderRoot
+                .querySelector(".pk-open")
+                ?.scrollIntoView({ block: "center", behavior: "smooth" }),
+        );
     }
 
     private _openPluckSignal(device: UnknownDevice, e: Event): void {
@@ -1020,6 +1235,7 @@ export class IrPluck extends LitElement {
 
     render() {
         const count = this._devices.length;
+        const ghosts = this._loading ? [] : this._ghosts;
         return html`
             <div class="toolbar">
                 <div class="toolbar-title-group">
@@ -1028,20 +1244,12 @@ export class IrPluck extends LitElement {
                         ${t("pluck.title")}
                         ${!this._loading
                             ? html`<span class="toolbar-count"
-                                  >(${count} ${count === 1 ? "blaster" : "blasters"})</span
+                                  >(${tp("pluckstore.n_remotes", count)})</span
                               ><span class="toolbar-tagline"
                                   ><span class="toolbar-dash">- </span>${t("panel.tagline.plucker")}</span
                               >`
                             : ""}
                     </span>
-                </div>
-                <div class="toolbar-actions">
-                    <button
-                        class="action-btn create-btn"
-                        @click=${() => (this._createRemoteOpen = true)}
-                    >
-                        ${t("pluck.add_blaster")}
-                    </button>
                 </div>
             </div>
 
@@ -1051,37 +1259,212 @@ export class IrPluck extends LitElement {
 
             ${this._loading
                 ? html`<div class="loading">${t("common.loading_plain")}</div>`
-                : count === 0
+                : count === 0 && ghosts.length === 0
                   ? this._renderEmpty()
                   : html`
-                        <div class="device-list">
-                            ${keyed(
-                                this._remotesVersion,
-                                repeat(
-                                    this._devices,
-                                    (d) => d.id,
-                                    (d) => this._renderDevice(d),
-                                ),
-                            )}
-                        </div>
+                        ${count > 0
+                            ? html`<div class="device-list">
+                                  ${keyed(
+                                      this._remotesVersion,
+                                      repeat(
+                                          this._devices,
+                                          (d) => d.id,
+                                          (d) => this._renderDevice(d),
+                                      ),
+                                  )}
+                              </div>`
+                            : ""}
+                        ${count > 0
+                            ? html`<div class="clear-all-row">
+                                  <button
+                                      class="action-btn delete-btn"
+                                      title=${t("pluck.clear_all_title")}
+                                      @click=${() => (this._confirmClearAll = true)}
+                                  >
+                                      ${t("sniffer.clear_all")}
+                                  </button>
+                              </div>`
+                            : ""}
+                        ${this._renderGhosts(ghosts)}
                     `}
 
-            ${count > 0
-                ? html`
-                      <div class="clear-all-row">
-                          <button
-                              class="action-btn delete-btn"
-                              title=${t("pluck.clear_all_title")}
-                              @click=${() => (this._confirmClearAll = true)}
-                          >
-                              ${t("sniffer.clear_all")}
-                          </button>
-                      </div>
-                  `
+
+            ${this._toast
+                ? html`<div class="bottom-toast" role="status">${this._toast}</div>`
                 : ""}
 
             ${this._renderDialogs()}
         `;
+    }
+
+    /**
+     * Everything that could still be plucked, under the plucked remotes
+     * (and their Clear All, which only ever removes plucked ones) and
+     * outside their sortable list, so a drag never counts a ghost. No
+     * label: the faded look says what they are.
+     */
+    private _renderGhosts(ghosts: PluckGhost[]) {
+        if (ghosts.length === 0) return "";
+        return html`
+            <div class="ghost-list">
+                ${repeat(
+                    ghosts,
+                    (g) => g.key,
+                    (g) => this._renderGhost(g),
+                )}
+            </div>
+        `;
+    }
+
+    private _renderGhost(g: PluckGhost) {
+        const busy = this._ghostBusy === g.key;
+        const error = this._ghostErrors[g.key];
+        if (g.kind === "tweezer" && this._openTweezer === g.key) {
+            return this._renderOpenTweezer(g, busy, error);
+        }
+        const disabled = g.kind === "disabled";
+        const glyph =
+            g.kind === "tweezer" ? ICON_PLUCK : disabled ? ICON_ALERT : ICON_TRAY_DOWN;
+        const title = disabled
+            ? this._reasonText(g)
+            : g.kind === "tweezer"
+              ? t("pluck.ghost.tweezer_open_title")
+              : t("pluckstore.action.aria", { name: g.name });
+        const hint = disabled
+            ? html`<span class="gt-tile-hint pk-reason">${this._reasonText(g)}</span>`
+            : g.kind === "tweezer"
+              ? html`<span class="gt-tile-hint">${t("pluck.ghost.tweezer_hint")}</span>`
+              : html`<span class="gt-tile-hint"
+                    >${tp("pluckstore.n_codes", g.codes ?? 0)}</span
+                >`;
+        const source =
+            g.kind === "tweezer"
+                ? t("pluck.ghost.by_name", { source: g.source })
+                : g.source;
+        return html`
+            <div
+                class="gt-tile gt-tile-compact pk ${disabled ? "pk-disabled" : ""} ${busy
+                    ? "gt-busy"
+                    : ""}"
+                role=${disabled ? "group" : "button"}
+                tabindex=${disabled ? "-1" : "0"}
+                aria-disabled=${disabled ? "true" : "false"}
+                aria-busy=${busy ? "true" : "false"}
+                title=${title}
+                @click=${() =>
+                    g.kind === "store"
+                        ? void this._pluckGhost(g)
+                        : g.kind === "tweezer"
+                          ? this._toggleTweezer(g)
+                          : undefined}
+                @keydown=${(e: KeyboardEvent) => this._onGhostKey(g, e)}
+            >
+                ${busy
+                    ? html`<span class="gt-spinner pk-glyph-spin" aria-hidden="true"></span>`
+                    : html`<ha-svg-icon class="pk-glyph" .path=${glyph}></ha-svg-icon>`}
+                <span class="gt-tile-title pk-name">${g.name}</span>
+                ${busy
+                    ? html`<span class="gt-tile-hint">${t("pluckdlg.plucking")}</span>`
+                    : hint}
+                <span class="gt-tile-hint pk-source">${source}</span>
+                ${error ? html`<span class="pk-error">${error}</span>` : ""}
+                ${disabled
+                    ? ""
+                    : html`<span class="gt-buttons pk-plus" aria-hidden="true"
+                          ><span class="gt-btn gt-add"
+                              ><svg viewBox="0 0 24 24">
+                                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                                  <line x1="5" y1="12" x2="19" y2="12"></line></svg></span
+                      ></span>`}
+            </div>
+        `;
+    }
+
+    /** The tweezer ghost, opened in place: Appliance and Command in the
+     *  header, Pluck beside them (Enter does the same), and the signals
+     *  list underneath, empty until the first code makes the remote. */
+    private _renderOpenTweezer(g: PluckGhost, busy: boolean, error: string | undefined) {
+        const name = tweezerRemoteName(g.blasterName ?? g.name, this._twAppliance);
+        return html`
+            <div class="gt-tile gt-tile-compact pk pk-open" role="group" aria-label=${g.name}>
+                <div class="pk-row">
+                    <ha-svg-icon
+                        class="pk-glyph pk-close"
+                        .path=${ICON_PLUCK}
+                        title=${t("sniffer.collapse")}
+                        @click=${() => (this._openTweezer = null)}
+                    ></ha-svg-icon>
+                    <span
+                        class="gt-tile-title pk-name pk-close"
+                        title=${t("sniffer.collapse")}
+                        @click=${() => (this._openTweezer = null)}
+                        >${g.name}</span
+                    >
+                    <span class="pk-fields">
+                        <label>
+                            <span>${t("pluckdlg.appliance")}</span>
+                            <input
+                                class="rename-input pk-appliance"
+                                type="text"
+                                .value=${this._twAppliance}
+                                placeholder=${t("pluckdlg.appliance_placeholder")}
+                                title=${g.applianceLabel || t("pluckdlg.appliance")}
+                                ?disabled=${busy}
+                                @input=${(e: Event) =>
+                                    (this._twAppliance = (e.target as HTMLInputElement).value)}
+                                @keydown=${(e: KeyboardEvent) => this._onTweezerKey(g, e)}
+                            />
+                        </label>
+                        <label>
+                            <span>${t("assign.command_name")}</span>
+                            <input
+                                class="rename-input pk-command"
+                                type="text"
+                                .value=${this._twCommand}
+                                placeholder=${t("pluckdlg.command_placeholder")}
+                                title=${t("pluckdlg.command_help")}
+                                ?disabled=${busy}
+                                @input=${(e: Event) =>
+                                    (this._twCommand = (e.target as HTMLInputElement).value)}
+                                @keydown=${(e: KeyboardEvent) => this._onTweezerKey(g, e)}
+                            />
+                        </label>
+                    </span>
+                    <span class="gt-tile-hint pk-source"
+                        >${t("pluck.ghost.by_name", { source: g.source })}</span
+                    >
+                    <button
+                        class="action-btn create-btn pk-go"
+                        ?disabled=${busy}
+                        @click=${() => void this._runTweezer(g)}
+                    >
+                        ${busy ? t("pluckdlg.plucking") : t("pluckdlg.pluck")}
+                    </button>
+                </div>
+                <div class="expanded pk-body">
+                    <div class="signal-header">
+                        <span>${t("sniffer.signals_head", { count: 0 })}</span>
+                    </div>
+                    ${error
+                        ? html`<div class="pk-error pk-error-block">${error}</div>`
+                        : ""}
+                    <div class="no-signals-row">
+                        <span class="no-signals"
+                            >${t("pluck.ghost.tweezer_empty", { name })}</span
+                        >
+                    </div>
+                    ${g.applianceHelp
+                        ? html`<div class="pk-help">${g.applianceHelp}</div>`
+                        : ""}
+                </div>
+            </div>
+        `;
+    }
+
+    private _reasonText(g: PluckGhost): string {
+        if (g.reason === "unreadable") return t("pluckstore.unreadable");
+        if (g.reason === "radio_only") return t("pluck.ghost.radio_only");
+        return t("pluckstore.empty_reason");
     }
 
     private _renderDevice(d: UnknownDeviceSummary) {
@@ -1189,13 +1572,15 @@ export class IrPluck extends LitElement {
             <div class="expanded">
                 <div class="signal-header">
                     <span>${t("sniffer.signals_head", { count: device.signals.length })}</span>
-                    <button
-                        class="create-signal-btn"
-                        title=${t("pluck.pluck_signal_title")}
-                        @click=${(e: Event) => this._openPluckSignal(device, e)}
-                    >
-                        ${t("pluck.pluck_signal")}
-                    </button>
+                    ${canPluckByName(device)
+                        ? html`<button
+                              class="create-signal-btn"
+                              title=${t("pluck.pluck_signal_title")}
+                              @click=${(e: Event) => this._openPluckSignal(device, e)}
+                          >
+                              ${t("pluck.pluck_signal")}
+                          </button>`
+                        : ""}
                 </div>
                 ${device.signals.length === 0
                     ? html`<div class="no-signals-row">
@@ -1339,19 +1724,6 @@ export class IrPluck extends LitElement {
 
     private _renderDialogs() {
         return html`
-            ${this._createRemoteOpen
-                ? html`<ir-pluck-add-remote-dialog
-                      .api=${this.api}
-                      .pendingEntity=${this.pendingEntity}
-                      @blaster-created=${this._onBlasterCreated}
-                      @stores-plucked=${this._onStoresPlucked}
-                      @closed=${() => {
-                          this._createRemoteOpen = false;
-                          this.pendingEntity = "";
-                      }}
-                  ></ir-pluck-add-remote-dialog>`
-                : ""}
-
             ${this._promoteTarget
                 ? html`<ir-promote-dialog
                       .api=${this.api}
@@ -1562,7 +1934,170 @@ export class IrPluck extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, ghostTileStyles, bottomToastStyles, css`
+        /* GHOSTS (1.4.1). The tile is ghost-tile-styles.ts, the Devices
+           page add tile's own sheet; these rules only lay it out as a
+           row the width of the list, and set two things of the
+           Plucker's own:
+             - dimmer at rest: the ghost's TEXT and glyph sit at 0.3
+               (the Devices tile dims everything to 0.55), so the
+               ghosts fade into the background. The dashed edge, the
+               plus and the plus's square are drawn at about the same
+               strength as that text instead of being dimmed with it,
+               so the tile still reads as a tile: the secondary text
+               token mixed to 30%, no new colour. Everything comes up
+               to full on hover and keyboard focus. Picked by eye in
+               both themes.
+             - the hover colour is the Plucker's own slate (#78909c, the
+               old Add Blaster button's), where the Devices tiles use
+               their section colours. */
+        .ghost-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .gt-tile.pk {
+            --pk-rest: color-mix(in srgb, var(--secondary-text-color) 30%, transparent);
+            opacity: 1;
+            --gt-edge-color: var(--pk-rest);
+            flex-direction: row;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+            text-align: left;
+            gap: 4px 10px;
+            padding: 10px 12px 10px 16px;
+            min-height: 56px;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+        .gt-tile.pk:not(.pk-open) > :not(.pk-plus) {
+            opacity: 0.3;
+            transition: opacity 150ms ease;
+        }
+        .gt-tile.pk .pk-plus {
+            color: var(--pk-rest);
+        }
+        .gt-tile.pk:hover,
+        .gt-tile.pk:focus-visible {
+            --gt-edge-color: #78909c;
+            color: #78909c;
+            background: var(--secondary-background-color);
+            outline: none;
+        }
+        .gt-tile.pk:hover > :not(.pk-plus),
+        .gt-tile.pk:focus-visible > :not(.pk-plus),
+        .gt-tile.pk.gt-busy > :not(.pk-plus) {
+            opacity: 1;
+        }
+        .gt-tile.pk:hover .pk-plus,
+        .gt-tile.pk:focus-visible .pk-plus {
+            color: inherit;
+        }
+        .gt-tile.pk.gt-busy {
+            cursor: progress;
+        }
+        /* A disabled ghost lifts only to the tile's old rest on hover,
+           enough to read its reason, with no wash and no colour. */
+        .gt-tile.pk.pk-disabled {
+            cursor: default;
+        }
+        .gt-tile.pk.pk-disabled:hover {
+            --gt-edge-color: var(--pk-rest);
+            color: var(--secondary-text-color);
+            background: none;
+        }
+        .gt-tile.pk.pk-disabled:hover > * {
+            opacity: 0.55;
+        }
+        .gt-tile.pk .gt-tile-title {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+        .pk-glyph {
+            --mdc-icon-size: 16px;
+            flex: none;
+        }
+        .pk-glyph-spin {
+            flex: none;
+            width: 12px;
+            height: 12px;
+        }
+        .pk-reason {
+            font-style: italic;
+        }
+        .gt-tile.pk .pk-plus {
+            margin: 0 0 0 auto;
+        }
+        .pk-error,
+        .pk-error-block {
+            font-size: 0.8rem;
+            color: var(--error-color, #db4437);
+            flex-basis: 100%;
+            padding-left: 26px;
+        }
+        .pk-error-block {
+            padding: 4px 8px;
+        }
+        /* The tweezer ghost, opened: lit and still dashed, a card. */
+        .gt-tile.pk.pk-open {
+            opacity: 1;
+            flex-direction: column;
+            align-items: stretch;
+            padding: 0;
+            gap: 0;
+            cursor: default;
+            --gt-edge-color: #78909c;
+        }
+        .gt-tile.pk.pk-open:hover {
+            background: none;
+            color: inherit;
+        }
+        .pk-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px 10px;
+            padding: 10px 12px 10px 16px;
+            min-height: 56px;
+            box-sizing: border-box;
+            color: var(--secondary-text-color);
+        }
+        .pk-close {
+            cursor: pointer;
+        }
+        .pk-fields {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .pk-fields label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: var(--secondary-text-color);
+        }
+        .pk-fields .rename-input {
+            font-weight: 400;
+            width: 130px;
+        }
+        .pk-go {
+            margin-left: auto;
+        }
+        .gt-tile.pk.pk-open .pk-body {
+            border-top: var(--gt-edge-width) var(--gt-edge-style) var(--gt-edge-color);
+            text-align: left;
+        }
+        .pk-help {
+            font-size: 0.8rem;
+            color: var(--secondary-text-color);
+            padding: 2px 8px 0;
+        }
+
         /* Edit + trash sit as one unit, hover boxes butted with zero
            gap -- same pairing ir-command-row.ts's device-detail rows
            use (edit-and-actions bench passes, 2026-08-11), rolled out

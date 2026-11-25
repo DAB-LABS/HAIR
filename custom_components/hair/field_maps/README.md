@@ -1,6 +1,6 @@
 # Field maps
 
-Thirteen protocol families, one YAML file each, read by `field_readers.py` and by
+Sixteen protocol families, one YAML file each, read by `field_readers.py` and by
 nothing else. A map says what the bytes of a frame mean: where the temperature
 lives, which nibble carries the mode, which rule the frame's own checksum must
 satisfy, and how confident the derivation is about each of those claims.
@@ -38,6 +38,14 @@ breadth is depth -- 521 of 521 codes agree with the layout on every field and
 both checksums -- and a fitting signed on hardware. A later pass may cross-check
 it against SmartIR Daikin files carrying the same 64+152 frame signature, which
 would either confirm the map or produce the first disagreement it has to record.
+
+A second exception. **DAIKIN64** was derived from one file a user posted on
+GH #183 (a SmartIR climate file for a Daikin FTV20AXV14, 271 codes), read against
+the layout, timing and checksum that IRremoteESP8266 documents for its Daikin64
+protocol, taken as facts. Every code in the file reads under the map and every
+checksum holds. The file never varies swing or sleep, so the map leaves them out
+and says so in `open_questions`; a capture from a real handset is what settles
+them.
 
 No map was copied from another project's source code, and no map contains
 transmittable codes. A field map describes a layout; it is not a remote.

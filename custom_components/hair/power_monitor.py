@@ -50,11 +50,41 @@ dispatching it would bring the flicker back at the end of the window.
 The window is closed either way, so the plug's next real report is
 dispatched as usual: a device that never got the IR is corrected at the
 end of the window when the plug has reported since the send, and at its
-next report otherwise. The latest send wins; a window is
+next report otherwise.
+
+An on/off source is the exception to that last rule: at the end of its
+window its current state wins, whenever it was reported. A helper or a
+template binary sensor writes its state only when it changes, so its
+reading at the end is nearly always from before the send, and it never
+reports again on its own: under the plug's rule a send the device
+never received would stand until somebody flipped the source. A
+watt plug reports on its own interval, which is why it keeps the rule.
+A source that comes round to the send ends the window early, and one
+that agreed all along changes nothing when it wins, so what matters at
+the end is a disagreement, or after a toggle, which promises nothing,
+whatever the source says. The cost is a source slower than its window:
+its stale state wins at the end and its late change puts it right
+again, so an on/off source defaults to a longer window
+(``models.default_power_settle_s``).
+
+The latest send wins; a window is
 never persisted, so after a restart there is none and the seed behaves
 as it always has. ``power_settle_s = 0`` is no window at all, which is
 the old behaviour exactly. ``docs/internal/plans/power-bands.md``
 section 2 and ``power-fed-state.md`` section 4 are the design.
+
+TYPED REMOTES. A typed Remote whose type has power (``remote_state.
+remote_power_eligible``) can have a state source of its own, with the
+Device's four fields and every rule above, unchanged. Its entries are
+keyed ``remote:<id>`` beside the Devices' plain ids, and its verdicts go
+out on ``SIGNAL_REMOTE_POWER_VERDICT`` instead. A Remote sends nothing,
+so what opens its settle window is a heard press that changes power: a
+confirmed fire (``SIGNAL_REMOTE_PRESSED``) of a button mapped to
+``turn_on``, ``turn_off`` or ``power_toggle``. On says on, off says off
+and a toggle promises nothing, as a Device's send does. Any other press
+opens no window. ``sync_remotes`` keeps the subscriptions in step with
+the store, and a Remote's entity asks for the seed again once it is
+listening (``SIGNAL_REMOTE_POWER_RESEED``).
 """
 from __future__ import annotations
 
@@ -78,7 +108,16 @@ from homeassistant.helpers.dispatcher import (
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
-from .models import IRDevice, is_on_off_entity, power_settle_seconds
+from .models import IRDevice, TriggerRemote, is_on_off_entity, power_settle_seconds
+from .remote_state import (
+    SIGNAL_REMOTE_POWER_RESEED,
+    SIGNAL_REMOTE_POWER_VERDICT,
+    SIGNAL_REMOTE_PRESSED,
+    RemotePressed,
+    remote_entity_config,
+    remote_power_eligible,
+)
+from .send_follow import keys_for_trigger
 from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
 from .storage import HAIRStore
 
@@ -205,6 +244,35 @@ def expected_power_state(
     return hits.pop() if len(hits) == 1 else None
 
 
+#: A Remote's entries in the monitor's tables: ``remote:<id>``, beside
+#: the Devices' plain ids (both are uuids, so the two never meet).
+_REMOTE_KEY = "remote:"
+
+_POWER_KEYS = frozenset({"turn_on", "turn_off", "power_toggle"})
+
+
+def _remote_key(remote_id: str) -> str:
+    return _REMOTE_KEY + remote_id
+
+
+def expected_press_state(keys: frozenset[str]) -> PowerVerdict | None:
+    """The on/off state a Remote's heard press says, if it says one.
+
+    ``keys`` are the action keys the pressed button is mapped to. As
+    for a Device's send, a toggle promises nothing whatever else the
+    button is mapped to, and a button mapped to both on and off says
+    nothing either.
+    """
+    if "power_toggle" in keys:
+        return None
+    on, off = "turn_on" in keys, "turn_off" in keys
+    if on and not off:
+        return "on"
+    if off and not on:
+        return "off"
+    return None
+
+
 @dataclass(slots=True, eq=False)
 class _SettleWindow:
     """One open window. Compared by identity, never by value.
@@ -225,7 +293,11 @@ class _SettleWindow:
 
 
 class PowerMonitor:
-    """Tracks per-device power sensors and dispatches on/off verdicts."""
+    """Tracks the state sources of Devices and typed Remotes and
+    dispatches on/off verdicts.
+
+    Its tables are keyed by a Device's id or a Remote's ``remote:<id>``.
+    """
 
     def __init__(self, hass: HomeAssistant, store: HAIRStore) -> None:
         self._hass = hass
@@ -233,6 +305,11 @@ class PowerMonitor:
         self._unsub: dict[str, CALLBACK_TYPE] = {}
         self._windows: dict[str, _SettleWindow] = {}
         self._unsub_sent: CALLBACK_TYPE | None = None
+        self._unsub_pressed: CALLBACK_TYPE | None = None
+        self._unsub_reseed: CALLBACK_TYPE | None = None
+        # The source each watched Remote is subscribed to, so
+        # sync_remotes can tell what changed.
+        self._remote_sources: dict[str, str] = {}
 
     def start(self) -> None:
         """Subscribe every stored device that has a sensor configured.
@@ -248,18 +325,29 @@ class PowerMonitor:
             self._unsub_sent = async_dispatcher_connect(
                 self._hass, SIGNAL_DEVICE_SENT, self._on_device_sent
             )
+            self._unsub_pressed = async_dispatcher_connect(
+                self._hass, SIGNAL_REMOTE_PRESSED, self._on_remote_pressed
+            )
+            self._unsub_reseed = async_dispatcher_connect(
+                self._hass, SIGNAL_REMOTE_POWER_RESEED, self._on_remote_reseed
+            )
         for device in self._store.get_all_devices():
-            self._subscribe(device)
+            self._subscribe(device.id, device.power_sensor_entity_id)
+        for remote in self._store.get_all_trigger_remotes():
+            self.rebuild_remote(remote)
 
     def stop(self) -> None:
-        if self._unsub_sent is not None:
-            self._unsub_sent()
-            self._unsub_sent = None
-        for device_id in list(self._windows):
-            self._cancel_window(device_id)
+        for name in ("_unsub_sent", "_unsub_pressed", "_unsub_reseed"):
+            unsub = getattr(self, name)
+            if unsub is not None:
+                unsub()
+                setattr(self, name, None)
+        for key in list(self._windows):
+            self._cancel_window(key)
         for unsub in self._unsub.values():
             unsub()
         self._unsub.clear()
+        self._remote_sources.clear()
 
     def rebuild_device(self, device: IRDevice) -> None:
         """Re-subscribe a single device after create/update.
@@ -278,71 +366,141 @@ class PowerMonitor:
         the entity. With the sensor cleared or the value set to 0 the
         window simply ends.
         """
-        window = self._windows.get(device.id)
-        self._cancel_window(device.id)
-        self._unsubscribe(device.id)
-        if window is not None and device.power_sensor_entity_id:
-            remaining = (
-                window.sent_at + power_settle_seconds(device) - _monotonic()
-            )
-            if remaining > 0:
-                self._open_window(
-                    device.id,
-                    window.sent_at,
-                    window.sent_wall,
-                    window.expected,
-                    remaining,
-                )
-        self._subscribe(device)
+        self._rebuild(device.id, device, device.power_sensor_entity_id)
 
     def remove_device(self, device_id: str) -> None:
         """Tear down a device's subscription and window after it is deleted."""
         self._cancel_window(device_id)
         self._unsubscribe(device_id)
 
+    def rebuild_remote(self, remote: TriggerRemote) -> None:
+        """``rebuild_device`` for a typed Remote: after its source, its
+        thresholds or its type change. A Remote whose type cannot show
+        power is not watched, whatever source it stores."""
+        sensor_id = (
+            remote.power_sensor_entity_id if remote_power_eligible(remote) else None
+        )
+        self._rebuild(_remote_key(remote.id), remote, sensor_id)
+        if sensor_id:
+            self._remote_sources[remote.id] = sensor_id
+        else:
+            self._remote_sources.pop(remote.id, None)
+
+    def remove_remote(self, remote_id: str) -> None:
+        """Tear down a Remote's subscription and window after it is deleted."""
+        key = _remote_key(remote_id)
+        self._cancel_window(key)
+        self._unsubscribe(key)
+        self._remote_sources.pop(remote_id, None)
+
+    def sync_remotes(self) -> None:
+        """Match the watched Remotes to the store. Idempotent.
+
+        Called wherever a Remote changes (``event.sync_remote_entities``),
+        so a Remote that is deleted, retyped or duplicated is picked up.
+        A change of thresholds alone is the set-power door's, which
+        calls ``rebuild_remote`` itself. Before ``start`` it does
+        nothing: start subscribes everything.
+        """
+        if self._unsub_sent is None:
+            return
+        live = {remote.id: remote for remote in self._store.get_all_trigger_remotes()}
+        for remote_id in list(self._remote_sources):
+            if remote_id not in live:
+                self.remove_remote(remote_id)
+        for remote in live.values():
+            wanted = (
+                remote.power_sensor_entity_id
+                if remote_power_eligible(remote)
+                else None
+            )
+            if wanted != self._remote_sources.get(remote.id):
+                self.rebuild_remote(remote)
+
     # -- internals ---------------------------------------------------
 
-    def _subscribe(self, device: IRDevice) -> None:
-        sensor_id = device.power_sensor_entity_id
+    def _owner(self, key: str) -> IRDevice | TriggerRemote | None:
+        """The Device or watched Remote a table key stands for."""
+        if key.startswith(_REMOTE_KEY):
+            remote = self._store.get_trigger_remote(key[len(_REMOTE_KEY):])
+            if remote is None or not remote_power_eligible(remote):
+                return None
+            return remote
+        return self._store.get_device(key)
+
+    def _dispatch(self, key: str, verdict: PowerVerdict) -> None:
+        if key.startswith(_REMOTE_KEY):
+            async_dispatcher_send(
+                self._hass,
+                SIGNAL_REMOTE_POWER_VERDICT,
+                key[len(_REMOTE_KEY):],
+                verdict,
+            )
+            return
+        async_dispatcher_send(self._hass, SIGNAL_POWER_VERDICT, key, verdict)
+
+    def _rebuild(
+        self,
+        key: str,
+        owner: IRDevice | TriggerRemote,
+        sensor_id: str | None,
+    ) -> None:
+        window = self._windows.get(key)
+        self._cancel_window(key)
+        self._unsubscribe(key)
+        if window is not None and sensor_id:
+            remaining = (
+                window.sent_at + power_settle_seconds(owner) - _monotonic()
+            )
+            if remaining > 0:
+                self._open_window(
+                    key,
+                    window.sent_at,
+                    window.sent_wall,
+                    window.expected,
+                    remaining,
+                )
+        self._subscribe(key, sensor_id)
+
+    def _subscribe(self, key: str, sensor_id: str | None) -> None:
         if not sensor_id:
             return
-        device_id = device.id
 
         @callback
         def _on_state_change(event: Event) -> None:
-            self._evaluate(device_id, event.data.get("new_state"))
+            self._evaluate(key, event.data.get("new_state"))
 
-        self._unsub[device_id] = async_track_state_change_event(
+        self._unsub[key] = async_track_state_change_event(
             self._hass, [sensor_id], _on_state_change
         )
         # Startup seed (state-model rule 4): evaluate the CURRENT
         # reading now rather than waiting for the next state change.
-        self._evaluate(device_id, self._hass.states.get(sensor_id))
+        self._evaluate(key, self._hass.states.get(sensor_id))
 
-    def _unsubscribe(self, device_id: str) -> None:
-        unsub = self._unsub.pop(device_id, None)
+    def _unsubscribe(self, key: str) -> None:
+        unsub = self._unsub.pop(key, None)
         if unsub is not None:
             unsub()
 
-    def _evaluate(self, device_id: str, state: State | None) -> None:
-        device = self._store.get_device(device_id)
-        if device is None:
+    def _evaluate(self, key: str, state: State | None) -> None:
+        owner = self._owner(key)
+        if owner is None:
             return
         verdict = classify_power_reading(
-            state, device.power_off_below_w, device.power_on_above_w
+            state, owner.power_off_below_w, owner.power_on_above_w
         )
         if verdict is None:
             return
         # The gate. Every path to a dispatch comes through here: a live
         # report, the seed at (re)subscribe, and the handback when a
         # window runs out.
-        window = self._windows.get(device_id)
+        window = self._windows.get(key)
         if window is not None:
             if window.expected is None or verdict != window.expected:
                 return
             # The early clear: the plug agrees with the send.
-            self._cancel_window(device_id)
-        async_dispatcher_send(self._hass, SIGNAL_POWER_VERDICT, device_id, verdict)
+            self._cancel_window(key)
+        self._dispatch(key, verdict)
 
     # -- the settle window ---------------------------------------------
 
@@ -370,9 +528,42 @@ class PowerMonitor:
             settle,
         )
 
+    @callback
+    def _on_remote_pressed(self, pressed: RemotePressed) -> None:
+        """Open a window for a watched Remote's heard power press."""
+        key = _remote_key(pressed.remote_id)
+        if key not in self._unsub:
+            return
+        remote = self._owner(key)
+        if remote is None:
+            return
+        keys = keys_for_trigger(
+            remote_entity_config(remote).command_mapping, pressed.trigger_id
+        )
+        if not keys & _POWER_KEYS:
+            # Volume, speed and the rest say nothing about power.
+            return
+        self._cancel_window(key)
+        settle = power_settle_seconds(remote)
+        if settle <= 0:
+            return
+        self._open_window(
+            key, _monotonic(), _utcnow(), expected_press_state(keys), settle
+        )
+
+    @callback
+    def _on_remote_reseed(self, remote_id: str) -> None:
+        """A Remote's entity is listening now: the seed again, through
+        the same gate as every other reading."""
+        key = _remote_key(remote_id)
+        sensor_id = self._remote_sources.get(remote_id)
+        if key not in self._unsub or not sensor_id:
+            return
+        self._evaluate(key, self._hass.states.get(sensor_id))
+
     def _open_window(
         self,
-        device_id: str,
+        key: str,
         sent_at: float,
         sent_wall: datetime,
         expected: PowerVerdict | None,
@@ -382,34 +573,37 @@ class PowerMonitor:
             sent_at=sent_at, sent_wall=sent_wall, expected=expected
         )
         window.handle = self._hass.loop.call_later(
-            delay, self._on_window_closed, device_id, window
+            delay, self._on_window_closed, key, window
         )
-        self._windows[device_id] = window
+        self._windows[key] = window
 
-    def _cancel_window(self, device_id: str) -> None:
-        window = self._windows.pop(device_id, None)
+    def _cancel_window(self, key: str) -> None:
+        window = self._windows.pop(key, None)
         if window is not None and window.handle is not None:
             window.handle.cancel()
 
-    def _on_window_closed(self, device_id: str, window: _SettleWindow) -> None:
+    def _on_window_closed(self, key: str, window: _SettleWindow) -> None:
         """The window ran out: hand the last word back to the sensor."""
-        if self._windows.get(device_id) is not window:
+        if self._windows.get(key) is not window:
             return
-        del self._windows[device_id]
-        device = self._store.get_device(device_id)
-        if device is None or device_id not in self._unsub:
+        del self._windows[key]
+        owner = self._owner(key)
+        if owner is None or key not in self._unsub:
             return
-        sensor_id = device.power_sensor_entity_id
+        sensor_id = owner.power_sensor_entity_id
         if not sensor_id:
             return
-        # The seed, with one difference: a reading the plug reported
-        # before the send is not evidence about it. On a plug slower
-        # than the settle time that reading is the pre-send draw, and
-        # dispatching it would flicker the entity here instead of at the
-        # plug's next report. Hold it; the window is closed, so that
-        # next report is dispatched as usual.
+        # The seed, with one difference for a power sensor: a reading
+        # the plug reported before the send is not evidence about it.
+        # On a plug slower than the settle time that reading is the
+        # pre-send draw, and dispatching it would flicker the entity
+        # here instead of at the plug's next report. Hold it; the
+        # window is closed, so that next report is dispatched as usual.
+        # An on/off source may never report again, so its state wins
+        # whenever it was reported (the module docstring).
         state = self._hass.states.get(sensor_id)
-        reported = getattr(state, "last_reported", None)
-        if reported is None or reported < window.sent_wall:
-            return
-        self._evaluate(device_id, state)
+        if not is_on_off_entity(sensor_id):
+            reported = getattr(state, "last_reported", None)
+            if reported is None or reported < window.sent_wall:
+                return
+        self._evaluate(key, state)

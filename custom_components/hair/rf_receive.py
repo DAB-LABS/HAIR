@@ -9,7 +9,7 @@ listens to, keeps the subscriptions alive across reloads and renames,
 and hands each capture to the signal monitor.
 
 WHICH RECEIVERS HAIR LISTENS TO. A receiver whose state carries
-``capturing`` is a capture device (``docs/windowed-receivers.md``): it
+``capturing`` is a capture device (``docs/receivers.md``): it
 hears only inside a window the user opened, so it cannot flood the
 catalog, and HAIR subscribes to it as soon as it appears. A receiver
 without ``capturing`` listens all the time. Radio receivers of that kind
@@ -59,6 +59,7 @@ from .receiver_window import (
     ATTR_CAPTURE_PHASE,
     ATTR_FREQUENCY_HZ,
     PHASE_LISTENING,
+    PHASE_SWEEPING,
     says_capture,
 )
 
@@ -164,6 +165,126 @@ def frequency_of(
     if fixed is not None:
         return fixed, RF_FREQUENCY_SOURCE_RECEIVER
     return None, None
+
+
+FORM_SELECT = "select"
+FORM_NUMBER = "number"
+FORM_BOTH = "both"
+FORM_FIXED = "fixed"
+FORM_NONE = "none"
+
+
+def receiver_frequency(hass: HomeAssistant, entity_id: str) -> dict[str, Any]:
+    """Everything the panel draws a receiver's frequency control from.
+
+    One row per radio receiver (``hair/rf/receiver_tuning``). The server
+    decides the ``form``, so no rule lives in two places: ``select``
+    (presets), ``number`` (any value), ``both``, ``fixed`` (one declared
+    value, nothing to set) or ``none``. Frequencies are in Hz. ``now``
+    is where it listens: an open window's carrier (or its sweep) while
+    one listens, else what ``rf_tune.listening_now`` says, else the one
+    fixed value. ``accepts`` is what HAIR will set it to
+    (``rf_tune.accepted_ranges``), ``[]`` for a fixed receiver or one
+    with nothing to set. ``trusted`` is False for the settle after HAIR set it.
+    """
+    from .rf_tune import (
+        NOW_HZ,
+        NOW_NONE,
+        NOW_SOURCE_RECEIVER,
+        NOW_SWEEP,
+        NOW_UNKNOWN,
+        _unit_factor,
+        accepted_ranges,
+        declared,
+        listening_now,
+        trusted,
+        tuning_source,
+    )
+
+    state = hass.states.get(entity_id)
+    ranges = supported_ranges(hass, entity_id) or []
+    decl = declared(hass, entity_id)
+    number, number_source = tuning_source(hass, entity_id, decl)
+    select_state = hass.states.get(decl.select) if decl.select else None
+    current_option = getattr(select_state, "state", None)
+
+    presets = []
+    for option, hz in decl.options:
+        preset: dict[str, Any] = {
+            "option": option, "hz": hz, "current": option == current_option,
+        }
+        if number is not None and option == decl.number_option:
+            preset["number"] = True
+        presets.append(preset)
+
+    number_row = None
+    if number is not None:
+        number_state = hass.states.get(number)
+        factor = _unit_factor(number_state) or 1_000_000
+
+        def to_hz(value: Any) -> int | None:
+            try:
+                return round(float(value) * factor)
+            except (TypeError, ValueError):
+                return None
+
+        attrs = getattr(number_state, "attributes", {}) or {}
+        number_row = {
+            "entity_id": number,
+            "min_hz": to_hz(attrs.get("min")),
+            "max_hz": to_hz(attrs.get("max")),
+            "step_hz": to_hz(attrs.get("step")),
+            "source": number_source,
+        }
+
+    fixed = fixed_frequency(ranges)
+    if decl.select is not None and number is not None:
+        form = FORM_BOTH
+    elif decl.select is not None:
+        form = FORM_SELECT
+    elif number is not None:
+        form = FORM_NUMBER
+    elif fixed is not None:
+        form = FORM_FIXED
+    else:
+        form = FORM_NONE
+
+    accepts = (
+        [] if form in (FORM_FIXED, FORM_NONE)
+        else [[low, high] for low, high in accepted_ranges(hass, entity_id, decl, number)]
+    )
+
+    windowed = state is not None and says_capture(state)
+    listening = windowed and state.attributes.get("capturing") is True
+    now: dict[str, Any] | None = None
+    if listening:
+        phase = state.attributes.get(ATTR_CAPTURE_PHASE)
+        window = state.attributes.get(ATTR_FREQUENCY_HZ)
+        if phase == PHASE_SWEEPING:
+            now = {"kind": NOW_SWEEP, "hz": None, "source": NOW_SOURCE_RECEIVER}
+        elif phase == PHASE_LISTENING and _positive_int(window):
+            now = {"kind": NOW_HZ, "hz": window, "source": NOW_SOURCE_RECEIVER}
+    if now is None:
+        kind, hz, source = listening_now(hass, entity_id, decl, number)
+        if kind == NOW_NONE and fixed is not None:
+            kind, hz, source = NOW_HZ, fixed, FORM_FIXED
+        elif kind == NOW_NONE and form != FORM_NONE:
+            kind = NOW_UNKNOWN
+        now = {"kind": kind, "hz": hz, "source": source}
+
+    return {
+        "receiver_entity_id": entity_id,
+        "form": form,
+        "ranges": [[low, high] for low, high in ranges],
+        "presets": presets,
+        "select": decl.select,
+        "number": number_row,
+        "now": now,
+        "accepts": accepts,
+        "trusted": trusted(entity_id),
+        "windowed": windowed,
+        "listening": listening,
+    }
 
 
 def listens_to(state: Any) -> bool:

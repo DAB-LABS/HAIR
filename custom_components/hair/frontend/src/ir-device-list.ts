@@ -47,6 +47,7 @@ import "./ir-trigger-remote-settings-dialog.js";
 import "./ir-ghost-tile.js";
 import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
 import { PINNING_UI_ENABLED, PIN_BLUE } from "./ir-pin-flag.js";
+import { groupsNote } from "./group-steps.js";
 import type { HairApi } from "./api.js";
 import { landedManyNotice, pinFillNotice } from "./api.js";
 import type { PinResult } from "./api.js";
@@ -55,7 +56,7 @@ import type { CaptureReceiverRow, HardwareFacts, Medium } from "./types.js";
 import { listsInKind, rowsKind, soleKind } from "./media-kind.js";
 import { receiverIdMedium } from "./receiver-medium.js";
 import { PROTO_SIGNAL, PROTO_SOURCE, protoGlyphStyles, renderProtoGlyph } from "./ir-proto-glyph.js";
-import { captureSignature, cardCaptureState } from "./ir-listen-state.js";
+import { badgeCaptureState, captureSignature, cardCaptureState, type BadgeCapture } from "./ir-listen-state.js";
 import { filterGlyphStyles } from "./filter-glyph-styles.js";
 import { HiddenActivity, hiddenActivityStyles } from "./hidden-activity.js";
 import {
@@ -84,6 +85,7 @@ import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
     CombSummary,
     DeviceSummary,
+    GroupUser,
     DeviceTypeId,
     IRDevice,
     IRTrigger,
@@ -105,7 +107,7 @@ import { REMOTE_TYPES } from "./types.js";
 import { entityDisplayName, entityFullName } from "./entity-names.js";
 import { cardGlyph, isEntityOnline, partsHealth } from "./entity-health.js";
 import { cardIconPath } from "./card-icons.js";
-import { EMBER_VAR, GOLD_VAR, ONLINE_VAR, PICKED_VAR } from "./ir-header-chip-styles.js";
+import { EMBER_VAR, GOLD_VAR, GREY_VAR, ONLINE_VAR, PICKED_VAR } from "./ir-header-chip-styles.js";
 
 /**
  * Sentinel "device id" for the single HAIR Triggers drawer card, reusing
@@ -293,6 +295,9 @@ export class IrDeviceList extends LitElement {
     @state() private _confirmDeleteTrigger: IRTrigger | null = null;
     @state() private _duplicateTarget: DeviceSummary | null = null;
     @state() private _confirmDeleteDevice: DeviceSummary | null = null;
+    /** The grouped commands on other devices that a device delete
+     *  would leave a missing step in (grouped-signals.md). */
+    @state() private _deleteDeviceGroups: GroupUser[] = [];
     // Mirror-door mints (signpost 3, Track 3.5, owner-directed
     // 2026-08-15): the source object riding between a Settings
     // dialog's request-make-remote/request-make-device and the mint
@@ -403,6 +408,16 @@ export class IrDeviceList extends LitElement {
     private _devicesSortable: Sortable | null = null;
     private _pendingDevicesSave: number | null = null;
 
+    // Drag-to-reorder for the named Remote cards, the same pattern as the
+    // device cards above. The HAIR Triggers drawer card shares their grid
+    // but is not a Remote: it stays first and never drags.
+    // ``_localRemotes`` holds the optimistic order between a drop and the
+    // parent's refresh of ``triggerRemotes``.
+    @state() private _remotesVersion = 0;
+    @state() private _localRemotes: TriggerRemoteInfo[] | null = null;
+    private _remotesSortable: Sortable | null = null;
+    private _pendingRemotesSave: number | null = null;
+
     /** The trigger-fired subscription, held as the PROMISE rather
      * than as the unsubscribe it resolves to (issue 125).
      *
@@ -436,6 +451,9 @@ export class IrDeviceList extends LitElement {
         this._devicesSortable?.destroy();
         this._devicesSortable = null;
         if (this._pendingDevicesSave !== null) clearTimeout(this._pendingDevicesSave);
+        this._remotesSortable?.destroy();
+        this._remotesSortable = null;
+        if (this._pendingRemotesSave !== null) clearTimeout(this._pendingRemotesSave);
         this._triggerSortable?.destroy();
         this._triggerSortable = null;
         if (this._pendingTriggerReorderSave !== null) {
@@ -451,6 +469,9 @@ export class IrDeviceList extends LitElement {
         // source of truth and drop any optimistic local ordering.
         if (changed.has("devices")) {
             this._localDevices = null;
+        }
+        if (changed.has("triggerRemotes")) {
+            this._localRemotes = null;
         }
     }
 
@@ -489,9 +510,11 @@ export class IrDeviceList extends LitElement {
             void this._loadExpandedDevice();
         }
         this._syncDevicesSortable();
+        this._syncRemotesSortable();
         this._syncTriggerSortable();
         if (changed.has("_mediaShow")) {
             this._devicesSortable?.option("disabled", !mediaShowsEverything(this._mediaShow.devices));
+            this._remotesSortable?.option("disabled", !mediaShowsEverything(this._mediaShow.remotes));
         }
     }
 
@@ -566,6 +589,84 @@ export class IrDeviceList extends LitElement {
                     }),
                 );
             }
+        }, REORDER_DEBOUNCE_MS);
+    }
+
+    /** Attach / detach the Remotes grid's SortableJS instance. */
+    private _syncRemotesSortable(): void {
+        const grid = this.renderRoot.querySelector(".remote-grid") as HTMLElement | null;
+        if (grid && !this._remotesSortable) {
+            this._attachRemotesSortable(grid);
+        } else if (!grid && this._remotesSortable) {
+            this._remotesSortable.destroy();
+            this._remotesSortable = null;
+        }
+    }
+
+    private _attachRemotesSortable(grid: HTMLElement): void {
+        this._remotesSortable = Sortable.create(grid, {
+            // As the device grid: a filtered section is not the whole
+            // order, so dragging waits until both glyphs are lit.
+            disabled: !mediaShowsEverything(this._mediaShow.remotes),
+            // Only a Remote card drags; the drawer card and the "+" tile
+            // match neither ``draggable`` nor ``onMove`` below, so the
+            // drawer stays first and the tile last.
+            draggable: ".trigger-remote-card",
+            filter: ".card-action",
+            preventOnFilter: false,
+            delay: 150,
+            delayOnTouchOnly: true,
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            onMove: (evt) =>
+                (evt.related as HTMLElement).classList.contains("trigger-remote-card"),
+            onEnd: () => {
+                // The order straight from the DOM, Remote cards only (an
+                // open Remote's detail and the drawer share the grid).
+                const ids = Array.from(grid.querySelectorAll(".trigger-remote-card"))
+                    .map((el) => (el as HTMLElement).dataset.id)
+                    .filter((id): id is string => !!id);
+                const base = this._localRemotes ?? this.triggerRemotes;
+                const byId = new Map(base.map((r) => [r.id, r]));
+                const reordered = ids
+                    .map((id) => byId.get(id))
+                    .filter((r): r is TriggerRemoteInfo => !!r);
+                if (reordered.length !== base.length) return;
+                this._localRemotes = reordered;
+                this._remotesSortable?.destroy();
+                this._remotesSortable = null;
+                // SortableJS moved a node lit's repeat owns: drop the
+                // Remote cards and their details and render them afresh.
+                for (const el of Array.from(
+                    grid.querySelectorAll(".trigger-remote-card, .trigger-remote-detail"),
+                )) {
+                    el.remove();
+                }
+                this._remotesVersion++;
+                this._scheduleRemotesSave(reordered.map((r) => r.id));
+            },
+        });
+    }
+
+    private _scheduleRemotesSave(remoteIds: string[]): void {
+        if (this._pendingRemotesSave !== null) clearTimeout(this._pendingRemotesSave);
+        this._pendingRemotesSave = window.setTimeout(async () => {
+            this._pendingRemotesSave = null;
+            if (!this.api) return;
+            try {
+                await this.api.reorderTriggerRemotes(remoteIds);
+            } catch {
+                // Refused (a stale set): the refresh below brings back
+                // the stored order.
+            }
+            // Saved or not, the panel fetches the list again, so every
+            // Remote picker that reads it follows the stored order.
+            this.dispatchEvent(
+                new CustomEvent("remotes-reordered", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
         }, REORDER_DEBOUNCE_MS);
     }
 
@@ -813,7 +914,7 @@ export class IrDeviceList extends LitElement {
 
     private _requestDeleteDevice(device: DeviceSummary, e: Event): void {
         e.stopPropagation();
-        this._confirmDeleteDevice = device;
+        this._askDeleteDevice(device);
     }
 
     // --- Trigger remotes (Add Popups signpost 2, Track 4) ---
@@ -2225,22 +2326,32 @@ export class IrDeviceList extends LitElement {
     }
 
     /** A row's badge tooltip and accessible name: what it is, and its
-     *  health, the badge's colour. */
-    private _badgeTitle(row: CapabilityRow): string {
+     *  health, the badge's colour; for a capture receiver, its capture
+     *  state too, which the colour then says. */
+    private _badgeTitle(row: CapabilityRow, look: Exclude<BadgeCapture, "offline"> | null = null): string {
         const what = t(`hw.badge.${row.medium}_${row.direction}`);
-        return `${badgeLabel(row)}, ${t(row.available ? "common.online" : "common.offline")}: ${what}`;
+        const base = `${badgeLabel(row)}, ${t(row.available ? "common.online" : "common.offline")}: ${what}`;
+        return look ? `${base}. ${t(`hw.badge.capture_${look}`)}` : base;
     }
 
     private _renderCapabilityRow(row: CapabilityRow, ruleAbove: boolean) {
         const fact = this._factText(row.fact);
         const name = entityDisplayName(this.hass, row.entity_id);
         const full = entityFullName(this.hass, row.entity_id);
-        const title = this._badgeTitle(row);
+        // A capture receiver's own badge takes its Sniffer pill's colour:
+        // grey with no switch, gold ready, green listening. Unavailable
+        // stays ember, by health.
+        const capture =
+            row.capture_device && row.direction === "rx" && row.available
+                ? badgeCaptureState(this.hass?.states, this._listenRows, row.entity_id)
+                : null;
+        const look = capture === "offline" ? null : capture;
+        const title = this._badgeTitle(row, look);
         return html`<div
             class="cap-row ${row.available ? "" : "is-down"} ${ruleAbove ? "rule-above" : ""}"
             data-entity=${row.entity_id}
         >
-            <span class="badge cap-badge ${row.medium === "rf" ? "rf" : ""} ${row.available ? "" : "offline"}" role="img" aria-label=${title} title=${title}
+            <span class="badge cap-badge ${row.medium === "rf" ? "rf" : ""} ${row.available ? "" : "offline"} ${look ? `capture-${look}` : ""}" role="img" aria-label=${title} title=${title}
                 >${badgeLabel(row)}</span
             >
             <span class="cap-name" title=${full}>${name}</span>
@@ -2357,6 +2468,20 @@ export class IrDeviceList extends LitElement {
     private _stopFactsTick(): void {
         if (this._factsTimer !== null) clearInterval(this._factsTimer);
         this._factsTimer = null;
+    }
+
+    /** Open the device delete confirm, and ask which grouped commands
+     *  on other devices would lose a step, so the confirm can say. */
+    private _askDeleteDevice(device: DeviceSummary): void {
+        this._confirmDeleteDevice = device;
+        this._deleteDeviceGroups = [];
+        if (!this.api) return;
+        void this.api
+            .groupUsedBy(device.id)
+            .then(({ groups }) => {
+                if (this._confirmDeleteDevice?.id === device.id) this._deleteDeviceGroups = groups;
+            })
+            .catch(() => undefined);
     }
 
     render() {
@@ -2484,7 +2609,7 @@ export class IrDeviceList extends LitElement {
                                                         this._openDuplicateDialog(this._expandedDevice, ev)}
                                                     @request-delete=${() => {
                                                         if (this._expandedDevice) {
-                                                            this._confirmDeleteDevice = this._expandedDevice;
+                                                            this._askDeleteDevice(this._expandedDevice);
                                                         }
                                                     }}
                                                     @request-make-remote=${() =>
@@ -2539,7 +2664,7 @@ export class IrDeviceList extends LitElement {
                 </div>
                 ${this._renderMediaGlyphs("remotes")}
             </div>
-            <div class="grid">
+            <div class="grid remote-grid">
                 <div
                     class="card trigger-drawer-card ${this.expandedDeviceId === TRIGGER_DRAWER_ID ? "expanded" : ""} ${this._drawerTriggers.some((t) => this._glowTriggerIds.has(t.id)) ? "bloom" : ""}"
                     tabindex="0"
@@ -2674,12 +2799,15 @@ export class IrDeviceList extends LitElement {
                           </div>
                       `
                     : nothing}
-                ${repeat(
-                    this.triggerRemotes.filter((r) => mediaShows(this._mediaShow.remotes, r.media)),
+                ${keyed(
+                    this._remotesVersion,
+                    repeat(
+                    (this._localRemotes ?? this.triggerRemotes).filter((r) => mediaShows(this._mediaShow.remotes, r.media)),
                     (remote) => remote.id,
                     (remote) => html`
                         <div
                             class="card trigger-remote-card ${remote.id === this.expandedDeviceId ? "expanded" : ""} ${this._remoteTriggers(remote.id).some((t) => this._glowTriggerIds.has(t.id)) ? "bloom" : ""}"
+                            data-id=${remote.id}
                             tabindex="0"
                             @click=${() => this._select(remote.id)}
                             @keydown=${(e: KeyboardEvent) => {
@@ -2893,6 +3021,7 @@ export class IrDeviceList extends LitElement {
                               `
                             : nothing}
                     `,
+                    ),
                 )}
                 <!-- Always compact (0.10.1 item 6). The Remotes grid is
                      never truly empty -- the HAIR Triggers drawer always
@@ -3068,7 +3197,8 @@ export class IrDeviceList extends LitElement {
                 ? html`
                       <ir-confirm-dialog
                           title=${t("devlist.del_device_title")}
-                          message=${t("devlist.del_device_msg", { name: this._confirmDeleteDevice.name })}
+                          message=${t("devlist.del_device_msg", { name: this._confirmDeleteDevice.name }) +
+                          groupsNote(t, this._deleteDeviceGroups)}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._doDeleteDevice}
@@ -3100,6 +3230,8 @@ export class IrDeviceList extends LitElement {
             ${this._remoteSettingsTarget
                 ? html`
                       <ir-trigger-remote-settings-dialog
+                          .api=${this.api}
+                          .hass=${this.hass}
                           .remote=${this._remoteSettingsTarget}
                           @request-duplicate=${(ev: Event) => {
                               const target = this._remoteSettingsTarget;
@@ -3642,6 +3774,36 @@ export class IrDeviceList extends LitElement {
         :host([dark]) .badge.cap-badge.rf:not(.offline) {
             color: #81c784;
             background: rgba(129, 199, 132, 0.14);
+        }
+        /* A capture receiver's badge, as its Sniffer pill: gold ready,
+           grey with no switch yet; green
+           listening is the health green above. Infrared solid, radio a
+           pale wash, the same pairing. No new hex: on a light card the
+           radio gold letters are the gold mixed toward black, so they
+           read on white, and on a dark card the gold itself. */
+        .badge.cap-badge.capture-ready:not(.rf) {
+            background: ${GOLD_VAR};
+            color: color-mix(in srgb, #000 70%, ${GOLD_VAR});
+        }
+        .badge.cap-badge.capture-ready.rf {
+            background: color-mix(in srgb, ${GOLD_VAR} 16%, transparent);
+            color: color-mix(in srgb, ${GOLD_VAR} 60%, #000);
+        }
+        :host([dark]) .badge.cap-badge.capture-ready.rf {
+            background: color-mix(in srgb, ${GOLD_VAR} 16%, transparent);
+            color: ${GOLD_VAR};
+        }
+        .badge.cap-badge.capture-waiting:not(.rf) {
+            background: ${GREY_VAR};
+            color: color-mix(in srgb, #fff 70%, ${GREY_VAR});
+        }
+        .badge.cap-badge.capture-waiting.rf {
+            background: color-mix(in srgb, ${GREY_VAR} 16%, transparent);
+            color: ${GREY_VAR};
+        }
+        :host([dark]) .badge.cap-badge.capture-waiting.rf {
+            background: color-mix(in srgb, ${GREY_VAR} 30%, transparent);
+            color: color-mix(in srgb, ${GREY_VAR} 50%, #fff);
         }
         .hw-card.is-offline {
             border-color: color-mix(in srgb, ${EMBER_VAR} 40%, transparent);

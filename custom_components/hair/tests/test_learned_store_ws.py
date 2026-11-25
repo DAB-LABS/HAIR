@@ -145,6 +145,7 @@ class TestStoresList:
             "ir_codes",
             "rf_codes",
             "error",
+            "remotes",
         }
         assert broadlink["store_id"] == "a4cf12880e2f"
         assert broadlink["subdevices"] == 2
@@ -268,6 +269,7 @@ class TestStoresImport:
             "rf_receipted",
             "no_timings",
             "already_present",
+            "device_ids",
         }
         assert summary["remotes"] == 1
         assert summary["signals"] == 3

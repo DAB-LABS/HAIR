@@ -470,7 +470,7 @@ class TestTheSafetyRule:
 
     def test_the_contract_and_the_module_say_the_declaration_is_final(self):
         """Owner ruling 2026-10-20, in the published contract and the module."""
-        doc = (Path(rw.__file__).parents[2] / "docs" / "windowed-receivers.md").read_text()
+        doc = (Path(rw.__file__).parents[2] / "docs" / "receivers.md").read_text()
         section = doc.split("## Which entity HAIR toggles", 1)[1].split("\n## ", 1)[0]
         first, second = "1. **Your declaration**", "2. **The user's choice.**"
         assert section.index(first) < section.index(second)
@@ -711,6 +711,9 @@ class TestTheReceiversDoors:
             # a device's declared entities or a software window's choice.
             "frequency_select", "window_length", "capture_mode_select",
             "frequency_options", "window_seconds", "window_mode",
+            # What the panel's "can't read" line reads.
+            "unread_radio", "unread_window_opened_at",
+            "ambiguous_radio", "ambiguous_window_opened_at",
         }
         assert (rows[0]["capture_device"], rows[0]["software_window"]) == (True, False)
         assert rows[0]["medium"] == "ir"

@@ -75,6 +75,7 @@ from .const import (
     RF_PROTOCOL,
     RF_ROLLING_CODE,
     RF_ROLLING_CODE_MESSAGE,
+    RF_UNREAD_MIN_EDGES,
     SEND_REPEAT_GAP,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
@@ -1101,6 +1102,17 @@ class SignalMonitor:
         data = event.data or {}
         entity_id = data.get("entity_id")
         new_state = data.get("new_state")
+        if (
+            entity_id
+            and entity_id.startswith("radio_frequency.")
+            and new_state is not None
+            and new_state.attributes.get("capturing") is True
+        ):
+            old_state = data.get("old_state")
+            if old_state is None or old_state.attributes.get("capturing") is not True:
+                # A windowed receiver opened its window: its "can't read"
+                # count starts again.
+                self.rf_always_on.window_opened(entity_id)
         available = (
             new_state is not None and new_state.state != STATE_UNAVAILABLE
         )
@@ -2897,6 +2909,16 @@ class SignalMonitor:
             self._rf_bursts[receiver_entity_id] = assembler
         return assembler
 
+    def _rf_listening(self, receiver_entity_id: str) -> bool:
+        """A window the user opened is listening on this radio receiver:
+        HAIR's own for an always-on one, the receiver's for a windowed one."""
+        if self.rf_always_on.attached(receiver_entity_id):
+            return self.rf_always_on.window_open(receiver_entity_id)
+        from .receiver_window import is_capturing, says_capture
+
+        state = self._hass.states.get(receiver_entity_id)
+        return state is not None and says_capture(state) and is_capturing(state)
+
     def _rf_burst_voted(
         self, rid: str, analysis: Any, signal: Any, frames: int, fingerprint: str
     ) -> None:
@@ -2985,6 +3007,13 @@ class SignalMonitor:
                 )
             return
         analysis = vote(bodied)
+        if analysis is None and any(
+            len(parts.body) >= RF_UNREAD_MIN_EDGES for _piece, parts in bodied
+        ) and self._rf_listening(receiver_entity_id):
+            # Long enough to be a remote's, and no vote: possibly a code
+            # HAIR can't read. Counted only; a later vote of the same
+            # window (a one-frame-per-capture receiver) cancels it.
+            self.rf_always_on.note_unread(receiver_entity_id, readable=False)
         if analysis is not None:
             self._emit_rf(
                 analysis, signal, receiver_entity_id,
@@ -3026,10 +3055,19 @@ class SignalMonitor:
         and ``raw`` the capture as received (None for a burst, which
         never existed as one capture). Only the Candy Drawer reads them.
         """
-        from .rf_family import rolling_identity
+        from .rf_family import fits_two_shapes, rolling_identity
         from .rf_receive import frequency_of
         from .rf_replay import HELD, REPLAY
 
+        if analysis.body_edges >= RF_MIN_BODY_EDGES and self._rf_listening(
+            receiver_entity_id
+        ):
+            # A code HAIR can read was heard in this window: no "can't
+            # read" line for it.
+            self.rf_always_on.note_unread(
+                receiver_entity_id, readable=True,
+                ambiguous=fits_two_shapes(analysis.frame),
+            )
         rolling = rolling_identity(analysis.frame)
         verdict = (
             self._rf_replay.check(rolling, time.monotonic())
@@ -4062,6 +4100,19 @@ class SignalMonitor:
             if device.source != "plucked":
                 return {"success": False, "code": "not_plucked",
                         "error": "Can only add plucked signals to a plucked blaster"}
+            # A remote read from a learned-code store has no vendor
+            # entity or appliance, so nothing was replayed by name to
+            # land here: its codes come from the store, and new ones
+            # come the same way.
+            if device.store_integration is not None:
+                return {
+                    "success": False,
+                    "code": "store_remote",
+                    "error": (
+                        "This remote was read from a learned-code store. "
+                        "Add the code there, then pluck the store again."
+                    ),
+                }
 
             now_iso = datetime.now(UTC).isoformat()
             frequency = (
@@ -4099,8 +4150,8 @@ class SignalMonitor:
         kind: str,
         codes: list[Any],
         shape: str = SHAPE_PACKET_MAP,
-    ) -> dict[str, int]:
-        """Place one whole learned-code store onto plucked remotes.
+    ) -> dict[str, Any]:
+        """Place a learned-code store, or part of one, onto plucked remotes.
 
         One subdevice becomes one plucked remote, one command becomes one
         named signal, and the store itself gets a record so the Devices
@@ -4133,10 +4184,15 @@ class SignalMonitor:
         usable timings, and a code that will not validate each land in
         their own counter so the landing summary can say what happened to
         them. Nothing unconvertible is ever invented into a code.
+
+        ``codes`` may be one sub-device's (the Plucker's ghosts) or the
+        whole store's; nothing here tells them apart. ``device_ids`` in
+        the summary lists the remotes the codes landed on, new or
+        already there, in the order first reached.
         """
         from .learned_code_stores import RECEIPT_RF
 
-        summary = {
+        summary: dict[str, Any] = {
             "remotes": 0,
             "signals": 0,
             "washed": 0,
@@ -4147,7 +4203,7 @@ class SignalMonitor:
             "already_present": 0,
         }
         now_iso = datetime.now(UTC).isoformat()
-        touched: set[str] = set()
+        touched: dict[str, str] = {}  # subdevice -> device id, first reached first
 
         async with self._lock:
             # Existing remotes for THIS store, by subdevice. Built once
@@ -4203,7 +4259,7 @@ class SignalMonitor:
                     device.fingerprint = f"plucked:{device.id}"
                     self._signal_store.add_device(device)
                     by_subdevice[code.subdevice] = device
-                touched.add(code.subdevice)
+                touched.setdefault(code.subdevice, device.id)
 
                 frequency = (
                     round(result.frequency_khz * 1000)
@@ -4250,6 +4306,7 @@ class SignalMonitor:
                 device.last_seen = now_iso
 
             summary["remotes"] = len(touched)
+            summary["device_ids"] = list(touched.values())
             self._signal_store.record_plucked_store(
                 {
                     "integration": integration,

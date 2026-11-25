@@ -964,19 +964,32 @@ class TestPublicAPI:
         assert len(result) == 2
 
     def test_get_unknown_devices_min_hits_default(self):
+        """A sniffed remote is listed on its first press; one with no press
+        at all (a card the catalog made but nothing counted) is not."""
         hass = _make_hass()
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
+        d0 = UnknownDevice(id="d0", fingerprint="fp0", hit_count=0)
         d1 = UnknownDevice(id="d1", fingerprint="fp1", hit_count=1)
-        d2 = UnknownDevice(id="d2", fingerprint="fp2", hit_count=SIGNAL_CLUSTER_THRESHOLD)
+        store.add_device(d0)
         store.add_device(d1)
-        store.add_device(d2)
 
-        # Default min_hits = SIGNAL_CLUSTER_THRESHOLD.
+        assert SIGNAL_CLUSTER_THRESHOLD == 1
         result = monitor.get_unknown_devices()
-        assert len(result) == 1
-        assert result[0].id == "d2"
+        assert [d.id for d in result] == ["d1"]
+
+    def test_get_unknown_devices_explicit_min_hits_still_filters(self):
+        """The door's ``min_hits`` stays: a caller that asks for more still
+        gets the old filter."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        store.add_device(UnknownDevice(id="d1", fingerprint="fp1", hit_count=1))
+        store.add_device(UnknownDevice(id="d3", fingerprint="fp3", hit_count=3))
+
+        assert [d.id for d in monitor.get_unknown_devices(min_hits=3)] == ["d3"]
 
     def test_get_unknown_devices_noise_filter_skips_non_sniffed_source(self):
         """Punch list item 1 (signpost 3 bench round, 2026-08-17): a
@@ -995,7 +1008,7 @@ class TestPublicAPI:
             id="p1", fingerprint="fpp", hit_count=0, source="plucked"
         )
         sniffed_below_threshold = UnknownDevice(
-            id="s1", fingerprint="fps", hit_count=1, source="sniffed"
+            id="s1", fingerprint="fps", hit_count=0, source="sniffed"
         )
         store.add_device(clipped)
         store.add_device(plucked)
@@ -1016,7 +1029,7 @@ class TestPublicAPI:
         # No source (mixed list): noise filter still applies to
         # EVERY device uniformly, unchanged from before this fix --
         # this fix only touches the explicit non-sniffed-source path.
-        # All three fixtures are below SIGNAL_CLUSTER_THRESHOLD (3),
+        # All three fixtures are below SIGNAL_CLUSTER_THRESHOLD (1),
         # so the mixed list comes back empty, same as pre-fix.
         result = monitor.get_unknown_devices()
         assert result == []

@@ -30,7 +30,7 @@ import { hairHealthTokens } from "./ir-header-chip-styles.js";
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
 // can identify the installed HAIR version without opening Settings.
-const HAIR_VERSION = "1.3.1";
+const HAIR_VERSION = "1.4.0";
 
 type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror" | "wigs";
 
@@ -573,6 +573,8 @@ export class HaPanelIrDevices extends LitElement {
                               @remote-state-heard=${this._onRemoteChanged}
                               @remote-created=${this._onRemoteChanged}
                               @remote-type-changed=${this._onRemoteChanged}
+                              @remote-power-changed=${this._onRemoteChanged}
+                              @remotes-reordered=${this._onRemoteChanged}
                               @device-created=${this._onDeviceChanged}
                           ></ir-device-list>
 
@@ -599,6 +601,8 @@ export class HaPanelIrDevices extends LitElement {
                                     .api=${this._api}
                                     .hass=${this.hass}
                                     .pendingEntity=${this._pendingPluckEntity}
+                                    @plucker-pending-consumed=${() =>
+                                        (this._pendingPluckEntity = "")}
                                     @navigate-device=${this._onNavigateDevice}
                                 ></ir-pluck>
                             `

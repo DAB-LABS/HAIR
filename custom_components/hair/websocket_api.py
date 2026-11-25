@@ -26,6 +26,8 @@ from .const import (
     MEDIUM_IR,
     MEDIUM_RF,
     MIRROR_DEVICE_FP,
+    PIN_MODE_EXCEPT_POWER,
+    PIN_MODES,
     RF_PROTOCOL,
     RF_ROLLING_SEED,
     RF_ROLLING_SEED_MESSAGE,
@@ -57,10 +59,12 @@ from .models import (
     FAN_SPEED_STEPS_MIN,
     ON_OFF_DOMAINS,
     SPEED_CYCLE_TURN_ON_CHOICES,
+    IRCommand,
     IRDevice,
     IRTrigger,
     TriggerRemote,
     copy_rf_signal,
+    is_group,
     is_on_off_entity,
     is_rf,
     max_power_settle_s,
@@ -113,6 +117,10 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_reorder_commands)
     websocket_api.async_register_command(hass, ws_reorder_devices)
     websocket_api.async_register_command(hass, ws_send_command)
+    websocket_api.async_register_command(hass, ws_group_create)
+    websocket_api.async_register_command(hass, ws_group_set_steps)
+    websocket_api.async_register_command(hass, ws_group_candidates)
+    websocket_api.async_register_command(hass, ws_group_used_by)
     websocket_api.async_register_command(hass, ws_get_command_templates)
     websocket_api.async_register_command(hass, ws_receiver_hardware)
     websocket_api.async_register_command(hass, ws_get_receivers)
@@ -226,6 +234,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
 
     # Trigger Remotes (Add Popups signpost 2, Track 1B-B2/B3)
     websocket_api.async_register_command(hass, ws_list_trigger_remotes)
+    websocket_api.async_register_command(hass, ws_reorder_trigger_remotes)
     websocket_api.async_register_command(hass, ws_create_trigger_remote)
     websocket_api.async_register_command(hass, ws_wig_make_remote)
     websocket_api.async_register_command(hass, ws_device_make_remote)
@@ -234,10 +243,11 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_duplicate_trigger_remote)
     websocket_api.async_register_command(hass, ws_pin_trigger_remote_device)
     websocket_api.async_register_command(hass, ws_unpin_trigger_remote_device)
-    websocket_api.async_register_command(hass, ws_set_pin_relay)
+    websocket_api.async_register_command(hass, ws_set_pin_mode)
     websocket_api.async_register_command(hass, ws_set_trigger_remote_receiver_scope)
     # Typed Remotes (heard state, round 2a).
     websocket_api.async_register_command(hass, ws_set_trigger_remote_type)
+    websocket_api.async_register_command(hass, ws_set_trigger_remote_power)
     websocket_api.async_register_command(hass, ws_update_trigger_remote_mapping)
 
 
@@ -305,10 +315,27 @@ def _media(rows: Any, *, matrix: bool = False) -> list[str]:
     is nothing to go on: the card then draws no glyph.
     """
 
-    present = {getattr(row, "medium", MEDIUM_IR) or MEDIUM_IR for row in rows}
+    present = {
+        getattr(row, "medium", MEDIUM_IR) or MEDIUM_IR
+        for row in rows if not is_group(row)
+    }
     if matrix:
         present.add(MEDIUM_IR)
     return [m for m in (MEDIUM_IR, MEDIUM_RF) if m in present]
+
+
+def _augment_groups(hass: HomeAssistant, device: IRDevice, rows: Any) -> None:
+    """Give each grouped command its resolved steps (``group``): names
+    as they are now, missing steps marked, devices touched, run time."""
+    from .grouped import group_payload
+
+    data = _get_first_entry_data(hass)
+    manager = data.get("device_manager") if data else None
+    if manager is None or not rows:
+        return
+    for row, command in zip(rows, device.commands, strict=False):
+        if is_group(command) and row.get("id") == command.id:
+            row["group"] = group_payload(manager, command)
 
 
 def _augment_rf_family(rows: Any) -> None:
@@ -372,6 +399,7 @@ async def _device_full(
 ) -> dict[str, Any]:
     full = device.to_dict()
     _augment_rf_family(full.get("commands"))
+    _augment_groups(hass, device, full.get("commands"))
     # The store record omits an unset settle time (models.py, so the
     # default stays a default); the panel always gets the key, null
     # meaning the default, the same as the list summary sends.
@@ -832,6 +860,60 @@ async def ws_create_device(
     connection.send_result(msg["id"], result)
 
 
+def _resolve_power_source(
+    hass: HomeAssistant, current: Any, msg: dict[str, Any], owner: str
+) -> tuple[str | None, float | None, float | None, float | None] | str:
+    """The four state-source fields a request leaves, or why it is refused.
+
+    Shared by ``device/update`` and ``trigger-remote/set-power``, so a
+    Device and a typed Remote take a source by one set of rules.
+    ``current`` is the Device or Remote, whose stored values stand for
+    any key the request leaves out; ``owner`` names it in a refusal.
+    Nothing is written here: the caller writes all four, or none.
+    """
+    new_sensor = msg.get("power_sensor_entity_id", current.power_sensor_entity_id)
+    if new_sensor is not None and not (
+        new_sensor.startswith("sensor.") or is_on_off_entity(new_sensor)
+    ):
+        return (
+            "power_sensor_entity_id must be a sensor entity or an on/off "
+            "entity (" + ", ".join(ON_OFF_DOMAINS) + ")"
+        )
+    if new_sensor is not None:
+        # A HAIR entity's state is what HAIR assumed, so as a source it
+        # would only ever confirm itself.
+        entry = er.async_get(hass).async_get(new_sensor)
+        if entry is not None and entry.platform == DOMAIN:
+            return f"a HAIR entity cannot be a {owner}'s state source"
+    if new_sensor is None:
+        # Thresholds without a sensor are meaningless, and so is a
+        # settle time: all three clear with the sensor.
+        new_off_below = None
+        new_on_above = None
+        new_settle = None
+    else:
+        new_off_below = msg.get("power_off_below_w", current.power_off_below_w)
+        new_on_above = msg.get("power_on_above_w", current.power_on_above_w)
+        if is_on_off_entity(new_sensor):
+            # An on/off entity is read by its state; thresholds sent with
+            # it are cleared rather than refused.
+            new_off_below = None
+            new_on_above = None
+        # None is the source's default (default_power_settle_s); 0 is
+        # no window at all. The two are different and stay different.
+        new_settle = msg.get("power_settle_s", current.power_settle_s)
+    settle_cap = max_power_settle_s(new_sensor)
+    if new_settle is not None and not 0 <= new_settle <= settle_cap:
+        return f"power_settle_s must be from 0 to {settle_cap:g} seconds"
+    if (
+        new_off_below is not None
+        and new_on_above is not None
+        and new_on_above < new_off_below
+    ):
+        return "power_on_above_w must be at or above power_off_below_w"
+    return new_sensor, new_off_below, new_on_above, new_settle
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/device/update",
@@ -966,74 +1048,16 @@ async def ws_update_device(
             "power_settle_s",
         )
     ):
-        new_sensor = msg.get(
-            "power_sensor_entity_id", device.power_sensor_entity_id
-        )
-        if new_sensor is not None and not (
-            new_sensor.startswith("sensor.") or is_on_off_entity(new_sensor)
-        ):
-            connection.send_error(
-                msg["id"],
-                "invalid_format",
-                "power_sensor_entity_id must be a sensor entity or an on/off "
-                "entity (" + ", ".join(ON_OFF_DOMAINS) + ")",
-            )
+        resolved = _resolve_power_source(hass, device, msg, "Device")
+        if isinstance(resolved, str):
+            connection.send_error(msg["id"], "invalid_format", resolved)
             return
-        if new_sensor is not None:
-            # A HAIR entity's state is what HAIR assumed, so as a source
-            # it would only ever confirm itself.
-            entry = er.async_get(hass).async_get(new_sensor)
-            if entry is not None and entry.platform == DOMAIN:
-                connection.send_error(
-                    msg["id"],
-                    "invalid_format",
-                    "a HAIR entity cannot be a Device's state source",
-                )
-                return
-        if new_sensor is None:
-            # Thresholds without a sensor are meaningless, and so is a
-            # settle time: all three clear with the sensor.
-            new_off_below = None
-            new_on_above = None
-            new_settle = None
-        else:
-            new_off_below = msg.get(
-                "power_off_below_w", device.power_off_below_w
-            )
-            new_on_above = msg.get(
-                "power_on_above_w", device.power_on_above_w
-            )
-            if is_on_off_entity(new_sensor):
-                # An on/off entity is read by its state; thresholds sent
-                # with it are cleared rather than refused.
-                new_off_below = None
-                new_on_above = None
-            # None is the default (DEFAULT_POWER_SETTLE_S); 0 is no
-            # window at all. The two are different and stay different.
-            new_settle = msg.get("power_settle_s", device.power_settle_s)
-        settle_cap = max_power_settle_s(new_sensor)
-        if new_settle is not None and not 0 <= new_settle <= settle_cap:
-            connection.send_error(
-                msg["id"],
-                "invalid_format",
-                f"power_settle_s must be from 0 to {settle_cap:g} seconds",
-            )
-            return
-        if (
-            new_off_below is not None
-            and new_on_above is not None
-            and new_on_above < new_off_below
-        ):
-            connection.send_error(
-                msg["id"],
-                "invalid_format",
-                "power_on_above_w must be at or above power_off_below_w",
-            )
-            return
-        device.power_sensor_entity_id = new_sensor
-        device.power_off_below_w = new_off_below
-        device.power_on_above_w = new_on_above
-        device.power_settle_s = new_settle
+        (
+            device.power_sensor_entity_id,
+            device.power_off_below_w,
+            device.power_on_above_w,
+            device.power_settle_s,
+        ) = resolved
 
     # Climate room sensors validate together too, same "nothing
     # half-mutated on a rejected request" reasoning as the power
@@ -1143,10 +1167,19 @@ async def ws_send_command(
     heard_future: asyncio.Future[str | None] = (
         asyncio.get_running_loop().create_future()
     )
+    from .grouped import GroupResult, GroupRunError
+
     try:
-        await manager.async_send_command(
+        outcome = await manager.async_send_command(
             msg["device_id"], msg["command_id"], heard_future=heard_future,
         )
+    except GroupRunError as err:
+        heard_future.cancel()
+        connection.send_result(
+            msg["id"], {"sent": False, "heard": False, "receiver": None,
+                        "group": err.result.to_dict()},
+        )
+        return
     except KeyError as err:
         heard_future.cancel()
         connection.send_error(msg["id"], "not_found", str(err))
@@ -1161,6 +1194,16 @@ async def ws_send_command(
         connection.send_error(msg["id"], "send_failed", str(err))
         return
 
+    if isinstance(outcome, GroupResult):
+        # A group's steps each hear their own; the button reports how
+        # many went out and which did not.
+        heard_future.cancel()
+        connection.send_result(
+            msg["id"], {"sent": outcome.sent > 0 or outcome.skipped_busy,
+                        "heard": False, "receiver": None,
+                        "group": outcome.to_dict()},
+        )
+        return
     receiver: str | None = None
     try:
         receiver = await asyncio.wait_for(
@@ -1173,6 +1216,161 @@ async def ws_send_command(
     connection.send_result(
         msg["id"], {"sent": True, "heard": heard, "receiver": receiver}
     )
+
+
+# --- Grouped commands (grouped-signals.md) ---------------------------------
+
+_STEP_SCHEMA = vol.Schema({
+    vol.Required("device_id"): str,
+    vol.Required("command_id"): str,
+    vol.Optional("delay_ms"): vol.Coerce(int),
+}, extra=vol.REMOVE_EXTRA)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/group/create",
+    vol.Required("device_id"): str,
+    vol.Optional("name"): str,
+})
+@websocket_api.async_response
+async def ws_group_create(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Add an empty grouped command to a device, under a name no other
+    command on it has, at the head of the list like any new command."""
+    from .models import GROUP_PROTOCOL
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    device = manager.get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+    base = (msg.get("name") or "").strip() or "Grouped signal"
+    name, n = base, 1
+    while device.get_command_by_name(name) is not None:
+        n += 1
+        name = f"{base} {n}"
+    command = IRCommand(name=name, protocol=GROUP_PROTOCOL, steps=[])
+    await manager.async_add_command(device.id, command, placement="top")
+    connection.send_result(msg["id"], {
+        "command": command.to_dict(),
+        "device": await _device_full(hass, device),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/group/steps",
+    vol.Required("device_id"): str,
+    vol.Required("command_id"): str,
+    vol.Required("steps"): [_STEP_SCHEMA],
+})
+@websocket_api.async_response
+async def ws_group_set_steps(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Replace a grouped command's steps: added, removed, reordered or a
+    delay changed. Refused with a code the panel words (``grouped``)."""
+    from .const import GROUP_DELAY_DEFAULT_MS
+    from .grouped import StepsRefused
+    from .models import GroupStep
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    steps = [
+        GroupStep(
+            device_id=item["device_id"],
+            command_id=item["command_id"],
+            delay_ms=item.get("delay_ms", GROUP_DELAY_DEFAULT_MS),
+        )
+        for item in msg["steps"]
+    ]
+    # A missing step keeps the names it had, so it can still say what
+    # it was after the panel hands it back.
+    device = manager.get_device(msg["device_id"])
+    old = device.get_command(msg["command_id"]) if device else None
+    known = {
+        (s.device_id, s.command_id): s for s in (old.steps or ())
+    } if old is not None else {}
+    for step in steps:
+        before = known.get((step.device_id, step.command_id))
+        if before is not None:
+            step.device_name = before.device_name
+            step.command_name = before.command_name
+    try:
+        await manager.async_set_group_steps(
+            msg["device_id"], msg["command_id"], steps
+        )
+    except KeyError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
+        return
+    except StepsRefused as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    device = manager.get_device(msg["device_id"])
+    connection.send_result(msg["id"], {"device": await _device_full(hass, device)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/group/candidates",
+    vol.Required("device_id"): str,
+})
+@callback
+def ws_group_candidates(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Every device and its commands, for the step picker."""
+    from .grouped import step_candidates
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    connection.send_result(msg["id"], {
+        "devices": step_candidates(data["device_manager"], msg["device_id"]),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/group/used-by",
+    vol.Required("device_id"): str,
+    vol.Optional("command_id"): str,
+})
+@callback
+def ws_group_used_by(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The grouped commands a delete would leave a missing step in: of
+    one command, or with no command, of a whole device."""
+    from .grouped import groups_using
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    connection.send_result(msg["id"], {
+        "groups": groups_using(
+            data["device_manager"], msg["device_id"], msg.get("command_id")
+        ),
+    })
 
 
 def _porthole_cell(
@@ -1218,7 +1416,7 @@ async def ws_delete_command(
     device = manager.get_device(msg["device_id"])
     if device is not None:
         cmd = device.get_command(msg["command_id"])
-        if cmd is not None:
+        if cmd is not None and not is_group(cmd):
             sig_fp = canonical_fingerprint(
                 cmd.protocol, cmd.code, cmd.raw_timings
             )
@@ -1968,6 +2166,8 @@ def _assignment_index(
     entries: list[tuple[SignalIdentity, dict[str, str]]] = []
     for device in hair_devices:
         for command in device.commands:
+            if is_group(command):
+                continue  # no code to assign (grouped-signals.md)
             # Per-command resilience (GH #108): one unreadable command
             # used to abort this walk, and with it the Sniffer list, the
             # wig list and every page that shows an assignment dot.
@@ -3011,7 +3211,7 @@ async def ws_pluck_stores_list(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     registry = data.get("pluckable_registry", [])
-    stores = await pluck.list_stores(hass, registry)
+    stores = await pluck.list_stores(hass, registry, data.get("signal_store"))
     sources = await pluck.list_sources(hass, registry)
     connection.send_result(msg["id"], {"stores": stores, "sources": sources})
 
@@ -3020,6 +3220,7 @@ async def ws_pluck_stores_list(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/pluck/stores/import",
     vol.Required("store_id"): str,
+    vol.Optional("subdevice"): str,
 })
 @websocket_api.async_response
 async def ws_pluck_stores_import(
@@ -3027,13 +3228,18 @@ async def ws_pluck_stores_import(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Import one whole store and return the landing numbers.
+    """Import one store, or one sub-device of it, and return the numbers.
 
-    Import-all by owner ruling: no subdevice picker, and pruning is a
-    delete afterwards. The result is the summary the dialog renders as
-    its landing sentence, so every clause it can print has a counter
-    here (remotes, signals, washed, kept_raw, toggle_pairs,
-    rf_receipted, no_timings, already_present).
+    Without ``subdevice`` the whole store lands, as it always has. With
+    it, one sub-device lands as one remote: the Plucker's ghosts pluck
+    that way. ``subdevice`` is the key from ``stores/list`` exactly as
+    sent, never trimmed, since it is a key in someone else's file.
+
+    The result is the landing summary, so every clause the panel can
+    print has a counter here (remotes, signals, washed, kept_raw,
+    toggle_pairs, rf_receipted, no_timings, already_present), plus
+    ``device_ids``: the remotes this import landed on, new or already
+    there. ``unknown_subdevice`` means the store no longer has it.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3045,6 +3251,7 @@ async def ws_pluck_stores_import(
         entry_data=data,
         registry=registry,
         store_id=msg["store_id"].strip(),
+        subdevice=msg.get("subdevice"),
     )
     if "error" in result:
         connection.send_error(
@@ -3612,14 +3819,19 @@ def ws_rf_receiver_tuning(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Every radio receiver's tuning, for the Sniffer's receiver chip
-    (listening PR 1): whether HAIR can tune it, through which number,
-    where it listens now, the number's limits and the declared ranges."""
-    from .rf_receive import rf_receiver_ids
+    """Every radio receiver's frequency row, for the Sniffer's frequency
+    control: its form, ranges, presets, select and number, where it
+    listens now and whether that can be trusted
+    (``rf_receive.receiver_frequency``). The earlier chip's fields
+    (``rf_tune.describe``) ride along in the same row."""
+    from .rf_receive import receiver_frequency, rf_receiver_ids
     from .rf_tune import describe
 
     connection.send_result(msg["id"], {
-        "receivers": [describe(hass, rid) for rid in rf_receiver_ids(hass)],
+        "receivers": [
+            {**describe(hass, rid), **receiver_frequency(hass, rid)}
+            for rid in rf_receiver_ids(hass)
+        ],
     })
 
 
@@ -3627,7 +3839,8 @@ def ws_rf_receiver_tuning(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/rf/receiver_tune",
     vol.Required("receiver_entity_id"): str,
-    vol.Required("frequency_hz"): vol.All(int, vol.Range(min=1_000_000, max=10_000_000_000)),
+    vol.Optional("frequency_hz"): vol.All(int, vol.Range(min=1_000_000, max=10_000_000_000)),
+    vol.Optional("option"): vol.All(str, vol.Length(min=1, max=255)),
 })
 @websocket_api.async_response
 async def ws_rf_receiver_tune(
@@ -3635,27 +3848,39 @@ async def ws_rf_receiver_tune(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Set a radio receiver's listening frequency (listening PR 1).
+    """Set where a radio receiver listens: ``frequency_hz`` (any value) or
+    ``option`` (a preset by name, the only way to pick a sweep), exactly
+    one of them.
 
-    The answer is a result, not an error, so the chip can say it:
-    ``confirmed`` with the value now held, ``did_not_change`` with the
-    value the receiver still holds, or ``cannot_tune`` when HAIR has no
-    number to set. A value outside the number's limits is still tried.
+    The answer is a result, not an error, so the control can say it:
+    ``confirmed`` with where it listens now, ``did_not_change`` with
+    where it still listens, ``cannot_tune`` when HAIR has no way to set
+    it there, or ``not_accepted`` with ``accepts`` for a value outside
+    what the receiver accepts (nothing is set).
+    ``row`` is the receiver's frequency row, read after.
     """
-    from .rf_receive import is_rf_receiver_state
-    from .rf_tune import async_tune
+    from .rf_receive import is_rf_receiver_state, receiver_frequency
+    from .rf_tune import async_set_frequency
 
     receiver = msg["receiver_entity_id"]
     if not is_rf_receiver_state(hass.states.get(receiver)):
         connection.send_error(msg["id"], "not_found", f"{receiver} is not a radio receiver")
         return
+    if ("frequency_hz" in msg) == ("option" in msg):
+        connection.send_error(
+            msg["id"], "invalid_format", "Give frequency_hz or option, not both"
+        )
+        return
     try:
-        result = await async_tune(hass, receiver, msg["frequency_hz"])
-    except Exception as err:  # the number's service refused
+        result = await async_set_frequency(
+            hass, receiver,
+            frequency_hz=msg.get("frequency_hz"), option=msg.get("option"),
+        )
+    except Exception as err:  # the number's or the select's service refused
         _LOGGER.debug("Tuning %s failed", receiver, exc_info=True)
         connection.send_error(msg["id"], "tune_failed", str(err))
         return
-    connection.send_result(msg["id"], result)
+    connection.send_result(msg["id"], {**result, "row": receiver_frequency(hass, receiver)})
 
 
 @websocket_api.require_admin
@@ -4782,6 +5007,37 @@ def _register_trigger_remote_ha_device(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remotes/reorder",
+    vol.Required("remote_ids"): [str],
+})
+@websocket_api.async_response
+async def ws_reorder_trigger_remotes(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Reorder the named Remotes to match the given id list.
+
+    The Remotes section's drag, the twin of ``hair/devices/reorder``. The
+    order is the store's, so every list of Remotes follows it: the
+    section itself and the Remote pickers elsewhere in the panel.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    try:
+        store.reorder_trigger_remotes(list(msg["remote_ids"]))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    await store.async_save()
+    connection.send_result(msg["id"], {"reordered": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/trigger-remotes",
 })
 @websocket_api.async_response
@@ -4854,6 +5110,8 @@ async def ws_list_trigger_remotes(
             # Always present for the panel, empty meaning every pin
             # relays (GH #183); the store omits it while empty.
             "follow_only_device_ids": list(remote.follow_only_device_ids),
+            # The same for Track only (GH #294).
+            "track_only_device_ids": list(remote.track_only_device_ids),
             "matrix": matrix_summary_block,
             **_remote_state_payload(hass, remote),
         })
@@ -4870,6 +5128,7 @@ def _remote_state_payload(hass: HomeAssistant, remote: Any) -> dict[str, Any]:
     """
     from .remote_state import (
         remote_action_options,
+        remote_power_eligible,
         remote_state_entity_id,
         tracked_mapping,
     )
@@ -4881,6 +5140,13 @@ def _remote_state_payload(hass: HomeAssistant, remote: Any) -> dict[str, Any]:
         ),
         "action_options": remote_action_options(remote.device_type),
         "state_entity_id": remote_state_entity_id(hass, remote),
+        # A typed Remote's state source, always present for the panel
+        # (the store omits it while unset), and whether its type reads it.
+        "power_eligible": remote_power_eligible(remote),
+        "power_sensor_entity_id": remote.power_sensor_entity_id,
+        "power_off_below_w": remote.power_off_below_w,
+        "power_on_above_w": remote.power_on_above_w,
+        "power_settle_s": remote.power_settle_s,
     }
 
 
@@ -4984,6 +5250,73 @@ async def ws_set_trigger_remote_type(
         "remote_id": remote.id,
         "removed_entity_id": removed_entity_id,
         **fill,
+        **_remote_state_payload(hass, remote),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/set-power",
+    vol.Required("remote_id"): str,
+    vol.Optional("power_sensor_entity_id"): vol.Any(str, None),
+    vol.Optional("power_off_below_w"): vol.Any(vol.Coerce(float), None),
+    vol.Optional("power_on_above_w"): vol.Any(vol.Coerce(float), None),
+    vol.Optional("power_settle_s"): vol.Any(vol.Coerce(float), None),
+})
+@websocket_api.async_response
+async def ws_set_trigger_remote_power(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Give a typed Remote a state source, change it, or clear it.
+
+    The Device's four keys with the Device's rules (``_resolve_power_
+    source``): a power sensor in watts with its two thresholds, or an
+    on/off entity, and the settle window. Only a Remote whose type can
+    show power takes one (``remote_state.remote_power_eligible``).
+    Nothing is written on a refusal. The power monitor re-subscribes the
+    Remote at once. Returns the Remote's state payload.
+    """
+    from .remote_state import remote_power_eligible
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+    if not remote_power_eligible(remote):
+        connection.send_error(
+            msg["id"],
+            "invalid_format",
+            "Only a media player, fan, light or switch Remote can have a state source",
+        )
+        return
+    resolved = _resolve_power_source(hass, remote, msg, "Remote")
+    if isinstance(resolved, str):
+        connection.send_error(msg["id"], "invalid_format", resolved)
+        return
+
+    from datetime import UTC, datetime
+
+    (
+        remote.power_sensor_entity_id,
+        remote.power_off_below_w,
+        remote.power_on_above_w,
+        remote.power_settle_s,
+    ) = resolved
+    remote.updated_at = datetime.now(UTC).isoformat()
+    store.update_trigger_remote(remote)
+    await store.async_save()
+    power_monitor = data.get("power_monitor")
+    if power_monitor is not None:
+        power_monitor.rebuild_remote(remote)
+    connection.send_result(msg["id"], {
+        "remote_id": remote.id,
         **_remote_state_payload(hass, remote),
     })
 
@@ -5414,6 +5747,7 @@ async def ws_pin_trigger_remote_device(
     connection.send_result(msg["id"], {
         "pinned_device_ids": list(remote.pinned_device_ids),
         "follow_only_device_ids": list(remote.follow_only_device_ids),
+        "track_only_device_ids": list(remote.track_only_device_ids),
         # What the pin filled, as set-type reports it.
         "fill_source": fill.source if fill is not None else None,
         "fill_count": fill.count if fill is not None else 0,
@@ -5451,10 +5785,8 @@ async def ws_unpin_trigger_remote_device(
         from datetime import UTC, datetime
 
         remote.pinned_device_ids.remove(device_id)
-        # How the pin behaved goes with the pin (GH #183).
-        remote.follow_only_device_ids = [
-            d for d in remote.follow_only_device_ids if d != device_id
-        ]
+        # How the pin behaved goes with the pin (GH #183, GH #294).
+        remote.drop_pin_mode(device_id)
         remote.updated_at = datetime.now(UTC).isoformat()
         # The unpinned device's map goes with it: derive_bindings walks
         # pinned devices only, so re-deriving here drops the stale entry
@@ -5472,23 +5804,25 @@ async def ws_unpin_trigger_remote_device(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/pin-relay",
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/pin-mode",
     vol.Required("remote_id"): str,
     vol.Required("device_id"): str,
-    vol.Required("relay"): bool,
+    vol.Required("mode"): vol.In(PIN_MODES),
 })
 @websocket_api.async_response
-async def ws_set_pin_relay(
+async def ws_set_pin_mode(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Choose whether a pin relays the handset's power toggle (GH #183).
+    """Choose what a pin does with the presses its remote hears.
 
-    ``relay`` True: the pinned device is sent the toggle the remote
-    heard, for a device out of the handset's sight. False: the device
-    heard the handset itself, so its card follows the press and nothing
-    is sent. Only the power toggle; every other press relays either way.
+    ``send``: every press is sent to the device, for a device out of the
+    handset's sight. ``except_power``: every press but the power toggle
+    (GH #183), for a toggle-power device that hears its own Power button;
+    refused on a device without one. ``track``: nothing is sent and the
+    device's entity follows every press (GH #294), for a device that
+    hears the remote itself. Both stored lists are written together.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -5505,19 +5839,26 @@ async def ws_set_pin_relay(
             msg["id"], "not_found", "That device is not pinned to this remote"
         )
         return
-    follows = device_id in remote.follow_only_device_ids
-    if follows == msg["relay"]:
+    mode = msg["mode"]
+    if mode == PIN_MODE_EXCEPT_POWER:
+        from .send_follow import device_toggles_power
+
+        device = store.get_device(device_id)
+        if device is None or not device_toggles_power(device):
+            connection.send_error(
+                msg["id"], "invalid_mode",
+                "That device has no one-button power to leave out",
+            )
+            return
+    if remote.set_pin_mode(device_id, mode):
         from datetime import UTC, datetime
 
-        if msg["relay"]:
-            remote.follow_only_device_ids.remove(device_id)
-        else:
-            remote.follow_only_device_ids.append(device_id)
         remote.updated_at = datetime.now(UTC).isoformat()
         store.update_trigger_remote(remote)
         await store.async_save()
     connection.send_result(msg["id"], {
         "follow_only_device_ids": list(remote.follow_only_device_ids),
+        "track_only_device_ids": list(remote.track_only_device_ids),
     })
 
 
@@ -6085,7 +6426,12 @@ async def ws_wigs_comb(
 
         from .wig_comb import comb_wig, stamp_receipt
         from .wig_format import serialize_wig
-        from .wig_store import load_wig, safe_wig_filename, wigs_dir
+        from .wig_store import (
+            forget_wig,
+            load_wig,
+            safe_wig_filename,
+            wigs_dir,
+        )
 
         filename = msg["filename"]
         if not safe_wig_filename(filename):
@@ -6100,6 +6446,7 @@ async def ws_wigs_comb(
         path = wigs_dir(hass.config.config_dir) / filename
         if path.is_file():
             path.write_text(serialize_wig(wig), encoding="utf-8")
+            forget_wig(hass.config.config_dir, filename)
         return {
             "filename": filename,
             "name": wig.name,
@@ -6584,6 +6931,7 @@ async def ws_wigs_update(
     def _update() -> dict[str, Any]:
         from .wig_format import serialize_wig
         from .wig_store import (
+            forget_wig,
             load_wig,
             safe_wig_filename,
             wigs_dir,
@@ -6623,6 +6971,7 @@ async def ws_wigs_update(
         _apply_identifier_edits(wig, msg)
         path = wigs_dir(hass.config.config_dir) / filename
         path.write_text(serialize_wig(wig), encoding="utf-8")
+        forget_wig(hass.config.config_dir, filename)
         return {"success": True, "filename": filename}
 
     connection.send_result(
@@ -7031,6 +7380,7 @@ async def _do_update(
         from .wig_save import lattice_diff, reject_flat_exclusions, update_text
         from .wig_store import (
             find_wig_by_id,
+            forget_wig,
             load_wig,
             read_wig_text,
             wigs_dir,
@@ -7090,6 +7440,7 @@ async def _do_update(
         (wigs_dir(hass.config.config_dir) / filename).write_text(
             new_text, encoding="utf-8"
         )
+        forget_wig(hass.config.config_dir, filename)
         result.filename = filename
         result.notes = [*result.notes, *(
             [f"metadata: {', '.join(sorted(edits))}"] if edits else []
@@ -8528,7 +8879,7 @@ async def ws_device_make_remote(
 
     triggers: list[IRTrigger] = []
     for i, command in enumerate(device.commands, start=1):
-        if command.matrix_cell is not None:
+        if command.matrix_cell is not None or is_group(command):
             continue
         trig_name = command.name.strip() or f"Command {i}"
         trigger = IRTrigger(

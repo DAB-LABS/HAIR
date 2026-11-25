@@ -672,14 +672,18 @@ class TriggerManager:
             self._store, remote_id, trigger.id
         ):
             device = self._store.get_device(device_id)
+            # A Track only pin (GH #294): the device hears this remote
+            # itself, so every press is followed and nothing is sent.
             # A pin that follows a toggle (GH #183): the device heard its
             # own handset's power toggle, so it is not sent it again.
             # Only the toggle; every other button relays as before.
-            if (
-                remote is not None
-                and device is not None
-                and device_id in remote.follow_only_device_ids
-                and command_toggles_power(device, command_id)
+            if remote is not None and (
+                device_id in remote.track_only_device_ids
+                or (
+                    device is not None
+                    and device_id in remote.follow_only_device_ids
+                    and command_toggles_power(device, command_id)
+                )
             ):
                 command_id = FOLLOW_TARGET_PREFIX + command_id
             target: Target = (remote_id, device_id, command_id)

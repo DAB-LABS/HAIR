@@ -12,8 +12,12 @@
 // under node, which is what the helper tests below rely on.
 import { latticeFields } from "./matrix-lattice.js";
 import type { CandyEvent } from "./candy-text.js";
+import type { PinMode } from "./pin-mode.js";
 import type {
     ActionOption,
+    GroupCandidateDevice,
+    GroupRunResult,
+    GroupUser,
     AssignResult,
     CandidateVerdict,
     CaptureReceiverRow,
@@ -200,6 +204,45 @@ export class HairApi {
         });
     }
 
+    /** A new, empty grouped command on a device (grouped-signals.md). */
+    groupCreate(deviceId: string): Promise<{ command: IRCommand; device: IRDevice }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/command/group/create",
+            device_id: deviceId,
+        });
+    }
+
+    /** Replace a grouped command's steps; answers the device as it is now. */
+    groupSetSteps(
+        deviceId: string,
+        commandId: string,
+        steps: { device_id: string; command_id: string; delay_ms: number }[],
+    ): Promise<{ device: IRDevice }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/command/group/steps",
+            device_id: deviceId,
+            command_id: commandId,
+            steps,
+        });
+    }
+
+    /** Every device and its commands, for the step picker. */
+    groupCandidates(deviceId: string): Promise<{ devices: GroupCandidateDevice[] }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/command/group/candidates",
+            device_id: deviceId,
+        });
+    }
+
+    /** The grouped commands a delete would leave a missing step in. */
+    groupUsedBy(deviceId: string, commandId?: string): Promise<{ groups: GroupUser[] }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/command/group/used-by",
+            device_id: deviceId,
+            ...(commandId ? { command_id: commandId } : {}),
+        });
+    }
+
     deleteCommand(deviceId: string, commandId: string): Promise<{ removed: boolean }> {
         return this.hass.connection.sendMessagePromise<{ removed: boolean }>({
             type: "hair/command/delete",
@@ -255,11 +298,17 @@ export class HairApi {
     sendCommand(
         deviceId: string,
         commandId: string,
-    ): Promise<{ sent: boolean; heard: boolean; receiver: string | null }> {
+    ): Promise<{
+        sent: boolean;
+        heard: boolean;
+        receiver: string | null;
+        group?: GroupRunResult;
+    }> {
         return this.hass.connection.sendMessagePromise<{
             sent: boolean;
             heard: boolean;
             receiver: string | null;
+            group?: GroupRunResult;
         }>({
             type: "hair/command/send",
             device_id: deviceId,
@@ -325,13 +374,18 @@ export class HairApi {
         return this.hass.connection.sendMessagePromise({ type: "hair/rf/receiver_tuning" });
     }
 
-    /** Set where a radio receiver listens. The answer says whether it
-     *  took: confirmed, did not change, or cannot be tuned. */
-    receiverTune(receiverEntityId: string, frequencyHz: number): Promise<ReceiverTuneResult> {
+    /** Set where a radio receiver listens: a frequency, or one of its
+     *  select's options by name (the only way to pick a sweep). The
+     *  answer says whether it took: confirmed, did not change, or
+     *  cannot be tuned. */
+    receiverTune(
+        receiverEntityId: string,
+        pick: { hz: number } | { option: string },
+    ): Promise<ReceiverTuneResult> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/rf/receiver_tune",
             receiver_entity_id: receiverEntityId,
-            frequency_hz: frequencyHz,
+            ...("hz" in pick ? { frequency_hz: pick.hz } : { option: pick.option }),
         });
     }
 
@@ -1322,8 +1376,9 @@ export class HairApi {
     /**
      * Learned-code stores found under .storage (0.10.3).
      *
-     * Cheap: counts only, no decoding, so the Add Blaster dialog can
-     * call it every time it opens.
+     * Cheap: counts only, no decoding, so the Plucker can call it on
+     * every load. Each store also lists its sub-devices (1.4.1), which
+     * is what the Plucker's ghosts are drawn from.
      */
     listLearnedStores(): Promise<{
         stores: LearnedStore[];
@@ -1337,11 +1392,17 @@ export class HairApi {
         });
     }
 
-    /** Import one whole store and return its landing numbers. */
-    importLearnedStore(storeId: string): Promise<LearnedStoreImport> {
+    /** Import a store and return its landing numbers: one sub-device
+     *  when ``subdevice`` is given (a Plucker ghost), the whole store
+     *  when it is not. */
+    importLearnedStore(
+        storeId: string,
+        subdevice?: string,
+    ): Promise<LearnedStoreImport> {
         return this.hass.connection.sendMessagePromise<LearnedStoreImport>({
             type: "hair/pluck/stores/import",
             store_id: storeId,
+            ...(subdevice !== undefined ? { subdevice } : {}),
         });
     }
 
@@ -1544,6 +1605,19 @@ export class HairApi {
     }
 
     /**
+     * Persist a new order for the named Remotes (the Remotes section's
+     * drag). ``remoteIds`` must be the complete current set, or the
+     * backend rejects it with ``invalid_format``. Mirrors
+     * ``reorderDevices``.
+     */
+    reorderTriggerRemotes(remoteIds: string[]): Promise<{ reordered: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ reordered: boolean }>({
+            type: "hair/trigger-remotes/reorder",
+            remote_ids: remoteIds,
+        });
+    }
+
+    /**
      * Add Popups signpost 2, Track 5: rename a named remote (the
      * expand view's header rename-in-place, same pattern as
      * renameTriggerDrawer above but scoped to one remote_id).
@@ -1597,6 +1671,24 @@ export class HairApi {
      * 2a). A change or clear removes the old state entity for good;
      * the panel warns first.
      */
+    /** A typed Remote's state source: the Device's four keys and rules
+     *  (hair/trigger-remote/set-power). */
+    setTriggerRemotePower(
+        remoteId: string,
+        source: {
+            power_sensor_entity_id: string | null;
+            power_off_below_w: number | null;
+            power_on_above_w: number | null;
+            power_settle_s: number | null;
+        },
+    ): Promise<RemoteStateResult> {
+        return this.hass.connection.sendMessagePromise<RemoteStateResult>({
+            type: "hair/trigger-remote/set-power",
+            remote_id: remoteId,
+            ...source,
+        });
+    }
+
     setTriggerRemoteType(
         remoteId: string,
         deviceType: RemoteTypeId | null,
@@ -1654,19 +1746,19 @@ export class HairApi {
         });
     }
 
-    /** Toggle power (GH #183): whether a pin relays the handset's power
-     *  toggle to the device (true) or the device follows it without a
-     *  send (false). Only the power toggle; every other press relays. */
-    setPinRelay(
+    /** What a pin does with its remote's presses (GH #294, GH #183):
+     *  "send" every press, "except_power" (a toggle-power device only),
+     *  or "track", sending nothing. */
+    setPinMode(
         remoteId: string,
         deviceId: string,
-        relay: boolean,
-    ): Promise<{ follow_only_device_ids: string[] }> {
+        mode: PinMode,
+    ): Promise<{ follow_only_device_ids: string[]; track_only_device_ids: string[] }> {
         return this.hass.connection.sendMessagePromise({
-            type: "hair/trigger-remote/pin-relay",
+            type: "hair/trigger-remote/pin-mode",
             remote_id: remoteId,
             device_id: deviceId,
-            relay,
+            mode,
         });
     }
 
@@ -2094,6 +2186,29 @@ export function landedManyNotice(
         key: "wigs.upload_landed_many",
         params: { count, names: shown.join(", ") },
     };
+}
+
+/**
+ * Can this Plucker remote take "+ Pluck signal"?
+ *
+ * Plucking a signal replays one command by name through the remote's
+ * vendor entity and appliance, so only a remote made with both (a
+ * blaster made on this tab) can. A remote read from a learned-code
+ * store has neither: its codes came from the store, and new ones come
+ * the same way, by plucking the store again. A blaster whose vendor
+ * integration is not loaded still shows the button, and the tab says
+ * why it can't run.
+ */
+export function canPluckByName(device: {
+    source?: string | null;
+    vendor_entity_id?: string | null;
+    appliance?: string | null;
+} | null | undefined): boolean {
+    return (
+        device?.source === "plucked" &&
+        !!device.vendor_entity_id &&
+        !!device.appliance
+    );
 }
 
 export function anyPluckReadyNow(sources: PluckSource[] | null | undefined): boolean {

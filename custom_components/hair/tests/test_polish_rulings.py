@@ -3559,8 +3559,9 @@ class TestTheGhostTileHasTwoButtons:
     def test_the_buttons_draw_the_tiles_own_edge(self):
         # Owner, 2026-11-14 10:02 PT on VM999 (ir-2026-11-14-ghost-buttons-
         # dashed.md): the buttons dashed like the card, from the card's
-        # own value so the two cannot drift.
-        text = " ".join(_read("ir-ghost-tile.ts").split())
+        # own value so the two cannot drift. The sheet lives in
+        # ghost-tile-styles.ts since 1.4.1, shared with the Plucker.
+        text = " ".join(_read("ghost-tile-styles.ts").split())
         edge = "border: var(--gt-edge-width) var(--gt-edge-style) var(--gt-edge-color);"
         assert text.count(edge) == 2
         assert (
@@ -3571,7 +3572,7 @@ class TestTheGhostTileHasTwoButtons:
         btn = text.split(".gt-btn { position: relative;", 1)[1].split("}", 1)[0]
         assert edge in btn
         # The tile's states move the properties, never the border itself.
-        styles = text.split("static styles", 1)[1]
+        styles = text.split("export const ghostTileStyles", 1)[1]
         assert "border-color:" not in styles and "border-style:" not in styles
         # A visible focus ring stays: the dashed edge is not a focus mark.
         assert ".gt-btn:focus-visible { outline: 2px solid currentColor;" in text
@@ -3580,7 +3581,7 @@ class TestTheGhostTileHasTwoButtons:
         # Owner, 2026-11-14 07:56 PT on VM999 (ir-2026-11-14-ghost-buttons-
         # smaller.md): about 20% smaller, 32 to 26 px and 40 to 32 px, the
         # icons with them, and a finger still gets a usable target.
-        text = " ".join(_read("ir-ghost-tile.ts").split())
+        text = " ".join(_read("ghost-tile-styles.ts").split())
         assert ".gt-btn { position: relative; width: 26px; height: 26px;" in text
         assert ".gt-buttons-lg .gt-btn { width: 32px; height: 32px; border-radius: 6px; }" in text
         assert ".gt-btn svg { width: 14px; height: 14px;" in text
@@ -3683,16 +3684,16 @@ class TestTheGhostTileHasTwoButtons:
             assert ".json,.ir,.conf" not in text, name
 
     def test_only_the_buttons_take_the_pointer(self):
-        text = _read("ir-ghost-tile.ts")
-        tile = text.split("        .gt-tile {", 1)[1].split("}", 1)[0]
+        text = _read("ghost-tile-styles.ts")
+        tile = text.split("\n    .gt-tile {", 1)[1].split("}", 1)[0]
         assert "cursor: default;" in tile
-        btn = text.split("        .gt-btn {", 1)[1].split("}", 1)[0]
+        btn = text.split("\n    .gt-btn {", 1)[1].split("}", 1)[0]
         assert "cursor: pointer;" in btn
 
     def test_keyboard_focus_on_a_button_lights_the_tile(self):
         """Keyboard focus only: a mouse click leaves the button
         focused, and :focus-within kept the tile lit after it."""
-        text = _read("ir-ghost-tile.ts")
+        text = _read("ghost-tile-styles.ts")
         assert ".gt-tile:has(.gt-btn:focus-visible)" in text
         assert ".gt-tile:focus-within" not in text
         assert ".gt-tile:focus-visible" not in text

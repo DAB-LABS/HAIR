@@ -14,6 +14,8 @@ import sys
 from types import ModuleType
 from unittest.mock import MagicMock
 
+import pytest
+
 # Python 3.10 fallback -- datetime.UTC was added in 3.11.
 if not hasattr(datetime, "UTC"):
     datetime.UTC = datetime.timezone.utc  # type: ignore[attr-defined]  # noqa: UP017
@@ -790,3 +792,41 @@ def pytest_terminal_summary(terminalreporter):
         f"HAIR registry: upstream {', '.join(upstream) or 'none'}; "
         f"library decoders held back: {', '.join(held) or 'none'}"
     )
+
+
+def _stub_mocks() -> list[MagicMock]:
+    """Every mock object the stubs above leave in a homeassistant module.
+
+    They live for the whole session, and a mock keeps a record of every
+    call made to it (and to its return value). A radio replay calls the
+    entity registry several times per capture, so over a full run those
+    records grew to gigabytes per worker.
+    """
+    from unittest.mock import NonCallableMock
+
+    found: dict[int, MagicMock] = {}
+    for name, module in list(sys.modules.items()):
+        if not name.startswith("homeassistant"):
+            continue
+        for value in vars(module).values():
+            if isinstance(value, NonCallableMock):
+                found[id(value)] = value
+    return list(found.values())
+
+
+_STUB_MOCKS: list[MagicMock] | None = None
+
+
+@pytest.fixture(autouse=True)
+def _forget_stub_calls():
+    """Clear the session-wide stub mocks' call records after each test.
+
+    Only the records go: return values and side effects a stub was given
+    above stay. A test that needs a stub's calls reads them inside itself.
+    """
+    yield
+    global _STUB_MOCKS
+    if _STUB_MOCKS is None:
+        _STUB_MOCKS = _stub_mocks()
+    for stub in _STUB_MOCKS:
+        stub.reset_mock()

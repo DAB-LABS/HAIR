@@ -9,7 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Remotes on the Devices tab can be dragged into any order, as Devices can. The HAIR Triggers card stays first, and a new Remote still lands at the end beside the "+" tile. Every list of Remotes elsewhere in the panel follows the same order.
+
+### Changed
+
+- The Plucker has no Add Blaster step. Under your plucked remotes it shows a faded tile for everything it could still pluck: one per appliance in a learned-code store, which you click to pluck, and one per blaster that pulls codes by name, which opens to an appliance and a command. A store HAIR can't read, or an appliance with nothing to pluck, shows why. A new remote goes to the top of the list.
+- A radio code that fits two kinds of remote at once gets no family label, is never sent, and isn't filed by remote and button. The Sniffer asks you to press the button again. HAIR used to go by whichever kind it checked first.
+
+### Fixed
+
+- A Broadlink RM4 Pro radio code learned on a frequency other than 433.92 MHz can be pasted. A 315 MHz code used to be refused as "Not a Broadlink radio packet", and a 433.42 or 438 MHz code was saved at 433.92 MHz with a few stray timings at its start. It now keeps the frequency it was learned on.
+- A Broadlink RM4 Pro radio code pasted into an infrared code box now says it's a radio code, with its frequency, and to add it with Add Signal. It used to be refused as unreadable.
+- A cover (screen or shade) now has Stop. A command or button named Stop, in any of the panel's languages, maps to the cover's own Stop instead of a media player's, and so does a French shade remote's "Arrêt". Up and Down map to open and close. Covers set up before this get their Stop back on the next restart. Reported by @platini76 (#313).
+
+## [1.4.0] - 2026-11-23 -- Waiting Room
+
+### Changed
+
+- A frequency typed into a radio receiver's "Other..." box that the receiver doesn't take is refused, and HAIR says which frequencies it does take. It used to be sent anyway.
+- A new remote shows in the Sniffer on its first press. It used to wait for three.
+- On the Devices page, a capture receiver's IR-RX or RF-RX badge shows its capture state: grey with no switch, gold when ready, green while listening.
+- A matrix wig can be picked in the Closet tab of Add Device. It makes an AC device, as Adopt Device on the Closet card does, and the list shows its states where it used to show 0. The list also says signals, not states, for every other wig.
+- The Closet opens faster, and so does the brand list in Create Remote. HAIR re-checks only the wigs that changed since the last look, not every wig every time.
+- Device settings are laid out as cards. Each shows its name and a line saying what is set, and opens with a click. Inside the cards everything is in the panel's plain greys; blue marks only the open card's outline and its buttons. Power has one heading, with the Power button setting at its top.
+- With an on/off power source (a binary sensor, switch, helper or device tracker), a Device or Remote that the source still disagrees with at the end of the settle time follows the source. A Power press the TV never got is undone even if the source never reports again. A new on/off source waits 180 seconds by default, enough for a presence tracker to notice; watt sensors are unchanged.
+
+### Added
+
+- A typed Remote that is a media player, fan, light or switch can have a power source, as a Device can: a power sensor with its two thresholds, or an on/off entity such as a presence sensor. The Remote's entity follows it, and after a Power press on the handset the source waits the settle time before it can overrule the press. Set it in the Remote's settings, which now have Save. A Device and its Remote each keep their own source.
+- When a listening window hears a radio code HAIR can't read yet, such as a car key's, the Sniffer says so instead of showing nothing.
+- An integration can tell HAIR how to set its radio receiver to any frequency, with a `frequency_number` (and `frequency_number_option` when the number feeds one of its presets). An always-on radio receiver can also report where it listens with `frequency_hz` at any time. The guide for integration authors is now [Receivers](docs/receivers.md).
 - A KeeLoq or Somfy RTS remote's buttons can be triggers now. HAIR files each press by the part that doesn't change (the remote and the button), so every press of one button lands on one row and fires its trigger. A recording of a press it already heard is ignored. HAIR still never sends these codes. Rolling-code rows captured before this version stay as they were; press the button again.
+- HAIR hears Daikin remotes that send one 64-bit frame and have one Power button (Daikin64). Every press finds its state on the card, whatever time the remote's clock is set to, and Power is heard as Power at any setting, so a device with "This device has one Power button" ticked follows it.
+- A pinned remote can track a device without sending to it. In a device's settings, each pinned remote has one choice: send every press, send every press except Power, or track only. Track only is for a device that hears the handset itself: HAIR follows every press so the device's state stays right, and sends nothing, so volume, channel and fan speed no longer step twice. Requested by @dgaus (#294).
+- An ESPHome config for an ESP32 dev board with a CC1101 radio module, in `esphome/esp32-cc1101-rf-proxy/`. It listens anywhere from 300 to 348, 387 to 464 and 779 to 928 MHz, set from its Listen frequency, and sends on one frequency you pick. Tested with a 433 MHz module.
+- Grouped signals: a command on a device that sends other commands, from any device, in order, with a delay between each. Add one with + Grouped Signals on a device's page. It maps to an action, gets a button, and Test runs it. The delay counts from the end of the previous signal, 300 ms at least. Grouped signals stay out of a wig export and Save to Closet.
+
+### Fixed
+
+- In the Plucker, a remote read from a learned-code store no longer offers "+ Pluck signal". It has no blaster to replay a command by name, so the button only ever ended in "This blaster's integration is not available right now". Its codes come from the store: add one there and pluck the store again.
 
 ## [1.3.1] - 2026-11-18 -- Permanent Wave
 

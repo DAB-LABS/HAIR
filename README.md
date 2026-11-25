@@ -86,7 +86,7 @@ To go from a fresh install to a working button:
 
 ## Capture a remote
 
-The Sniffer is a live listener. It shows every signal your receivers hear, groups signals by the remote they came from, and filters out repeat frames from a held-down button. A new remote needs at least three presses before HAIR trusts it enough to show it as its own card, so give it a few before you go looking for it.
+The Sniffer is a live listener. It shows every signal your receivers hear, groups signals by the remote they came from, and filters out repeat frames from a held-down button. A new remote shows up as its own card on its first press.
 
 To capture a remote:
 
@@ -106,13 +106,13 @@ A remote that leaks in from outside (a neighbor's clicker, for example) can be h
 
 The receiver row at the top of the Sniffer has one pill per receiver, infrared and radio. A pill's `IR` or `RF` badge names the medium. A solid badge means the receiver is taking new codes right now; a light one means it is not. A pill glows each time HAIR takes a code from its receiver. An always-on infrared receiver is always solid, with nothing to press.
 
-Some receivers hear codes only while a capture window is open, such as a hub in learn mode. Any integration can say its receiver works this way with a `capturing` attribute on the receiver entity, and HAIR then opens and closes the window for you; the contract for integration authors is in [Windowed receivers](docs/windowed-receivers.md). Press the pill to open a window. It turns green and drains until the window ends. The pickers on the pill set the next window's length and type and, on a radio receiver, its carrier. The Listen in the code editor and in the Fix window opens the window for the listen and closes it after.
+Some receivers hear codes only while a capture window is open, such as a hub in learn mode. Any integration can say its receiver works this way with a `capturing` attribute on the receiver entity, and HAIR then opens and closes the window for you; the contract for integration authors is in [Receivers](docs/receivers.md). Press the pill to open a window. It turns green and drains until the window ends. The pickers on the pill set the next window's length and type and, on a radio receiver, its carrier. The Listen in the code editor and in the Fix window opens the window for the listen and closes it after.
 
 The worked example is a Broadlink RM. Home Assistant's Broadlink integration only sends, and [BroadSniff](https://github.com/DAB-LABS/broadsniff) gives the same RM a receiver that is a capture device: infrared, and on an RM pro or RM4 pro, radio too. Install it from HACS and add it against your Broadlink, and HAIR picks the receivers up on its own, with nothing to configure.
 
 ## Radio remotes
 
-From Home Assistant 2026.11, HAIR hears radio remotes too: keyfobs, ceiling fan remotes, plug handsets and doorbells, on 433 MHz and the other common bands. Radio codes appear in the Sniffer beside infrared ones, with a radio glyph and their band, and they assign, alias and trigger the same way. On 2026.11 the receiver is a Broadlink RM pro or RM4 pro with BroadSniff. ESPHome radio receivers follow with Home Assistant 2026.12; ESPHome 2026.5 or later has the receiver side. An always-on radio receiver files new codes only while its pill's capture window is open, so a neighbor's doorbell does not fill the Sniffer, and it hears codes HAIR already knows all the time. A receiver that can be retuned, like a CC1101, shows where it's listening on its pill, and you can change it there; codes it hears are filed at that frequency. Rolling-code remotes such as car keys send a different code on every press, so HAIR cannot recognize their buttons. HAIR marks a KeeLoq or Somfy RTS code as a rolling code and never sends one. HAIR sends radio codes too, through a Broadlink RM pro or RM4 pro or an ESPHome radio transmitter, from a device's buttons, the Sniffer's Test and automations, and a radio code pasted into the Clipper or carried in a wig works like one heard. [Radio remotes](docs/rf.md) has the details.
+From Home Assistant 2026.11, HAIR hears radio remotes too: keyfobs, ceiling fan remotes, plug handsets and doorbells, on 433 MHz and the other common bands. Radio codes appear in the Sniffer beside infrared ones, with a radio glyph and their band, and they assign, alias and trigger the same way. On 2026.11 the receiver is a Broadlink RM pro or RM4 pro with BroadSniff. ESPHome radio receivers follow with Home Assistant 2026.12; ESPHome 2026.5 or later has the receiver side. An always-on radio receiver files new codes only while its pill's capture window is open, so a neighbor's doorbell does not fill the Sniffer, and it hears codes HAIR already knows all the time. A receiver that can be retuned, like a CC1101, shows where it's listening on its pill, and you can change it there to any frequency the receiver accepts; codes it hears are filed at that frequency. Rolling-code remotes such as car keys send a different code on every press. HAIR files a KeeLoq or Somfy RTS press by the remote and the button, so each button can be a trigger, and it never sends a rolling code. When a window hears a code HAIR can't read yet, the Sniffer says so under the receiver's pill. HAIR sends radio codes too, through a Broadlink RM pro or RM4 pro or an ESPHome radio transmitter, from a device's buttons, the Sniffer's Test and automations, and a radio code pasted into the Clipper or carried in a wig works like one heard. [Radio remotes](docs/rf.md) has the details.
 
 ## Turn signals into a device
 
@@ -128,6 +128,8 @@ To turn a set of codes into a Device or Remote:
 The Clipper is for pasting a code by hand: its one **Add Signal** window takes an infrared code (Pronto, a Tuya or Broadlink base64 code, a Global Cache `sendir` code, or a Tasmota code) or a radio code (a Flipper `.sub`, a Broadlink radio code, or raw timings) and shows the fields for what you pasted; the Plucker pulls codes another integration has already learned, such as Broadlink, Tuya Local or OpenIRBlaster, without transmitting anything over the air (see [Pluck codes you already learned](#pluck-codes-you-already-learned)).
 
 For a Device, open it afterward and click **ACTIONS** on a command to map it to an entity action, such as `turn_on` or `volume_up`; only mapped actions show up as controls, so an entity never claims a feature your remote does not have. The entity follows every send HAIR makes to the Device through those mapped actions, whether it came from the entity, a HAIR button, `remote.send_command`, the panel or a pinned Remote.
+
+A Device can also have grouped signals: one command that sends others, from any device, in order. Click **+ Grouped Signals** on the Device's page, pick the signals and set the delay before each one (300 ms at least, counted from the end of the one before). It maps to an action and gets a button like any other command, and **Test** runs it. Grouped signals stay out of a wig export and Save to Closet.
 
 You can also click the dashed tile at the end of the grid to start one from scratch, or drop a code file onto it so HAIR opens the add dialog already filled in; dropping does not create anything by itself, and completing the dialog files the codes as a wig in your Closet at the same time it creates the Device or Remote. To duplicate a Device instead, use its card; commands and emitter assignments come with it, so you only rename the clone.
 
@@ -171,14 +173,14 @@ If the comb flags a cell, it stays in the matrix and shows up under **Needs atte
 
 If you taught your remotes to another integration, the Plucker copies those codes into HAIR without sending anything over the air.
 
-1. Open the **Plucker** tab and click **+ Add Blaster**.
-2. Every code store HAIR finds in Home Assistant gets its own card, Broadlink first. Click a card to pluck it. Clicking it again later is safe: codes already plucked are not added twice.
-3. The codes land as cards on the Plucker tab. Click **USE** to make a Device or Remote from them (see [Turn signals into a device](#turn-signals-into-a-device)).
+1. Open the **Plucker** tab. Under your plucked remotes it shows a faded tile for every appliance it finds in a code store in Home Assistant, Broadlink first.
+2. Click a tile to pluck that appliance. It becomes a remote at the top of the list. Delete the remote and its tile comes back.
+3. Click **USE** on the remote to make a Device or Remote from it (see [Turn signals into a device](#turn-signals-into-a-device)).
 
 What the Plucker reads:
 
 - **Broadlink:** codes learned with `remote.learn_command`, which the integration keeps in Home Assistant's storage. Codes learned in the Broadlink phone app stay in Broadlink's cloud and cannot be plucked. RF codes in the same store are set aside, since HAIR works with infrared.
-- **Tuya Local:** the codes your Tuya hub captured, or one code at a time by replaying it into a silent listener (the last card in the dialog).
+- **Tuya Local:** the codes your Tuya hub captured, or one code at a time by replaying it into a silent listener. Each Tuya blaster has its own tile for that: click it, type the appliance and the command as you named them in Tuya, and press **Pluck** or Enter. The first code makes the remote; further commands use its **+ Pluck Signal**.
 - **OpenIRBlaster:** the code library it learned, with the carrier it measured for each code.
 
 ## Import codes (SmartIR and the closet)
@@ -269,6 +271,8 @@ A trigger created from a Sniffer or Clipper row reacts to a raw signal without n
 
 **Pin a Remote to a Device** and pressing the handset sends the matching command through that Device's emitters; HAIR matches the button to the command on its own. Open the **PIN** row on the Remote's header, or **PINNED** on the Device's, and tick the other side; untick to unpin. One Remote can drive several Devices, and one Device several Remotes. HAIR never re-fires its own sends, so a pinned handset by the receiver will not loop, and a runaway pairing gets cut for a minute and logged without breaking the handset's triggers.
 
+Each pin has a choice in the Device's settings, under **Pinned remotes**. **Send every press** is for a device that can't hear the handset. **Send every press except Power** is for a device whose Power is one button and which hears that button itself, so a second press doesn't turn it back. **Track only, send nothing** is for a device in the same room as its handset: it hears every press itself, so HAIR sends nothing and only moves the device's state to match. Tracking counts the presses HAIR hears, so if the receiver misses one that the device caught, the state is one step behind until the next press, or until a power sensor puts the power right.
+
 <!-- screenshot: Remote PIN row, Device PINNED row -->
 
 <p align="center"><img src="images/screenshots/trigger-dialog.png" alt="Create Trigger dialog with S/L diamond pattern and min hits setting" width="420"></p>
@@ -299,7 +303,7 @@ HAIR does not talk to hardware directly. It sits on HA's native `infrared` platf
 
 ### The Devices tab
 
-The tab splits into two sections. **DEVICES** holds the things HAIR sends codes to: **HAIR Devices** (your managed profiles; drag to reorder, duplicate or delete from the corners of the card), **Emitters** and **Receivers** (your IR hardware, each showing a TX or RX badge, with `-NATIVE` or `-BRIDGE` marking which path a receiver is using), **Proxies** (hardware with both TX and RX on one board), and **Blasters** (pluckable vendor blasters, shown only when one is configured). **REMOTES** holds the handsets HAIR recognizes; **HAIR Triggers**, the built-in catch-all, is the first card there, and a Remote card shows how many of its triggers are on and off. Emitters and receivers show their health: every chip that picks them carries a dot, green when Home Assistant can reach the hardware and a hollow ember ring when it cannot, with an ember edge on a chip that is selected but offline; on these cards each TX and RX badge turns ember while its own entity is unavailable, each card's icon is solid green while the part it shows answers (an Emitters card its emitter, a Receivers card its receiver, a Proxies card every part; a capture receiver's follows its Listen chip) and turns into a hollow outline in ember when it does not, and a card whose hardware cannot be reached at all gets an ember edge and says OFFLINE in its corner.
+The tab splits into two sections. **DEVICES** holds the things HAIR sends codes to: **HAIR Devices** (your managed profiles; drag to reorder, duplicate or delete from the corners of the card), **Emitters** and **Receivers** (your IR hardware, each showing a TX or RX badge, with `-NATIVE` or `-BRIDGE` marking which path a receiver is using), **Proxies** (hardware with both TX and RX on one board), and **Blasters** (pluckable vendor blasters, shown only when one is configured). **REMOTES** holds the handsets HAIR recognizes; **HAIR Triggers**, the built-in catch-all, is the first card there, and a Remote card shows how many of its triggers are on and off. Emitters and receivers show their health: every chip that picks them carries a dot, green when Home Assistant can reach the hardware and a hollow ember ring when it cannot, with an ember edge on a chip that is selected but offline; on these cards each TX and RX badge turns ember while its own entity is unavailable, a capture receiver's RX badge shows its capture state (grey with no switch, gold when ready, green while listening), each card's icon is solid green while the part it shows answers (an Emitters card its emitter, a Receivers card its receiver, a Proxies card every part; a capture receiver's follows its Listen chip) and turns into a hollow outline in ember when it does not, and a card whose hardware cannot be reached at all gets an ember edge and says OFFLINE in its corner.
 
 <!-- screenshot: Devices tab, DEVICES and REMOTES sections -->
 
@@ -315,7 +319,9 @@ Spacing is exact on ESPHome and Broadlink emitters, which accept the whole burst
 
 ### Device settings and power sensing
 
-IR devices are send-only, so HAIR normally has to assume a command landed. Any device that plausibly draws current (AC, media player, fan, light, switch) shows a small settings button beside its emitter picker; open it to point a sensor at the device: a smart plug's wattage reading, or an on/off entity (a binary sensor, switch, input boolean or device tracker, such as a TV's network tracker). For a wattage reading, set two thresholds, and the device counts as off at or below the lower one and on at or above the higher one; an on/off entity counts as on when it is on or home and off when it is off or not_home. A live reading is shown once a sensor is picked. Readings past either threshold override what HAIR assumed from the last command sent, and keep doing so across a Home Assistant restart, so a device switched off with its original remote stops claiming to be on. After each command HAIR sends, the sensor gets a settle time (20 seconds unless set otherwise in the same settings, 0 turns it off) so a plug that has not yet reported the new draw cannot flip the device back; if the device never responded, the sensor still corrects it after the settle time, with the plug's first report after the command. Devices without a sensor still restore their last-known state after a restart instead of resetting to blank.
+IR devices are send-only, so HAIR normally has to assume a command landed. Any device that plausibly draws current (AC, media player, fan, light, switch) shows a small settings button beside its emitter picker. The settings open as cards, each with a line saying what is set; open the power card to point a sensor at the device: a smart plug's wattage reading, or an on/off entity (a binary sensor, switch, input boolean or device tracker, such as a TV's network tracker). For a wattage reading, set two thresholds, and the device counts as off at or below the lower one and on at or above the higher one; an on/off entity counts as on when it is on or home and off when it is off or not_home. A live reading is shown once a sensor is picked. Readings past either threshold override what HAIR assumed from the last command sent, and keep doing so across a Home Assistant restart, so a device switched off with its original remote stops claiming to be on. After each command HAIR sends, the sensor gets a settle time (20 seconds for a wattage reading and 180 seconds for a new on/off entity, unless set otherwise in the same settings; 0 turns it off) so a plug that has not yet reported the new draw cannot flip the device back. If the device never responded, the sensor still corrects it after the settle time: a wattage reading with the plug's first report after the command, an on/off entity as soon as the settle time ends, even if it never reports again. Devices without a sensor still restore their last-known state after a restart instead of resetting to blank.
+
+A typed Remote that is a media player, fan, light or switch can have a power source too, set the same way in the Remote's settings. A Device and its Remote each keep their own.
 
 On a state-matrix climate device the same dialog also takes a temperature sensor, a humidity sensor, or both, and the thermostat card shows a live reading under each. Display only, and a sensor reporting in a different unit than your installation converts automatically.
 
@@ -340,7 +346,7 @@ On a state-matrix climate device the same dialog also takes a temperature sensor
 
 Every device also gets a `remote` entity for arbitrary Pronto codes and a `button` entity for each learned command.
 
-A fan with one button that steps through its speeds gets speed control once that button is mapped to Speed Cycle and the fan's settings say how many speeds it has; HAIR presses it as many times as it takes, and since it counts presses rather than reading the fan, turning the fan off and on lines the count up again. One known gap: a handset pinned to the fan in the same room is heard by the fan and re-sent by HAIR, so the fan moves two steps while HAIR counts one.
+A fan with one button that steps through its speeds gets speed control once that button is mapped to Speed Cycle and the fan's settings say how many speeds it has; HAIR presses it as many times as it takes, and since it counts presses rather than reading the fan, turning the fan off and on lines the count up again. A handset pinned to the fan in the same room should use **Track only** (see [Set up triggers](#set-up-triggers)): the fan hears the press itself, HAIR sends nothing and still counts the step.
 
 ### ESPHome hardware
 
@@ -361,7 +367,7 @@ infrared:
 
 Reflash, and the Devices tab shows the emitter with a `TX-NATIVE` badge and the receiver with `RX-NATIVE`.
 
-For ready-made configs for common ESP32 boards (XIAO Smart IR Mate, Athom RF IR Remote, M5Stack IR Unit, generic ESP32s), see [`esphome/`](esphome/) in this repo. Not sure what to buy? [Recommended IR hardware](docs/recommended-hardware.md) compares them, with prices and where to buy.
+For ready-made configs for common ESP32 boards (XIAO Smart IR Mate, Athom RF IR Remote, M5Stack IR Unit, generic ESP32s, and an ESP32 + CC1101 radio receiver that tunes from 300 to 928 MHz), see [`esphome/`](esphome/) in this repo. Not sure what to buy? [Recommended IR hardware](docs/recommended-hardware.md) compares them, with prices and where to buy.
 
 <details>
 <summary><b>Starting from scratch? The complete minimal YAML (TX + RX + registration)</b></summary>

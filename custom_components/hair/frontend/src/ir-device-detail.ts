@@ -2,7 +2,7 @@
  * Device detail view: editable header (name, type, emitter),
  * read-only hardware cards (TX / RX), flat command list.
  */
-import { LitElement, html, css, nothing } from "lit";
+import { LitElement, html, css, nothing, unsafeCSS } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp, tv } from "./localize.js";
@@ -12,6 +12,8 @@ import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import "./ir-command-row.js";
+import "./ir-group-steps.js";
+import { GROUP_HUE, GROUP_HUE_LIGHT, groupsNote, isGroup } from "./group-steps.js";
 
 /** Action-badge sizing constants (owner ruling, 2026-08-01; box model
  *  REWORKED 2026-08-11, fourth bench pass -- the fixed-width reservation
@@ -71,6 +73,8 @@ import { pinFillNotice } from "./api.js";
 import "./ir-tangle-section.js";
 import type {
     ActionOption,
+    GroupRunResult,
+    GroupUser,
     IRCommand,
     IRDevice,
     IRTrigger,
@@ -151,6 +155,13 @@ export class IrDeviceDetail extends LitElement {
      * _closeSaveFlow -- see either for the full story. */
     @state() private _pendingWigSaved = false;
     @state() private _commandToDelete: IRCommand | null = null;
+    /** The grouped commands a command delete would leave a missing step
+     *  in, asked for as the confirm opens (grouped-signals.md). */
+    @state() private _deleteGroups: GroupUser[] = [];
+    /** Grouped commands showing their steps. */
+    @state() private _openGroups = new Set<string>();
+    /** A group just made: it comes in open, its name ready to type over. */
+    @state() private _renameGroupId: string | null = null;
     @state() private _editCommand: IRCommand | null = null;
 
     // Action mapping
@@ -592,6 +603,12 @@ export class IrDeviceDetail extends LitElement {
     // ---------------------------------------------------------------
     // Action mapping
     // ---------------------------------------------------------------
+
+    protected willUpdate(changed: Map<string, unknown>): void {
+        super.willUpdate(changed);
+        // The GROUP chip is toned per theme (--hair-group-hue below).
+        this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));
+    }
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -1128,8 +1145,12 @@ export class IrDeviceDetail extends LitElement {
         if (!command) return;
         this._busy = true;
         try {
-            await this.api.sendCommand(this.device.id, command.id);
-            this._flash(t("devdetail.sent_cmd", { name: command.name }));
+            const result = await this.api.sendCommand(this.device.id, command.id);
+            this._flash(
+                result.group
+                    ? this._groupTestLine(command, result.group)
+                    : t("devdetail.sent_cmd", { name: command.name }),
+            );
         } catch (err) {
             // N19: the refusal names the code, its medium and the device.
             this._flash(
@@ -1226,6 +1247,67 @@ export class IrDeviceDetail extends LitElement {
         const { command } = e.detail as { command: IRCommand };
         if (!command) return;
         this._commandToDelete = command;
+        this._deleteGroups = [];
+        void this.api
+            .groupUsedBy(this.device.id, command.id)
+            .then(({ groups }) => {
+                if (this._commandToDelete?.id === command.id) this._deleteGroups = groups;
+            })
+            .catch(() => undefined);
+    }
+
+    // ---------------------------------------------------------------
+    // Grouped commands (grouped-signals.md)
+    // ---------------------------------------------------------------
+
+    private async _addGroup(): Promise<void> {
+        this._busy = true;
+        try {
+            const { command, device } = await this.api.groupCreate(this.device.id);
+            this.device = device;
+            this._openGroups = new Set([...this._openGroups, command.id]);
+            this._renameGroupId = command.id;
+            this.dispatchEvent(new CustomEvent("device-changed", { bubbles: true, composed: true }));
+        } catch (err) {
+            this._flash(t("devdetail.send_failed", { message: (err as Error).message }));
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    private _toggleGroup(e: CustomEvent): void {
+        const { command } = e.detail as { command: IRCommand };
+        if (!command) return;
+        const next = new Set(this._openGroups);
+        if (next.has(command.id)) next.delete(command.id);
+        else next.add(command.id);
+        this._openGroups = next;
+        if (this._renameGroupId === command.id) this._renameGroupId = null;
+    }
+
+    private _onGroupDeviceUpdated(e: CustomEvent): void {
+        const { device } = e.detail as { device: IRDevice };
+        if (!device) return;
+        this.device = device;
+        this.dispatchEvent(new CustomEvent("device-changed", { bubbles: true, composed: true }));
+    }
+
+    /** What TEST says for a grouped command: all sent, or how many and
+     *  which steps didn't go out. */
+    private _groupTestLine(command: IRCommand, run: GroupRunResult): string {
+        if (run.busy) return t("group.test_busy", { name: command.name });
+        if (!run.failures.length) {
+            return t("group.test_all", { name: command.name, count: String(run.sent) });
+        }
+        const which = run.failures
+            .map((f) => t("group.test_step", { device: f.device_name, command: f.command_name }))
+            .join(", ");
+        return t("group.test_some", {
+            name: command.name,
+            sent: String(run.sent),
+            total: String(run.total),
+            which,
+        });
     }
 
     private _onEditCommand(e: CustomEvent) {
@@ -1769,6 +1851,9 @@ export class IrDeviceDetail extends LitElement {
                                               .device_type === "ac" &&
                                           !cmd.matrix_cell}
                                           .starred=${this._isStarred(cmd.name)}
+                                          .open=${this._openGroups.has(cmd.id)}
+                                          .renameOnOpen=${this._renameGroupId === cmd.id}
+                                          @toggle-open=${this._toggleGroup}
                                           @map-action=${this._onMapAction}
                                           @test=${this._onTest}
                                           @toggle-trigger=${this._onToggleTrigger}
@@ -1784,6 +1869,15 @@ export class IrDeviceDetail extends LitElement {
                                               .path=${ICON_GRIP}
                                               title=${t("devdetail.drag")}
                                           ></ha-svg-icon>
+                                          ${isGroup(cmd) && this._openGroups.has(cmd.id)
+                                              ? html`<ir-group-steps
+                                                    slot="group"
+                                                    .api=${this.api}
+                                                    .deviceId=${this.device.id}
+                                                    .command=${cmd}
+                                                    @device-updated=${this._onGroupDeviceUpdated}
+                                                ></ir-group-steps>`
+                                              : ""}
                                       </ir-command-row>
                                   `,
                               )
@@ -1828,6 +1922,12 @@ export class IrDeviceDetail extends LitElement {
                         @click=${this._goToMirror}
                         ?disabled=${this._busy}
                     >${t("devdetail.mirrored")}</button>
+                    <button
+                        class="action-btn"
+                        title=${t("group.add_title")}
+                        @click=${this._addGroup}
+                        ?disabled=${this._busy}
+                    >${t("group.add")}</button>
                 </div>
                 <button
                     class="action-btn delete-btn"
@@ -1890,7 +1990,7 @@ export class IrDeviceDetail extends LitElement {
                                 })
                               : t("devdetail.del_cmd_msg", {
                                     name: this._commandToDelete.name,
-                                })}
+                                }) + groupsNote(t, this._deleteGroups)}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._confirmCommandDelete}
@@ -2038,6 +2138,14 @@ export class IrDeviceDetail extends LitElement {
         settingsButtonStyles,
         exitToEntityButtonStyles,
         css`
+        /* The GROUP chip and the picker's "This device" badge, per theme
+           (group-steps.ts GROUP_HUE). Inherited by the rows below. */
+        :host {
+            --hair-group-hue: ${unsafeCSS(GROUP_HUE_LIGHT)};
+        }
+        :host([dark]) {
+            --hair-group-hue: ${unsafeCSS(GROUP_HUE)};
+        }
         /* The 0.9.8 top-nudge and the 2026-08-15 10px right inset on
            .device-meta .settings-btn both retired
            with .device-meta itself (punch list item 9). The gear no
