@@ -64,6 +64,12 @@ import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
 import "./ir-tx-knobs.js";
 import "./ir-test-emitter-dialog.js";
+import "./ir-rf-editor.js";
+import { carrierParts } from "./sniffer-filter.js";
+import { substitutedHz, testRefusal } from "./rf-errors.js";
+import { bandLabel } from "./rf-band.js";
+import { bandNumber } from "./ir-listen-state.js";
+import { assignSendCount } from "./rf-send-count.js";
 import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
@@ -104,6 +110,16 @@ const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
 
 const REORDER_DEBOUNCE_MS = 500;
+
+/** A plucked row's carrier, as the Clipper says it: the band for a radio
+ *  row ("433.92 MHz"), kHz for infrared, nothing for a radio row with no
+ *  frequency. A radio row's stored ``frequency`` is the infrared field's
+ *  default and means nothing for it. */
+function pluckCarrier(sig: UnknownSignal): string {
+    const parts = carrierParts(sig);
+    if (!parts) return "";
+    return "band" in parts ? t("listen.band", { band: parts.band }) : `${parts.khz} kHz`;
+}
 
 @customElement("ir-pluck")
 export class IrPluck extends LitElement {
@@ -1005,6 +1021,12 @@ export class IrPluck extends LitElement {
         this._testDialog = { signal };
     }
 
+    /** The name a transmitter goes by in Home Assistant. */
+    private _emitterName(entityId: string): string {
+        const name = this.hass?.states?.[entityId]?.attributes?.friendly_name;
+        return typeof name === "string" && name ? name : entityId;
+    }
+
     private async _sendTest(e: CustomEvent): Promise<void> {
         if (!this._testDialog) return;
         const { signal } = this._testDialog;
@@ -1021,7 +1043,27 @@ export class IrPluck extends LitElement {
                 (r) => r.status === "fulfilled" && r.value.sent,
             ).length;
             const total = emitters.length;
-            if (sent === total) {
+            // A refusal (a rolling code, a band the transmitter can't
+            // reach) is said at the bottom of the panel, naming the
+            // transmitter, as on the Clipper; the row keeps its Test.
+            const band = signal.medium === "rf" && signal.rf_frequency_hz
+                ? bandLabel(signal.rf_frequency_hz)
+                : null;
+            const refused = results
+                .map((r, i) =>
+                    r.status === "rejected"
+                        ? testRefusal(r.reason, this._emitterName(emitters[i]), band)
+                        : null,
+                )
+                .find((m) => m !== null);
+            const at = substitutedHz(results);
+            if (refused) {
+                this._showToast(refused);
+                this._testingSignalId = null;
+                return;
+            } else if (at !== null && sent > 0) {
+                this._testResult = t("mirror.sent_at", { band: bandNumber(at) });
+            } else if (sent === total) {
                 this._testResult = total === 1 ? t("mirror.sent") : t("mirror.sent_all_n", { sent, total });
             } else if (sent === 0) {
                 this._testResult = t("mirror.failed");
@@ -1625,6 +1667,7 @@ export class IrPluck extends LitElement {
                         <ir-tx-knobs
                             slot="trailing"
                             .sendCount=${sig.send_count}
+                            .spacingMs=${sig.send_spacing_ms ?? null}
                             .repeatCount=${sig.repeat_count}
                             .decoded=${!!sig.decoded_protocol}
                             .bypassed=${!!sig.tx_force_raw}
@@ -1633,22 +1676,26 @@ export class IrPluck extends LitElement {
                     </ir-signal-alias>
                 </div>
                 <div class="chip-col">
-                    <ir-protocol-chip
-                        .protocol=${sig.decoded_protocol ?? null}
-                        .bypass=${!!sig.tx_force_raw}
-                        interactive
-                        @toggle-bypass=${(e: CustomEvent) =>
-                            this._onToggleBypass(
-                                deviceId,
-                                sig.id,
-                                e.detail.bypass,
-                            )}
-                    ></ir-protocol-chip>
+                    ${sig.medium === "rf"
+                        ? // A radio row, as the Clipper draws one: its family,
+                          // read-only, or nothing; the band beside it says radio.
+                          html`<ir-protocol-chip .family=${sig.rf_family ?? null}></ir-protocol-chip>`
+                        : html`<ir-protocol-chip
+                              .protocol=${sig.decoded_protocol ?? null}
+                              .bypass=${!!sig.tx_force_raw}
+                              interactive
+                              @toggle-bypass=${(e: CustomEvent) =>
+                                  this._onToggleBypass(
+                                      deviceId,
+                                      sig.id,
+                                      e.detail.bypass,
+                                  )}
+                          ></ir-protocol-chip>`}
                 </div>
                 <div class="signal-meta">
                     ${isTesting && this._testResult
                         ? html`<span class="test-result">${this._testResult}</span>`
-                        : html`<span>${Math.round(sig.frequency / 1000)} kHz</span>`}
+                        : html`<span>${pluckCarrier(sig)}</span>`}
                 </div>
                 <div class="signal-actions">
                     <button
@@ -1695,7 +1742,7 @@ export class IrPluck extends LitElement {
                         ></ir-count-dot>
                     </button>
                     <span class="edit-trash-group">
-                        ${sig.code
+                        ${sig.code || sig.medium === "rf"
                             ? renderEditBtn(
                                   (e: Event) =>
                                       this._openEditSignal(deviceId, sig, e),
@@ -1782,7 +1829,29 @@ export class IrPluck extends LitElement {
                   ></ir-pluck-signal-dialog>`
                 : ""}
 
-            ${this._editSignal
+            ${this._editSignal?.signal.medium === "rf"
+                ? html`<ir-rf-editor
+                      .api=${this.api}
+                      .deviceId=${this._editSignal.deviceId}
+                      .signalId=${this._editSignal.signal.id}
+                      .initialFrame=${this._editSignal.signal.raw_timings ?? []}
+                      .initialFrequencyHz=${this._editSignal.signal.rf_frequency_hz ?? null}
+                      .initialFrequencySource=${this._editSignal.signal.rf_frequency_source ?? null}
+                      .initialGapUs=${this._editSignal.signal.rf_frame_gap_us ?? null}
+                      .initialAlias=${this._editSignal.signal.alias ?? ""}
+                      .initialSendCount=${assignSendCount(this._editSignal.signal)}
+                      .repeatsObserved=${this._editSignal.signal.rf_repeats_observed ?? null}
+                      .initialFamily=${this._editSignal.signal.rf_family ?? null}
+                      .hasTrigger=${this._hasTrigger(this._editSignal.signal)}
+                      @signal-edited=${this._onSignalEdited}
+                      @delete-requested=${() => {
+                          const { deviceId, signal } = this._editSignal!;
+                          this._editSignal = null;
+                          this._openDelete(deviceId, signal);
+                      }}
+                      @closed=${() => (this._editSignal = null)}
+                  ></ir-rf-editor>`
+                : this._editSignal
                 ? html`<ir-signal-editor
                       .api=${this.api}
                       .deviceId=${this._editSignal.deviceId}
@@ -1924,6 +1993,8 @@ export class IrPluck extends LitElement {
                       .api=${this.api}
                       .hass=${this.hass}
                       .value=${this._testEmitters}
+                      .media=${[this._testDialog.signal.medium ?? "ir"]}
+                      .rfFrequencyHz=${this._testDialog.signal.rf_frequency_hz ?? null}
                       @emitters-changed=${(e: CustomEvent) =>
                           (this._testEmitters = e.detail.value)}
                       @send=${this._sendTest}

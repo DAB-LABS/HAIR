@@ -19969,7 +19969,7 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                             .path=${"M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"}
                         ></ha-svg-icon>
                     </button>`)}
-            </div>`:""}_navigateToDevice(e){this.dispatchEvent(new CustomEvent("navigate-device",{detail:e,bubbles:!0,composed:!0}))}async _onDevicePromoted(e){this._promoteTarget=null;const t=this._pinLinkCandidate;this._pinLinkCandidate=null,"remote"===t?.kind&&e.detail&&(this._pinPromptTarget={remoteId:t.remote_id,remoteName:t.remote_name,deviceId:e.detail.id,deviceName:e.detail.name}),await this._load()}_openDelete(e,t){this._deleteSignal={deviceId:e,signal:t}}async _confirmDelete(){if(!this._deleteSignal)return;const{deviceId:e,signal:t}=this._deleteSignal;this._deleteSignal=null;try{await this.api.deleteSignal(e,t.id),await this._load(),await this._refreshExpanded()}catch(e){this._error=`Delete failed: ${e.message}`}}_openTestDialog(e){this._testDialog={signal:e}}async _sendTest(e){if(!this._testDialog)return;const{signal:t}=this._testDialog,i=e.detail.emitters;if(0!==i.length){this._testingSignalId=t.id,this._testResult=null,this._testDialog=null;try{const e=(await Promise.allSettled(i.map(e=>this.api.testSignal(t.id,e)))).filter(e=>"fulfilled"===e.status&&e.value.sent).length,o=i.length;this._testResult=e===o?1===o?De("mirror.sent"):De("mirror.sent_all_n",{sent:e,total:o}):0===e?De("mirror.failed"):`Sent (${e}/${o})`}catch{this._testResult="Error"}setTimeout(()=>{this._testResult=null,this._testingSignalId=null},3e3)}}_hasTrigger(e){return this._triggers.some(t=>Ks(t,e))}_triggerCountFor(e){return this._triggers.filter(t=>Ks(t,e)).length}_openTriggerDialog(e,t,i){const o=this._triggers.filter(e=>Ks(e,t));if(0===o.length)return void(this._triggerDialog={signal:t,deviceId:e});const n=i?.currentTarget,a=n?.getBoundingClientRect();this._triggerPopover={deviceId:e,signal:t,top:a?a.bottom+4:120,left:a?Math.max(8,a.right-220):120},this._installPopoverDismiss()}_closeTriggerPopover(){this._triggerPopover=null,this._removePopoverDismiss()}_onPopoverCreateNew(){const e=this._triggerPopover;this._closeTriggerPopover(),e&&(this._triggerDialog={signal:e.signal,deviceId:e.deviceId})}_onPopoverEditTrigger(e){const t=e.detail;this._closeTriggerPopover(),t&&(this._triggerEditDialog=t)}_installPopoverDismiss(){setTimeout(()=>{document.addEventListener("click",this._onDocClickForPopover,!0),window.addEventListener("scroll",this._onScrollForPopover,!0)},0)}_removePopoverDismiss(){document.removeEventListener("click",this._onDocClickForPopover,!0),window.removeEventListener("scroll",this._onScrollForPopover,!0)}async _subscribeUpdated(){try{this._unsubUpdated=await this.api.subscribeSignalUpdated(()=>{this._refreshAfterSignalUpdate()})}catch{}}async _unsubscribeUpdated(){this._unsubUpdated&&(await this._unsubUpdated(),this._unsubUpdated=null)}async _refreshAfterSignalUpdate(){try{this._triggers=await this.api.listTriggers()}catch{}if(this._expandedId)try{this._expandedDevice=await this.api.getUnknownDevice(this._expandedId)}catch{}}_closeTriggerDialog(){this._triggerDialog=null,this._triggerEditDialog=null}_requestDeleteTrigger(e){this._confirmDeleteTriggerId=e}async _doDeleteTrigger(){if(!this._confirmDeleteTriggerId)return;const e=this._confirmDeleteTriggerId;this._confirmDeleteTriggerId=null,this._triggerEditDialog=null;try{await this.api.deleteTrigger(e),this._triggers=await this.api.listTriggers()}catch{}}async _onTriggerSaved(){this._triggerDialog=null,this._triggerEditDialog=null;try{this._triggers=await this.api.listTriggers()}catch{}}async _toggleExpand(e){if(this._expandedId===e)return this._expandedId=null,void(this._expandedDevice=null);this._expandedId=e,await this._refreshExpanded()}_renderEmpty(){const e=function(e,t,i="tab"){const o=e=>{for(const i of e){const e=t(i);if(e!==i)return e}return null},n=[];for(const t of e??[]){if(Object.values(t.ready).includes(!0))continue;const e=t.loaded||!0===t.ready.storage;if($e.has(t.integration)&&!e)continue;const a=`pluck.empty.source.${t.integration}`,s=t.loaded?o("dialog"===i?[`${a}_dialog`,a]:[a]):o([`${a}.not_installed`,"pluck.empty.not_installed"]);null!==s&&n.push({integration:t.integration,name:t.name,body:s})}return n}(this._pluckSources,De,"tab");return V`
+            </div>`:""}_navigateToDevice(e){this.dispatchEvent(new CustomEvent("navigate-device",{detail:e,bubbles:!0,composed:!0}))}async _onDevicePromoted(e){this._promoteTarget=null;const t=this._pinLinkCandidate;this._pinLinkCandidate=null,"remote"===t?.kind&&e.detail&&(this._pinPromptTarget={remoteId:t.remote_id,remoteName:t.remote_name,deviceId:e.detail.id,deviceName:e.detail.name}),await this._load()}_openDelete(e,t){this._deleteSignal={deviceId:e,signal:t}}async _confirmDelete(){if(!this._deleteSignal)return;const{deviceId:e,signal:t}=this._deleteSignal;this._deleteSignal=null;try{await this.api.deleteSignal(e,t.id),await this._load(),await this._refreshExpanded()}catch(e){this._error=`Delete failed: ${e.message}`}}_openTestDialog(e){this._testDialog={signal:e}}_emitterName(e){const t=this.hass?.states?.[e]?.attributes?.friendly_name;return"string"==typeof t&&t?t:e}async _sendTest(e){if(!this._testDialog)return;const{signal:t}=this._testDialog,i=e.detail.emitters;if(0!==i.length){this._testingSignalId=t.id,this._testResult=null,this._testDialog=null;try{const e=await Promise.allSettled(i.map(e=>this.api.testSignal(t.id,e))),o=e.filter(e=>"fulfilled"===e.status&&e.value.sent).length,n=i.length,a="rf"===t.medium&&t.rf_frequency_hz?qo(t.rf_frequency_hz):null,s=e.map((e,t)=>"rejected"===e.status?Io(e.reason,this._emitterName(i[t]),a):null).find(e=>null!==e),r=Eo(e);if(s)return this._showToast(s),void(this._testingSignalId=null);this._testResult=null!==r&&o>0?De("mirror.sent_at",{band:Pa(r)}):o===n?1===n?De("mirror.sent"):De("mirror.sent_all_n",{sent:o,total:n}):0===o?De("mirror.failed"):`Sent (${o}/${n})`}catch{this._testResult="Error"}setTimeout(()=>{this._testResult=null,this._testingSignalId=null},3e3)}}_hasTrigger(e){return this._triggers.some(t=>Ks(t,e))}_triggerCountFor(e){return this._triggers.filter(t=>Ks(t,e)).length}_openTriggerDialog(e,t,i){const o=this._triggers.filter(e=>Ks(e,t));if(0===o.length)return void(this._triggerDialog={signal:t,deviceId:e});const n=i?.currentTarget,a=n?.getBoundingClientRect();this._triggerPopover={deviceId:e,signal:t,top:a?a.bottom+4:120,left:a?Math.max(8,a.right-220):120},this._installPopoverDismiss()}_closeTriggerPopover(){this._triggerPopover=null,this._removePopoverDismiss()}_onPopoverCreateNew(){const e=this._triggerPopover;this._closeTriggerPopover(),e&&(this._triggerDialog={signal:e.signal,deviceId:e.deviceId})}_onPopoverEditTrigger(e){const t=e.detail;this._closeTriggerPopover(),t&&(this._triggerEditDialog=t)}_installPopoverDismiss(){setTimeout(()=>{document.addEventListener("click",this._onDocClickForPopover,!0),window.addEventListener("scroll",this._onScrollForPopover,!0)},0)}_removePopoverDismiss(){document.removeEventListener("click",this._onDocClickForPopover,!0),window.removeEventListener("scroll",this._onScrollForPopover,!0)}async _subscribeUpdated(){try{this._unsubUpdated=await this.api.subscribeSignalUpdated(()=>{this._refreshAfterSignalUpdate()})}catch{}}async _unsubscribeUpdated(){this._unsubUpdated&&(await this._unsubUpdated(),this._unsubUpdated=null)}async _refreshAfterSignalUpdate(){try{this._triggers=await this.api.listTriggers()}catch{}if(this._expandedId)try{this._expandedDevice=await this.api.getUnknownDevice(this._expandedId)}catch{}}_closeTriggerDialog(){this._triggerDialog=null,this._triggerEditDialog=null}_requestDeleteTrigger(e){this._confirmDeleteTriggerId=e}async _doDeleteTrigger(){if(!this._confirmDeleteTriggerId)return;const e=this._confirmDeleteTriggerId;this._confirmDeleteTriggerId=null,this._triggerEditDialog=null;try{await this.api.deleteTrigger(e),this._triggers=await this.api.listTriggers()}catch{}}async _onTriggerSaved(){this._triggerDialog=null,this._triggerEditDialog=null;try{this._triggers=await this.api.listTriggers()}catch{}}async _toggleExpand(e){if(this._expandedId===e)return this._expandedId=null,void(this._expandedDevice=null);this._expandedId=e,await this._refreshExpanded()}_renderEmpty(){const e=function(e,t,i="tab"){const o=e=>{for(const i of e){const e=t(i);if(e!==i)return e}return null},n=[];for(const t of e??[]){if(Object.values(t.ready).includes(!0))continue;const e=t.loaded||!0===t.ready.storage;if($e.has(t.integration)&&!e)continue;const a=`pluck.empty.source.${t.integration}`,s=t.loaded?o("dialog"===i?[`${a}_dialog`,a]:[a]):o([`${a}.not_installed`,"pluck.empty.not_installed"]);null!==s&&n.push({integration:t.integration,name:t.name,body:s})}return n}(this._pluckSources,De,"tab");return V`
             <ha-card class="empty">
                 <ha-svg-icon class="empty-icon" .path=${Ol}></ha-svg-icon>
                 <p class="empty-lead">${De("pluck.empty.headline")}</p>
@@ -20230,6 +20230,7 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                         <ir-tx-knobs
                             slot="trailing"
                             .sendCount=${t.send_count}
+                            .spacingMs=${t.send_spacing_ms??null}
                             .repeatCount=${t.repeat_count}
                             .decoded=${!!t.decoded_protocol}
                             .bypassed=${!!t.tx_force_raw}
@@ -20238,15 +20239,15 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                     </ir-signal-alias>
                 </div>
                 <div class="chip-col">
-                    <ir-protocol-chip
-                        .protocol=${t.decoded_protocol??null}
-                        .bypass=${!!t.tx_force_raw}
-                        interactive
-                        @toggle-bypass=${i=>this._onToggleBypass(e,t.id,i.detail.bypass)}
-                    ></ir-protocol-chip>
+                    ${"rf"===t.medium?V`<ir-protocol-chip .family=${t.rf_family??null}></ir-protocol-chip>`:V`<ir-protocol-chip
+                              .protocol=${t.decoded_protocol??null}
+                              .bypass=${!!t.tx_force_raw}
+                              interactive
+                              @toggle-bypass=${i=>this._onToggleBypass(e,t.id,i.detail.bypass)}
+                          ></ir-protocol-chip>`}
                 </div>
                 <div class="signal-meta">
-                    ${o&&this._testResult?V`<span class="test-result">${this._testResult}</span>`:V`<span>${Math.round(t.frequency/1e3)} kHz</span>`}
+                    ${o&&this._testResult?V`<span class="test-result">${this._testResult}</span>`:V`<span>${function(e){const t=bn(e);return t?"band"in t?De("listen.band",{band:t.band}):`${t.khz} kHz`:""}(t)}</span>`}
                 </div>
                 <div class="signal-actions">
                     <button
@@ -20278,7 +20279,7 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                         ></ir-count-dot>
                     </button>
                     <span class="edit-trash-group">
-                        ${t.code?Ke(i=>this._openEditSignal(e,t,i),De("cmdrow.edit_code")):""}
+                        ${t.code||"rf"===t.medium?Ke(i=>this._openEditSignal(e,t,i),De("cmdrow.edit_code")):""}
                         <button
                             class="trash-btn"
                             title=${De("pluck.delete_signal_title")}
@@ -20339,7 +20340,23 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                       @closed=${()=>this._pluckDialog=null}
                   ></ir-pluck-signal-dialog>`:""}
 
-            ${this._editSignal?V`<ir-signal-editor
+            ${"rf"===this._editSignal?.signal.medium?V`<ir-rf-editor
+                      .api=${this.api}
+                      .deviceId=${this._editSignal.deviceId}
+                      .signalId=${this._editSignal.signal.id}
+                      .initialFrame=${this._editSignal.signal.raw_timings??[]}
+                      .initialFrequencyHz=${this._editSignal.signal.rf_frequency_hz??null}
+                      .initialFrequencySource=${this._editSignal.signal.rf_frequency_source??null}
+                      .initialGapUs=${this._editSignal.signal.rf_frame_gap_us??null}
+                      .initialAlias=${this._editSignal.signal.alias??""}
+                      .initialSendCount=${br(this._editSignal.signal)}
+                      .repeatsObserved=${this._editSignal.signal.rf_repeats_observed??null}
+                      .initialFamily=${this._editSignal.signal.rf_family??null}
+                      .hasTrigger=${this._hasTrigger(this._editSignal.signal)}
+                      @signal-edited=${this._onSignalEdited}
+                      @delete-requested=${()=>{const{deviceId:e,signal:t}=this._editSignal;this._editSignal=null,this._openDelete(e,t)}}
+                      @closed=${()=>this._editSignal=null}
+                  ></ir-rf-editor>`:this._editSignal?V`<ir-signal-editor
                       .api=${this.api}
                       .deviceId=${this._editSignal.deviceId}
                       .signalId=${this._editSignal.signal.id}
@@ -20446,6 +20463,8 @@ function e(e,t,i,o){var n,a=arguments.length,s=a<3?t:null===o?o=Object.getOwnPro
                       .api=${this.api}
                       .hass=${this.hass}
                       .value=${this._testEmitters}
+                      .media=${[this._testDialog.signal.medium??"ir"]}
+                      .rfFrequencyHz=${this._testDialog.signal.rf_frequency_hz??null}
                       @emitters-changed=${e=>this._testEmitters=e.detail.value}
                       @send=${this._sendTest}
                       @closed=${()=>this._testDialog=null}
