@@ -891,6 +891,22 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 self._matrix_cell = state_display_name("off")
 
     @property
+    def _wake_with_on(self) -> bool:
+        """Send the file's own "on" code before a state from off (GH #323).
+
+        For a matrix that has one, unless the user unticked it. Not for a
+        one-Power-button unit, whose own path already sends its power
+        code first (GH #183) and must not send it twice.
+        """
+        return (
+            self._matrix_mode
+            and not self._toggle_power
+            and self._matrix is not None
+            and self._matrix.on is not None
+            and self._device.entity_config.wake_with_on
+        )
+
+    @property
     def _toggle_power(self) -> bool:
         """A matrix device whose power code toggles (GH #183)."""
         return self._matrix_mode and self._device.power_toggles is True
@@ -1560,19 +1576,28 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self._show_cell(cell)
 
     async def _async_resolve_and_send(self, hvac_mode: HVACMode) -> bool:
+        cell = self._resolve_matrix_cell(hvac_mode)
+        if cell is None:
+            return False
+        await self._async_send_cell(cell)
+        return True
+
+    def _resolve_matrix_cell(self, hvac_mode: HVACMode) -> ClimateCell | None:
+        """The cell a send in ``hvac_mode`` would transmit, or None (and
+        a warning saying why)."""
         if self._matrix is None:
             _LOGGER.warning(
                 "Climate matrix for %s is not loaded; nothing sent",
                 self._device.name,
             )
-            return False
+            return None
         file_mode = self._file_mode_for(hvac_mode)
         if file_mode is None:
             _LOGGER.warning(
                 "No matrix mode on %s maps to %s; nothing sent",
                 self._device.name, hvac_mode,
             )
-            return False
+            return None
         # Ask for the person's last explicit choices first (GH #168):
         # a mode that lacks one sends its own, and the next mode that
         # has it goes back to it.
@@ -1589,9 +1614,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 "Matrix for %s has no cell for mode %s; nothing sent",
                 self._device.name, file_mode,
             )
-            return False
-        await self._async_send_cell(cell)
-        return True
+        return cell
 
     async def _async_send_power_code(self, power: str) -> bool:
         """Send a toggle unit's one power code (GH #183): ``on`` when the
@@ -1614,18 +1637,33 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         return True
 
     async def _async_toggle_on(self, hvac_mode: HVACMode) -> None:
-        """Turn a toggle unit on into ``hvac_mode`` (GH #183).
+        """Turn the unit on into ``hvac_mode``: on first, then the cell.
 
-        The power code first, then the wanted cell. The power code is a
-        full state frame with its own settings, so the cell has to come
+        Two doors. A toggle unit (GH #183): its one power code, which is
+        a full state frame with its own settings. A unit whose file has
+        its own "on" code and ignores a state while off (GH #323,
+        ``_wake_with_on``): that code. Either way the cell has to come
         second for the unit to end in the state asked for; the gap is
-        ``TOGGLE_POWER_ON_GAP_S``. A single frame carrying both is what
-        the handset sends, and needs the protocol's field map.
+        ``TOGGLE_POWER_ON_GAP_S`` for both. A single frame carrying both
+        is what the handset sends, and needs the protocol's field map.
+
+        Both are sends the power monitor reads as "on", and the second
+        replaces the window the first opened, so the settle time runs
+        from the cell, the last frame out.
         """
-        if not await self._async_send_power_code("on"):
+        if self._toggle_power:
+            if not await self._async_send_power_code("on"):
+                return
+            await asyncio.sleep(TOGGLE_POWER_ON_GAP_S)
+            await self._async_resolve_and_send(hvac_mode)
+            return
+        # The wake path resolves first: a state the file doesn't have
+        # sends nothing at all, not a bare "on" (GH #323).
+        cell = self._resolve_matrix_cell(hvac_mode)
+        if cell is None or not await self._async_send_power_code("on"):
             return
         await asyncio.sleep(TOGGLE_POWER_ON_GAP_S)
-        await self._async_resolve_and_send(hvac_mode)
+        await self._async_send_cell(cell)
 
     async def _async_matrix_off(self) -> None:
         if self._toggle_power:
@@ -1668,8 +1706,13 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             if hvac_mode == HVACMode.OFF:
                 await self._async_matrix_off()
                 return
-            if self._toggle_power and self._hvac_mode == HVACMode.OFF:
-                # A mode from off is a turn on (GH #183).
+            if (
+                self._toggle_power or self._wake_with_on
+            ) and self._hvac_mode == HVACMode.OFF:
+                # A mode from off is a turn on (GH #183, GH #323). A
+                # temperature with a mode in the same call comes here
+                # too; a bare temperature, fan or swing change from off
+                # still sends nothing and waits for the mode.
                 await self._async_toggle_on(hvac_mode)
             else:
                 await self._async_resolve_and_send(hvac_mode)
@@ -1822,11 +1865,22 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 preset_mode, self._device.name,
             )
             return
+        state = command.sent_state or {}
+        power = state.get("power")
+        if (
+            self._wake_with_on
+            and self._hvac_mode == HVACMode.OFF
+            and command.source == CommandSource.MATRIX
+            and state.get("mode")
+            and not power
+            # A starred state from off wakes the unit first (GH #323),
+            # as a mode does.
+            and await self._async_send_power_code("on")
+        ):
+            await asyncio.sleep(TOGGLE_POWER_ON_GAP_S)
         await self._manager.async_send_command(
             self._device.id, command.id, origin=ORIGIN_ENTITY
         )
-        state = command.sent_state or {}
-        power = state.get("power")
         self._apply_sent(DeviceSent(
             device_id=self._device.id,
             command_id=command.id,
