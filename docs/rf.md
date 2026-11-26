@@ -7,7 +7,7 @@ This page covers what HAIR hears, which receivers work, and what to expect from 
 ## What you need
 
 - **A Broadlink RM pro or RM4 pro** with [BroadSniff](https://github.com/DAB-LABS/broadsniff) 0.3.0 or later installed beside it, on Home Assistant 2026.11 or later. BroadSniff gives the Broadlink a radio receiver that is a capture device: it hears while a capture window is open.
-- **An ESPHome radio receiver**, such as the Athom RF IR Remote in [`esphome/`](../esphome/), on Home Assistant 2026.12; ESPHome 2026.5 or later has the receiver side. It is an always-on receiver: it hears all the time.
+- **An ESPHome radio receiver**, such as the Athom RF IR Remote in [`esphome/`](../esphome/). It is an always-on receiver: it hears all the time.
   - **A receiver that tunes:** the [ESP32 + CC1101 radio proxy](../esphome/esp32-cc1101-rf-proxy/) listens anywhere from 300 to 348, 387 to 464 and 779 to 928 MHz (ASK/OOK), set from its Listen frequency, which HAIR shows on the receiver's pill. An RX attenuation select turns it down so it hears only nearby remotes. It sends on one fixed frequency, set in its YAML. It was tested with one module, matched for 433 MHz, at 433.92 and 303.875 MHz, and it heard 315; other bands depend on the module and antenna. It hears rolling codes like any other receiver, and HAIR never sends them.
 - **To send, a radio transmitter:** a Broadlink RM pro or RM4 pro through Home Assistant's Broadlink integration, or an ESPHome radio transmitter such as the same Athom puck, on Home Assistant 2026.11 or later.
 
@@ -15,7 +15,7 @@ On older Home Assistant releases, HAIR runs as before, with no radio. HAIR picks
 
 ## Listening from the Sniffer
 
-The receiver row at the top of the Sniffer has one pill per receiver, infrared and radio. A pill's `IR` or `RF` badge names the medium. A solid badge means the receiver is taking new codes right now; a light one means it is not. A pill glows each time HAIR takes a code from its receiver.
+The receiver row at the top of the Sniffer has one pill per receiver, IR and RF. A pill's `IR` or `RF` badge names the medium. A solid badge means the receiver is taking new codes right now; a light one means it is not. A pill glows each time HAIR takes a code from its receiver.
 
 - **An always-on infrared receiver** is always solid. There is nothing to press.
 - **A capture device:** press its pill to open a capture window. The pill turns green and drains until the window ends. The pickers on the pill set the next window's carrier, length and type, using the settings the integration names. They are inactive while a window is open, because a change applies to the next one.

@@ -1,6 +1,6 @@
-# Recommended IR hardware for HAIR
+# Recommended IR and RF hardware for HAIR
 
-HAIR does not talk to IR hardware directly. It sits on Home Assistant's native `infrared` platform, so any emitter or receiver that adopts that platform works. The devices below are curated picks we have tested or partnered on, ordered by typical spend and job.
+HAIR does not talk to IR or RF hardware directly. It sits on Home Assistant's native `infrared` and `radio_frequency` platforms, so any emitter, transmitter or receiver that adopts either platform works. The devices below are curated picks we have tested or partnered on, ordered by typical spend and job.
 
 Use this page to choose what to buy. Ready-made ESPHome configs live under [`esphome/`](../esphome/).
 

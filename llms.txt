@@ -1,20 +1,20 @@
 # HAIR
 
 > HAIR is a Home Assistant custom integration (HACS-compatible) that provides a
-> full admin UI for infrared device management.
-> Built on top of HA's native infrared platform (introduced in HA 2026.4), HAIR
+> full admin UI for infrared and radio frequency device management.
+> Built on top of HA's native infrared and radio frequency platforms, HAIR
 > handles capturing, fingerprinting, deduplicating, organizing, and transmitting
-> IR commands through a single sidebar panel at /hair. No YAML, no manual entity
-> definitions, no automations required for basic IR device control.
+> IR and RF commands through a single sidebar panel at /hair. No YAML, no manual entity
+> definitions, no automations required for basic IR and RF device control.
 
-HAIR sits between the user and HA's IR platform. It does not replace IR hardware
+HAIR sits between the user and HA's IR and RF platforms. It does not replace IR or RF hardware
 integrations (Broadlink, ESPHome, etc.). It complements them by providing the admin
 layer those integrations lack -- analogous to how Z-Wave JS UI manages Z-Wave
 devices on top of the Z-Wave JS integration.
 
 Key components:
 
-- HAIR Sniffer: a passive listener that captures every IR transmission seen by
+- HAIR Sniffer: a passive listener that captures every IR and RF transmission seen by
   configured receivers, fingerprints each signal using short/long pulse-duration
   analysis, deduplicates repeated presses, filters out repeat frames (sent when
   buttons are held), and groups signals by source remote based on carrier frequency
@@ -29,8 +29,7 @@ Key components:
   the consumer standards can be snapped to the nearest one (30, 33, 36, 38, 40, or
   56 kHz). The Sniffer hears infrared receivers and, on Home Assistant 2026.11
   and later, radio receivers on the radio_frequency platform: a Broadlink RM pro
-  or RM4 pro through BroadSniff today, and ESPHome radio receivers from Home
-  Assistant 2026.12. A radio row carries its band, and its protocol pill names
+  or RM4 pro through BroadSniff, or an ESPHome radio receiver. A radio row carries its band, and its protocol pill names
   the remote's chip family (EV1527, PT2262, HT12E, HT6P20 or KeeLoq) when HAIR
   recognizes it; an unrecognized radio code shows no pill. A receiver that can
   be retuned (a CC1101) shows where it listens on its Sniffer pill and can be
@@ -48,7 +47,7 @@ Key components:
   store without bound.
 - Clipper: a manual-entry surface (a third panel tab) for building virtual remotes by
   pasting codes, for cases where a live signal cannot be sniffed. Since 1.3.1 one
-  Add Signal window takes infrared and radio codes and shows the fields for the
+  Add Signal window takes IR and RF codes and shows the fields for the
   medium it reads. Since 0.17.5
   the paste box also takes a Tuya base64 code (Zigbee2MQTT ir_code_to_send) or
   a Broadlink base64 code: pasted_code.coerce_pasted_code converts it to Pronto

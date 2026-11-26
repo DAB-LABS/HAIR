@@ -4,9 +4,9 @@
 
 # HAIR
 
-**O HAIR tira seus códigos IR das nuvens dos fabricantes, da memória dos emissores e dos arquivos de configuração, e os coloca dentro do Home Assistant.**
+**O HAIR tira seus códigos IR e RF das nuvens dos fabricantes, da memória dos emissores e dos arquivos de configuração, e os coloca dentro do Home Assistant.**
 
-Aponte qualquer controle remoto para um receptor IR, pressione um botão, e o HAIR transforma esse sinal em algo que o Home Assistant realmente sabe usar: um botão em qualquer painel, um gatilho para suas automações, um comando que você pode enviar por qualquer emissor da plataforma infravermelha nativa do HA. Sem YAML, sem aplicativos de fabricantes, sem nada aprendido na caixa de outra pessoa.
+Aponte qualquer controle remoto para um receptor, pressione um botão, e o HAIR transforma esse sinal em algo que o Home Assistant realmente sabe usar: um botão em qualquer painel, um gatilho para suas automações, um comando que você pode enviar por qualquer emissor das plataformas nativas de infravermelho e radiofrequência do HA. Sem YAML, sem aplicativos de fabricantes, sem nada aprendido na caixa de outra pessoa.
 
 ## Instalação
 

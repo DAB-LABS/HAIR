@@ -4,9 +4,9 @@
 
 # HAIR
 
-**HAIR wyciąga Twoje kody IR z chmur producentów, pamięci nadajników i plików konfiguracyjnych, i wprowadza je do Home Assistant.**
+**HAIR wyciąga Twoje kody IR i RF z chmur producentów, pamięci nadajników i plików konfiguracyjnych, i wprowadza je do Home Assistant.**
 
-Skieruj dowolnego pilota na odbiornik IR, naciśnij przycisk, a HAIR zamieni ten sygnał w coś, czego Home Assistant naprawdę potrafi użyć: przycisk na dowolnym dashboardzie, wyzwalacz dla Twoich automatyzacji, polecenie do wysłania przez dowolny nadajnik na natywnej platformie podczerwieni HA. Bez YAML, bez aplikacji producentów, bez uczenia czyjegoś pudełka.
+Skieruj dowolnego pilota na odbiornik, naciśnij przycisk, a HAIR zamieni ten sygnał w coś, czego Home Assistant naprawdę potrafi użyć: przycisk na dowolnym dashboardzie, wyzwalacz dla Twoich automatyzacji, polecenie do wysłania przez dowolny nadajnik na natywnych platformach podczerwieni i częstotliwości radiowej HA. Bez YAML, bez aplikacji producentów, bez uczenia czyjegoś pudełka.
 
 ## Instalacja
 

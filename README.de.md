@@ -4,9 +4,9 @@
 
 # HAIR
 
-**HAIR holt deine IR-Codes aus Hersteller-Clouds, Blaster-Speichern und Konfigurationsdateien heraus und bringt sie in Home Assistant hinein.**
+**HAIR holt deine IR- und RF-Codes aus Hersteller-Clouds, Blaster-Speichern und Konfigurationsdateien heraus und bringt sie in Home Assistant hinein.**
 
-Richte irgendeine Fernbedienung auf einen IR-Empfänger, drücke eine Taste, und HAIR macht aus diesem Signal etwas, womit Home Assistant wirklich arbeiten kann: eine Taste auf jedem Dashboard, einen Auslöser für deine Automationen, einen Befehl, den du über jeden Blaster auf HAs nativer Infrarot-Plattform senden kannst. Kein YAML, keine Hersteller-Apps, nichts in die Box von jemand anderem eingelernt.
+Richte irgendeine Fernbedienung auf einen Empfänger, drücke eine Taste, und HAIR macht aus diesem Signal etwas, womit Home Assistant wirklich arbeiten kann: eine Taste auf jedem Dashboard, einen Auslöser für deine Automationen, einen Befehl, den du über jeden Sender auf HAs nativen Infrarot- und Funkfrequenz-Plattformen senden kannst. Kein YAML, keine Hersteller-Apps, nichts in die Box von jemand anderem eingelernt.
 
 ## Installation
 
