@@ -14,7 +14,8 @@ and closed words from that. Nothing else about the cover changes.
 - Make a Remote and Make a Device carry it across, as they carry a
   fan's speed cycle.
 - The panel: a Cover card in each settings dialog, the rules in
-  ``cover-class.ts`` (run under node), and the strings in every locale.
+  ``cover-class.ts`` (run under node), and the strings in every locale
+  (Traditional Chinese has them in English until they are translated).
 """
 from __future__ import annotations
 
@@ -566,8 +567,8 @@ class TestTheStrings:
         for key in STRINGS:
             assert strings.get(key, "").strip(), (path.stem, key)
 
-    def test_eleven_locales(self):
-        assert len(list(LOCALES.glob("*.json"))) == 11
+    def test_twelve_locales(self):
+        assert len(list(LOCALES.glob("*.json"))) == 12
 
     def test_the_english(self):
         strings = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
