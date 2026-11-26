@@ -367,7 +367,7 @@ def test_every_translation_names_it():
 
     folder = Path(__file__).parent.parent / "translations"
     files = sorted(folder.glob("*.json"))
-    assert len(files) == 12
+    assert len(files) == 13
     for path in files:
         data = json.loads(path.read_text(encoding="utf-8"))
         name = data["entity"]["event"]["last_pressed"]["name"]

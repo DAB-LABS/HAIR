@@ -266,5 +266,5 @@ class TestTheWords:
         for key in OLD_KEYS:
             assert key not in data, key
 
-    def test_eleven_locales(self):
-        assert len(list(LOCALES.glob("*.json"))) == 11
+    def test_twelve_locales(self):
+        assert len(list(LOCALES.glob("*.json"))) == 12
