@@ -640,22 +640,32 @@ def _spacing_row_for_pronto(
     and a matrix row that decodes is replayed at send, so a stand-in
     without them measured a rebuild the send never builds. Nothing else
     comes from ``like``: the dittos and the raw pin are the caller's,
-    which is what is on screen.
+    which is what is on screen, except where the save itself will set
+    the pin: a new or changed code the rebuild would not reproduce is
+    saved to be sent as written (GH #325), so it is measured that way.
     """
     from .ir_command import ProntoCommand
-    from .protocol_decode import try_decode_identity
+    from .pronto_validator import normalized_pronto
+    from .protocol_decode import rebuild_reproduces, try_decode_identity
 
     identity = None
     try:
         identity = try_decode_identity(ProntoCommand(pronto).get_raw_timings())
     except Exception:  # an unbuildable code fails its own validator
         identity = None
+    frequency = _pronto_frequency(pronto)
+    code_changed = like is None or (
+        normalized_pronto(getattr(like, "code", None))
+        != normalized_pronto(pronto)
+    )
+    if code_changed and not rebuild_reproduces(identity, frequency):
+        tx_force_raw = True
     matrix_cell = getattr(like, "matrix_cell", None)
     return SimpleNamespace(
         protocol="PRONTO",
         code=pronto,
         raw_timings=None,
-        frequency=_pronto_frequency(pronto),
+        frequency=frequency,
         repeat_count=repeat_count,
         tx_force_raw=tx_force_raw,
         decoded_protocol=getattr(identity, "protocol", None),

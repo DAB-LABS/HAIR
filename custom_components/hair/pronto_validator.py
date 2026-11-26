@@ -127,3 +127,17 @@ def validate_pronto(text: str) -> ProntoValidationResult:
 
     result.valid = True
     return result
+
+
+def normalized_pronto(code: str | None) -> str | None:
+    """A stored code in the form ``validate_pronto`` saves, or None.
+
+    Lets an editor door tell a changed code from the same code sent back
+    with a rename (GH #325). A stored code that is not a valid Pronto (a
+    capture kept as Broadlink, say) has no such form, so any code the
+    editor sends for it counts as changed.
+    """
+    if not code:
+        return None
+    result = validate_pronto(code)
+    return result.normalized if result.valid else None

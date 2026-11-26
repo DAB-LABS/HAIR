@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Broadlink RM4 Pro radio code pasted into an infrared code box now says it's a radio code, with its frequency, and to add it with Add Signal. It used to be refused as unreadable.
 - A cover (screen or shade) now has Stop. A command or button named Stop, in any of the panel's languages, maps to the cover's own Stop instead of a media player's, and so does a French shade remote's "Arrêt". Up and Down map to open and close. Covers set up before this get their Stop back on the next restart. Reported by @platini76 (#313).
 - A matrix air conditioner whose code file has its own "on" code now turns on from off when you pick a mode: HAIR sends On first, then the mode and temperature, as SmartIR does. It used to send the mode alone, which some units ignore while off. A new tick in the device's Power settings turns this off. Thanks @dsojoes (#323).
+- A 40 kHz Pioneer infrared code pasted or edited into HAIR is sent as written, at 40 kHz, and its protocol chip shows it. It used to be rebuilt as a 38 kHz NEC code. Any NEC-shaped code stored at a carrier well away from 38 kHz is now sent as written too. Reported by @meisanerd (#325).
 
 ## [1.4.0] - 2026-11-23 -- Waiting Room
 

@@ -412,8 +412,8 @@ class DeviceManager:
         success, or ``{success: False, code, error}``.
         """
         from .ir_command import ProntoCommand
-        from .pronto_validator import validate_pronto
-        from .protocol_decode import try_decode_identity
+        from .pronto_validator import normalized_pronto, validate_pronto
+        from .protocol_decode import rebuild_reproduces, try_decode_identity
 
         device = self._store.get_device(device_id)
         if device is None:
@@ -495,6 +495,10 @@ class DeviceManager:
             # precisely (v0.5.8 unified identity).
             old_byte_hash = command.byte_hash
             old_decoded_fingerprint = command.decoded_fingerprint
+            # The editor sends the code with every save, a rename
+            # included, so only a code that actually changed is judged
+            # below; an untouched code keeps the raw flag the user chose.
+            code_changed = normalized_pronto(command.code) != new_code
             # Canonical (wire) identity for the edited code; the stored
             # code text stays as the user typed it (identity.py).
             from .identity import canonical_byte_hash, canonical_fingerprint
@@ -532,6 +536,14 @@ class DeviceManager:
             command.decode_covers = (
                 identity.covers_capture if identity else None
             )
+            # A code the rebuild would not reproduce is saved to be sent
+            # as written (GH #325): a 40kHz Pioneer code decodes as NEC
+            # and would otherwise go out rebuilt at 38kHz. Only ever
+            # set here, never cleared, so the toggle stays the user's.
+            if code_changed and not rebuild_reproduces(
+                identity, command.frequency
+            ):
+                command.tx_force_raw = True
             # Rewire on ANY identity component changing (v0.5.8): a
             # sub-threshold edit shifts only the byte_hash, never the S/L
             # fingerprint, and would otherwise orphan a scoped trigger.
