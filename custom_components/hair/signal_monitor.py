@@ -67,9 +67,7 @@ from .const import (
     PINNED_TICKET_ARM_FALLBACK_S,
     RECEIVER_HEARD_MIN_GAP_S,
     REPEAT_ATTRIBUTION_WINDOW,
-    RF_ASSUMED_FRAME_GAP_US,
     RF_BURST_HOLD_S,
-    RF_GAP_ASSUMED,
     RF_GAP_MEASURED,
     RF_MIN_BODY_EDGES,
     RF_PROTOCOL,
@@ -5358,12 +5356,18 @@ class SignalMonitor:
         capture: list[Any],
     ) -> None:
         """Print a frame handed to the burst assembler, before its press."""
-        from .rf_frames import frame_fingerprint, frame_hash, piece_frame
+        from .rf_frames import frame_fingerprint, frame_hash, piece_frame, unmeasured_gap
         from .rf_receive import frequency_of
 
         frame = piece_frame(piece)
         fingerprint = frame_fingerprint(parts)
         hashed = frame_hash(parts)
+        # What a row minted from this burst would hold: the measured gap,
+        # else the family's, else the assumed one.
+        if piece.gap is not None:
+            gap_us, gap_source = int(piece.gap), RF_GAP_MEASURED
+        else:
+            gap_us, gap_source = unmeasured_gap(frame)
         frequency_hz, source = frequency_of(self._hass, receiver_entity_id, signal)
         verdict = self._candy_known(
             sig_fp=fingerprint, byte_hash=hashed, decoded_fingerprint=None,
@@ -5374,12 +5378,8 @@ class SignalMonitor:
             entity_id=receiver_entity_id,
             name=self._candy_name(receiver_entity_id),
             frame=frame,
-            # What a row minted from this burst would hold: the measured
-            # gap, else the assumed one.
-            gap_us=(
-                int(piece.gap) if piece.gap is not None else RF_ASSUMED_FRAME_GAP_US
-            ),
-            gap_source=RF_GAP_MEASURED if piece.gap is not None else RF_GAP_ASSUMED,
+            gap_us=gap_us,
+            gap_source=gap_source,
             fingerprint=fingerprint,
             frame_hash=hashed,
             body_edges=len(parts.body),

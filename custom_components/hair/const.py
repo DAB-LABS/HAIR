@@ -591,9 +591,11 @@ RF_MIN_BODY_EDGES = 8
 # clears the floor above stays well short of this.
 RF_UNREAD_MIN_EDGES = 48
 # The inter-frame gap stored for a code whose gap was never seen inside a
-# capture. PROVISIONAL: long enough for every fixed-code family the plan
-# lists (a longer gap is accepted where a shorter one is not); the send
-# round and the Athom measurements may refine it.
+# capture and that no encoder family reads (a family's own gap is used
+# when one does: ``rf_frames.unmeasured_gap``). PROVISIONAL. A longer gap
+# is NOT always accepted where a shorter one is: a PT2262 or EV1527
+# receiver takes its 31 T space as the sync, and one would not take
+# 30 ms as one (GH #4).
 RF_ASSUMED_FRAME_GAP_US = 30_000
 # An address-first 24-symbol frame (the two-width PWM bodies of the
 # EV1527 and PT2262 class): 24 symbols of two edges plus the sync mark.
@@ -608,8 +610,13 @@ RF_FREQUENCY_SOURCE_RECEIVER = "receiver"
 # The receiver's own tuning number, read when the capture arrived
 # (listening PR 1, ``rf_tune``).
 RF_FREQUENCY_SOURCE_TUNED = "tuned"
-# Whether an RF row's inter-frame gap was measured inside a capture.
+# Where an RF row's inter-frame gap came from: measured inside a capture;
+# taken from the encoder family the frame reads as, from that family's
+# datasheet (a PT2262's 31 T sync), when no capture held the gap; or
+# assumed (``RF_ASSUMED_FRAME_GAP_US``) when no family reads the frame.
+# A measured gap always wins, then the family's, then the assumed one.
 RF_GAP_MEASURED = "measured"
+RF_GAP_FAMILY = "family"
 RF_GAP_ASSUMED = "assumed"
 # Retired by RF send T1: HAIR sends radio now. Kept until the panel's
 # string for it goes (the doors' "until both land"); nothing raises it.

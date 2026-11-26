@@ -128,6 +128,10 @@ console.log(JSON.stringify({
                           frame: null, verdict: "unknown", known_from: null,
                           known_name: null }, "UTC"),
     family: formatBlock({ ...press, protocol: "EV1527" }, "UTC").split("\n")[1],
+    gapAssumed: formatBlock({ ...press, gap_us: 30_000, gap_source: "assumed" },
+                            "UTC").split("\n")[1],
+    gapFamily: formatBlock({ ...press, gap_us: 12_245, gap_source: "family" },
+                           "UTC").split("\n")[1],
     families: __FAMILIES__.map(
         (slots) => formatBlock({ ...press, ...slots }, "UTC").split("\n")[1],
     ),
@@ -235,6 +239,11 @@ class TestARadioPress:
         assert lines[2] == "Sub:"
         assert lines[3] == "Filetype: Flipper SubGhz RAW File"
         assert lines[-1] == "Raw: 456 -1368 1368 -456"
+
+    def test_a_gap_says_where_it_came_from_unless_measured(self, run):
+        assert "   gap 12.9 ms   " in run["press"].split("\n")[1]
+        assert "   gap 30 ms (assumed)   " in run["gapAssumed"]
+        assert "   gap 12.2 ms (chip family)   " in run["gapFamily"]
 
     def test_the_sub_is_the_editors_copy(self, run):
         assert _sub(run["press"]) == run["pressSub"]

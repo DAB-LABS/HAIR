@@ -275,7 +275,11 @@ function radioLine(e: CandyEvent): string {
         fields.push(band ? (e.frequency_source ? `${band} (${e.frequency_source})` : band) : "no band");
         if (e.short_mark_us) fields.push(`short mark ${Math.round(e.short_mark_us)} us`);
     }
-    if (e.gap_us) fields.push(e.gap_source === "assumed" ? `gap ${ms(e.gap_us)} (assumed)` : `gap ${ms(e.gap_us)}`);
+    if (e.gap_us) {
+        // Measured gaps say nothing; the others say where they came from.
+        const from = e.gap_source === "assumed" ? " (assumed)" : e.gap_source === "family" ? " (chip family)" : "";
+        fields.push(`gap ${ms(e.gap_us)}${from}`);
+    }
     if (e.dir === "rx") {
         fields.push(
             e.votes && e.frames > 1 ? `${frames(e.frames)}, ${e.votes} agree` : frames(e.frames || 1),

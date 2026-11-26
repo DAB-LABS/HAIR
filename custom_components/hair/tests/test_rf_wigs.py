@@ -19,6 +19,7 @@ from custom_components.hair import rf_frames
 from custom_components.hair.const import (
     MEDIUM_RF,
     RF_GAP_ASSUMED,
+    RF_GAP_FAMILY,
     RF_GAP_MEASURED,
     RF_PROTOCOL,
     CommandCategory,
@@ -385,7 +386,8 @@ class TestExportAndAdopt:
         bare = WigSignal("B", "", rf=WigRf(433_920_000, frame))
         command = _command_from_wig_signal(bare, wig_rf_identity(bare.rf), set(), {}, 1)
         assert command.raw_timings[-1] > 0
-        assert command.rf_frame_gap_source == RF_GAP_ASSUMED
+        # No gap travels with it, so its family's (a 1:3 frame: 31 T).
+        assert command.rf_frame_gap_source == RF_GAP_FAMILY
 
 
 class TestTheClipper:

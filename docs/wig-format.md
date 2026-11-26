@@ -216,7 +216,7 @@ A flat signal may carry a radio code in place of `pronto`. Pronto has no form fo
 - **`frequency_hz`** (required): the carrier in Hz, an integer from 1 MHz to 10 GHz.
 - **`frame`** (required): one frame of the code in signed microseconds, marks positive and spaces negative, starting on a mark and alternating. The frame ends on its last mark: the gap before the next repeat is not part of it.
 - **`modulation`** (optional, default `"ook"`): the only value this release sends. Any other value is refused with the value named.
-- **`frame_gap_us`** (optional, positive integer or `null`): the space between repeats, when the author measured one. HAIR assumes a gap when it is absent.
+- **`frame_gap_us`** (optional, positive integer or `null`): the space between repeats, when the author measured one. When it is absent, HAIR uses the chip family's sync gap if the frame reads as a known fixed-code family, and assumes one otherwise.
 
 A signal carries `pronto` or `rf`, never both. A radio signal writes `ditto_count: 0` and `bypass_protocol: false` (a radio frame has no encoder), and any other value is refused. `send_count` and `send_spacing_ms` mean what they mean on any signal. Radio codes appear only in `signals`, never in a climate block.
 

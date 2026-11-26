@@ -33,6 +33,7 @@ from custom_components.hair.const import (
     RF_FREQUENCY_SOURCE_RECEIVER,
     RF_FREQUENCY_SOURCE_SIGNAL,
     RF_GAP_ASSUMED,
+    RF_GAP_FAMILY,
     RF_GAP_MEASURED,
     RF_PENDING_MAX,
     RF_WINDOW_MAX_S,
@@ -268,7 +269,8 @@ class TestBurstAssembler:
         assert len(bursts) == 1 and failed == []
         analysis, signal = bursts[0]
         assert analysis.votes == 6 and signal == "sig"
-        assert analysis.gap_source == RF_GAP_ASSUMED  # never read from a join
+        # Never read from a join: the family gap, not a measured one.
+        assert analysis.gap_source == RF_GAP_FAMILY
 
     def test_a_lone_frame_is_counted_as_one(self, frame_parts):
         loop = FakeLoop()
@@ -474,7 +476,9 @@ class TestReplay:
             # Three presses (more in a few files) on one row: the replay's
             # 1-second pacing can split one press into two bursts.
             assert signal.hit_count >= 2
-            assert signal.rf_frame_gap_source == RF_GAP_ASSUMED
+            # Every file's frames read as one fixed-code family, so each
+            # row keeps that family's sync gap (GH #4).
+            assert signal.rf_frame_gap_source == RF_GAP_FAMILY
             assert signal.rf_repeats_observed >= 2
         counters = monitor.rf_always_on.counters(RID)
         assert counters["minted"] == len(PRESSES[name])

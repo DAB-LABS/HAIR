@@ -19,9 +19,10 @@ from custom_components.hair import rf_frames as rf
 from custom_components.hair.const import (
     RF_ADDRESS_HEAD_EDGES,
     RF_ASSUMED_FRAME_GAP_US,
-    RF_GAP_ASSUMED,
+    RF_GAP_FAMILY,
     RF_GAP_MEASURED,
 )
+from custom_components.hair.rf_family import family_gap_us
 
 FIXTURE = Path(__file__).parent / "fixtures" / "rf" / "it104-keyfob-433.json"
 TAIL_US = 45_680
@@ -160,15 +161,15 @@ class TestGate:
         assert rf.analyze([]) is None
         assert rf.analyze(None) is None
 
-    def test_a_lone_stored_frame_assumes_its_gap(self):
+    def test_a_lone_stored_frame_takes_its_familys_gap(self):
         # A stored frame ends on its gap, which canonical_edges strips as
-        # the last value, so a re-read never measures one. The vote's
-        # assumed branch is for split delivery (always-on receivers, a
-        # later round): two frames inside one capture always measure.
+        # the last value, so a re-read never measures one. A PT2262 frame
+        # gets its family's 31 T sync instead of the assumed gap (GH #4);
+        # two frames inside one capture always measure.
         frame = _signed(_pt2262("0F1F0F1F" "0F10"))
         again = rf.identity_of_frame(frame)
-        assert again.gap_source == RF_GAP_ASSUMED
-        assert again.gap_us == RF_ASSUMED_FRAME_GAP_US
+        assert again.gap_source == RF_GAP_FAMILY
+        assert again.gap_us == family_gap_us(frame) != RF_ASSUMED_FRAME_GAP_US
 
 
 # ---------------------------------------------------------------------------
