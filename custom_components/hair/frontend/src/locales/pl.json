@@ -7,7 +7,7 @@
     "panel.tagline.devices": "Zarządzaj urządzeniami IR i sprzętem, który nimi steruje.",
     "panel.tagline.sniffer": "Przechwytuj kody IR i RF na żywo z powietrza",
     "panel.tagline.clips": "Twórz piloty, wklejając znane kody IR i radiowe",
-    "panel.tagline.plucker": "Wyciągaj kody IR z istniejących nadajników.",
+    "panel.tagline.plucker": "Wyciągaj kody IR i RF z istniejących nadajników.",
     "panel.tagline.mirror": "Obserwuj na żywo transmisje podczerwieni i radiowe Home Assistant",
     "mirror.title": "Mirror",
     "common.confirm": "Potwierdź",

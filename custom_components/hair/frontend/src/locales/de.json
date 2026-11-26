@@ -7,7 +7,7 @@
     "panel.tagline.devices": "Verwalte deine IR-Geräte und die Hardware dahinter.",
     "panel.tagline.sniffer": "Fange IR- und RF-Codes live aus der Luft ein",
     "panel.tagline.clips": "Baue Fernbedienungen durch Einfügen bekannter IR- und Funkcodes",
-    "panel.tagline.plucker": "Ziehe IR-Codes aus vorhandenen Blastern.",
+    "panel.tagline.plucker": "Ziehe IR- und RF-Codes aus vorhandenen Blastern.",
     "panel.tagline.mirror": "Sieh die Infrarot- und Funkübertragungen von Home Assistant live",
     "mirror.title": "Mirror",
     "common.confirm": "Bestätigen",

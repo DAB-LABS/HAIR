@@ -7,7 +7,7 @@
     "panel.tagline.devices": "IRデバイスと、それを動かすハードウェアを管理します。",
     "panel.tagline.sniffer": "空中を飛ぶIRコードとRFコードをライブでキャプチャします。",
     "panel.tagline.clips": "既知のIRコードや無線コードを貼り付けてリモコンを作成します。",
-    "panel.tagline.plucker": "既存のブラスターからIRコードを引き抜きます。",
+    "panel.tagline.plucker": "既存のブラスターからIRとRFのコードを引き抜きます。",
     "panel.tagline.mirror": "Home Assistantの赤外線・無線送信をライブで確認します。",
     "mirror.title": "Mirror",
     "common.confirm": "確認",

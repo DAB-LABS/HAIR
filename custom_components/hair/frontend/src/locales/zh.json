@@ -7,7 +7,7 @@
     "panel.tagline.devices": "管理你的红外设备及为其发送信号的硬件。",
     "panel.tagline.sniffer": "实时捕获空中的红外码和射频码",
     "panel.tagline.clips": "通过粘贴已知红外码和无线电代码来创建遥控器",
-    "panel.tagline.plucker": "从已有的 Blaster 中提取红外码。",
+    "panel.tagline.plucker": "从已有的 Blaster 中提取红外码和射频码。",
     "panel.tagline.mirror": "实时查看 Home Assistant 发出的红外和射频信号",
     "mirror.title": "Mirror",
     "common.confirm": "确认",

@@ -7,7 +7,7 @@
     "panel.tagline.devices": "Gestiona tus dispositivos IR y los mandos que los controlan.",
     "panel.tagline.sniffer": "Captura señales IR y RF en directo, desde el aire",
     "panel.tagline.clips": "Crea mandos pegando códigos IR y de radio conocidos",
-    "panel.tagline.plucker": "Extrae los códigos IR de tus mandos existentes.",
+    "panel.tagline.plucker": "Extrae los códigos IR y RF de tus mandos existentes.",
     "panel.tagline.mirror": "Observa en vivo las transmisiones infrarrojas y de radio de Home Assistant",
     "mirror.title": "Mirror",
     "common.confirm": "Confirmar",

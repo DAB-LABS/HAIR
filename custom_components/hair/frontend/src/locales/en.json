@@ -7,7 +7,7 @@
     "panel.tagline.devices": "Manage your IR devices and the hardware that drives them.",
     "panel.tagline.sniffer": "Capture IR and RF codes live from the air",
     "panel.tagline.clips": "Build remotes by pasting known IR and radio codes",
-    "panel.tagline.plucker": "Pluck IR codes from existing blasters.",
+    "panel.tagline.plucker": "Pluck IR and RF codes from existing blasters.",
     "panel.tagline.mirror": "See your live Home Assistant infrared and radio transmissions",
     "mirror.title": "Mirror",
     "common.confirm": "Confirm",

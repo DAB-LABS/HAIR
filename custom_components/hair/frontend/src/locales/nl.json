@@ -7,7 +7,7 @@
     "panel.tagline.devices": "Beheer je IR-apparaten en de hardware die ze aanstuurt.",
     "panel.tagline.sniffer": "Vang IR- en RF-codes live uit de lucht",
     "panel.tagline.clips": "Bouw afstandsbedieningen door bekende IR- en radiocodes te plakken",
-    "panel.tagline.plucker": "Pluk IR-codes uit je bestaande blasters.",
+    "panel.tagline.plucker": "Pluk IR- en RF-codes uit je bestaande blasters.",
     "panel.tagline.mirror": "Bekijk live de infrarood- en radiotransmissies van Home Assistant",
     "mirror.title": "Mirror",
     "common.confirm": "Bevestigen",
