@@ -2,8 +2,8 @@
 
 - Every section is a card: a heading button with the section's name over
   a one-line summary, and its fields under it while open.
-- Cards come in one order: Power, Climate sensors, Speed cycle, Pinned
-  remotes, then Make a Remote, a card with its button and nothing to
+- Cards come in one order: Power, Climate sensors, Speed cycle, Cover,
+  Pinned remotes, then Make a Remote, a card with its button and nothing to
   open.
 - The first card a device gets opens with the dialog, and so does one
   holding a validation problem; that card's summary says the problem.
@@ -50,14 +50,16 @@ class TestTheCards:
             body.index('"power",\n'),
             body.index('"climate",\n'),
             body.index('"speed_cycle",\n'),
+            body.index('"cover",\n'),
             body.index('"relay",\n'),
             body.index("this._renderConvertSection()"),
             body.index('class="dialog-actions"'),
         ]
         assert order == sorted(order)
-        assert body.count("this._renderCard(") == 4
+        assert body.count("this._renderCard(") == 5
         order_line = (
-            'CARD_ORDER: readonly CardKey[] = ["power", "climate", "speed_cycle", "relay"]'
+            "CARD_ORDER: readonly CardKey[] = "
+            '["power", "climate", "speed_cycle", "cover", "relay"]'
         )
         assert order_line in _read(DIALOG)
 

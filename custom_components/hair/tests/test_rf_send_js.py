@@ -240,7 +240,7 @@ class TestTheMirrorForRadio:
             p.stem: json.loads(p.read_text(encoding="utf-8"))
             for p in (SRC / "locales").glob("*.json")
         }
-        assert len(locales) == 11
+        assert len(locales) == 12
         en = locales["en"]
         assert en["panel.tagline.mirror"] == (
             "See your live Home Assistant infrared and radio transmissions"

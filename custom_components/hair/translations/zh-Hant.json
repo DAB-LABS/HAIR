@@ -1,0 +1,44 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "設定 HAIR",
+                "description": "HAIR 讓您在單一面板中管理所有紅外線裝置。\n\n偵測到的硬體：\n\n{hardware_summary}",
+                "data": {}
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "HAIR 已經設定完成。",
+            "no_ir_hardware": "未偵測到紅外線硬體。擷取需要一台具備 remote_receiver 元件的 ESPHome 裝置。發送則需要一個使用 HA 原生 infrared 平台的整合（Broadlink、ESPHome 等）。詳情請參閱[設定指南]({setup_url})。"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "HAIR 選項",
+                "description": "設定紅外線裝置管理的全域選項。",
+                "data": {
+                    "capture_timeout": "擷取逾時（秒）",
+                    "default_repeat_count": "預設紅外線重複次數"
+                },
+                "data_description": {
+                    "capture_timeout": "擷取時等待紅外線訊號的時間（5-60 秒）。",
+                    "default_repeat_count": "每個紅外線指令要重複發送的次數（1-10）。"
+                }
+            }
+        }
+    },
+    "device_automation": {
+        "trigger_type": {
+            "button_pressed": "按下 {subtype}",
+            "state_heard": "聽到狀態"
+        }
+    },
+    "entity": {
+        "event": {
+            "last_pressed": {
+                "name": "最後按下"
+            }
+        }
+    }
+}
