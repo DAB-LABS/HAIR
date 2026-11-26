@@ -864,6 +864,9 @@ export interface EntityConfig {
     // A screen's kind of cover (GH #313). Absent while it is the
     // default, shade.
     cover_device_class?: CoverDeviceClass | null;
+    // GH #323: a matrix AC with its own "on" code sends it before a
+    // state from off. Absent means on; the backend writes it only off.
+    wake_with_on?: boolean;
 }
 
 /** Where a fan whose speed cycle has no off lands when turned on. */

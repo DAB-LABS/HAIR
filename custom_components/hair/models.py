@@ -762,6 +762,7 @@ _KNOWN_ENTITY_CONFIG = frozenset({
     "hvac_modes", "fan_modes", "swing_modes",
     "fan_speed_steps", "speed_cycle_includes_off", "speed_cycle_turn_on",
     "cover_device_class",
+    "wake_with_on",
 })
 
 # A cover's Home Assistant device class (GH #313), set on the Cover card
@@ -841,6 +842,11 @@ class EntityConfig:
     # A screen's cover device class (``COVER_DEVICE_CLASSES``), written
     # only when set: None reads as shade.
     cover_device_class: str | None = None
+    # A matrix AC whose file has its own "on" code (GH #323): from off,
+    # a mode change sends that code first, then the state, the way the
+    # file's own home (SmartIR) does. On unless the user unticks it, so
+    # an existing device gets the fix; stored only when off.
+    wake_with_on: bool = True
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
@@ -867,6 +873,8 @@ class EntityConfig:
             out["speed_cycle_turn_on"] = self.speed_cycle_turn_on
         if self.cover_device_class is not None:
             out["cover_device_class"] = self.cover_device_class
+        if not self.wake_with_on:
+            out["wake_with_on"] = False
         return _with_extra(out, self._extra)
 
     @classmethod
@@ -892,6 +900,7 @@ class EntityConfig:
             cover_device_class=data.get("cover_device_class")
             if data.get("cover_device_class") in COVER_DEVICE_CLASSES
             else None,
+            wake_with_on=data.get("wake_with_on") is not False,
         ), data, _KNOWN_ENTITY_CONFIG)
 
 

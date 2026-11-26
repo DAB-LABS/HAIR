@@ -153,13 +153,33 @@ AUTO_MAP_RULES: dict[str, str] = {
     "vol down": "volume_down",
     "volume +": "volume_up",
     "volume -": "volume_down",
-    # A media player's Stop. A screen's Stop is ``stop_cover``, which a
-    # one-key-per-name table cannot give it: on a screen this maps to
-    # ``stop``, which the cover does not read (a known gap).
+    # A media player's Stop. On a screen ``auto_map_feature`` turns it
+    # into the cover's own ``stop_cover`` (``_SCREEN_ACTIONS`` below).
     "stop": "stop",
     "fan speed up": "speed_up",
     "fan speed down": "speed_down",
     "oscillation": "oscillate",
+}
+
+
+# The table above gives a name one key for every type, so a few names a
+# screen's remote uses land on another type's action, which the cover
+# does not read (GH #313). On a screen the key is translated to the
+# cover's own after the lookup, so every locale's synonym and the Screen
+# template's "Stop" follow at once. Up is open and Down is close, the
+# shade and blind convention; an awning or a projector screen that runs
+# the other way is one Map action away.
+_SCREEN_ACTIONS: dict[str, str] = {
+    "stop": "stop_cover",
+    "navigate_up": "open_cover",
+    "navigate_down": "close_cover",
+}
+
+# Names that mean Stop only on a screen. French "Arrêt" is Off in the
+# shared table (a TV's power key); on a shade remote it is the stop key.
+_SCREEN_NAMES: dict[str, str] = {
+    "arrêt": "stop_cover",
+    "arret": "stop_cover",
 }
 
 
@@ -168,12 +188,18 @@ def auto_map_feature(name: str, device_type: str | None) -> str | None:
 
     The one lookup behind auto-map: the English rules, then the
     localized synonyms every shipped locale adds (vocabulary.py), then,
-    on an air conditioner, the "Temp 24" pattern. Pure, so a Device's
-    commands (``DeviceManager._auto_map_command``) and a typed Remote's
-    buttons (``remote_state.fill_mapping``, round 2a) map the same name
-    to the same key.
+    on an air conditioner, the "Temp 24" pattern. On a screen, the few
+    keys that belong to another type's action are translated to the
+    cover's own (``_SCREEN_ACTIONS``, ``_SCREEN_NAMES``). Pure, so a
+    Device's commands (``DeviceManager._auto_map_command``) and a typed
+    Remote's buttons (``remote_state.fill_mapping``, round 2a) map the
+    same name to the same key.
     """
     folded = name.casefold()
+    if device_type == DeviceType.SCREEN:
+        own = _SCREEN_NAMES.get(folded.strip())
+        if own is not None:
+            return own
     feature = AUTO_MAP_RULES.get(folded)
     if feature is None:
         feature = localized_auto_map(AUTO_MAP_RULES).get(folded)
@@ -181,7 +207,51 @@ def auto_map_feature(name: str, device_type: str | None) -> str | None:
         match = _TEMP_COMMAND_PATTERN.fullmatch(name.strip())
         if match is not None:
             feature = f"temp_{int(match.group(1))}"
+    if feature is not None and device_type == DeviceType.SCREEN:
+        feature = _SCREEN_ACTIONS.get(feature, feature)
     return feature
+
+
+def heal_screen_stop(store: HAIRStore) -> bool:
+    """Put a screen's Stop on the cover's own action (GH #313). True if
+    anything changed, so the caller saves once.
+
+    Before ``_SCREEN_ACTIONS``, a screen Device's "Stop" command was
+    auto-mapped to ``stop``, which the cover does not read, so the cover
+    had no Stop. Here a Screen Device's ``stop`` key becomes
+    ``stop_cover``, or is dropped when ``stop_cover`` is already mapped
+    (a user who fixed it by hand keeps that). A typed screen Remote never
+    stored the wrong key (its fill keeps only keys the cover tracks), so
+    it lost its Stop button outright: it gets ``stop_cover`` from a
+    button whose name now maps there, when nothing holds that key and
+    the button holds no other. Run at setup, after the localized table
+    is primed; nothing to heal costs one walk and no save.
+    """
+    changed = False
+    for device in store.get_all_devices():
+        if device.device_type != DeviceType.SCREEN:
+            continue
+        mapping = device.entity_config.command_mapping
+        if "stop" not in mapping:
+            continue
+        name = mapping.pop("stop")
+        mapping.setdefault("stop_cover", name)
+        changed = True
+    for remote in store.get_all_trigger_remotes():
+        if remote.device_type != DeviceType.SCREEN or remote.climate_matrix:
+            continue
+        mapping = remote.entity_config.command_mapping
+        if "stop_cover" in mapping:
+            continue
+        held = set(mapping.values())
+        for trigger in store.get_triggers_for_remote(remote.id):
+            if trigger.id in held:
+                continue
+            if auto_map_feature(trigger.name or "", DeviceType.SCREEN) == "stop_cover":
+                mapping["stop_cover"] = trigger.id
+                changed = True
+                break
+    return changed
 
 
 class DeviceManager:

@@ -12,7 +12,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE, Platform
 from homeassistant.core import Event, HomeAssistant
 
 from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL, PLUCKABLE_DIRNAME
-from .device_manager import DeviceManager, prime_localized_auto_map
+from .device_manager import DeviceManager, heal_screen_stop, prime_localized_auto_map
 from .entity_factory import EntityFactory, reconcile_orphan_entities
 from .field_readers import prime_field_maps
 from .matrix_listener import MatrixListener
@@ -116,6 +116,16 @@ async def async_setup_entry(
     # Prime the localized auto-map synonyms table off the event loop
     # (reads the panel locale files once, cached for the process).
     await hass.async_add_executor_job(prime_localized_auto_map)
+    # A screen's Stop on the cover's own action (GH #313), after the
+    # table above so a Remote button's localized name is read. Guarded
+    # like the radio repair: a malformed row must never stop HAIR loading.
+    try:
+        healed = heal_screen_stop(store)
+    except Exception:
+        _LOGGER.exception("Covers: the Stop repair failed")
+        healed = False
+    if healed:
+        await store.async_save()
 
     # The wig closet: /config/hair/wigs/ exists from first boot so "drop
     # your files here" is always true (wigs.md section 4). Lives outside

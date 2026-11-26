@@ -953,6 +953,9 @@ def _cover_device_class_error(msg: dict[str, Any]) -> str | None:
     # A screen's cover device class (GH #313); None is the default,
     # shade. Checked in the handler before anything is written.
     vol.Optional("cover_device_class"): vol.Any(str, None),
+    # GH #323: a matrix device with its own "on" code sends it before a
+    # state when the unit is believed off.
+    vol.Optional("wake_with_on"): bool,
 })
 @websocket_api.async_response
 async def ws_update_device(
@@ -1129,6 +1132,8 @@ async def ws_update_device(
         config.speed_cycle_turn_on = msg["speed_cycle_turn_on"]
     if "cover_device_class" in msg:
         config.cover_device_class = msg["cover_device_class"]
+    if "wake_with_on" in msg:
+        config.wake_with_on = msg["wake_with_on"]
 
     await manager.async_update_device(device)
     connection.send_result(msg["id"], await _device_full(hass, device))

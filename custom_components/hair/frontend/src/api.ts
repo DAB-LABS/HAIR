@@ -184,6 +184,8 @@ export class HairApi {
             // A screen's kind of cover (GH #313): null is the default,
             // shade.
             cover_device_class: CoverDeviceClass | null;
+            // GH #323: send the file's "on" before a state from off.
+            wake_with_on: boolean;
         }>,
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({
