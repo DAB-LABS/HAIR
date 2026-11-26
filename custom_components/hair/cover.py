@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, DeviceType
-from .models import EntityConfig, IRDevice
+from .models import COVER_DEVICE_CLASSES, EntityConfig, IRDevice
 from .remote_state import RemoteStateMixin, register_remote_platform
 from .send_follow import mapped_keys, one_of
 from .send_signal import ORIGIN_ENTITY, SIGNAL_DEVICE_SENT, DeviceSent
@@ -77,7 +77,6 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_assumed_state = True
-    _attr_device_class = CoverDeviceClass.SHADE
 
     def __init__(self, device: IRDevice, device_manager) -> None:
         self._device = device
@@ -109,6 +108,15 @@ class HAIRCoverEntity(RestoreEntity, CoverEntity):
             "manufacturer": self._device.manufacturer or "HAIR",
             "model": self._device.model or "Screen / Shade",
         }
+
+    @property
+    def device_class(self) -> CoverDeviceClass:
+        """Shade unless the Cover card set another (GH #313). Read with
+        every state write, so a change shows without a restart."""
+        chosen = self._entity_config.cover_device_class
+        if chosen in COVER_DEVICE_CLASSES:
+            return CoverDeviceClass(chosen)
+        return CoverDeviceClass.SHADE
 
     @property
     def supported_features(self) -> CoverEntityFeature:

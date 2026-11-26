@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Remotes on the Devices tab can be dragged into any order, as Devices can. The HAIR Triggers card stays first, and a new Remote still lands at the end beside the "+" tile. Every list of Remotes elsewhere in the panel follows the same order.
+- A screen can say what kind of cover it is: awning, blind, curtain, shade, shutter, garage door or gate. Pick it in the new Cover card in the settings of a screen Device, or of a Remote typed as a screen, and Home Assistant shows the matching icon and words. Shade is still the default. Asked for by @platini76 (#313).
 
 ### Changed
 

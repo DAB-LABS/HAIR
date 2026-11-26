@@ -761,8 +761,24 @@ _KNOWN_ENTITY_CONFIG = frozenset({
     "platform", "command_mapping", "starred", "temperature_presets",
     "hvac_modes", "fan_modes", "swing_modes",
     "fan_speed_steps", "speed_cycle_includes_off", "speed_cycle_turn_on",
+    "cover_device_class",
     "wake_with_on",
 })
+
+# A cover's Home Assistant device class (GH #313), set on the Cover card
+# of a screen's settings. The ones an infrared or radio cover is: Home
+# Assistant also has damper, door and window, rare as either. Unset is
+# shade, what every cover was before the setting existed.
+COVER_DEVICE_CLASSES: tuple[str, ...] = (
+    "awning",
+    "blind",
+    "curtain",
+    "shade",
+    "shutter",
+    "garage",
+    "gate",
+)
+COVER_DEVICE_CLASS_DEFAULT = "shade"
 
 # Fan speed cycle (GH Discussion #201): a fan whose one speed button
 # steps 1, 2, 3, back to 1. ``fan_speed_steps`` is the number of speeds
@@ -823,6 +839,9 @@ class EntityConfig:
     fan_speed_steps: int | None = None
     speed_cycle_includes_off: bool = False
     speed_cycle_turn_on: str = SPEED_CYCLE_TURN_ON_RESUME
+    # A screen's cover device class (``COVER_DEVICE_CLASSES``), written
+    # only when set: None reads as shade.
+    cover_device_class: str | None = None
     # A matrix AC whose file has its own "on" code (GH #323): from off,
     # a mode change sends that code first, then the state, the way the
     # file's own home (SmartIR) does. On unless the user unticks it, so
@@ -852,6 +871,8 @@ class EntityConfig:
             out["speed_cycle_includes_off"] = True
         if self.speed_cycle_turn_on != SPEED_CYCLE_TURN_ON_RESUME:
             out["speed_cycle_turn_on"] = self.speed_cycle_turn_on
+        if self.cover_device_class is not None:
+            out["cover_device_class"] = self.cover_device_class
         if not self.wake_with_on:
             out["wake_with_on"] = False
         return _with_extra(out, self._extra)
@@ -876,6 +897,9 @@ class EntityConfig:
             speed_cycle_turn_on=data.get("speed_cycle_turn_on")
             if data.get("speed_cycle_turn_on") in SPEED_CYCLE_TURN_ON_CHOICES
             else SPEED_CYCLE_TURN_ON_RESUME,
+            cover_device_class=data.get("cover_device_class")
+            if data.get("cover_device_class") in COVER_DEVICE_CLASSES
+            else None,
             wake_with_on=data.get("wake_with_on") is not False,
         ), data, _KNOWN_ENTITY_CONFIG)
 

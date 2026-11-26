@@ -55,6 +55,7 @@ from .identity import (
     canonical_fingerprint,
 )
 from .models import (
+    COVER_DEVICE_CLASSES,
     FAN_SPEED_STEPS_MAX,
     FAN_SPEED_STEPS_MIN,
     ON_OFF_DOMAINS,
@@ -234,6 +235,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
 
     # Trigger Remotes (Add Popups signpost 2, Track 1B-B2/B3)
     websocket_api.async_register_command(hass, ws_list_trigger_remotes)
+    websocket_api.async_register_command(hass, ws_set_trigger_remote_cover_class)
     websocket_api.async_register_command(hass, ws_reorder_trigger_remotes)
     websocket_api.async_register_command(hass, ws_create_trigger_remote)
     websocket_api.async_register_command(hass, ws_wig_make_remote)
@@ -914,6 +916,16 @@ def _resolve_power_source(
     return new_sensor, new_off_below, new_on_above, new_settle
 
 
+def _cover_device_class_error(msg: dict[str, Any]) -> str | None:
+    """Why a ``cover_device_class`` in ``msg`` is refused, or None. Absent
+    and None (back to shade) are fine; otherwise one of
+    ``COVER_DEVICE_CLASSES``. Shared by the Device and Remote doors."""
+    value = msg.get("cover_device_class")
+    if value is None or value in COVER_DEVICE_CLASSES:
+        return None
+    return "cover_device_class must be one of " + ", ".join(COVER_DEVICE_CLASSES)
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/device/update",
@@ -938,6 +950,9 @@ def _resolve_power_source(
     vol.Optional("speed_cycle_turn_on"): str,
     # Toggle power (GH #183): a matrix device's power code toggles.
     vol.Optional("power_toggles"): bool,
+    # A screen's cover device class (GH #313); None is the default,
+    # shade. Checked in the handler before anything is written.
+    vol.Optional("cover_device_class"): vol.Any(str, None),
     # GH #323: a matrix device with its own "on" code sends it before a
     # state when the unit is believed off.
     vol.Optional("wake_with_on"): bool,
@@ -984,6 +999,10 @@ async def ws_update_device(
             f"fan_speed_steps must be from {FAN_SPEED_STEPS_MIN} to "
             f"{FAN_SPEED_STEPS_MAX}",
         )
+        return
+    cover_error = _cover_device_class_error(msg)
+    if cover_error is not None:
+        connection.send_error(msg["id"], "invalid_format", cover_error)
         return
     if (
         "speed_cycle_turn_on" in msg
@@ -1111,6 +1130,8 @@ async def ws_update_device(
         config.speed_cycle_includes_off = msg["speed_cycle_includes_off"]
     if "speed_cycle_turn_on" in msg:
         config.speed_cycle_turn_on = msg["speed_cycle_turn_on"]
+    if "cover_device_class" in msg:
+        config.cover_device_class = msg["cover_device_class"]
     if "wake_with_on" in msg:
         config.wake_with_on = msg["wake_with_on"]
 
@@ -5152,6 +5173,8 @@ def _remote_state_payload(hass: HomeAssistant, remote: Any) -> dict[str, Any]:
         "power_off_below_w": remote.power_off_below_w,
         "power_on_above_w": remote.power_on_above_w,
         "power_settle_s": remote.power_settle_s,
+        # A screen Remote's cover device class (None is shade).
+        "cover_device_class": remote.entity_config.cover_device_class,
     }
 
 
@@ -5255,6 +5278,62 @@ async def ws_set_trigger_remote_type(
         "remote_id": remote.id,
         "removed_entity_id": removed_entity_id,
         **fill,
+        **_remote_state_payload(hass, remote),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/set-cover-class",
+    vol.Required("remote_id"): str,
+    vol.Required("cover_device_class"): vol.Any(str, None),
+})
+@websocket_api.async_response
+async def ws_set_trigger_remote_cover_class(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Set a typed screen Remote's cover device class (GH #313), or clear
+    it back to shade with None. The Device door's check; only a Remote
+    whose type is a screen takes one. Nothing is written on a refusal.
+    The Remote's cover entity shows the change at once. Returns the
+    Remote's state payload.
+    """
+    from .remote_state import remote_platform
+
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+    if remote_platform(remote) != "cover":
+        connection.send_error(
+            msg["id"],
+            "invalid_format",
+            "Only a screen Remote has a cover device class",
+        )
+        return
+    cover_error = _cover_device_class_error(msg)
+    if cover_error is not None:
+        connection.send_error(msg["id"], "invalid_format", cover_error)
+        return
+
+    from datetime import UTC, datetime
+
+    remote.entity_config.cover_device_class = msg["cover_device_class"]
+    remote.updated_at = datetime.now(UTC).isoformat()
+    store.update_trigger_remote(remote)
+    await store.async_save()
+    from .event import sync_remote_entities
+
+    sync_remote_entities(hass, data["config_entry"].entry_id)
+    connection.send_result(msg["id"], {
+        "remote_id": remote.id,
         **_remote_state_payload(hass, remote),
     })
 

@@ -375,11 +375,12 @@ def apply_fill(remote: TriggerRemote, plan: FillPlan) -> None:
 
 
 #: The per-type settings Make a Device copies from a typed Remote along
-#: with its mapping: the fan speed cycle's, today.
+#: with its mapping: the fan speed cycle's and a cover's device class.
 REMOTE_SETTINGS_COPIED = (
     "fan_speed_steps",
     "speed_cycle_includes_off",
     "speed_cycle_turn_on",
+    "cover_device_class",
 )
 
 

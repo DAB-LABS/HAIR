@@ -12,12 +12,15 @@
  *     (ir-power-source-section.ts), so a state source corrects the
  *     Remote's entity as it corrects a Device's. It is never copied to
  *     or from a Device; each is set on its own.
+ *   - Cover, for a Remote typed as a screen: its kind of cover (GH
+ *     #313), the Device dialog's menu (ir-cover-class-field.ts). Made
+ *     from a Device, a Remote starts with the Device's kind.
  *   - Make a Device, a card with its button: this dialog only asks for
  *     the mint (request-make-device) and ir-device-list.ts's
  *     <ir-promote-dialog> makes it.
  *
  * The footer is the Device dialog's: Delete on the left; Duplicate and,
- * with the Power card only, Save on the right. A Remote with nothing to
+ * with the Power or the Cover card, Save on the right. A Remote with nothing to
  * save here gets no Save. Delete and Duplicate dispatch request-delete
  * and request-duplicate, so the Remote card's own flows do the work.
  */
@@ -26,7 +29,13 @@ import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { TriggerRemoteInfo } from "./types.js";
+import type { CoverDeviceClass, TriggerRemoteInfo } from "./types.js";
+import {
+    coverClassForSave,
+    coverClassLabelKey,
+    coverClassShown,
+} from "./cover-class.js";
+import { renderCoverClassField } from "./ir-cover-class-field.js";
 import {
     sectionAccentHost,
     settingsSectionStyles,
@@ -42,8 +51,15 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
 
     @state() private _busy = false;
     @state() private _error: string | null = null;
-    /** The Power card starts open; it is the only card that opens. */
+    /** The Power and Cover cards start open. A Remote gets one of them
+     * at most: a screen has no power. */
     @state() private _powerOpen = true;
+    @state() private _coverOpen = true;
+    @state() private _coverClass: CoverDeviceClass = "shade";
+
+    firstUpdated(): void {
+        this._coverClass = coverClassShown(this.remote.cover_device_class);
+    }
 
     updated(): void {
         this.toggleAttribute("dark", Boolean(this.hass?.themes?.darkMode));
@@ -53,6 +69,17 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
      * with it. */
     private get _hasPower(): boolean {
         return this.remote.power_eligible === true;
+    }
+
+    /** A Remote typed as a screen gets the Cover card, and Save with
+     * it. */
+    private get _hasCover(): boolean {
+        return this.remote.device_type === "screen";
+    }
+
+    /** Whether there is anything here to save. */
+    private get _saves(): boolean {
+        return this._hasPower || this._hasCover;
     }
 
     private get _power(): IrPowerSourceSection | null {
@@ -91,9 +118,10 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
     }
 
     private async _save(): Promise<void> {
-        const power = this._power;
-        if (this._busy || !this.api || !power) return;
-        const validation = power.validationError;
+        if (this._busy || !this.api) return;
+        const power = this._hasPower ? this._power : null;
+        if (this._hasPower && !power) return;
+        const validation = power?.validationError;
         if (validation) {
             this._error = validation;
             this._powerOpen = true;
@@ -102,13 +130,27 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
         this._busy = true;
         this._error = null;
         try {
-            await this.api.setTriggerRemotePower(this.remote.id, power.patch());
-            this.dispatchEvent(
-                new CustomEvent("remote-power-changed", {
-                    bubbles: true,
-                    composed: true,
-                }),
-            );
+            if (power) {
+                await this.api.setTriggerRemotePower(this.remote.id, power.patch());
+                this.dispatchEvent(
+                    new CustomEvent("remote-power-changed", {
+                        bubbles: true,
+                        composed: true,
+                    }),
+                );
+            }
+            if (this._hasCover) {
+                await this.api.setTriggerRemoteCoverClass(
+                    this.remote.id,
+                    coverClassForSave(this._coverClass),
+                );
+                this.dispatchEvent(
+                    new CustomEvent("remote-cover-changed", {
+                        bubbles: true,
+                        composed: true,
+                    }),
+                );
+            }
             this._close();
         } catch (err) {
             this._error = (err as Error).message;
@@ -169,6 +211,43 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
                             : ""}
                     </div>
                 </div>
+                <div
+                    class="card card-cover ${this._coverOpen ? "open" : ""}"
+                    ?hidden=${!this._hasCover}
+                >
+                    <h3 class="card-heading">
+                        <button
+                            type="button"
+                            class="card-head"
+                            aria-expanded=${this._coverOpen ? "true" : "false"}
+                            aria-controls="card-body-cover"
+                            @click=${() => (this._coverOpen = !this._coverOpen)}
+                        >
+                            <span class="card-text">
+                                <span class="card-title"
+                                    >${t("devsettings.cover_title")}</span
+                                >
+                                <span class="card-sum"
+                                    >${t(coverClassLabelKey(this._coverClass))}</span
+                                >
+                            </span>
+                            <span class="card-fold" aria-hidden="true"></span>
+                        </button>
+                    </h3>
+                    <div
+                        class="card-body"
+                        id="card-body-cover"
+                        ?hidden=${!this._coverOpen}
+                    >
+                        ${this._hasCover
+                            ? renderCoverClassField(
+                                  this._coverClass,
+                                  this._busy,
+                                  (kind) => (this._coverClass = kind),
+                              )
+                            : ""}
+                    </div>
+                </div>
                 <div class="card card-action section-convert">
                     <div class="card-row">
                         <div class="card-text">
@@ -203,7 +282,7 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
                     >
                         ${t("devsettings.duplicate")}
                     </button>
-                    ${this._hasPower
+                    ${this._saves
                         ? html`<button
                               class="action-btn save-btn"
                               @click=${this._save}
@@ -227,7 +306,8 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
             /* The same footer as the Device settings dialog, so the two
              * read as one family: Delete alone on the left, the
              * constructive side on the right. Save shows only with the
-             * Power card; the shape is the rule, not the button count. */
+             * Power or the Cover card; the shape is the rule, not the
+             * button count. */
             .duplicate-btn {
                 background: none;
                 border-color: #43a047;

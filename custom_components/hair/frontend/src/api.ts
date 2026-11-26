@@ -15,6 +15,7 @@ import type { CandyEvent } from "./candy-text.js";
 import type { PinMode } from "./pin-mode.js";
 import type {
     ActionOption,
+    CoverDeviceClass,
     GroupCandidateDevice,
     GroupRunResult,
     GroupUser,
@@ -180,6 +181,9 @@ export class HairApi {
             // Toggle power (GH #183): a matrix device's power code
             // toggles. Refused on a device without a matrix.
             power_toggles: boolean;
+            // A screen's kind of cover (GH #313): null is the default,
+            // shade.
+            cover_device_class: CoverDeviceClass | null;
             // GH #323: send the file's "on" before a state from off.
             wake_with_on: boolean;
         }>,
@@ -1688,6 +1692,18 @@ export class HairApi {
             type: "hair/trigger-remote/set-power",
             remote_id: remoteId,
             ...source,
+        });
+    }
+
+    /** A screen Remote's kind of cover (GH #313); null is shade. */
+    setTriggerRemoteCoverClass(
+        remoteId: string,
+        coverDeviceClass: CoverDeviceClass | null,
+    ): Promise<RemoteStateResult> {
+        return this.hass.connection.sendMessagePromise<RemoteStateResult>({
+            type: "hair/trigger-remote/set-cover-class",
+            remote_id: remoteId,
+            cover_device_class: coverDeviceClass,
         });
     }
 

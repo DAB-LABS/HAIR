@@ -17,8 +17,9 @@
  * near-blank one (bench-verified at the Track 3.4 checkpoint).
  * It returns `'power'` for the device types that can plausibly draw
  * current (ac, media_player, fan, light, switch), `'climate'` for any
- * device carrying a loaded matrix (climate-sensors.md), and `[]` for
- * everything else (screen, other) -- a matrix AC device gets both.
+ * device carrying a loaded matrix (climate-sensors.md), `'cover'` for a
+ * screen (its kind of cover, GH #313), and `[]` for everything else
+ * (other) -- a matrix AC device gets both power and climate.
  *
  * Each section is a card that opens (settings-section-styles.ts holds
  * the rule and the one accent): its name over a one-line summary of
@@ -60,11 +61,18 @@ import { dialogStyles } from "./ir-dialog-styles.js";
 import { pinModeChoices, pinModeOf, pinModeShown, type PinMode } from "./pin-mode.js";
 import type { HairApi } from "./api.js";
 import type {
+    CoverDeviceClass,
     DeviceTypeId,
     IRDevice,
     SpeedCycleTurnOn,
     TriggerRemoteInfo,
 } from "./types.js";
+import {
+    coverClassForSave,
+    coverClassLabelKey,
+    coverClassShown,
+} from "./cover-class.js";
+import { renderCoverClassField } from "./ir-cover-class-field.js";
 import {
     MAX_SPEED_STEPS,
     MIN_SPEED_STEPS,
@@ -80,14 +88,14 @@ import {
     renderLiveReadout,
 } from "./ir-power-source-section.js";
 
-export type SettingsSectionId = "power" | "climate" | "speed_cycle";
+export type SettingsSectionId = "power" | "climate" | "speed_cycle" | "cover";
 
 /** The cards that open, in the order they are drawn
  * (settings-section-styles.ts): where the state comes from, how the
- * device is driven, then other remotes. Make a Remote, an action,
+ * device is driven, what kind of cover it is, then other remotes. Make a Remote, an action,
  * follows them and does not open. */
 type CardKey = SettingsSectionId | "relay";
-const CARD_ORDER: readonly CardKey[] = ["power", "climate", "speed_cycle", "relay"];
+const CARD_ORDER: readonly CardKey[] = ["power", "climate", "speed_cycle", "cover", "relay"];
 
 const POWER_ELIGIBLE_TYPES: ReadonlySet<DeviceTypeId> = new Set([
     "ac",
@@ -103,7 +111,8 @@ const POWER_ELIGIBLE_TYPES: ReadonlySet<DeviceTypeId> = new Set([
  * (climate-sensors.md) is matrix-gated, not device-type-gated: a
  * device's full payload carries `matrix` exactly when it has a loaded
  * climate lattice, so that field alone decides it. SPEED CYCLE (GH
- * Discussion #201) is for a fan with a Speed Cycle command mapped. */
+ * Discussion #201) is for a fan with a Speed Cycle command mapped.
+ * COVER (GH #313) is for a screen, whatever it has mapped. */
 export function settingsSections(
     device: Pick<IRDevice, "device_type" | "matrix"> &
         Partial<Pick<IRDevice, "entity_config">>,
@@ -117,6 +126,9 @@ export function settingsSections(
     }
     if (device.matrix) {
         sections.push("climate");
+    }
+    if (device.device_type === "screen") {
+        sections.push("cover");
     }
     return sections;
 }
@@ -158,6 +170,8 @@ export class IrDeviceSettingsDialog extends LitElement {
     @state() private _speedSteps = "";
     @state() private _cycleIncludesOff = false;
     @state() private _cycleTurnOn: SpeedCycleTurnOn = "resume";
+    // A screen's kind of cover; shade is the default.
+    @state() private _coverClass: CoverDeviceClass = "shade";
     // Toggle power (GH #183): the matrix setting. Per pinning Remote,
     // what the pin does with its presses (GH #294, ``pin-mode.ts``).
     @state() private _powerToggles = false;
@@ -188,6 +202,7 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._cycleIncludesOff = config?.speed_cycle_includes_off === true;
         this._cycleTurnOn =
             config?.speed_cycle_turn_on === "speed_1" ? "speed_1" : "resume";
+        this._coverClass = coverClassShown(config?.cover_device_class);
         // The first card opens, and so does one holding a problem.
         const first = CARD_ORDER.find((key) => this._cardShows(key));
         const problem = this._problemCard();
@@ -375,6 +390,9 @@ export class IrDeviceSettingsDialog extends LitElement {
             patch.speed_cycle_includes_off = this._cycleIncludesOff;
             patch.speed_cycle_turn_on = this._cycleTurnOn;
         }
+        if (sections.includes("cover")) {
+            patch.cover_device_class = coverClassForSave(this._coverClass);
+        }
         try {
             await this.api.updateDevice(this.device.id, patch);
             const relayChanged = await this._savePinModes();
@@ -458,6 +476,12 @@ export class IrDeviceSettingsDialog extends LitElement {
                 t("devsettings.speed_cycle_section_label"),
                 this._speedCycleSummary(),
                 this._renderSpeedCycleSection(),
+            )}
+            ${this._renderCard(
+                "cover",
+                t("devsettings.cover_title"),
+                t(coverClassLabelKey(this._coverClass)),
+                this._renderCoverSection(),
             )}
             ${this._renderCard(
                 "relay",
@@ -809,6 +833,16 @@ export class IrDeviceSettingsDialog extends LitElement {
                 </p>
             </section>
         `;
+    }
+
+    /** A screen's kind of cover (GH #313): the shared menu
+     * (ir-cover-class-field.ts). */
+    private _renderCoverSection() {
+        return renderCoverClassField(
+            this._coverClass,
+            this._busy,
+            (kind) => (this._coverClass = kind),
+        );
     }
 
     /** No per-field explainer here (design ruling 2026-08-09, matches
