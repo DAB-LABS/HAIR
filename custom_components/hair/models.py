@@ -761,6 +761,7 @@ _KNOWN_ENTITY_CONFIG = frozenset({
     "platform", "command_mapping", "starred", "temperature_presets",
     "hvac_modes", "fan_modes", "swing_modes",
     "fan_speed_steps", "speed_cycle_includes_off", "speed_cycle_turn_on",
+    "wake_with_on",
 })
 
 # Fan speed cycle (GH Discussion #201): a fan whose one speed button
@@ -822,6 +823,11 @@ class EntityConfig:
     fan_speed_steps: int | None = None
     speed_cycle_includes_off: bool = False
     speed_cycle_turn_on: str = SPEED_CYCLE_TURN_ON_RESUME
+    # A matrix AC whose file has its own "on" code (GH #323): from off,
+    # a mode change sends that code first, then the state, the way the
+    # file's own home (SmartIR) does. On unless the user unticks it, so
+    # an existing device gets the fix; stored only when off.
+    wake_with_on: bool = True
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
@@ -846,6 +852,8 @@ class EntityConfig:
             out["speed_cycle_includes_off"] = True
         if self.speed_cycle_turn_on != SPEED_CYCLE_TURN_ON_RESUME:
             out["speed_cycle_turn_on"] = self.speed_cycle_turn_on
+        if not self.wake_with_on:
+            out["wake_with_on"] = False
         return _with_extra(out, self._extra)
 
     @classmethod
@@ -868,6 +876,7 @@ class EntityConfig:
             speed_cycle_turn_on=data.get("speed_cycle_turn_on")
             if data.get("speed_cycle_turn_on") in SPEED_CYCLE_TURN_ON_CHOICES
             else SPEED_CYCLE_TURN_ON_RESUME,
+            wake_with_on=data.get("wake_with_on") is not False,
         ), data, _KNOWN_ENTITY_CONFIG)
 
 

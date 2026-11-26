@@ -861,6 +861,9 @@ export interface EntityConfig {
     fan_speed_steps?: number | null;
     speed_cycle_includes_off?: boolean;
     speed_cycle_turn_on?: SpeedCycleTurnOn;
+    // GH #323: a matrix AC with its own "on" code sends it before a
+    // state from off. Absent means on; the backend writes it only off.
+    wake_with_on?: boolean;
 }
 
 /** Where a fan whose speed cycle has no off lands when turned on. */
