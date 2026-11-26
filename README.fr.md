@@ -4,9 +4,9 @@
 
 # HAIR
 
-**HAIR sort vos codes IR des clouds des fabricants, de la mémoire des blasters et des fichiers de configuration, pour les faire entrer dans Home Assistant.**
+**HAIR sort vos codes IR et RF des clouds des fabricants, de la mémoire des blasters et des fichiers de configuration, pour les faire entrer dans Home Assistant.**
 
-Pointez n'importe quelle télécommande vers un récepteur IR, appuyez sur un bouton, et HAIR transforme ce signal en quelque chose que Home Assistant sait vraiment utiliser : un bouton sur n'importe quel tableau de bord, un déclencheur pour vos automatisations, une commande à envoyer par n'importe quel blaster de la plateforme infrarouge native de HA. Pas de YAML, pas d'applications de fabricants, rien d'appris dans la boîte de quelqu'un d'autre.
+Pointez n'importe quelle télécommande vers un récepteur, appuyez sur un bouton, et HAIR transforme ce signal en quelque chose que Home Assistant sait vraiment utiliser : un bouton sur n'importe quel tableau de bord, un déclencheur pour vos automatisations, une commande à envoyer par n'importe quel émetteur des plateformes natives infrarouge et radiofréquence de HA. Pas de YAML, pas d'applications de fabricants, rien d'appris dans la boîte de quelqu'un d'autre.
 
 ## Installation
 

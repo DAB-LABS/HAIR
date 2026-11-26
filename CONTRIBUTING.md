@@ -125,7 +125,7 @@ Use the [GitHub issue tracker](https://github.com/DAB-LABS/HAIR/issues). Include
 
 ## Contributing ESPHome configs
 
-HAIR ships curated ESPHome IR configurations in [`esphome/`](esphome/). If you have a working IR setup on hardware not yet listed, we would love to include it. Copy the header template from `esphome/_template/header-template.yaml`, fill in every field, test against the listed HAIR/HA/ESPHome versions, and open a PR or post in the [HA Community forum thread](https://community.home-assistant.io/t/1010610). Full details in the [esphome/README.md](esphome/README.md).
+HAIR ships curated ESPHome IR and RF configurations in [`esphome/`](esphome/). If you have a working IR or RF setup on hardware not yet listed, we would love to include it. Copy the header template from `esphome/_template/header-template.yaml`, fill in every field, test against the listed HAIR/HA/ESPHome versions, and open a PR or post in the [HA Community forum thread](https://community.home-assistant.io/t/1010610). Full details in the [esphome/README.md](esphome/README.md).
 
 ## Adding a language
 
@@ -180,7 +180,7 @@ When to update `llms.txt`:
 - Any PR that modifies `README.md` and changes user-facing features, capabilities,
   supported hardware, configuration, or documentation structure
 - Any PR that adds a new feature, ships a roadmap item, or changes platform support
-- Any PR that adds new device types, supported IR protocols, or capture providers
+- Any PR that adds new device types, supported IR or RF protocols, or capture providers
 - Any PR that changes the Home Assistant version requirement
 
 Rules:

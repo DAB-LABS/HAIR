@@ -28,7 +28,7 @@ What actually happened.
 
 - **Home Assistant version:** 
 - **HAIR version:** 
-- **IR hardware:** (e.g., ESPHome with remote_receiver, Broadlink RM4)
+- **IR or RF hardware:** (e.g., ESPHome with remote_receiver, Broadlink RM4 Pro, ESP32 + CC1101)
 - **Browser:** (if UI-related)
 
 ## Logs

@@ -1,6 +1,6 @@
 # HAIR ESPHome Configurations
 
-Curated, HAIR-tested ESPHome configurations for common IR hardware. Each config carries a machine-readable header with device info, GPIO map, tested versions, and contributor attribution. Pick your device, copy the config, flash via the ESPHome Dashboard, and you are ready to use HAIR's Sniffer and Devices tabs.
+Curated, HAIR-tested ESPHome configurations for common IR and RF hardware. Each config carries a machine-readable header with device info, GPIO map, tested versions, and contributor attribution. Pick your device, copy the config, flash via the ESPHome Dashboard, and you are ready to use HAIR's Sniffer and Devices tabs.
 
 ## Available configs
 

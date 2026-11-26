@@ -11,9 +11,9 @@ written the way the panel shows them.
 
 ---
 
-## The kinds of IR hardware
+## The kinds of IR and RF hardware
 
-**Blaster.** *Half duplex.* A device that transmits infrared. Most blasters
+**Blaster.** *Half duplex.* A device that transmits infrared, radio frequency, or both. Most blasters
 can also learn a code when you ask them to, one at a time, and then they go
 back to transmitting. Learning is a mode they enter, not something they are
 always doing. Examples: Broadlink RM series, Tuya and Zigbee IR pucks, an
@@ -88,7 +88,7 @@ automations.
 your receiver, press a button, and it appears here. Signals are grouped by
 which remote they seem to have come from.
 
-**Clipper.** Build a remote by pasting codes one at a time, infrared or radio,
+**Clipper.** Build a remote by pasting codes one at a time, IR or RF,
 through one Add Signal window, for when you have codes but no way to capture
 them live. Also where a remote built from your installed code library lands.
 
@@ -112,7 +112,7 @@ brand.
 ready and green means it is listening; a click starts or stops it. The chip
 drains over the window and glows each time a code is heard.
 
-**Mirror.** A log of every infrared and radio command Home Assistant sends,
+**Mirror.** A log of every IR and RF command Home Assistant sends,
 whether anything heard it or not. Useful for working out whether a send
 actually went out and through which emitter or transmitter. It is also a way
 to get codes into HAIR: press a button in a vendor app, and if a receiver
@@ -120,7 +120,7 @@ hears it, the code lands here.
 
 **Candy Drawer.** The button at the top right of the Mirror. It opens a black
 window of its own (a dialog over the panel where a separate window cannot
-open) that prints every infrared and radio frame your receivers hear and every
+open) that prints every IR and RF frame your receivers hear and every
 send HAIR makes, as it happens. Five presses are five blocks. Each block shows
 the decode or band, the code and the raw timings, and says whether HAIR
 already knows the code (`known`, with what holds it) or not (`new`). HAIR's
@@ -136,7 +136,7 @@ the handsets HAIR recognizes, with HAIR Triggers as the first card.
 
 ## Objects
 
-**Signal.** One captured or pasted infrared code, before it belongs to
+**Signal.** One captured or pasted IR or RF code, before it belongs to
 anything. Signals live in the catalog tabs.
 
 **Command.** A signal that belongs to a Device and has a name. Commands are
@@ -344,7 +344,7 @@ and press **+ Trigger** if you want a trigger for exactly that state instead.
 
 ## Triggers
 
-**Trigger.** Turning an infrared signal into something Home Assistant can
+**Trigger.** Turning an IR or RF signal into something Home Assistant can
 automate on. When a receiver hears the signal, an event entity fires, and your
 automation runs. This is how a physical remote button drives your smart home.
 Every trigger belongs to a Remote, HAIR Triggers by default.

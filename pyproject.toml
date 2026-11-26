@@ -1,7 +1,8 @@
 [project]
 name = "hair"
 version = "0.9.6"
-description = "HAIR - Home Assistant IR Device Manager"
+description = "HAIR: IR and RF device management for Home Assistant"
+keywords = ["home-assistant", "infrared", "ir", "radio-frequency", "rf", "433mhz", "hacs"]
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
@@ -9,7 +10,7 @@ authors = [
     { name = "David Bailey", email = "david.a.bailey@gmail.com" },
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: End Users/Desktop",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
