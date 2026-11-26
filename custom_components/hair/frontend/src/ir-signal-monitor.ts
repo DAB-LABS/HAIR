@@ -51,9 +51,9 @@ import {
     SNIFFER_SHOW_DEFAULT,
     carrierParts,
     snifferShows,
-    snifferShowsEverything,
     type SnifferShow,
 } from "./sniffer-filter.js";
+import { movedWithin, reorderInSlots } from "./reorder-slots.js";
 import { arrivalBloomKey, bandNumber, captureSignature, lastHeardTarget } from "./ir-listen-state.js";
 import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
@@ -413,9 +413,8 @@ export class IrSignalMonitor extends LitElement {
      *  an expand change rebinds cleanly. */
     private _syncSortables(): void {
         const remotes = this.renderRoot.querySelector(".device-list") as HTMLElement | null;
-        // Reordering moves remotes in the whole list, so it runs only
-        // while every remote is shown.
-        this._remotesSortable?.option("disabled", !snifferShowsEverything(this._show));
+        // Reordering works under any filter: the remotes showing move
+        // among their own slots (reorder-slots.ts).
         if (remotes && !this._remotesSortable) {
             this._attachRemotesSortable(remotes);
         } else if (!remotes && this._remotesSortable) {
@@ -438,17 +437,16 @@ export class IrSignalMonitor extends LitElement {
     private _attachRemotesSortable(container: HTMLElement): void {
         this._remotesSortable = Sortable.create(container, {
             handle: ".remote-handle",
-            disabled: !snifferShowsEverything(this._show),
             animation: 150,
             ghostClass: "sortable-ghost",
             onEnd: (e) => {
-                const { oldIndex, newIndex } = e;
-                if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) {
-                    return;
-                }
-                const devices = [...this._devices];
-                const [moved] = devices.splice(oldIndex, 1);
-                devices.splice(newIndex, 0, moved);
+                // The indexes are among the remotes showing. A glyph or
+                // the eye may hide some: those keep their slots, and the
+                // ones showing move among the slots they hold.
+                const shown = movedWithin(this._visibleDevices(), e.oldIndex, e.newIndex);
+                if (!shown) return;
+                const devices = reorderInSlots(this._devices, shown, (d) => d.id);
+                if (!devices) return;
                 this._devices = devices;
                 this._remotesSortable?.destroy();
                 this._remotesSortable = null;

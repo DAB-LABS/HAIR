@@ -58,12 +58,6 @@ export function hiddenMedium(
     return show[m] ? null : m;
 }
 
-/** Whether every card shows, which is when the device grid can be
- *  reordered. */
-export function mediaShowsEverything(show: MediaShow): boolean {
-    return show.ir && show.rf;
-}
-
 /** A stored choice, read back defensively: anything unreadable is the
  *  default. */
 export function parseMediaShow(raw: string | null | undefined): MediaShow {

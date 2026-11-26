@@ -25,6 +25,7 @@ import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
+import { reorderInSlots } from "./reorder-slots.js";
 import Sortable from "sortablejs";
 import "./ir-device-detail.js";
 import "./ir-trigger-dialog.js";
@@ -64,7 +65,6 @@ import {
     loadMediaShow,
     hiddenMedium,
     mediaShows,
-    mediaShowsEverything,
     saveMediaShow,
     type HomeSection,
     type MediaShow,
@@ -512,10 +512,6 @@ export class IrDeviceList extends LitElement {
         this._syncDevicesSortable();
         this._syncRemotesSortable();
         this._syncTriggerSortable();
-        if (changed.has("_mediaShow")) {
-            this._devicesSortable?.option("disabled", !mediaShowsEverything(this._mediaShow.devices));
-            this._remotesSortable?.option("disabled", !mediaShowsEverything(this._mediaShow.remotes));
-        }
     }
 
     /** Attach / detach the device-grid SortableJS instance. */
@@ -531,9 +527,9 @@ export class IrDeviceList extends LitElement {
 
     private _attachDevicesSortable(grid: HTMLElement): void {
         this._devicesSortable = Sortable.create(grid, {
-            // A filtered grid is not the whole order; dragging waits
-            // until both glyphs are lit again (item 14).
-            disabled: !mediaShowsEverything(this._mediaShow.devices),
+            // Drags under a filter too: the cards showing move among the
+            // slots they hold, and a hidden card keeps its own
+            // (reorder-slots.ts). The door still gets every device.
             // Whole card drags (no grip). ``delay`` keeps a quick click as
             // expand/collapse and a press-and-hold as a drag. The corner
             // duplicate/delete buttons are excluded as drag origins.
@@ -554,10 +550,12 @@ export class IrDeviceList extends LitElement {
                     .filter((id): id is string => !!id);
                 const base = this._localDevices ?? this.devices;
                 const byId = new Map(base.map((d) => [d.id, d]));
-                const reordered = ids
+                const shown = ids
                     .map((id) => byId.get(id))
                     .filter((d): d is DeviceSummary => !!d);
-                if (reordered.length !== base.length) return;
+                if (shown.length !== ids.length) return;
+                const reordered = reorderInSlots(base, shown, (d) => d.id);
+                if (!reordered) return;
                 this._localDevices = reordered;
                 this._devicesSortable?.destroy();
                 this._devicesSortable = null;
@@ -605,9 +603,8 @@ export class IrDeviceList extends LitElement {
 
     private _attachRemotesSortable(grid: HTMLElement): void {
         this._remotesSortable = Sortable.create(grid, {
-            // As the device grid: a filtered section is not the whole
-            // order, so dragging waits until both glyphs are lit.
-            disabled: !mediaShowsEverything(this._mediaShow.remotes),
+            // As the device grid: under a filter the Remotes showing move
+            // among their own slots, and the door gets every Remote.
             // Only a Remote card drags; the drawer card and the "+" tile
             // match neither ``draggable`` nor ``onMove`` below, so the
             // drawer stays first and the tile last.
@@ -628,10 +625,12 @@ export class IrDeviceList extends LitElement {
                     .filter((id): id is string => !!id);
                 const base = this._localRemotes ?? this.triggerRemotes;
                 const byId = new Map(base.map((r) => [r.id, r]));
-                const reordered = ids
+                const shown = ids
                     .map((id) => byId.get(id))
                     .filter((r): r is TriggerRemoteInfo => !!r);
-                if (reordered.length !== base.length) return;
+                if (shown.length !== ids.length) return;
+                const reordered = reorderInSlots(base, shown, (r) => r.id);
+                if (!reordered) return;
                 this._localRemotes = reordered;
                 this._remotesSortable?.destroy();
                 this._remotesSortable = null;

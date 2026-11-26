@@ -37,7 +37,7 @@ TOOLCHAIN_MISSING = not TSC.exists() or shutil.which("node") is None
 DRIVER = r"""
 import {
     MEDIA_SHOW_DEFAULT, mediaShowKey, loadMediaShow, mediaShows,
-    mediaShowsEverything, parseMediaShow, saveMediaShow,
+    parseMediaShow, saveMediaShow,
 } from "./media-filter.js";
 import { pillShown } from "./ir-listen-state.js";
 
@@ -82,7 +82,6 @@ console.log(JSON.stringify({
     snifferLeavesHome: loadMediaShow(sniff, "devices"),
     homeLeavesSniffer: loadMediaShow(mem, "sniffer"),
     both: shows(both), irOnly: shows(irOnly), rfOnly: shows(rfOnly), none: shows(none),
-    everything: [mediaShowsEverything(both), mediaShowsEverything(irOnly)],
     stored: mem.getItem(mediaShowKey("devices")),
     loaded: loadMediaShow(mem, "devices"),
     otherSection: loadMediaShow(mem, "remotes"),
@@ -140,9 +139,6 @@ class TestTheHomepageRule:
 
     def test_a_card_with_no_medium_hides_only_when_both_are_off(self, run):
         assert run["none"] == dict.fromkeys(("ir", "rf", "mixed", "empty", "missing"), False)
-
-    def test_reordering_needs_every_card(self, run):
-        assert run["everything"] == [True, False]
 
 
 class TestRememberedInThisBrowser:
@@ -222,8 +218,10 @@ class TestTheWiring:
             ".filter((r) => mediaShows(this._mediaShow.remotes, r.media))"
         )
         assert remotes in flat
-        assert "disabled: !mediaShowsEverything(this._mediaShow.devices)," in flat
-        assert "disabled: !mediaShowsEverything(this._mediaShow.remotes)," in flat
+        # Both grids drag under a filter (reorder-slots.ts); nothing
+        # switches a grid's drag off.
+        assert "mediaShowsEverything" not in flat
+        assert 'option("disabled"' not in flat
         assert "saveMediaShow(" in flat and "loadMediaShow(" in flat
 
     def test_no_hidden_glyph_on_the_homepage(self):
