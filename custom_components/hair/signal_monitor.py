@@ -104,8 +104,12 @@ from .models import (
     upgrade_rf_fields,
 )
 from .press_cues import PressCue, PressCueTracker
-from .pronto_validator import validate_pronto
-from .protocol_decode import carrier_allows_rebuild, try_decode_identity
+from .pronto_validator import normalized_pronto, validate_pronto
+from .protocol_decode import (
+    carrier_allows_rebuild,
+    rebuild_reproduces,
+    try_decode_identity,
+)
 from .signal_store import SignalStore
 from .storage import HAIRStore
 
@@ -4014,6 +4018,11 @@ class SignalMonitor:
                 signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
             if tx_force_raw is not None:
                 signal.tx_force_raw = bool(tx_force_raw)
+            # A paste the rebuild would not reproduce is sent as written
+            # (GH #325), whatever the editor's toggle said on create; the
+            # user can still turn it off on the saved row.
+            if not rebuild_reproduces(identity, frequency):
+                signal.tx_force_raw = True
             # The door has already validated this against the bounds, the
             # air-time cap and the install's emitters, and hands over None
             # for anything that should stay an old row (GH #151).
@@ -4431,6 +4440,9 @@ class SignalMonitor:
             # precisely (v0.5.8 unified identity).
             old_byte_hash = signal.byte_hash
             old_decoded_fingerprint = signal.decoded_fingerprint
+            # The editor sends the code with every save, so only a code
+            # that changed is judged; an untouched one keeps its flag.
+            code_changed = normalized_pronto(signal.code) != code
             frequency = (
                 round(result.frequency_khz * 1000)
                 if result.frequency_khz
@@ -4460,6 +4472,10 @@ class SignalMonitor:
             signal.decode_covers = (
                 identity.covers_capture if identity else None
             )
+            # An edit the rebuild would not reproduce is sent as written
+            # (GH #325). Set, never cleared: the toggle stays the user's.
+            if code_changed and not rebuild_reproduces(identity, frequency):
+                signal.tx_force_raw = True
             if alias is not None:
                 signal.alias = alias.strip()
             if repeat_count is not None:

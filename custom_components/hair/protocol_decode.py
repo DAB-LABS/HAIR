@@ -1289,21 +1289,31 @@ def build_protocol_command(
 # at 36kHz carries 36,032Hz.
 _REBUILD_CARRIER_SLACK_HZ = 1000
 
+# Rebuild carriers for specs whose class HAIR does not own. NEC is
+# adopted from the library, so its carrier cannot be a class attribute
+# and is keyed by spec here instead. Pioneer shares NEC's frame at
+# 40kHz and decodes as NEC, so without this an NEC-shaped row stored at
+# 40kHz was rebuilt and sent at 38kHz with NEC repeats (GH #325).
+_REBUILD_CARRIER_BY_SPEC: dict[str, int] = {"nec": 38_000}
+
 
 def carrier_allows_rebuild(protocol: str | None, frequency: Any) -> bool:
     """May a row decoded as ``protocol`` be rebuilt at its stored carrier?
 
-    Detected, never listed: a class that declares ``REBUILD_CARRIER_HZ``
-    rebuilds only a row whose stored carrier is within the slack of it,
-    and every other row is replayed as captured. A class that declares
-    nothing, which is every protocol but TDC-38 today, is unaffected, and
-    so is a row with no stored carrier. Zero is a carrier ("none") and is
-    far from any declared one, so an unmodulated row is replayed.
+    A spec with a rebuild carrier rebuilds only a row whose stored
+    carrier is within the slack of it, and every other row is replayed
+    as captured. The carrier comes from ``REBUILD_CARRIER_HZ`` on the
+    class (TDC-38) or from ``_REBUILD_CARRIER_BY_SPEC`` (NEC). A spec
+    with neither is unaffected, and so is a row with no stored carrier.
+    Zero is a carrier ("none") and is far from any declared one, so an
+    unmodulated row is replayed.
     """
     spec = get_spec(protocol)
     if spec is None:
         return True
-    nominal = getattr(spec.command_cls, "REBUILD_CARRIER_HZ", None)
+    nominal = getattr(
+        spec.command_cls, "REBUILD_CARRIER_HZ", None
+    ) or _REBUILD_CARRIER_BY_SPEC.get(spec.key)
     if not nominal or frequency is None:
         return True
     try:
@@ -1311,3 +1321,46 @@ def carrier_allows_rebuild(protocol: str | None, frequency: Any) -> bool:
     except (TypeError, ValueError):
         return True
     return abs(carrier - int(nominal)) <= _REBUILD_CARRIER_SLACK_HZ
+
+
+def rebuild_reproduces(identity: DecodedIdentity | None, frequency: Any) -> bool:
+    """Would rebuilding this decode send the code the user supplied?
+
+    The save-door check for a typed or pasted code (GH #325). An import
+    already asks this through ``wig_adapters._triple_reproduces``; a
+    paste or an edit asked nothing, so a code the rebuild could not
+    reproduce was saved as rebuildable and sent as something else. A
+    False answer makes the door save the row with ``tx_force_raw`` set,
+    so it is replayed as written.
+
+    Two questions, both structural. Is the stored carrier one the
+    protocol is rebuilt at? And does the rebuilt frame decode back to
+    the same identity? The second is not a Pronto string compare: a
+    rebuild ends in its own trailing gap and canonical timings, so an
+    exact compare fails every honest paste. It is also not decode trust
+    (``decode_covers`` asks whether the decode explains the capture);
+    it asks whether the rebuild says what the decode said.
+
+    True when there is nothing to judge: no identity, or a protocol the
+    rebuild tier does not build, which the send path replays anyway.
+    """
+    if identity is None:
+        return True
+    if not carrier_allows_rebuild(identity.protocol, frequency):
+        return False
+    try:
+        rebuilt = build_protocol_command(
+            identity.protocol,
+            identity.address,
+            identity.command,
+            extras=identity.extras or None,
+        )
+    except Exception:  # a builder fault is not a verdict
+        return True
+    if rebuilt is None:
+        return True
+    try:
+        again = try_decode_identity(list(rebuilt.get_raw_timings()))
+    except Exception:  # the rebuild did not decode
+        return False
+    return again is not None and again.fingerprint == identity.fingerprint
