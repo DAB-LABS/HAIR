@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "HAIRのセットアップ",
-                "description": "HAIRはIRデバイスを1つのパネルから管理します。\n\n検出されたハードウェア：\n\n{hardware_summary}",
+                "description": "HAIRはIRとRFのデバイスを1つのパネルから管理します。\n\n検出されたハードウェア：\n\n{hardware_summary}",
                 "data": {}
             }
         },

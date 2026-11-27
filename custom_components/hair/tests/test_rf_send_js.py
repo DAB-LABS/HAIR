@@ -243,7 +243,7 @@ class TestTheMirrorForRadio:
         assert len(locales) == 12
         en = locales["en"]
         assert en["panel.tagline.mirror"] == (
-            "See your live Home Assistant infrared and radio transmissions"
+            "See your live Home Assistant infrared and radio frequency transmissions"
         )
         assert "infrared or radio frequency platforms" in en["mirror.empty_sub"]
         for lang, d in locales.items():
