@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Configurar HAIR",
-        "description": "HAIR permite gestionar tus dispositivos de infrarrojos desde un único panel.\n\nHardware detectado:\n\n{hardware_summary}",
+        "description": "HAIR permite gestionar tus dispositivos de infrarrojos y radiofrecuencia desde un único panel.\n\nHardware detectado:\n\n{hardware_summary}",
         "data": {}
       }
     },

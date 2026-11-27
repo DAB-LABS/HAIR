@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "Konfiguracja HAIR",
-                "description": "HAIR zarządza urządzeniami IR z jednego panelu.\n\nWykryty sprzęt:\n\n{hardware_summary}",
+                "description": "HAIR zarządza urządzeniami IR i RF z jednego panelu.\n\nWykryty sprzęt:\n\n{hardware_summary}",
                 "data": {}
             }
         },

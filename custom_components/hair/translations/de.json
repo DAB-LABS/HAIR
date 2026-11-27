@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "HAIR einrichten",
-                "description": "HAIR verwaltet deine IR-Geräte über ein einziges Panel.\n\nErkannte Hardware:\n\n{hardware_summary}",
+                "description": "HAIR verwaltet deine IR- und RF-Geräte über ein einziges Panel.\n\nErkannte Hardware:\n\n{hardware_summary}",
                 "data": {}
             }
         },

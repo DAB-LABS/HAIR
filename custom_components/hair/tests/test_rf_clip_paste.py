@@ -195,7 +195,7 @@ class TestThePanel:
             "panel.tagline.clips",
         )
         en = json.loads((SRC / "locales" / "en.json").read_text(encoding="utf-8"))
-        assert en["panel.tagline.clips"] == "Build remotes by pasting known IR and radio codes"
+        assert en["panel.tagline.clips"] == "Build remotes by pasting known IR and RF codes"
         for path in (SRC / "locales").glob("*.json"):
             words = json.loads(path.read_text(encoding="utf-8"))
             for key in keys:

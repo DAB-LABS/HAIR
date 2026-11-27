@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "设置 HAIR",
-                "description": "HAIR 用一个面板管理你的全部红外设备。\n\n检测到的硬件：\n\n{hardware_summary}",
+                "description": "HAIR 用一个面板管理你的全部红外和射频设备。\n\n检测到的硬件：\n\n{hardware_summary}",
                 "data": {}
             }
         },

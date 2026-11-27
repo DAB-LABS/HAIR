@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "設定 HAIR",
-                "description": "HAIR 讓您在單一面板中管理所有紅外線裝置。\n\n偵測到的硬體：\n\n{hardware_summary}",
+                "description": "HAIR 讓您在單一面板中管理所有紅外線與射頻裝置。\n\n偵測到的硬體：\n\n{hardware_summary}",
                 "data": {}
             }
         },

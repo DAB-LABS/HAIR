@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "Configurar o HAIR",
-                "description": "O HAIR gerencia seus dispositivos IR a partir de um único painel.\n\nHardware detectado:\n\n{hardware_summary}",
+                "description": "O HAIR gerencia seus dispositivos IR e RF a partir de um único painel.\n\nHardware detectado:\n\n{hardware_summary}",
                 "data": {}
             }
         },

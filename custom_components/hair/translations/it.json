@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "Configura HAIR",
-                "description": "HAIR gestisce i tuoi dispositivi IR da un unico pannello.\n\nHardware rilevato:\n\n{hardware_summary}",
+                "description": "HAIR gestisce i tuoi dispositivi IR e RF da un unico pannello.\n\nHardware rilevato:\n\n{hardware_summary}",
                 "data": {}
             }
         },

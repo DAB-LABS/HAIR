@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "HAIR instellen",
-                "description": "HAIR beheert je IR-apparaten vanuit één paneel.\n\nGedetecteerde hardware:\n\n{hardware_summary}",
+                "description": "HAIR beheert je IR- en RF-apparaten vanuit één paneel.\n\nGedetecteerde hardware:\n\n{hardware_summary}",
                 "data": {}
             }
         },
