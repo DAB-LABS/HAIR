@@ -398,5 +398,6 @@ def test_the_capture_path_stamps_each_bodied_capture_once():
     source = inspect.getsource(SignalMonitor)
     at = source.index("signal = stamp(self._hass, receiver_entity_id, signal)")
     assert source.index("bodied = bodied_pieces(split_frames(timings))") < at
-    assert at < source.index("analysis = vote(bodied)", at)
+    # The vote (a whole Security+ press pairs its halves first).
+    assert at < source.index("or vote(bodied)", at)
     assert source.count("stamp(self._hass") == 1

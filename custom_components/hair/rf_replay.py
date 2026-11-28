@@ -15,6 +15,8 @@ and fire its triggers. This check drops the simplest replay:
   moves the memory on: a recording of an earlier press is always behind
   the newest one seen, so this never lets a replay through, and a remote
   can't get stuck.
+- **Security+ 1.0:** the same rule as Somfy, per remote, on its 32-bit
+  rolling code.
 
 It runs once per press (a voted burst), never per frame: a press repeats
 its own word, and the repeats must not refuse the press.
@@ -36,6 +38,10 @@ KEELOQ_RECENT = 8
 # The Somfy counter's size, and how far ahead still counts as ahead.
 _SOMFY_MODULO = 1 << 16
 _SOMFY_AHEAD_MAX = _SOMFY_MODULO // 2 - 1
+# Security+ 1.0's rolling code is 32 bits, kept per remote (or per fixed
+# code where the remote isn't known), with the same rule as Somfy's:
+# anything ahead, up to half its range.
+_SECPLUS_MODULO = 1 << 32
 # How many remotes the memory keeps before it forgets the oldest.
 MAX_REMOTES = 512
 # The same rolling part again within this many seconds of when it was
@@ -66,6 +72,10 @@ class RollingReplay:
         self._somfy: collections.OrderedDict[str, tuple[int, float]] = (
             collections.OrderedDict()
         )
+        # Per Security+ 1.0 remote or fixed code: the last rolling code, and when.
+        self._secplus: collections.OrderedDict[str, tuple[int, float]] = (
+            collections.OrderedDict()
+        )
 
     def check(self, identity: Any, now: float) -> str:
         """``NEW``, ``HELD`` or ``REPLAY`` for one press, recording it.
@@ -85,7 +95,13 @@ class RollingReplay:
         if identity.family == "keeloq":
             return self._check_keeloq((identity.remote, identity.button), rolling, now)
         if identity.family == "somfy_rts":
-            return self._check_somfy(identity.remote, rolling, now)
+            return self._check_counter(
+                self._somfy, identity.remote, rolling, now, _SOMFY_MODULO
+            )
+        if identity.family == "secplus_v1":
+            return self._check_counter(
+                self._secplus, identity.remote, rolling, now, _SECPLUS_MODULO
+            )
         return NEW
 
     def _check_keeloq(self, key: tuple[str, str], rolling: int, now: float) -> str:
@@ -106,19 +122,29 @@ class RollingReplay:
         self._trim(self._keeloq)
         return NEW
 
-    def _check_somfy(self, remote: str, counter: int, now: float) -> str:
-        entry = self._somfy.get(remote)
+    def _check_counter(
+        self,
+        memory: collections.OrderedDict[str, tuple[int, float]],
+        remote: str,
+        counter: int,
+        now: float,
+        modulo: int,
+    ) -> str:
+        """A counter that only goes up (Somfy, Security+): equal within
+        ``HELD_S`` is held, behind or equal is a replay, and anything
+        ahead up to half the range is a new press."""
+        entry = memory.get(remote)
         if entry is not None:
             last, heard_at = entry
             if counter == last and now - heard_at < HELD_S:
-                self._somfy[remote] = (last, now)
+                memory[remote] = (last, now)
                 return HELD
-            ahead = (counter - last) % _SOMFY_MODULO
-            if not 1 <= ahead <= _SOMFY_AHEAD_MAX:
+            ahead = (counter - last) % modulo
+            if not 1 <= ahead <= modulo // 2 - 1:
                 return REPLAY
-        self._somfy[remote] = (counter, now)
-        self._somfy.move_to_end(remote)
-        self._trim(self._somfy)
+        memory[remote] = (counter, now)
+        memory.move_to_end(remote)
+        self._trim(memory)
         return NEW
 
     @staticmethod

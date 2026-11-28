@@ -72,7 +72,7 @@ A radio row sends the way an infrared one does: assign it to a device and press 
 - **A refused Test** says so at the bottom of the panel, naming the transmitter and the band, and the row keeps its Test button.
 - **How many times a press is sent.** A remote repeats its code several times for each press, and a receiver often needs more than one of them. A new radio command starts from the number of repeats HAIR heard in one press, from 2 to 10, or 4 when the press was not measured. Send times in the code's editor changes it.
 - **The Mirror** shows each radio send with the band it went out on.
-- **Rolling codes are never sent.** HAIR keeps a KeeLoq or Somfy RTS code, and it can be a trigger, but a saved rolling code won't work a second time, so HAIR never sends one.
+- **Rolling codes are never sent.** HAIR keeps a KeeLoq, Somfy RTS or Security+ code, and it can be a trigger, but a saved rolling code won't work a second time, so HAIR never sends one.
 
 A send is bounded: HAIR never holds the air for more than 3 seconds, and never repeats a send on its own. Transmit power and the band rules where you live are the hardware's and yours.
 
@@ -97,9 +97,10 @@ The Candy Drawer, at the top right of the Mirror, shows radio as well as infrare
 ## What to expect
 
 - **Fixed-code remotes** work best: one button sends the same code every time. Most plugs, fans, doorbells and cheap keyfobs are fixed-code, as are garage-door openers from before the mid-1990s.
-- **Rolling-code remotes**, such as most car keys, modern garage doors and gates, and Somfy blinds, send a different code each press, by design. A saved one won't work a second time, so HAIR keeps these codes but never sends them. For KeeLoq and Somfy RTS remotes, HAIR files each press by the remote and the button, so a button's presses land on one row and can be a trigger. Other rolling-code remotes still get a new row for each press.
+- **Rolling-code remotes**, such as most car keys, modern garage doors and gates, and Somfy blinds, send a different code each press, by design. A saved one won't work a second time, so HAIR keeps these codes but never sends them. For KeeLoq and Somfy RTS remotes, HAIR files each press by the remote and the button, and for Security+ by the button's fixed code, so a button's presses land on one row and can be a trigger. A Security+ remote whose code layout HAIR knows gets one card with a row per button; any other Security+ button gets a card of its own, since HAIR can't tell which of those share a remote. Other rolling-code remotes still get a new row for each press.
   - Don't use a rolling-code trigger to unlock or open anything. HAIR can't check the code's encryption, and it only ignores a recording of a press it already heard.
   - A Somfy remote with several channels shows one card per channel.
+  - Security+ is the first version of Chamberlain's garage remote code, used by Chamberlain, LiftMaster and Craftsman openers with a red, orange, purple, brown or blue learn button (about 1997 to 2014). Red and orange are 390 MHz, which the RM4 Pro can't hear; a CC1101 tuned to 390 can. Purple and brown are 315 MHz, and blue is 433 MHz. A round yellow learn button is Security+ 2.0, which HAIR doesn't read yet.
   - Rolling-code rows captured by an earlier version of HAIR stay as they were; press the button again.
 - **Some remotes appear as several cards.** A remote whose code length changes with the button pressed can spread over several cards in the Sniffer.
 - **Remotes whose marks are all one length**, such as self-learning Nexa and KAKU (KlikAanKlikUit), are filed like any other radio code. For now they all share one card in the Sniffer, with a row for each button. A few with unusual timing are still not filed.

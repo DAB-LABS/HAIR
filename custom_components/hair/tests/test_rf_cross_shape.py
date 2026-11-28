@@ -22,6 +22,7 @@ from custom_components.hair.rf_family import (
     rolling_family,
     rolling_identity,
 )
+from custom_components.hair.rf_secplus import word_frame
 from custom_components.hair.tests.test_rf_family import _frame as _pt_frame
 from custom_components.hair.tests.test_rf_family_dooya import _word as _dooya_word
 from custom_components.hair.tests.test_rf_family_keeloq import _bits as _kl_bits
@@ -30,6 +31,14 @@ from custom_components.hair.tests.test_rf_family_nexa_sl import _frame as _nexa_
 from custom_components.hair.tests.test_rf_family_somfy import _frame as _somfy_frame
 from custom_components.hair.tests.test_rf_family_space_first import _sf_frame
 from custom_components.hair.tests.test_rf_hear import RECEIVER
+from custom_components.hair.tests.test_rf_secplus import _encode
+from custom_components.hair.tests.test_rf_secplus import _frame as _half
+
+
+def _secplus_word(seed):
+    one, two = _encode(876029924 + seed, 2731817112 + 2 * seed)
+    return word_frame(_half(one, 0), _half(two, 2), 58_000)
+
 
 FRAME = (400, -400, 1200, -400, 400, -1200, 400, -12000)
 OTHER = (900, -900, 900, -900, 900, -18000)
@@ -118,6 +127,7 @@ class TestRealFamiliesFitOneShape:
             "somfy": _somfy_frame(spread=0.1, seed=seed),
             "dooya": _dooya_word(spread=0.1, seed=seed),
             "nexa sl": _nexa_frame(spread=0.1, seed=seed),
+            "security+": _secplus_word(seed),
         }
         for name, frame in frames.items():
             assert len(rf_family._fitting_reads(tuple(frame))) == 1, name
