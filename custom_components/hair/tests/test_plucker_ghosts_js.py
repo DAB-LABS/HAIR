@@ -153,6 +153,10 @@ const imp = (over) => ({
 out.landing = [
     landingSentence(imp({ washed: 2, rf_receipted: 1 }), t, tp),
     landingSentence(imp({ already_present: 4 }), t, tp),
+    landingSentence(
+        imp({ signals: 6, rf_imported: 2, rf_rolling: 1, washed: 3, rf_receipted: 1 }),
+        t, tp,
+    ),
 ];
 
 process.stdout.write(JSON.stringify(out));
@@ -260,6 +264,22 @@ class TestLanding:
         assert "pluckstore.landing.rf#1" in line
         assert "kept_raw" not in line
         assert "no_timings" not in line
+
+    def test_radio_reads_right_after_the_head(self, run):
+        """Radio is part of the signal count, so its clauses come first
+        ("2 of them radio"), and radio that didn't read comes last."""
+        parts = run["landing"][2].split(" ")
+        assert parts[1:] == [
+            "pluckstore.landing.rf_imported#2",
+            "pluckstore.landing.rf_rolling#1",
+            "pluckstore.landing.washed#3",
+            "pluckstore.landing.rf#1",
+        ]
+
+    def test_an_older_server_without_radio_counts_says_nothing_of_them(self, run):
+        line = run["landing"][0]
+        assert "rf_imported" not in line
+        assert "rf_rolling" not in line
 
     def test_all_already_present_says_only_that(self, run):
         line = run["landing"][1]

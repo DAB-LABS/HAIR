@@ -158,17 +158,44 @@ class TestRemotesOnTheList:
             "IR Remote Garage: candles"
         ]
 
-    async def test_an_empty_and_a_radio_only_sub_device_cannot_be_plucked(
+    async def test_an_empty_sub_device_cannot_be_plucked(
         self, fake_hass, stores_dir
     ):
         _wire(fake_hass, stores_dir)
         broadlink = _store(await _list(fake_hass), BROADLINK_ID)
-        gate = _remote(broadlink, "gate")
-        assert (gate["pluckable"], gate["reason"]) == (False, "radio_only")
         spare = _remote(broadlink, "spare")
         assert (spare["pluckable"], spare["reason"]) == (False, "empty")
         tv = _remote(broadlink, "tv")
         assert (tv["pluckable"], tv["reason"]) == (True, None)
+
+    async def test_broadlink_radio_alone_can_be_plucked(
+        self, fake_hass, stores_dir
+    ):
+        """The import places Broadlink radio as radio rows, so a
+        sub-device of only radio is a ghost like any other."""
+        _wire(fake_hass, stores_dir)
+        gate = _remote(_store(await _list(fake_hass), BROADLINK_ID), "gate")
+        assert (gate["ir_codes"], gate["rf_codes"]) == (0, 1)
+        assert (gate["pluckable"], gate["reason"]) == (True, None)
+
+    async def test_radio_the_import_sets_aside_is_radio_only(
+        self, fake_hass, tmp_path
+    ):
+        """Tuya Local's "rf:" study strings are counted as radio but not
+        read, so a sub-device of only those still can't be plucked."""
+        _write_store(tmp_path, TUYA_STORE, {
+            "fan": {"on": "rf:" + _tuya_code([400, 800] * 30)},
+            "mixed": {
+                "on": "rf:" + _tuya_code([400, 800] * 30),
+                "off": _tuya_code([806, 806, 806, 1600, 806, 806, 806, _TUYA_TAIL]),
+            },
+        })
+        _wire(fake_hass, tmp_path)
+        tuya = _store(await _list(fake_hass), TUYA_ID)
+        fan = _remote(tuya, "fan")
+        assert (fan["pluckable"], fan["reason"]) == (False, "radio_only")
+        mixed = _remote(tuya, "mixed")
+        assert (mixed["pluckable"], mixed["reason"]) == (True, None)
 
     async def test_an_rm4_pro_store_is_radio_by_its_header(
         self, fake_hass, stores_dir
@@ -179,14 +206,18 @@ class TestRemotesOnTheList:
         _wire(fake_hass, stores_dir)
         garage = _remote(_store(await _list(fake_hass), BROADLINK_ID), "garage")
         assert (garage["codes"], garage["ir_codes"], garage["rf_codes"]) == (2, 0, 2)
-        assert (garage["pluckable"], garage["reason"]) == (False, "radio_only")
+        assert (garage["pluckable"], garage["reason"]) == (True, None)
 
     async def test_a_short_or_wrong_header_is_not_counted_as_radio(
         self, fake_hass, tmp_path
     ):
-        good = base64.b64decode(_rm4_capture(0xB1, 433920))
-        too_long = bytearray(good)
-        too_long[2:4] = (len(good)).to_bytes(2, "little")  # does not fit
+        """The one rule (``rf_paste.is_rm4_header``), the same as the
+        paste reader's. A length field that runs past the packet is still
+        a capture there, so a cut copy keeps its carrier; one too short
+        to cover the carrier field is not."""
+        good = base64.b64decode(_rm4_capture(0x78, 315000))
+        too_short = bytearray(good)
+        too_short[2:4] = (2).to_bytes(2, "little")
         no_mark = bytearray(good)
         no_mark[1] = 0x00
         off_band = bytearray(good)
@@ -197,7 +228,7 @@ class TestRemotesOnTheList:
             {
                 "odd": {
                     f"c{i}": base64.b64encode(bytes(p)).decode("ascii")
-                    for i, p in enumerate((too_long, no_mark, off_band))
+                    for i, p in enumerate((too_short, no_mark, off_band))
                 }
             },
         )
@@ -308,8 +339,10 @@ class TestPluckedOrGhost:
         plucked = {
             r["subdevice"] for r in broadlink["remotes"] if r["device_id"]
         }
-        # The radio-only and empty sub-devices never became remotes.
-        assert plucked == {"tv", "soundbar"}
+        # The garage's radio codes read, so it is a remote too. The gate's
+        # one radio code doesn't read and the spare is empty, so neither
+        # became a remote.
+        assert plucked == {"tv", "soundbar", "garage"}
 
 
 class TestImportOneSubDevice:
@@ -367,10 +400,11 @@ class TestImportOneSubDevice:
     ):
         store = _wire(fake_hass, stores_dir)
         summary = _result(await _import(fake_hass, BROADLINK_ID))
-        assert summary["remotes"] == 2
-        assert summary["signals"] == 4
-        # Counted as radio on the list; reading them is separate work,
-        # so the import still sets them aside as before.
+        assert summary["remotes"] == 3
+        # tv's three and soundbar's one, and garage's two radio codes.
+        assert summary["signals"] == 6
+        assert (summary["rf_imported"], summary["rf_rolling"]) == (2, 0)
+        # The gate's code is radio but too short to read.
         assert summary["rf_receipted"] == 1
         assert sorted(summary["device_ids"]) == sorted(
             d.id for d in store.get_all_devices()

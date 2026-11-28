@@ -279,8 +279,10 @@ class TestPlaces:
         assert "const pillRaw = !radio && !sig.decoded_protocol;" in mirror
         assert "title=${r.pillTitle || nothing}" in mirror
 
-    def test_pluck_stays_infrared_only(self):
-        assert ".family=" not in _read("ir-pluck.ts")
+    def test_pluck_shows_a_radio_rows_family_as_the_clipper_does(self):
+        """A Broadlink store can be plucked for radio now, so a plucked
+        radio row carries its family pill, read-only, like a Clipper row."""
+        assert "<ir-protocol-chip .family=${sig.rf_family ?? null}>" in _read("ir-pluck.ts")
 
 
 class TestEditor:

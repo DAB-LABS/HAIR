@@ -1686,6 +1686,12 @@ export interface LearnedStoreImport {
     rf_receipted: number;
     no_timings: number;
     already_present: number;
+    /** Radio codes landed as radio rows (they are counted in ``signals``
+     *  too), and how many of those are rolling: kept, never sent. Absent
+     *  on a server that sets radio aside. ``rf_receipted`` is then radio
+     *  that didn't read. */
+    rf_imported?: number;
+    rf_rolling?: number;
     /** The remote(s) this import touched (1.4.1), so the panel can put
      *  a new one at the top. Absent on an older server. */
     device_ids?: string[];

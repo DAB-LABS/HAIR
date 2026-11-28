@@ -1,7 +1,7 @@
 # Making your integration pluckable
 
-A guide for Home Assistant integration authors whose hardware stores IR codes
-in its own memory, app, or cloud. If your integration can replay a stored code
+A guide for Home Assistant integration authors whose hardware stores IR or RF
+codes in its own memory, app, or cloud. If your integration can replay a stored code
 by name through a chosen emitter, HAIR can pull those codes into Home Assistant
 as native signals, and your users stop being locked into your silo. This page
 explains what "pluckable" means, how HAIR does the plucking, the one service

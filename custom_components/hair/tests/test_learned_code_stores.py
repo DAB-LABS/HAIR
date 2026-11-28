@@ -410,17 +410,19 @@ class TestTwoDoorsIdentityPin:
 
 
 class TestBroadlinkPayloads:
-    def test_rf_codes_are_receipted_never_imported(self, config_dir):
+    def test_a_radio_code_that_does_not_read_is_receipted(self, config_dir):
+        """This fixture's radio code is three timings, too short to be a
+        frame, so it is receipted as radio, never imported as anything."""
         info = next(
             s for s in discover_stores(config_dir) if s.integration == "broadlink"
         )
         code = _by_name(read_store(info), "open")
         assert code.pronto is None
+        assert code.rf_code is None
         assert code.receipt_kind == RECEIPT_RF
-        assert "RF" in code.receipt
+        assert "radio" in code.receipt
         # House rule: no em-dashes in anything a user can read. The
         # codepoint is spelled out so this file does not contain one.
-        assert "--" in code.receipt
         assert "\u2014" not in code.receipt
 
     def test_unknown_first_byte_is_receipted_with_the_byte(self, config_dir):

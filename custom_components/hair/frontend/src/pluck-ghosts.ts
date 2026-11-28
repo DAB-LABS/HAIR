@@ -223,13 +223,20 @@ export function landingSentence(s: LearnedStoreImport, t: T, tp: TP): string {
         parts.push(tp("pluckstore.landing.already", s.already_present));
         return parts.join(" ");
     }
+    // Radio first after the head: "2 of them radio." reads against the
+    // signal count, which includes them.
+    const rfIn = s.rf_imported ?? 0;
+    const rfRolling = s.rf_rolling ?? 0;
+    if (rfIn > 0) parts.push(tp("pluckstore.landing.rf_imported", rfIn));
+    if (rfRolling > 0) parts.push(tp("pluckstore.landing.rf_rolling", rfRolling));
     if (s.washed > 0) parts.push(tp("pluckstore.landing.washed", s.washed));
     if (s.kept_raw > 0) parts.push(tp("pluckstore.landing.kept_raw", s.kept_raw));
     if (s.toggle_pairs > 0) {
         parts.push(tp("pluckstore.landing.toggle_pairs", s.toggle_pairs));
     }
-    if (s.rf_receipted > 0) parts.push(tp("pluckstore.landing.rf", s.rf_receipted));
     if (s.no_timings > 0) parts.push(tp("pluckstore.landing.no_timings", s.no_timings));
+    // Radio that didn't read (it used to be every radio code).
+    if (s.rf_receipted > 0) parts.push(tp("pluckstore.landing.rf", s.rf_receipted));
     if (s.already_present > 0) {
         parts.push(tp("pluckstore.landing.already", s.already_present));
     }

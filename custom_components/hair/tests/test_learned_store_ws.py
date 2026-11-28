@@ -266,6 +266,8 @@ class TestStoresImport:
             "washed",
             "kept_raw",
             "toggle_pairs",
+            "rf_imported",
+            "rf_rolling",
             "rf_receipted",
             "no_timings",
             "already_present",
