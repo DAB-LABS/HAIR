@@ -218,9 +218,10 @@ class TestShapes:
         assert frame["fingerprint"] == keyfob.fingerprint
         assert frame["frames"] == 1 and frame["votes"] is None
         assert frame["raw"] == frames[0]
-        # What a row minted from this burst holds: the assumed gap.
-        assert frame["gap_us"] == sm.RF_ASSUMED_FRAME_GAP_US
-        assert frame["gap_source"] == "assumed"
+        # What a row minted from this burst holds: the keyfob's family
+        # gap (31 T), since a lone frame never measures one.
+        assert (frame["gap_us"], frame["gap_source"]) == rf_frames.unmeasured_gap(frames[0])
+        assert frame["gap_source"] == "family"
         # The capture's modulation, as the press carries it.
         assert frame["modulation"] == "OOK" == events[-1]["modulation"]
         press = events[-1]

@@ -53,12 +53,14 @@ import hashlib
 from collections import Counter
 from dataclasses import dataclass
 from statistics import median
+from typing import Any
 
 from .const import (
     RF_ADDRESS_FIRST_BODY_EDGES,
     RF_ADDRESS_HEAD_EDGES,
     RF_ASSUMED_FRAME_GAP_US,
     RF_GAP_ASSUMED,
+    RF_GAP_FAMILY,
     RF_GAP_MEASURED,
     RF_MIN_FRAMES,
 )
@@ -420,6 +422,31 @@ def piece_frame(piece: FramePiece) -> list[int]:
     return _signed(list(piece.edges))
 
 
+def unmeasured_gap(frame: list[int] | None) -> tuple[int, str]:
+    """The gap and its source for a frame whose gap no capture held.
+
+    The gap the frame's encoder family puts before its next word, when a
+    family reads it (``rf_family.family_gap_us``: a PT2262's 31 T sync),
+    else the assumed one. The one rule every door uses, so a row minted
+    from a capture, a paste and a burst agree.
+    """
+    # Imported here: rf_family reads frames with this module's helpers.
+    from .rf_family import family_gap_us
+
+    gap = family_gap_us(frame)
+    if gap:
+        return gap, RF_GAP_FAMILY
+    return RF_ASSUMED_FRAME_GAP_US, RF_GAP_ASSUMED
+
+
+def _gap_fields(measured: int | None, frame: list[int] | None) -> dict[str, Any]:
+    """``gap_us`` and ``gap_source``: the measured gap, else ``unmeasured_gap``."""
+    if measured:
+        return {"gap_us": int(measured), "gap_source": RF_GAP_MEASURED}
+    gap_us, gap_source = unmeasured_gap(frame)
+    return {"gap_us": gap_us, "gap_source": gap_source}
+
+
 def analyze(timings: list[int] | None) -> RfCapture | None:
     """One capture to one canonical frame, or None when it says nothing.
 
@@ -471,9 +498,8 @@ def vote(
         gap_source = RF_GAP_MEASURED
         frame = [*_signed(body_edges), -gap_us]
     else:
-        gap_us = RF_ASSUMED_FRAME_GAP_US
-        gap_source = RF_GAP_ASSUMED
         frame = _signed(body_edges)
+        gap_us, gap_source = unmeasured_gap(frame)
 
     # EVERYTHING BELOW READS THE VOTED FRAME, NOT ONE OF THE FRAMES THAT
     # VOTED. The fingerprint is two-level and the same on every winner by
@@ -541,8 +567,7 @@ def identity_of_frame(frame: list[int] | None) -> RfCapture | None:
         header_shape=header_shape(parts),
         body_edges=len(parts.body),
         votes=1,
-        gap_us=piece.gap or RF_ASSUMED_FRAME_GAP_US,
-        gap_source=RF_GAP_MEASURED if piece.gap else RF_GAP_ASSUMED,
+        **_gap_fields(piece.gap, frame),
         short_mark_us=None,
         sl_pattern="".join("L" if label else "S" for label in labels),
     )

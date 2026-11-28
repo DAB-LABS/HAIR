@@ -105,6 +105,17 @@ async def async_setup_entry(
     except Exception:
         _LOGGER.exception("Radio codes: the repair of rows with no frame failed")
         repaired = False
+    # And the third: radio rows whose gap was assumed take their chip
+    # family's gap where a family reads the frame (GH #4). Guarded the
+    # same way; nothing to repair costs one walk and no save.
+    try:
+        gaps_here, gaps_catalog = store.repair_assumed_gaps(signal_store)
+    except Exception:
+        _LOGGER.exception("Radio codes: the repair of assumed gaps failed")
+        gaps_here = gaps_catalog = False
+    repaired = repaired or gaps_here
+    if gaps_catalog:
+        await signal_store.async_save()
     if repaired:
         await store.async_save()
 

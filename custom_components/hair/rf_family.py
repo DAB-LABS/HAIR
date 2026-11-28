@@ -4,9 +4,14 @@ A family decoder reads a voted radio frame and names the encoder family
 that could have sent it, with the fields that family defines. It is a
 LABEL ONLY. Identity (the row key, the card key, matching, the echo
 claim, triggers, sends, wigs and ``.sub``) stays on the raw fingerprint
-and the raw timings; nothing here is stored, and nothing here is read by
-any of those. Remove this module and every row, device and trigger is
-exactly as it was.
+and the raw timings; no label is stored, and no label is read by any of
+those.
+
+Two facts from here do reach a row, both from the datasheets below and
+never a label: whether a frame is rolling (``rolling_family``, so a
+rolling code is never sent), and the gap a family's next word makes
+(``family_gap_us``), which a row stores, with its own source, only when
+no capture held the gap. A measured gap always wins over it.
 
 The input is a frame as a row stores it in ``raw_timings``: signed
 timings, mark first, with the measured gap last when there is one (the
@@ -691,6 +696,55 @@ def _fitting_reads(frame: tuple[int, ...]) -> tuple[_ShapeRead, ...]:
         if read is not None and read.fits:
             reads.append(read)
     return tuple(reads)
+
+
+# The gap each fixed-code family's next word makes, in the family's own
+# unit (the T or lambda its reader measures on the frame), from the spec
+# tables above: PT2262 and EV1527 send a 1 T sync mark and a 31 T space;
+# old Nexa's page says 32; HT12E's pilot is 12 bit-times (36 T), as are
+# CAME's and Nice FLO's (at least 36 T, about 36 T); HT6P20's pilot is
+# 23 lambda low. A family not here (rolling ones, and Dooya and the
+# others, whose sources give no gap) gives none.
+_SYNC_GAP_UNITS = {
+    "pt2262": 31,
+    "ev1527": 31,
+    "nexa_old": 32,
+    "ht12e": 36,
+    "came": 36,
+    "nice_flo": 36,
+    "ht6p20": 23,
+}
+
+
+def family_gap_us(frame: list[int] | tuple[int, ...] | None) -> int | None:
+    """The gap the family a frame reads as puts before its next word.
+
+    For a row whose gap no capture held: a receiver whose idle is shorter
+    than the sync hands each frame over alone, and the gap is part of
+    the code a PT2262 or EV1527 receiver decodes (GH #4). The family's
+    multiple of the unit measured on this frame, so a slow remote gets a
+    long gap and a fast one a short one.
+
+    None unless exactly one shape fits and every family it names agrees
+    on the gap: a frame two shapes fit is rolling and never sent, and a
+    family whose gap no source gives gets the assumed one. Fails to None,
+    logged at warning.
+    """
+    if not frame:
+        return None
+    try:
+        reads = _fitting_reads(tuple(int(v) for v in frame))
+    except Exception:
+        _LOGGER.warning("Radio family gap failed", exc_info=True)
+        return None
+    if len(reads) != 1:
+        return None
+    (read,) = reads
+    units = {_SYNC_GAP_UNITS.get(fit.key) for fit in read.fits}
+    if len(units) != 1 or None in units or read.unit_us <= 0:
+        return None
+    (multiple,) = units
+    return round(multiple * read.unit_us)
 
 
 def fits_two_shapes(frame: list[int] | tuple[int, ...] | None) -> bool:

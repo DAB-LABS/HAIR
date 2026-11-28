@@ -15,6 +15,8 @@ from .const import (
     RF_FREQUENCY_SOURCE_SIGNAL,
     RF_FREQUENCY_SOURCE_TUNED,
     RF_FREQUENCY_SOURCE_WINDOW,
+    RF_GAP_ASSUMED,
+    RF_GAP_FAMILY,
     RF_GAP_MEASURED,
     RF_PROTOCOL,
     TRIGGER_ALIAS_HISTORY_MAX,
@@ -381,6 +383,38 @@ _RF_FREQUENCY_RANK = {
     RF_FREQUENCY_SOURCE_TUNED: 2,
     RF_FREQUENCY_SOURCE_RECEIVER: 1,
 }
+# How much a radio row's gap can be trusted: measured inside a capture,
+# then the encoder family's own, then assumed.
+_RF_GAP_RANK = {
+    RF_GAP_MEASURED: 3,
+    RF_GAP_FAMILY: 2,
+    RF_GAP_ASSUMED: 1,
+}
+
+
+def repair_assumed_gap(row: Any) -> bool:
+    """Give a radio row with an assumed gap its family's, when a family
+    reads its frame (GH #4). True when it changed.
+
+    Only a row whose gap was assumed: a measured gap, and a gap a person
+    set in the radio editor (which is stored as measured), are never
+    touched, and a row no family reads keeps the assumed one.
+    """
+    if getattr(row, "medium", MEDIUM_RF) != MEDIUM_RF:
+        return False
+    if getattr(row, "rf_frame_gap_source", None) != RF_GAP_ASSUMED:
+        return False
+    frame = getattr(row, "raw_timings", None)
+    if not frame:
+        return False
+    from .rf_frames import unmeasured_gap
+
+    gap_us, gap_source = unmeasured_gap(list(frame))
+    if gap_source != RF_GAP_FAMILY:
+        return False
+    row.rf_frame_gap_us = gap_us
+    row.rf_frame_gap_source = gap_source
+    return True
 
 
 def upgrade_rf_fields(row: Any, capture: Any) -> bool:
@@ -388,20 +422,19 @@ def upgrade_rf_fields(row: Any, capture: Any) -> bool:
 
     The same button heard by two receivers is one row, so the row keeps
     the best each has told it: a gap measured inside a capture replaces
-    an assumed one (a receiver that splits every frame into its own
-    capture never sees the gap), and a carrier from a better source
-    replaces a worse one. Never the other way, so the order the two
-    receivers are heard in does not matter. Nothing here is part of any
-    identity. True when anything changed.
+    the family's or an assumed one (a receiver that splits every frame
+    into its own capture never sees the gap), the family's replaces an
+    assumed one, and a carrier from a better source replaces a worse
+    one. Never the other way, so the order the two receivers are heard
+    in does not matter. Nothing here is part of any identity. True when
+    anything changed.
     """
     changed = False
-    if (
-        getattr(row, "rf_frame_gap_source", None) != RF_GAP_MEASURED
-        and getattr(capture, "rf_frame_gap_source", None) == RF_GAP_MEASURED
-        and getattr(capture, "rf_frame_gap_us", None)
-    ):
+    mine = _RF_GAP_RANK.get(getattr(row, "rf_frame_gap_source", None) or "", 0)
+    theirs = _RF_GAP_RANK.get(getattr(capture, "rf_frame_gap_source", None) or "", 0)
+    if theirs > mine and getattr(capture, "rf_frame_gap_us", None):
         row.rf_frame_gap_us = capture.rf_frame_gap_us
-        row.rf_frame_gap_source = RF_GAP_MEASURED
+        row.rf_frame_gap_source = capture.rf_frame_gap_source
         changed = True
     mine = _RF_FREQUENCY_RANK.get(getattr(row, "rf_frequency_source", None) or "", 0)
     theirs = _RF_FREQUENCY_RANK.get(getattr(capture, "rf_frequency_source", None) or "", 0)

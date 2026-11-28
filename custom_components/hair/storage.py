@@ -811,6 +811,46 @@ class HAIRStore:
             )
         return bool(filled)
 
+    def repair_assumed_gaps(self, signal_store: Any) -> tuple[bool, bool]:
+        """Give radio rows with an assumed gap their encoder family's.
+
+        A row whose gap no capture held was given an assumed 30 ms, which
+        a PT2262 or EV1527 receiver does not take as its sync (GH #4).
+        Where a family reads the frame, the row now holds the family's
+        gap (``models.repair_assumed_gap``). Device commands and triggers
+        here, and the Sniffer catalog's rows in ``signal_store``.
+
+        Runs from setup, on every load: it touches only rows whose gap is
+        still assumed and that a family reads, so the second time it
+        finds nothing. A measured gap, and one a person set in the radio
+        editor, are never touched. Returns (this store changed, the
+        signal store changed), so each saves once.
+        """
+        from .const import RF_PROTOCOL
+        from .models import repair_assumed_gap
+
+        here = 0
+        for device in self._data.values():
+            for cmd in device.commands:
+                if is_group(cmd) or cmd.protocol != RF_PROTOCOL:
+                    continue
+                here += repair_assumed_gap(cmd)
+        for trigger in self._triggers.values():
+            if getattr(trigger, "protocol", None) == RF_PROTOCOL:
+                here += repair_assumed_gap(trigger)
+        catalog = 0
+        for device in signal_store.get_all_devices():
+            for row in device.signals:
+                if getattr(row, "protocol", None) == RF_PROTOCOL:
+                    catalog += repair_assumed_gap(row)
+        if here or catalog:
+            _LOGGER.info(
+                "Radio codes: %d row(s) with an assumed gap now hold their "
+                "chip family's gap (%d device commands and triggers, %d "
+                "Sniffer rows)", here + catalog, here, catalog,
+            )
+        return bool(here), bool(catalog)
+
     def _backfill_trigger_order(self) -> bool:
         """Assign ``order`` to triggers that predate Trigger Remotes signpost 1.
 
